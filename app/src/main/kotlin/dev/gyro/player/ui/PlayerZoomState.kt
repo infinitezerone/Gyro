@@ -8,17 +8,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.TransformOrigin
 
 /**
- * Benchmark-aligned anchored zoom & pan math model,
- * based on the dual-coordinate system design in 《ComposeStyleAPI Zoom 系统设计与关键算法》.
+ * Anchored zoom & pan math model,
+ * precisely aligned with 《ComposeStyleAPI Zoom 系统设计与关键算法》 and ReadScreen.kt.
  *
  * Separates Screen/Viewport coordinates from Content coordinates:
  * - Content Point: screenPoint / scale + offset
  * - Screen Point: (contentPoint - offset) * scale
- * - view-layer translation (pivot 0,0): -offset * scale
- * - MPV hardware video-zoom: log2(scale)
- * - MPV hardware video-pan-x / pan-y: normalized center delta
+ * - graphicsLayer translation: -offset * scale
+ * - graphicsLayer transformOrigin: Center when scale < 1.0f else (0, 0)
  */
 class PlayerZoomState(
     initialScale: Float = 1.0f,
@@ -50,7 +50,7 @@ class PlayerZoomState(
         val currentScale = scale
         val targetScale = (currentScale * zoomChange).coerceIn(minScale, maxScale)
 
-        // 1. Calculate anchored content offset:
+        // Anchored offset formula:
         // nextOffset = (currentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
         val nextOffset = if (currentScale > 0f && targetScale > 0f) {
             (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
@@ -58,16 +58,13 @@ class PlayerZoomState(
             contentOffset
         }
 
-        // 2. Clamp offset within content boundaries
-        val clampedOffset = clampOffset(nextOffset, targetScale, viewportSize)
-
         scale = targetScale
-        contentOffset = clampedOffset
+        contentOffset = clampOffset(nextOffset, targetScale, viewportSize)
     }
 
     /**
      * Clamps content offset within content boundaries:
-     * - Content >= Viewport (targetScale >= 1.0f): [0, contentSize - viewportSize / targetScale]
+     * - Content >= Viewport (targetScale >= 1.0f): [0, (w * s - w) / s]
      * - Content < Viewport (targetScale < 1.0f): resting centered offset
      */
     fun clampOffset(
@@ -80,17 +77,17 @@ class PlayerZoomState(
         if (w <= 0f || h <= 0f) return Offset.Zero
 
         return if (targetScale >= 1.0f) {
-            val maxX = (w - w / targetScale).coerceAtLeast(0f)
-            val maxY = (h - h / targetScale).coerceAtLeast(0f)
+            val maxX = ((w * targetScale - w) / targetScale).coerceAtLeast(0f)
+            val maxY = ((h * targetScale - h) / targetScale).coerceAtLeast(0f)
             Offset(
                 x = offset.x.coerceIn(0f, maxX),
                 y = offset.y.coerceIn(0f, maxY)
             )
         } else {
-            // Small content centering
+            // Centered offset when smaller than viewport
             Offset(
-                x = (w - w / targetScale) / 2f,
-                y = (h - h / targetScale) / 2f
+                x = ((w / 2f) * (targetScale - 1f)) / targetScale,
+                y = ((h / 2f) * (targetScale - 1f)) / targetScale
             )
         }
     }
@@ -104,8 +101,8 @@ class PlayerZoomState(
     }
 
     /**
-     * View-layer translation in screen pixel coordinates.
-     * translation = -contentOffset * scale, applied with pivot (0, 0)
+     * GraphicsLayer translation in screen pixel coordinates.
+     * translation = -contentOffset * scale with TransformOrigin(0f, 0f)
      */
     val translationX: Float
         get() = -contentOffset.x * scale
@@ -114,28 +111,10 @@ class PlayerZoomState(
         get() = -contentOffset.y * scale
 
     /**
-     * MPV video-zoom: log2(scale).
-     * 0.0 is 1.0x (unzoomed), 1.0 is 2.0x, -1.0 is 0.5x.
+     * TransformOrigin is Center for scale < 1f, or (0,0) for scale >= 1f
      */
-    val mpvVideoZoom: Double
-        get() = if (scale > 0f) kotlin.math.ln(scale.toDouble()) / kotlin.math.ln(2.0) else 0.0
-
-    /**
-     * MPV video-pan-x: normalized horizontal pan offset.
-     * Maps the content offset in screen coordinates to MPV's pan [-1.0, 1.0] scale.
-     */
-    fun getMpvPanX(viewportWidth: Float): Double {
-        if (viewportWidth <= 0f) return 0.0
-        return ((viewportWidth / 2f - contentOffset.x) / viewportWidth * scale - 0.5).toDouble()
-    }
-
-    /**
-     * MPV video-pan-y: normalized vertical pan offset.
-     */
-    fun getMpvPanY(viewportHeight: Float): Double {
-        if (viewportHeight <= 0f) return 0.0
-        return ((viewportHeight / 2f - contentOffset.y) / viewportHeight * scale - 0.5).toDouble()
-    }
+    val transformOrigin: TransformOrigin
+        get() = if (scale < 1.0f) TransformOrigin.Center else TransformOrigin(0f, 0f)
 }
 
 @Composable

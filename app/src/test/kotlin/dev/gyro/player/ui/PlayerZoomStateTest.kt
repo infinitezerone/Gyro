@@ -2,6 +2,7 @@ package dev.gyro.player.ui
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.TransformOrigin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,9 +17,7 @@ class PlayerZoomStateTest {
         assertEquals(Offset.Zero, zoomState.contentOffset)
         assertEquals(0f, zoomState.translationX, 0.001f)
         assertEquals(0f, zoomState.translationY, 0.001f)
-        assertEquals(0.0, zoomState.mpvVideoZoom, 0.001)
-        assertEquals(0.0, zoomState.getMpvPanX(1000f), 0.001)
-        assertEquals(0.0, zoomState.getMpvPanY(600f), 0.001)
+        assertEquals(TransformOrigin(0f, 0f), zoomState.transformOrigin)
         assertFalse(zoomState.isZoomed)
     }
 
@@ -38,9 +37,7 @@ class PlayerZoomStateTest {
 
         assertEquals(2.0f, zoomState.scale, 0.001f)
         assertTrue(zoomState.isZoomed)
-        assertEquals(1.0, zoomState.mpvVideoZoom, 0.001)
-        assertEquals(0.0, zoomState.getMpvPanX(1000f), 0.001)
-        assertEquals(0.0, zoomState.getMpvPanY(600f), 0.001)
+        assertEquals(TransformOrigin(0f, 0f), zoomState.transformOrigin)
 
         // Center point in screen coordinates before zoom: (500, 300)
         // With scale=2 and contentOffset, screenPoint = (contentPoint - offset) * scale
@@ -88,9 +85,6 @@ class PlayerZoomStateTest {
         assertEquals(Offset.Zero, zoomState.contentOffset)
         assertEquals(0f, zoomState.translationX, 0.001f)
         assertEquals(0f, zoomState.translationY, 0.001f)
-        assertEquals(0.0, zoomState.mpvVideoZoom, 0.001)
-        assertEquals(0.0, zoomState.getMpvPanX(1000f), 0.001)
-        assertEquals(0.0, zoomState.getMpvPanY(600f), 0.001)
         assertFalse(zoomState.isZoomed)
     }
 

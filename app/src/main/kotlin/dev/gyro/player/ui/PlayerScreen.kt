@@ -27,6 +27,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +68,11 @@ fun PlayerScreen(
     val subDelaySec by engine.subDelay.collectAsState()
     val audioDelaySec by engine.audioDelay.collectAsState()
     val videoDimensions by engine.videoDimensions.collectAsState()
+
+    // Clear any residual MPV native video-zoom
+    LaunchedEffect(Unit) {
+        engine.resetVideoZoomAndPan()
+    }
 
     // 2. Picture-in-Picture (PiP) Architecture (Aligned with MiniBgm)
     PipBroadcastReceiver(
@@ -133,7 +139,7 @@ fun PlayerScreen(
     var gestureHudState by remember { mutableStateOf<GestureHudState>(GestureHudState.Idle) }
     val scrubState = remember { PlayerScrubState() }
 
-    // 4. Anchored Pinch-to-Zoom & Pan State (MPV GPU Native Pipeline)
+    // 4. Anchored Pinch-to-Zoom & Pan State (Compose Style API Math)
     val zoomState = rememberPlayerZoomState()
 
     // 5. Power & Thermal Monitor
@@ -190,15 +196,9 @@ fun PlayerScreen(
                     centroid = centroid,
                     viewportSize = vpSize
                 )
-                engine.setVideoZoomAndPan(
-                    zoom = zoomState.mpvVideoZoom,
-                    panX = zoomState.getMpvPanX(vpSize.width),
-                    panY = zoomState.getMpvPanY(vpSize.height)
-                )
             },
             onResetZoom = {
                 zoomState.reset()
-                engine.resetVideoZoomAndPan()
             },
             onSingleTap = {
                 showControls = !showControls
@@ -231,11 +231,18 @@ fun PlayerScreen(
             .onSizeChanged { containerSize = it }
             .then(gestureModifier)
     ) {
-        // A. Direct Native EGL Video Surface.
-        // SurfaceView remains static at 1.0x with zero SurfaceFlinger sync locks;
-        // MPV natively scales and pans the video quad on the GPU EGL render thread.
+        // A. Direct Native EGL Video Surface with Hardware graphicsLayer Transform.
+        // Pure RenderNode transformation in draw phase without JNI IPC or MPV mutex locks.
         GyroPlayerSurface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = zoomState.scale
+                    scaleY = zoomState.scale
+                    translationX = zoomState.translationX
+                    translationY = zoomState.translationY
+                    transformOrigin = zoomState.transformOrigin
+                },
             engine = engine
         )
 

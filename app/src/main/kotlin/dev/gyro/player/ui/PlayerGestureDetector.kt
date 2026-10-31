@@ -6,6 +6,9 @@ import android.media.AudioManager
 import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,7 +21,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
@@ -45,7 +47,7 @@ sealed class GestureHudState {
 }
 
 /**
- * Benchmark-aligned player gesture detector with unified pointer processing:
+ * Benchmark-aligned player gesture detector:
  * 1. Two-finger pinch-to-zoom (0.5x - 5.0x) and pan (zero pointer conflict with single-touch)
  * 2. Left vertical swipe: Brightness with edge vertical slider
  * 3. Right vertical swipe: Volume with edge vertical slider
@@ -116,19 +118,12 @@ fun Modifier.playerGestures(
             val touchSlop = viewConfiguration.touchSlop
             val isEdgeExclusion = downPosition.x < edgeThresholdPx || downPosition.x > size.width - edgeThresholdPx
 
-            val activePointers = mutableMapOf<PointerId, Offset>()
-            activePointers[down.id] = downPosition
-            var prevDistance = 0f
-            var prevCentroid = Offset.Zero
-            var pinchPair: List<PointerId> = emptyList()
-
             var isMultiTouch = false
             var isLongPressing = false
             var hasPassedTouchSlop = false
             var dragMode = DragMode.UNDETERMINED
             var dragStartPosMs = currentPosMs()
             var accumulatedVolumeDragY = 0f
-            var lastPanPosition = downPosition
 
             // Start long press detection (450ms)
             var longPressJob: Job? = scope.launch {
@@ -142,28 +137,15 @@ fun Modifier.playerGestures(
 
             while (true) {
                 val event = awaitPointerEvent()
+                val pressedPointers = event.changes.filter { it.pressed }
 
-                for (change in event.changes) {
-                    if (change.pressed) {
-                        activePointers[change.id] = change.position
-                    } else {
-                        activePointers.remove(change.id)
-                    }
-                }
-
-                if (activePointers.isEmpty()) {
+                if (pressedPointers.isEmpty()) {
                     // All fingers lifted
                     break
                 }
 
-                // 1. Two-finger Pinch-to-Zoom & Pan Priority (Continuous tracking across all packets)
-                if (activePointers.size >= 2) {
-                    val pairIds = activePointers.keys.take(2)
-                    val p1 = activePointers.getValue(pairIds[0])
-                    val p2 = activePointers.getValue(pairIds[1])
-                    val currentDistance = (p1 - p2).getDistance()
-                    val currentCentroid = (p1 + p2) / 2f
-
+                // 1. Two-finger Pinch-to-Zoom & Pan Priority
+                if (pressedPointers.size >= 2) {
                     if (!isMultiTouch) {
                         isMultiTouch = true
                         longPressJob?.cancel()
@@ -180,18 +162,13 @@ fun Modifier.playerGestures(
                         dragMode = DragMode.UNDETERMINED
                     }
 
-                    if (pairIds != pinchPair || prevDistance <= 0f) {
-                        pinchPair = pairIds
-                        prevDistance = currentDistance
-                        prevCentroid = currentCentroid
-                    } else {
-                        val zoom = currentDistance / prevDistance
-                        val pan = currentCentroid - prevCentroid
-                        if (zoom != 1f || pan != Offset.Zero) {
-                            currentOnZoomChange(zoom, pan, prevCentroid)
-                        }
-                        prevDistance = currentDistance
-                        prevCentroid = currentCentroid
+                    val zoomChange = event.calculateZoom()
+                    val panChange = event.calculatePan()
+                    val centroid = event.calculateCentroid(useCurrent = false)
+
+                    if (zoomChange != 1f || panChange != Offset.Zero) {
+                        val effectiveCentroid = if (centroid != Offset.Unspecified) centroid else Offset(size.width / 2f, size.height / 2f)
+                        currentOnZoomChange(zoomChange, panChange, effectiveCentroid)
                     }
 
                     event.changes.forEach {
@@ -213,7 +190,7 @@ fun Modifier.playerGestures(
                 }
 
                 // 3. Single Pointer Handling
-                val pointer = event.changes.firstOrNull { it.pressed } ?: break
+                val pointer = pressedPointers.firstOrNull() ?: break
                 if (isLongPressing) {
                     // Long press is active: consume drag events without seek/volume/brightness
                     pointer.consume()
@@ -232,7 +209,6 @@ fun Modifier.playerGestures(
                         if (zoomScale() > 1.05f) {
                             // Zoomed in: single finger drag smoothly pans the zoomed video content
                             dragMode = DragMode.PAN_ZOOM
-                            lastPanPosition = pointer.position
                         } else if (!isEdgeExclusion) {
                             if (abs(dragDelta.x) > abs(dragDelta.y) * 1.5f) {
                                 dragMode = DragMode.HORIZONTAL_SEEK
@@ -256,10 +232,8 @@ fun Modifier.playerGestures(
                     when (dragMode) {
                         DragMode.PAN_ZOOM -> {
                             pointer.consume()
-                            val panDelta = pointer.position - lastPanPosition
-                            lastPanPosition = pointer.position
-                            if (panDelta != Offset.Zero) {
-                                currentOnZoomChange(1.0f, panDelta, pointer.position)
+                            if (posChange != Offset.Zero) {
+                                currentOnZoomChange(1.0f, posChange, pointer.position)
                             }
                         }
                         DragMode.HORIZONTAL_SEEK -> {
