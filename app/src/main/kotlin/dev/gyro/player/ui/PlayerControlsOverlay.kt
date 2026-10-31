@@ -138,8 +138,13 @@ fun BoxScope.PlayerControlsOverlay(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(top = 2.dp)
                         ) {
-                            val powerStr = String.format(Locale.US, "%.2fW", powerMetrics.powerWatts)
+                            val powerStr = if (powerMetrics.isEstimated) {
+                                "~${String.format(Locale.US, "%.1f", powerMetrics.powerWatts)}W"
+                            } else {
+                                String.format(Locale.US, "%.2fW", powerMetrics.powerWatts)
+                            }
                             val currentStr = "${powerMetrics.currentMa}mA"
+                            val tempStr = "${String.format(Locale.US, "%.1f", powerMetrics.temperatureC)}°C"
                             val fpsStr = if (fps > 0.0) String.format(Locale.US, "%.1ffps", fps) else "hw"
                             val droppedStr = if (droppedFrames > 0L) " ($droppedFrames drop)" else ""
 
@@ -149,7 +154,7 @@ fun BoxScope.PlayerControlsOverlay(
                                 contentColor = Color(0xFF81C784)
                             ) {
                                 Text(
-                                    text = "$hwdec · $fpsStr$droppedStr · $powerStr ($currentStr)",
+                                    text = "$hwdec · $fpsStr$droppedStr · $powerStr ($currentStr) · $tempStr",
                                     style = TextStyle(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,

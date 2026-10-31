@@ -52,8 +52,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: android.content.Intent?) {
-        val uri = intent?.data ?: intent?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
-        android.util.Log.i("MainActivity", "handleIntent: uri=$uri, action=${intent?.action}, type=${intent?.type}")
+        if (intent == null) return
+        val uri: android.net.Uri? = when (intent.action) {
+            android.content.Intent.ACTION_SEND -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
+                } ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+            }
+            android.content.Intent.ACTION_SEND_MULTIPLE -> {
+                val list = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM)
+                }
+                list?.firstOrNull() ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+            }
+            else -> {
+                intent.data ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+            }
+        }
+
+        android.util.Log.i("MainActivity", "handleIntent: action=${intent.action}, uri=$uri")
         uri?.let {
             playerEngine.loadUri(it)
         }
