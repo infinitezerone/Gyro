@@ -16,6 +16,9 @@ class PlayerZoomStateTest {
         assertEquals(Offset.Zero, zoomState.contentOffset)
         assertEquals(0f, zoomState.translationX, 0.001f)
         assertEquals(0f, zoomState.translationY, 0.001f)
+        assertEquals(0.0, zoomState.mpvVideoZoom, 0.001)
+        assertEquals(0.0, zoomState.getMpvPanX(1000f), 0.001)
+        assertEquals(0.0, zoomState.getMpvPanY(600f), 0.001)
         assertFalse(zoomState.isZoomed)
     }
 
@@ -35,6 +38,9 @@ class PlayerZoomStateTest {
 
         assertEquals(2.0f, zoomState.scale, 0.001f)
         assertTrue(zoomState.isZoomed)
+        assertEquals(1.0, zoomState.mpvVideoZoom, 0.001)
+        assertEquals(0.0, zoomState.getMpvPanX(1000f), 0.001)
+        assertEquals(0.0, zoomState.getMpvPanY(600f), 0.001)
 
         // Center point in screen coordinates before zoom: (500, 300)
         // With scale=2 and contentOffset, screenPoint = (contentPoint - offset) * scale
@@ -82,6 +88,9 @@ class PlayerZoomStateTest {
         assertEquals(Offset.Zero, zoomState.contentOffset)
         assertEquals(0f, zoomState.translationX, 0.001f)
         assertEquals(0f, zoomState.translationY, 0.001f)
+        assertEquals(0.0, zoomState.mpvVideoZoom, 0.001)
+        assertEquals(0.0, zoomState.getMpvPanX(1000f), 0.001)
+        assertEquals(0.0, zoomState.getMpvPanY(600f), 0.001)
         assertFalse(zoomState.isZoomed)
     }
 

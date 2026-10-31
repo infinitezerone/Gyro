@@ -65,14 +65,13 @@ class GyroSurfaceView @JvmOverloads constructor(
 
 /**
  * Jetpack Compose wrapper for [GyroSurfaceView].
+ * Native MPV handles hardware zoom and pan directly in GPU shaders on the EGL render thread,
+ * avoiding SurfaceView scaling and SurfaceFlinger BLAST transaction locks on the UI thread.
  */
 @Composable
 fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
-    engine: GyroPlayerEngine? = null,
-    zoomScale: Float = 1.0f,
-    translationX: Float = 0f,
-    translationY: Float = 0f
+    engine: GyroPlayerEngine? = null
 ) {
     val context = LocalContext.current
     val surfaceView = remember {
@@ -92,12 +91,6 @@ fun GyroPlayerSurface(
         factory = { surfaceView },
         update = { view ->
             view.engine = engine
-            view.pivotX = 0f
-            view.pivotY = 0f
-            view.scaleX = zoomScale
-            view.scaleY = zoomScale
-            view.translationX = translationX
-            view.translationY = translationY
         },
         modifier = modifier
     )

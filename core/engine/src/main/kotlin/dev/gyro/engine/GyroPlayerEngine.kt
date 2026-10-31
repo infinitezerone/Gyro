@@ -402,6 +402,18 @@ class GyroPlayerEngine(
     }
 
 
+    fun setVideoZoomAndPan(zoom: Double, panX: Double, panY: Double) {
+        GyroNative.setPropertyDouble("video-zoom", zoom)
+        GyroNative.setPropertyDouble("video-pan-x", panX)
+        GyroNative.setPropertyDouble("video-pan-y", panY)
+    }
+
+    fun resetVideoZoomAndPan() {
+        GyroNative.setPropertyDouble("video-zoom", 0.0)
+        GyroNative.setPropertyDouble("video-pan-x", 0.0)
+        GyroNative.setPropertyDouble("video-pan-y", 0.0)
+    }
+
     fun attachSurface(surface: Surface) {
         isSurfaceAttached = true
         GyroNative.attachSurface(surface)

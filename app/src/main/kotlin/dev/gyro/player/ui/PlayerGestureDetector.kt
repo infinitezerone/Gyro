@@ -6,9 +6,6 @@ import android.media.AudioManager
 import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateCentroid
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,6 +14,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -48,15 +46,16 @@ sealed class GestureHudState {
 
 /**
  * Benchmark-aligned player gesture detector with unified pointer processing:
- * 1. Two-finger pinch-to-zoom (0.5x - 4.0x) and pan (zero pointer conflict with single-touch)
+ * 1. Two-finger pinch-to-zoom (0.5x - 5.0x) and pan (zero pointer conflict with single-touch)
  * 2. Left vertical swipe: Brightness with edge vertical slider
  * 3. Right vertical swipe: Volume with edge vertical slider
  * 4. Horizontal swipe: Central delta seek card with PlayerScrubState
  * 5. Double-tap left/right: 10s accumulated leap with YouTube pills
  * 6. Double-tap when zoomed: Resets zoom to 1.0x
  * 7. Long-press: 2.0x temporary fast-forward
- * 8. System edge gesture exclusion (24dp)
- * 9. Touch lock support
+ * 8. Single-finger drag when zoomed: Pans the zoomed video content smoothly
+ * 9. System edge gesture exclusion (24dp)
+ * 10. Touch lock support
  */
 @Composable
 fun Modifier.playerGestures(
@@ -66,7 +65,7 @@ fun Modifier.playerGestures(
     currentPosMs: () -> Long,
     durationMs: () -> Long,
     scrubState: PlayerScrubState,
-    zoomScale: Float,
+    zoomScale: () -> Float,
     onZoomChange: (zoom: Float, pan: Offset, centroid: Offset) -> Unit,
     onResetZoom: () -> Unit,
     onSingleTap: () -> Unit,
@@ -83,6 +82,15 @@ fun Modifier.playerGestures(
     val edgeThresholdPx = with(density) { 24.dp.toPx() }
     val scope = rememberCoroutineScope()
 
+    val currentOnZoomChange by rememberUpdatedState(onZoomChange)
+    val currentOnResetZoom by rememberUpdatedState(onResetZoom)
+    val currentOnSingleTap by rememberUpdatedState(onSingleTap)
+    val currentOnDoubleTapSeek by rememberUpdatedState(onDoubleTapSeek)
+    val currentOnDoubleTapPlayPause by rememberUpdatedState(onDoubleTapPlayPause)
+    val currentOnFastForwardStart by rememberUpdatedState(onFastForwardStart)
+    val currentOnFastForwardEnd by rememberUpdatedState(onFastForwardEnd)
+    val currentOnHudStateChange by rememberUpdatedState(onHudStateChange)
+
     // Double-tap accumulator state
     var doubleTapJob by remember { mutableStateOf<Job?>(null) }
     var singleTapJob by remember { mutableStateOf<Job?>(null) }
@@ -91,14 +99,14 @@ fun Modifier.playerGestures(
     var lastTapTimestamp by remember { mutableLongStateOf(0L) }
     var lastTapPosition by remember { mutableStateOf(Offset.Zero) }
 
-    return this.pointerInput(isLocked, zoomScale) {
+    return this.pointerInput(isLocked) {
         awaitEachGesture {
             if (isLocked) {
                 // In locked mode, only single tap to toggle controls / unlock button
                 awaitFirstDown(requireUnconsumed = false)
                 val up = waitForUpOrCancellation()
                 if (up != null) {
-                    onSingleTap()
+                    currentOnSingleTap()
                 }
                 return@awaitEachGesture
             }
@@ -112,6 +120,7 @@ fun Modifier.playerGestures(
             activePointers[down.id] = downPosition
             var prevDistance = 0f
             var prevCentroid = Offset.Zero
+            var pinchPair: List<PointerId> = emptyList()
 
             var isMultiTouch = false
             var isLongPressing = false
@@ -119,14 +128,15 @@ fun Modifier.playerGestures(
             var dragMode = DragMode.UNDETERMINED
             var dragStartPosMs = currentPosMs()
             var accumulatedVolumeDragY = 0f
+            var lastPanPosition = downPosition
 
             // Start long press detection (450ms)
             var longPressJob: Job? = scope.launch {
                 delay(450L)
-                if (!hasPassedTouchSlop && !isMultiTouch) {
+                if (!hasPassedTouchSlop && !isMultiTouch && zoomScale() <= 1.05f) {
                     isLongPressing = true
-                    onFastForwardStart()
-                    onHudStateChange(GestureHudState.Speed(2.0f))
+                    currentOnFastForwardStart()
+                    currentOnHudStateChange(GestureHudState.Speed(2.0f))
                 }
             }
 
@@ -148,9 +158,9 @@ fun Modifier.playerGestures(
 
                 // 1. Two-finger Pinch-to-Zoom & Pan Priority (Continuous tracking across all packets)
                 if (activePointers.size >= 2) {
-                    val pointerList = activePointers.values.toList()
-                    val p1 = pointerList[0]
-                    val p2 = pointerList[1]
+                    val pairIds = activePointers.keys.take(2)
+                    val p1 = activePointers.getValue(pairIds[0])
+                    val p2 = activePointers.getValue(pairIds[1])
                     val currentDistance = (p1 - p2).getDistance()
                     val currentCentroid = (p1 + p2) / 2f
 
@@ -160,23 +170,25 @@ fun Modifier.playerGestures(
                         longPressJob = null
                         if (isLongPressing) {
                             isLongPressing = false
-                            onFastForwardEnd()
-                            onHudStateChange(GestureHudState.Idle)
+                            currentOnFastForwardEnd()
+                            currentOnHudStateChange(GestureHudState.Idle)
                         }
                         if (dragMode == DragMode.HORIZONTAL_SEEK) {
                             scrubState.cancel()
-                            onHudStateChange(GestureHudState.Idle)
+                            currentOnHudStateChange(GestureHudState.Idle)
                         }
                         dragMode = DragMode.UNDETERMINED
+                    }
+
+                    if (pairIds != pinchPair || prevDistance <= 0f) {
+                        pinchPair = pairIds
                         prevDistance = currentDistance
                         prevCentroid = currentCentroid
                     } else {
-                        if (prevDistance > 0f) {
-                            val zoom = currentDistance / prevDistance
-                            val pan = currentCentroid - prevCentroid
-                            if (zoom != 1f || pan != Offset.Zero) {
-                                onZoomChange(zoom, pan, prevCentroid)
-                            }
+                        val zoom = currentDistance / prevDistance
+                        val pan = currentCentroid - prevCentroid
+                        if (zoom != 1f || pan != Offset.Zero) {
+                            currentOnZoomChange(zoom, pan, prevCentroid)
                         }
                         prevDistance = currentDistance
                         prevCentroid = currentCentroid
@@ -217,7 +229,11 @@ fun Modifier.playerGestures(
                         longPressJob?.cancel()
                         longPressJob = null
 
-                        if (!isEdgeExclusion) {
+                        if (zoomScale() > 1.05f) {
+                            // Zoomed in: single finger drag smoothly pans the zoomed video content
+                            dragMode = DragMode.PAN_ZOOM
+                            lastPanPosition = pointer.position
+                        } else if (!isEdgeExclusion) {
                             if (abs(dragDelta.x) > abs(dragDelta.y) * 1.5f) {
                                 dragMode = DragMode.HORIZONTAL_SEEK
                                 dragStartPosMs = currentPosMs()
@@ -238,6 +254,14 @@ fun Modifier.playerGestures(
                 if (hasPassedTouchSlop) {
                     val posChange = pointer.positionChange()
                     when (dragMode) {
+                        DragMode.PAN_ZOOM -> {
+                            pointer.consume()
+                            val panDelta = pointer.position - lastPanPosition
+                            lastPanPosition = pointer.position
+                            if (panDelta != Offset.Zero) {
+                                currentOnZoomChange(1.0f, panDelta, pointer.position)
+                            }
+                        }
                         DragMode.HORIZONTAL_SEEK -> {
                             pointer.consume()
                             val totalDur = durationMs()
@@ -249,7 +273,7 @@ fun Modifier.playerGestures(
                                 val targetMs = (dragStartPosMs + deltaMs).coerceIn(0L, totalDur)
                                 val fraction = targetMs.toFloat() / totalDur.toFloat()
                                 scrubState.update(fraction)
-                                onHudStateChange(GestureHudState.Seek(targetMs, deltaMs, totalDur))
+                                currentOnHudStateChange(GestureHudState.Seek(targetMs, deltaMs, totalDur))
                             }
                         }
                         DragMode.VERTICAL_BRIGHTNESS -> {
@@ -264,7 +288,7 @@ fun Modifier.playerGestures(
                                 lp.screenBrightness = newBrightness
                                 act.window.attributes = lp
                                 val pct = (newBrightness * 100).toInt()
-                                onHudStateChange(GestureHudState.Brightness(pct, newBrightness))
+                                currentOnHudStateChange(GestureHudState.Brightness(pct, newBrightness))
                             }
                         }
                         DragMode.VERTICAL_VOLUME -> {
@@ -282,7 +306,7 @@ fun Modifier.playerGestures(
                                 }
                                 val ratio = newVol.toFloat() / maxVolume.toFloat()
                                 val pct = (ratio * 100).toInt()
-                                onHudStateChange(GestureHudState.Volume(pct, ratio))
+                                currentOnHudStateChange(GestureHudState.Volume(pct, ratio))
                             }
                         }
                         else -> {
@@ -297,8 +321,8 @@ fun Modifier.playerGestures(
             longPressJob = null
 
             if (isLongPressing) {
-                onFastForwardEnd()
-                onHudStateChange(GestureHudState.Idle)
+                currentOnFastForwardEnd()
+                currentOnHudStateChange(GestureHudState.Idle)
                 return@awaitEachGesture
             }
 
@@ -312,12 +336,12 @@ fun Modifier.playerGestures(
                     val totalDur = durationMs()
                     val finalMs = (scrubState.fraction * totalDur).toLong()
                     scrubState.end(scrubState.fraction)
-                    onDoubleTapSeek(finalMs - currentPosMs())
+                    currentOnDoubleTapSeek(finalMs - currentPosMs())
                 }
                 dragMode = DragMode.UNDETERMINED
                 scope.launch {
                     delay(600L)
-                    onHudStateChange(GestureHudState.Idle)
+                    currentOnHudStateChange(GestureHudState.Idle)
                 }
                 return@awaitEachGesture
             }
@@ -328,62 +352,60 @@ fun Modifier.playerGestures(
             val tapDist = hypot(downPosition.x - lastTapPosition.x, downPosition.y - lastTapPosition.y)
             val isDoubleTapAccumulating = doubleTapJob?.isActive == true && doubleTapSide != null
 
-            if ((timeDelta < 350L && tapDist < 120f) || isDoubleTapAccumulating) {
+            if (timeDelta in 40L..320L && tapDist < touchSlop * 3.5f) {
+                // Detected Double-Tap!
                 singleTapJob?.cancel()
                 singleTapJob = null
                 lastTapTimestamp = 0L
 
-                if (zoomScale > 1.05f) {
+                if (zoomScale() > 1.05f) {
                     // Zoomed in: reset scale & pan to 1.0x
-                    onResetZoom()
-                    accumulatedSeconds = 0
-                    doubleTapSide = null
-                    doubleTapJob?.cancel()
-                    onHudStateChange(GestureHudState.Idle)
-                } else {
-                    val screenWidth = size.width
-                    if (downPosition.x < screenWidth * 0.4f) {
-                        // Left double-tap (Rewind 10s accumulated)
-                        if (doubleTapSide == DoubleTapSide.LEFT) {
-                            accumulatedSeconds += 10
-                        } else {
-                            accumulatedSeconds = 10
-                            doubleTapSide = DoubleTapSide.LEFT
-                        }
-                        onHudStateChange(GestureHudState.DoubleTap(DoubleTapSide.LEFT, accumulatedSeconds))
+                    currentOnResetZoom()
+                    return@awaitEachGesture
+                }
 
-                        doubleTapJob?.cancel()
-                        doubleTapJob = scope.launch {
-                            delay(650L)
-                            onDoubleTapSeek(-accumulatedSeconds * 1000L)
-                            accumulatedSeconds = 0
-                            doubleTapSide = null
-                            delay(400L)
-                            onHudStateChange(GestureHudState.Idle)
-                        }
-                    } else if (downPosition.x > screenWidth * 0.6f) {
-                        // Right double-tap (Fast-forward 10s accumulated)
-                        if (doubleTapSide == DoubleTapSide.RIGHT) {
-                            accumulatedSeconds += 10
-                        } else {
-                            accumulatedSeconds = 10
-                            doubleTapSide = DoubleTapSide.RIGHT
-                        }
-                        onHudStateChange(GestureHudState.DoubleTap(DoubleTapSide.RIGHT, accumulatedSeconds))
-
-                        doubleTapJob?.cancel()
-                        doubleTapJob = scope.launch {
-                            delay(650L)
-                            onDoubleTapSeek(accumulatedSeconds * 1000L)
-                            accumulatedSeconds = 0
-                            doubleTapSide = null
-                            delay(400L)
-                            onHudStateChange(GestureHudState.Idle)
-                        }
+                val thirdW = size.width / 3f
+                if (downPosition.x < thirdW) {
+                    // Left double-tap (Seek Backward 10s)
+                    if (isDoubleTapAccumulating && doubleTapSide == DoubleTapSide.LEFT) {
+                        accumulatedSeconds += 10
                     } else {
-                        // Center double-tap (Play/Pause)
-                        onDoubleTapPlayPause()
+                        accumulatedSeconds = 10
+                        doubleTapSide = DoubleTapSide.LEFT
                     }
+                    currentOnHudStateChange(GestureHudState.DoubleTap(DoubleTapSide.LEFT, accumulatedSeconds))
+
+                    doubleTapJob?.cancel()
+                    doubleTapJob = scope.launch {
+                        delay(650L)
+                        currentOnDoubleTapSeek(-accumulatedSeconds * 1000L)
+                        accumulatedSeconds = 0
+                        doubleTapSide = null
+                        delay(400L)
+                        currentOnHudStateChange(GestureHudState.Idle)
+                    }
+                } else if (downPosition.x > size.width - thirdW) {
+                    // Right double-tap (Seek Forward 10s)
+                    if (isDoubleTapAccumulating && doubleTapSide == DoubleTapSide.RIGHT) {
+                        accumulatedSeconds += 10
+                    } else {
+                        accumulatedSeconds = 10
+                        doubleTapSide = DoubleTapSide.RIGHT
+                    }
+                    currentOnHudStateChange(GestureHudState.DoubleTap(DoubleTapSide.RIGHT, accumulatedSeconds))
+
+                    doubleTapJob?.cancel()
+                    doubleTapJob = scope.launch {
+                        delay(650L)
+                        currentOnDoubleTapSeek(accumulatedSeconds * 1000L)
+                        accumulatedSeconds = 0
+                        doubleTapSide = null
+                        delay(400L)
+                        currentOnHudStateChange(GestureHudState.Idle)
+                    }
+                } else {
+                    // Center double-tap (Play/Pause)
+                    currentOnDoubleTapPlayPause()
                 }
             } else {
                 // First tap
@@ -392,7 +414,7 @@ fun Modifier.playerGestures(
                 singleTapJob?.cancel()
                 singleTapJob = scope.launch {
                     delay(260L)
-                    onSingleTap()
+                    currentOnSingleTap()
                 }
             }
         }
@@ -403,5 +425,6 @@ private enum class DragMode {
     UNDETERMINED,
     VERTICAL_BRIGHTNESS,
     VERTICAL_VOLUME,
-    HORIZONTAL_SEEK
+    HORIZONTAL_SEEK,
+    PAN_ZOOM
 }

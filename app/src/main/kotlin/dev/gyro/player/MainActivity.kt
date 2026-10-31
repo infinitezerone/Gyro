@@ -1,6 +1,5 @@
 package dev.gyro.player
 
-import android.app.PictureInPictureParams
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -14,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.ui.PlayerScreen
+import dev.gyro.player.ui.buildPipParams
 
 class MainActivity : ComponentActivity() {
 
@@ -84,20 +84,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Seamlessly enter Picture-in-Picture if playing
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && playerEngine.isPlaying.value) {
+        // On Android 12+, autoEnterEnabled on PictureInPictureParams handles home gesture automatically.
+        // For Android 8.0 - 11 (API 26-30), manually trigger enterPictureInPictureMode.
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R && playerEngine.isPlaying.value) {
             val dims = playerEngine.videoDimensions.value
             val ratio = if (dims.width > 0 && dims.height > 0) {
                 val clamped = dims.aspectRatio.coerceIn(0.42f, 2.38f)
-                val num = (clamped * 100).toInt()
-                Rational(num, 100)
+                val num = (clamped * 1000).toInt()
+                Rational(num, 1000)
             } else {
                 Rational(16, 9)
             }
 
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(ratio)
-                .build()
+            val params = buildPipParams(
+                context = this,
+                isPlaying = true,
+                aspectRatio = ratio,
+                sourceRect = null,
+                autoEnter = true
+            )
             enterPictureInPictureMode(params)
         }
     }

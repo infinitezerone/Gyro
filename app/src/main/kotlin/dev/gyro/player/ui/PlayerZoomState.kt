@@ -8,7 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.TransformOrigin
 
 /**
  * Benchmark-aligned anchored zoom & pan math model,
@@ -17,7 +16,9 @@ import androidx.compose.ui.graphics.TransformOrigin
  * Separates Screen/Viewport coordinates from Content coordinates:
  * - Content Point: screenPoint / scale + offset
  * - Screen Point: (contentPoint - offset) * scale
- * - graphicsLayer translation: -offset * scale with TransformOrigin(0f, 0f)
+ * - view-layer translation (pivot 0,0): -offset * scale
+ * - MPV hardware video-zoom: log2(scale)
+ * - MPV hardware video-pan-x / pan-y: normalized center delta
  */
 class PlayerZoomState(
     initialScale: Float = 1.0f,
@@ -50,9 +51,9 @@ class PlayerZoomState(
         val targetScale = (currentScale * zoomChange).coerceIn(minScale, maxScale)
 
         // 1. Calculate anchored content offset:
-        // nextOffset = (currentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / targetScale)
+        // nextOffset = (currentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
         val nextOffset = if (currentScale > 0f && targetScale > 0f) {
-            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / targetScale)
+            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
         } else {
             contentOffset
         }
@@ -103,8 +104,8 @@ class PlayerZoomState(
     }
 
     /**
-     * GraphicsLayer translation in screen pixel coordinates.
-     * translation = -contentOffset * scale with TransformOrigin(0f, 0f)
+     * View-layer translation in screen pixel coordinates.
+     * translation = -contentOffset * scale, applied with pivot (0, 0)
      */
     val translationX: Float
         get() = -contentOffset.x * scale
@@ -112,7 +113,29 @@ class PlayerZoomState(
     val translationY: Float
         get() = -contentOffset.y * scale
 
-    val transformOrigin: TransformOrigin = TransformOrigin(0f, 0f)
+    /**
+     * MPV video-zoom: log2(scale).
+     * 0.0 is 1.0x (unzoomed), 1.0 is 2.0x, -1.0 is 0.5x.
+     */
+    val mpvVideoZoom: Double
+        get() = if (scale > 0f) kotlin.math.ln(scale.toDouble()) / kotlin.math.ln(2.0) else 0.0
+
+    /**
+     * MPV video-pan-x: normalized horizontal pan offset.
+     * Maps the content offset in screen coordinates to MPV's pan [-1.0, 1.0] scale.
+     */
+    fun getMpvPanX(viewportWidth: Float): Double {
+        if (viewportWidth <= 0f) return 0.0
+        return ((viewportWidth / 2f - contentOffset.x) / viewportWidth * scale - 0.5).toDouble()
+    }
+
+    /**
+     * MPV video-pan-y: normalized vertical pan offset.
+     */
+    fun getMpvPanY(viewportHeight: Float): Double {
+        if (viewportHeight <= 0f) return 0.0
+        return ((viewportHeight / 2f - contentOffset.y) / viewportHeight * scale - 0.5).toDouble()
+    }
 }
 
 @Composable
