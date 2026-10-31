@@ -69,7 +69,9 @@ class GyroSurfaceView @JvmOverloads constructor(
 @Composable
 fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
-    engine: GyroPlayerEngine? = null
+    engine: GyroPlayerEngine? = null,
+    zoomScale: Float = 1.0f,
+    panOffset: androidx.compose.ui.geometry.Offset = androidx.compose.ui.geometry.Offset.Zero
 ) {
     val context = LocalContext.current
     val surfaceView = remember {
@@ -87,7 +89,13 @@ fun GyroPlayerSurface(
 
     AndroidView(
         factory = { surfaceView },
-        update = { it.engine = engine },
+        update = { view ->
+            view.engine = engine
+            view.scaleX = zoomScale
+            view.scaleY = zoomScale
+            view.translationX = panOffset.x
+            view.translationY = panOffset.y
+        },
         modifier = modifier
     )
 }
