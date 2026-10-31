@@ -313,11 +313,10 @@ fun PlayerScreen(
             )
         }
 
-        // C. MX Player Style Vertical Sliders & Central Seek Card HUD (hidden in PiP)
+        // C. Clean Top Floating Capsule HUD (Volume/Brightness/Speed/Double-Tap)
         if (!isPipLayout && !pipEntering) {
             PlayerHudOverlay(
-                hudState = gestureHudState,
-                showBottomBar = !showControls
+                hudState = gestureHudState
             )
         }
 
