@@ -23,8 +23,8 @@ class PlayerGestureTest {
         assertEquals(10, config.doubleTapSeekSeconds)
         assertEquals(2.0f, config.longPressSpeed, 0.001f)
         assertEquals(72f, config.edgeExclusionPx, 0.001f)
-        assertEquals(30f, config.volumeSensitivityPx, 0.001f)
-        assertEquals(400f, config.brightnessSensitivityPx, 0.001f)
+        assertEquals(1.0f, config.volumeSensitivity, 0.001f)
+        assertEquals(1.0f, config.brightnessSensitivity, 0.001f)
         assertEquals(450L, config.longPressTimeoutMs)
         assertEquals(320L, config.doubleTapTimeoutMs)
         assertEquals(260L, config.singleTapDelayMs)
@@ -37,13 +37,13 @@ class PlayerGestureTest {
             swapVolumeAndBrightness = true,
             doubleTapSeekSeconds = 15,
             longPressSpeed = 3.0f,
-            volumeSensitivityPx = 40f
+            volumeSensitivity = 1.5f
         )
         assertFalse(config.isVolumeEnabled)
         assertTrue(config.swapVolumeAndBrightness)
         assertEquals(15, config.doubleTapSeekSeconds)
         assertEquals(3.0f, config.longPressSpeed, 0.001f)
-        assertEquals(40f, config.volumeSensitivityPx, 0.001f)
+        assertEquals(1.5f, config.volumeSensitivity, 0.001f)
     }
 
     @Test

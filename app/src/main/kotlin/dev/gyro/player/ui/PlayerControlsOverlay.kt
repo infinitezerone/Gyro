@@ -8,8 +8,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -329,34 +329,28 @@ private fun ExpandingScrubBar(
             .fillMaxWidth()
             .height(28.dp)
             .pointerInput(total) {
-                detectTapGestures(
-                    onPress = { offset ->
-                        val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                        scrubState.begin(fraction)
-                        val released = tryAwaitRelease()
-                        scrubState.end(fraction)
-                        onSeekToFraction(fraction)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    val initialFraction = (down.position.x / size.width).coerceIn(0f, 1f)
+                    scrubState.begin(initialFraction)
+
+                    var currentFraction = initialFraction
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!pointer.pressed) {
+                            pointer.consume()
+                            break
+                        }
+                        pointer.consume()
+                        currentFraction = (pointer.position.x / size.width).coerceIn(0f, 1f)
+                        scrubState.update(currentFraction)
                     }
-                )
-            }
-            .pointerInput(total) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                        scrubState.begin(fraction)
-                    },
-                    onDrag = { change, _ ->
-                        val fraction = (change.position.x / size.width).coerceIn(0f, 1f)
-                        scrubState.update(fraction)
-                    },
-                    onDragEnd = {
-                        scrubState.end(scrubState.fraction)
-                        onSeekToFraction(scrubState.fraction)
-                    },
-                    onDragCancel = {
-                        scrubState.cancel()
-                    }
-                )
+
+                    scrubState.end(currentFraction)
+                    onSeekToFraction(currentFraction)
+                }
             },
         contentAlignment = Alignment.CenterStart
     ) {

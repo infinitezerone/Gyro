@@ -257,7 +257,6 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onSizeChanged { containerSize = it }
-            .then(gestureModifier)
     ) {
         // A. Direct Native EGL Video Surface with Hardware graphicsLayer Transform.
         // Pure RenderNode transformation in draw phase without JNI IPC or MPV mutex locks.
@@ -272,6 +271,13 @@ fun PlayerScreen(
                     transformOrigin = zoomState.transformOrigin
                 },
             engine = engine
+        )
+
+        // B. Gesture Interaction Layer (Under HUD and Controls Overlay)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(gestureModifier)
         )
 
         // B. Buffering Spinner

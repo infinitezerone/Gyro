@@ -15,8 +15,8 @@ package dev.gyro.player.ui
  * @property doubleTapSeekSeconds The leap seconds added per double tap (default 10s).
  * @property longPressSpeed The playback speed multiplier during long-press (default 2.0x).
  * @property edgeExclusionPx Margin from screen edges where horizontal/vertical drag is ignored to prevent conflict with system gestures.
- * @property volumeSensitivityPx Screen vertical drag distance (in pixels) required to adjust one volume step.
- * @property brightnessSensitivityPx Screen vertical drag distance (in pixels) for 100% brightness range.
+ * @property volumeSensitivity Multiplier for volume swipe sensitivity (default 1.0f).
+ * @property brightnessSensitivity Multiplier for brightness swipe sensitivity (default 1.0f).
  * @property longPressTimeoutMs Milliseconds before a stationary press triggers fast-forward.
  * @property doubleTapTimeoutMs Maximum interval between taps to register as a double-tap.
  * @property singleTapDelayMs Milliseconds to wait before confirming a single tap (to avoid false single-tap during double-tap).
@@ -34,8 +34,8 @@ data class PlayerGestureConfig(
     val doubleTapSeekSeconds: Int = 10,
     val longPressSpeed: Float = 2.0f,
     val edgeExclusionPx: Float = 72f,
-    val volumeSensitivityPx: Float = 30f,
-    val brightnessSensitivityPx: Float = 400f,
+    val volumeSensitivity: Float = 1.0f,
+    val brightnessSensitivity: Float = 1.0f,
     val longPressTimeoutMs: Long = 450L,
     val doubleTapTimeoutMs: Long = 320L,
     val singleTapDelayMs: Long = 260L

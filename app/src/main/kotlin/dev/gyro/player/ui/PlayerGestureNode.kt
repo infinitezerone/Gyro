@@ -97,7 +97,7 @@ class PlayerGestureNode(
         awaitEachGesture {
             if (config.isLocked) {
                 // In locked mode, only single tap to toggle controls / unlock button
-                awaitFirstDown(requireUnconsumed = false)
+                awaitFirstDown(requireUnconsumed = true)
                 val up = waitForUpOrCancellation()
                 if (up != null) {
                     callbacks.onSingleTap()
@@ -105,7 +105,8 @@ class PlayerGestureNode(
                 return@awaitEachGesture
             }
 
-            val down = awaitFirstDown(requireUnconsumed = false)
+            // Only capture unconsumed touches so on-screen controls (scrub bar, buttons) take priority
+            val down = awaitFirstDown(requireUnconsumed = true)
             val downPosition = down.position
             val touchSlop = viewConfiguration.touchSlop
             val isEdgeExclusion = downPosition.x < config.edgeExclusionPx ||
@@ -117,7 +118,6 @@ class PlayerGestureNode(
             var dragMode = DragMode.UNDETERMINED
             var dragStartPosMs = callbacks.getCurrentPositionMs()
             var lastSeekTargetMs = dragStartPosMs
-            var accumulatedVolumeDragY = 0f
 
             // Start long press detection
             var longPressJob: Job? = if (config.isLongPressSpeedEnabled) {
@@ -133,10 +133,10 @@ class PlayerGestureNode(
 
             while (true) {
                 val event = awaitPointerEvent()
-                val pressedPointers = event.changes.filter { it.pressed }
+                val pressedPointers = event.changes.filter { it.pressed && !it.isConsumed }
 
                 if (pressedPointers.isEmpty()) {
-                    // All fingers lifted
+                    // All fingers lifted or consumed by overlay
                     break
                 }
 
@@ -223,8 +223,10 @@ class PlayerGestureNode(
                                 val isBrightnessTarget = if (config.swapVolumeAndBrightness) !isLeft else isLeft
                                 if (isBrightnessTarget && config.isBrightnessEnabled) {
                                     dragMode = DragMode.VERTICAL_BRIGHTNESS
+                                    callbacks.onBrightnessStart()
                                 } else if (!isBrightnessTarget && config.isVolumeEnabled) {
                                     dragMode = DragMode.VERTICAL_VOLUME
+                                    callbacks.onVolumeStart()
                                 }
                             }
                         }
@@ -255,19 +257,17 @@ class PlayerGestureNode(
                         }
                         DragMode.VERTICAL_BRIGHTNESS -> {
                             pointer.consume()
-                            val deltaY = posChange.y
-                            val deltaRatio = -deltaY / config.brightnessSensitivityPx
-                            callbacks.onBrightnessChange(deltaRatio)
+                            val dragSpan = (size.height * 0.75f).coerceAtLeast(100f)
+                            val deltaY = downPosition.y - pointer.position.y
+                            val deltaRatio = (deltaY / dragSpan) * config.brightnessSensitivity
+                            callbacks.onBrightnessUpdate(deltaRatio)
                         }
                         DragMode.VERTICAL_VOLUME -> {
                             pointer.consume()
-                            val deltaY = posChange.y
-                            accumulatedVolumeDragY += -deltaY
-                            if (abs(accumulatedVolumeDragY) >= config.volumeSensitivityPx) {
-                                val steps = (accumulatedVolumeDragY / config.volumeSensitivityPx).toInt()
-                                accumulatedVolumeDragY -= steps * config.volumeSensitivityPx
-                                callbacks.onVolumeChange(steps)
-                            }
+                            val dragSpan = (size.height * 0.75f).coerceAtLeast(100f)
+                            val deltaY = downPosition.y - pointer.position.y
+                            val deltaRatio = (deltaY / dragSpan) * config.volumeSensitivity
+                            callbacks.onVolumeUpdate(deltaRatio)
                         }
                         else -> {
                             // Ignored edge drag

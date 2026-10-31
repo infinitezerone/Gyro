@@ -2,8 +2,10 @@ package dev.gyro.player.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.media.AudioManager
 import androidx.compose.ui.geometry.Offset
+import kotlin.math.roundToInt
 
 /**
  * Callbacks for player gesture events and dynamic state queries.
@@ -22,8 +24,10 @@ interface PlayerGestureCallbacks {
     fun onSeekStart(currentPosMs: Long) {}
     fun onSeekUpdate(targetMs: Long, deltaMs: Long, totalMs: Long) {}
     fun onSeekEnd(finalMs: Long) {}
-    fun onBrightnessChange(deltaBrightnessRatio: Float) {}
-    fun onVolumeChange(deltaSteps: Int) {}
+    fun onBrightnessStart() {}
+    fun onBrightnessUpdate(deltaRatio: Float) {}
+    fun onVolumeStart() {}
+    fun onVolumeUpdate(deltaRatio: Float) {}
     fun onHudStateChange(state: GestureHudState) {}
 
     fun getCurrentPositionMs(): Long = 0L
@@ -53,9 +57,12 @@ class DefaultPlayerGestureCallbacks(
     private val onHudStateChange: (GestureHudState) -> Unit
 ) : PlayerGestureCallbacks {
 
-    private val activity = context as? Activity
+    private val activity: Activity? = context?.findActivity()
     private val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.coerceAtLeast(1) ?: 15
+
+    private var dragStartVolume: Int = 0
+    private var dragStartBrightness: Float = 0.5f
 
     override fun getCurrentPositionMs(): Long = currentPosMs()
     override fun getDurationMs(): Long = durationMs()
@@ -98,12 +105,21 @@ class DefaultPlayerGestureCallbacks(
         }
     }
 
-    override fun onBrightnessChange(deltaBrightnessRatio: Float) {
+    override fun onBrightnessStart() {
         activity?.let { act ->
             val lp = act.window.attributes
             var cur = lp.screenBrightness
             if (cur < 0) cur = 0.5f
-            val newBrightness = (cur + deltaBrightnessRatio).coerceIn(0.01f, 1.0f)
+            dragStartBrightness = cur
+            val pct = (cur * 100).toInt()
+            onHudStateChange.invoke(GestureHudState.Brightness(pct, cur))
+        }
+    }
+
+    override fun onBrightnessUpdate(deltaRatio: Float) {
+        activity?.let { act ->
+            val lp = act.window.attributes
+            val newBrightness = (dragStartBrightness + deltaRatio).coerceIn(0.01f, 1.0f)
             lp.screenBrightness = newBrightness
             act.window.attributes = lp
             val pct = (newBrightness * 100).toInt()
@@ -111,14 +127,23 @@ class DefaultPlayerGestureCallbacks(
         }
     }
 
-    override fun onVolumeChange(deltaSteps: Int) {
+    override fun onVolumeStart() {
         audioManager?.let { am ->
+            dragStartVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val ratio = dragStartVolume.toFloat() / maxVolume.toFloat()
+            val pct = (ratio * 100).toInt()
+            onHudStateChange.invoke(GestureHudState.Volume(pct, ratio))
+        }
+    }
+
+    override fun onVolumeUpdate(deltaRatio: Float) {
+        audioManager?.let { am ->
+            val targetVol = (dragStartVolume + deltaRatio * maxVolume).roundToInt().coerceIn(0, maxVolume)
             val curVol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val newVol = (curVol + deltaSteps).coerceIn(0, maxVolume)
-            if (newVol != curVol) {
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+            if (targetVol != curVol) {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
             }
-            val ratio = newVol.toFloat() / maxVolume.toFloat()
+            val ratio = targetVol.toFloat() / maxVolume.toFloat()
             val pct = (ratio * 100).toInt()
             onHudStateChange.invoke(GestureHudState.Volume(pct, ratio))
         }
@@ -126,5 +151,14 @@ class DefaultPlayerGestureCallbacks(
 
     override fun onHudStateChange(state: GestureHudState) {
         onHudStateChange.invoke(state)
+    }
+
+    private fun Context.findActivity(): Activity? {
+        var ctx: Context? = this
+        while (ctx is ContextWrapper) {
+            if (ctx is Activity) return ctx
+            ctx = ctx.baseContext
+        }
+        return null
     }
 }
