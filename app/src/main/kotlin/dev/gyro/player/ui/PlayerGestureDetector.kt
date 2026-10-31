@@ -3,8 +3,11 @@ package dev.gyro.player.ui
 import android.app.Activity
 import android.content.Context
 import android.media.AudioManager
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -18,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
@@ -32,19 +36,23 @@ enum class DoubleTapSide {
 
 sealed class GestureHudState {
     data object Idle : GestureHudState()
-    data class Volume(val percent: Int) : GestureHudState()
-    data class Brightness(val percent: Int) : GestureHudState()
+    data class Volume(val percent: Int, val volumeRatio: Float) : GestureHudState()
+    data class Brightness(val percent: Int, val brightnessRatio: Float) : GestureHudState()
     data class Seek(val targetMs: Long, val deltaMs: Long, val totalMs: Long) : GestureHudState()
     data class DoubleTap(val side: DoubleTapSide, val seconds: Int) : GestureHudState()
     data class Speed(val speed: Float) : GestureHudState()
 }
 
 /**
- * High-performance gesture detector inspired by MX Player, Next Player, and MiniBgm.
- * - Single source of truth for scrubbing with leaf-down reading
- * - Debounced accumulation for double-tap seek (YouTube style)
- * - Android 14/15 system gesture edge exclusion (24dp)
- * - Touch lock support
+ * Benchmark-aligned player gesture detector:
+ * 1. Two-finger pinch-to-zoom (0.5x - 4.0x) and pan
+ * 2. Left vertical swipe: Brightness with edge vertical slider
+ * 3. Right vertical swipe: Volume with edge vertical slider
+ * 4. Horizontal swipe: Central delta seek card
+ * 5. Double-tap left/right: 10s accumulated leap with YouTube pills
+ * 6. Long-press: 2.0x temporary fast-forward
+ * 7. System edge gesture exclusion (24dp)
+ * 8. Touch lock support
  */
 @Composable
 fun Modifier.playerGestures(
@@ -54,6 +62,9 @@ fun Modifier.playerGestures(
     currentPosMs: () -> Long,
     durationMs: () -> Long,
     scrubState: PlayerScrubState,
+    zoomScale: Float,
+    onZoomChange: (Float, Offset) -> Unit,
+    onResetZoom: () -> Unit,
     onSingleTap: () -> Unit,
     onDoubleTapSeek: (Long) -> Unit,
     onDoubleTapPlayPause: () -> Unit,
@@ -80,8 +91,18 @@ fun Modifier.playerGestures(
     var dragAccumulatedY by remember { mutableFloatStateOf(0f) }
 
     return this
-        // Layer 1: Tap & Long-Press
+        // Layer 1: Two-finger Pinch-to-Zoom & Pan
         .pointerInput(isLocked) {
+            if (isLocked) return@pointerInput
+
+            detectTransformGestures { centroid, pan, zoom, _ ->
+                if (zoom != 1.0f || pan != Offset.Zero) {
+                    onZoomChange(zoom, pan)
+                }
+            }
+        }
+        // Layer 2: Single-finger Tap, Double-Tap & Long-Press
+        .pointerInput(isLocked, zoomScale) {
             if (isLocked) {
                 detectTapGestures(onTap = { onSingleTap() })
                 return@pointerInput
@@ -92,6 +113,12 @@ fun Modifier.playerGestures(
                     onSingleTap()
                 },
                 onDoubleTap = { offset ->
+                    // If currently zoomed in, double tap resets zoom back to 1.0x
+                    if (zoomScale > 1.05f) {
+                        onResetZoom()
+                        return@detectTapGestures
+                    }
+
                     val screenWidth = size.width
                     if (offset.x < screenWidth * 0.4f) {
                         // Left double-tap (Rewind)
@@ -148,7 +175,7 @@ fun Modifier.playerGestures(
                 }
             )
         }
-        // Layer 2: Directional Drags (Brightness, Volume, Horizontal Seek)
+        // Layer 3: Single-finger Directional Drags (Brightness, Volume, Horizontal Seek)
         .pointerInput(isLocked) {
             if (isLocked) return@pointerInput
 
@@ -170,7 +197,7 @@ fun Modifier.playerGestures(
                     dragAccumulatedX += dragAmount.x
                     dragAccumulatedY += dragAmount.y
 
-                    // Determine gesture orientation if undetermined
+                    // Determine gesture orientation
                     if (dragMode == DragMode.UNDETERMINED) {
                         val absX = abs(dragAccumulatedX)
                         val absY = abs(dragAccumulatedY)
@@ -198,7 +225,8 @@ fun Modifier.playerGestures(
                                 val newBrightness = (cur + delta).coerceIn(0.01f, 1.0f)
                                 lp.screenBrightness = newBrightness
                                 act.window.attributes = lp
-                                onHudStateChange(GestureHudState.Brightness((newBrightness * 100).toInt()))
+                                val pct = (newBrightness * 100).toInt()
+                                onHudStateChange(GestureHudState.Brightness(pct, newBrightness))
                             }
                         }
                         DragMode.VERTICAL_VOLUME -> {
@@ -206,13 +234,13 @@ fun Modifier.playerGestures(
                             val step = if (-dragAmount.y > 0) 1 else -1
                             val newVol = (curVol + step).coerceIn(0, maxVolume)
                             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
-                            val pct = (newVol * 100 / maxVolume).coerceIn(0, 100)
-                            onHudStateChange(GestureHudState.Volume(pct))
+                            val ratio = newVol.toFloat() / maxVolume.toFloat()
+                            val pct = (ratio * 100).toInt()
+                            onHudStateChange(GestureHudState.Volume(pct, ratio))
                         }
                         DragMode.HORIZONTAL_SEEK -> {
                             val totalDuration = durationMs()
                             if (totalDuration > 0L) {
-                                // Scale: full screen swipe = 10% of video duration, clamped between 60s and 15m
                                 val seekSpan = (totalDuration / 10L).coerceIn(60_000L, 900_000L)
                                 val deltaRatio = dragAccumulatedX / size.width
                                 val deltaMs = (deltaRatio * seekSpan).toLong()

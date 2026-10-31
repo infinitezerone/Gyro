@@ -2,8 +2,8 @@ package dev.gyro.player.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,18 +17,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AspectRatio
-import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -42,11 +43,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,15 +57,19 @@ fun PlayerTrackSelectionSheet(
     tracks: List<TrackInfo>,
     currentResizeMode: ResizeMode,
     currentSpeed: Float,
+    subDelaySec: Double,
+    audioDelaySec: Double,
     onDismiss: () -> Unit,
     onSelectTrack: (type: String, id: Int) -> Unit,
     onSelectResizeMode: (ResizeMode) -> Unit,
     onSelectSpeed: (Float) -> Unit,
+    onSetSubDelay: (Double) -> Unit,
+    onSetAudioDelay: (Double) -> Unit,
     onAddExternalSubtitle: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Audio", "Subtitles", "Aspect", "Speed")
+    val tabs = listOf("Audio", "Subtitles", "Sync", "Aspect", "Speed")
 
     val audioTracks = remember(tracks) { tracks.filter { it.type == "audio" } }
     val subtitleTracks = remember(tracks) { tracks.filter { it.type == "sub" } }
@@ -156,6 +163,35 @@ fun PlayerTrackSelectionSheet(
                     }
                 }
                 2 -> {
+                    // Sync & Tuning (Audio & Subtitle Delays)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Subtitle Sync Stepper
+                        SyncCalibrationItem(
+                            label = "Subtitle Delay",
+                            currentSec = subDelaySec,
+                            minSec = -5.0,
+                            maxSec = 5.0,
+                            onValueChange = onSetSubDelay
+                        )
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+
+                        // Audio Sync Stepper
+                        SyncCalibrationItem(
+                            label = "Audio Delay",
+                            currentSec = audioDelaySec,
+                            minSec = -2.0,
+                            maxSec = 2.0,
+                            onValueChange = onSetAudioDelay
+                        )
+                    }
+                }
+                3 -> {
                     // Resize Mode
                     Column(
                         modifier = Modifier
@@ -179,7 +215,7 @@ fun PlayerTrackSelectionSheet(
                         }
                     }
                 }
-                3 -> {
+                4 -> {
                     // Speed
                     val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
                     Row(
@@ -198,6 +234,54 @@ fun PlayerTrackSelectionSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SyncCalibrationItem(
+    label: String,
+    currentSec: Double,
+    minSec: Double,
+    maxSec: Double,
+    onValueChange: (Double) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            val sign = if (currentSec > 0.0) "+" else ""
+            Text(
+                text = "$sign${String.format(Locale.US, "%.1fs", currentSec)}",
+                style = TextStyle(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF64B5F6),
+                    fontFeatureSettings = "tnum"
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(onClick = { onValueChange(currentSec - 0.5) }) { Text("-0.5s") }
+            OutlinedButton(onClick = { onValueChange(currentSec - 0.1) }) { Text("-0.1s") }
+            Button(
+                onClick = { onValueChange(0.0) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f))
+            ) {
+                Text("Reset")
+            }
+            OutlinedButton(onClick = { onValueChange(currentSec + 0.1) }) { Text("+0.1s") }
+            OutlinedButton(onClick = { onValueChange(currentSec + 0.5) }) { Text("+0.5s") }
         }
     }
 }

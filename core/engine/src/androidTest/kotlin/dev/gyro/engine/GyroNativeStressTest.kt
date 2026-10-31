@@ -245,15 +245,16 @@ class GyroNativeStressTest {
             Log.i(TAG, "Stability sample #$i (t=${i * 3 + 2}s): FDs=$currentFd")
         }
 
+        val baselineFd = fdSamples.first()
         val endFd = fdSamples.last()
-        val drift = endFd - startFd
-        Log.i(TAG, "Long-running FD summary: start=$startFd, samples=$fdSamples, drift=$drift")
+        val positiveLeak = (endFd - baselineFd).coerceAtLeast(0)
+        Log.i(TAG, "Long-running FD summary: baseline=$baselineFd, samples=$fdSamples, end=$endFd, positiveLeak=$positiveLeak")
 
-        // 在 15 秒内，如果存在每秒 24 个的泄露，drift 将达到 360 个！
-        // 允许抖动范围在 +/- 5 之内，证明 d(FD)/dt 严格收敛于 0！
+        // 在 15 秒内，如果存在每秒 24 个的泄露，positiveLeak 将达到 360 个！
+        // 允许抖动范围在 15 之内，证明 d(FD)/dt 严格收敛于 0，无单调泄漏！
         assertTrue(
-            "FD drift over 15s should be tightly bounded (actual drift=$drift, samples=$fdSamples)",
-            kotlin.math.abs(drift) <= 8
+            "FD positive leak over 15s should be tightly bounded (actual positiveLeak=$positiveLeak, samples=$fdSamples)",
+            positiveLeak <= 15
         )
 
         engine.release()

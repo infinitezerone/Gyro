@@ -1,6 +1,7 @@
 package dev.gyro.player.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -31,12 +33,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -61,7 +64,7 @@ fun formatTime(ms: Long): String {
 }
 
 /**
- * Visual anti-jitter HUD overlay for gestures, strictly applying tabular numbers (tnum).
+ * Visual anti-jitter HUD overlay aligning with MX Player (edge vertical sliders) and YouTube (jump pills).
  */
 @Composable
 fun BoxScope.PlayerHudOverlay(
@@ -69,106 +72,133 @@ fun BoxScope.PlayerHudOverlay(
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+        modifier = modifier.fillMaxSize()
     ) {
-        when (hudState) {
-            is GestureHudState.Volume -> {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
-                    contentColor = Color.White
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (hudState.percent == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
-                            contentDescription = "Volume",
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                            text = "${hudState.percent}%",
-                            style = TextStyle(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFeatureSettings = "tnum"
-                            ),
-                            modifier = Modifier.width(42.dp),
-                            textAlign = TextAlign.End
-                        )
-                    }
-                }
+        // 1. Left Edge Vertical Brightness Slider (MX Player Style)
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.Brightness,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 28.dp)
+        ) {
+            val brightnessState = hudState as? GestureHudState.Brightness
+            if (brightnessState != null) {
+                VerticalEdgeSlider(
+                    icon = Icons.Default.BrightnessMedium,
+                    contentDescription = "Brightness",
+                    ratio = brightnessState.brightnessRatio,
+                    percentage = brightnessState.percent,
+                    activeColor = Color(0xFFFFB74D) // Warm amber
+                )
             }
-            is GestureHudState.Brightness -> {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
-                    contentColor = Color.White
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.BrightnessMedium,
-                            contentDescription = "Brightness",
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Text(
-                            text = "${hudState.percent}%",
-                            style = TextStyle(
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFeatureSettings = "tnum"
-                            ),
-                            modifier = Modifier.width(42.dp),
-                            textAlign = TextAlign.End
-                        )
-                    }
-                }
+        }
+
+        // 2. Right Edge Vertical Volume Slider (MX Player Style)
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.Volume,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 28.dp)
+        ) {
+            val volumeState = hudState as? GestureHudState.Volume
+            if (volumeState != null) {
+                VerticalEdgeSlider(
+                    icon = if (volumeState.percent == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                    contentDescription = "Volume",
+                    ratio = volumeState.volumeRatio,
+                    percentage = volumeState.percent,
+                    activeColor = Color(0xFF64B5F6) // Material blue
+                )
             }
-            is GestureHudState.Seek -> {
+        }
+
+        // 3. Center Horizontal Seek Time Delta Card
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.Seek,
+            enter = fadeIn() + scaleIn(initialScale = 0.95f),
+            exit = fadeOut() + scaleOut(targetScale = 0.95f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            val seekState = hudState as? GestureHudState.Seek
+            if (seekState != null) {
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(24.dp),
                     color = Color.Black.copy(alpha = 0.85f),
                     contentColor = Color.White,
-                    modifier = Modifier.widthIn(min = 180.dp)
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.widthIn(min = 210.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val sign = if (hudState.deltaMs >= 0) "+" else "-"
-                            val deltaSec = abs(hudState.deltaMs) / 1000L
+                        // Delta Pill
+                        val sign = if (seekState.deltaMs >= 0) "+" else "-"
+                        val deltaSec = abs(seekState.deltaMs) / 1000L
+                        val deltaMin = deltaSec / 60L
+                        val deltaRemSec = deltaSec % 60L
+                        val deltaText = if (deltaMin > 0) {
+                            String.format(Locale.US, "%s%02d:%02d", sign, deltaMin, deltaRemSec)
+                        } else {
+                            String.format(Locale.US, "%s%ds", sign, deltaRemSec)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (seekState.deltaMs >= 0) Color(0xFF1B5E20) else Color(0xFFE65100)
+                        ) {
                             Text(
-                                text = "[$sign${deltaSec}s]",
+                                text = "[$deltaText]",
                                 style = TextStyle(
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (hudState.deltaMs >= 0) Color(0xFF4CAF50) else Color(0xFFFF9800),
+                                    color = Color.White,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        // Absolute Target / Total
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = formatTime(seekState.targetMs),
+                                style = TextStyle(
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    fontFeatureSettings = "tnum"
+                                )
+                            )
+                            Text(
+                                text = " / ${formatTime(seekState.totalMs)}",
+                                style = TextStyle(
+                                    fontSize = 14.sp,
+                                    color = Color.White.copy(alpha = 0.7f),
                                     fontFeatureSettings = "tnum"
                                 )
                             )
                         }
-                        Text(
-                            text = "${formatTime(hudState.targetMs)} / ${formatTime(hudState.totalMs)}",
-                            style = TextStyle(
-                                fontSize = 14.sp,
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontFeatureSettings = "tnum"
-                            )
-                        )
                     }
                 }
             }
-            is GestureHudState.DoubleTap -> {
-                val isLeft = hudState.side == DoubleTapSide.LEFT
+        }
+
+        // 4. Double-Tap Animated Jump Pills (YouTube Style)
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.DoubleTap,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val doubleTapState = hudState as? GestureHudState.DoubleTap
+            if (doubleTapState != null) {
+                val isLeft = doubleTapState.side == DoubleTapSide.LEFT
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = if (isLeft) Alignment.CenterStart else Alignment.CenterEnd
@@ -182,19 +212,19 @@ fun BoxScope.PlayerHudOverlay(
                             .clip(CircleShape)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (isLeft) {
                                 Icon(Icons.Default.FastRewind, contentDescription = null, modifier = Modifier.size(24.dp))
                                 Text(
-                                    text = "-${hudState.seconds}s",
+                                    text = "-${doubleTapState.seconds}s",
                                     style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
                                 )
                             } else {
                                 Text(
-                                    text = "+${hudState.seconds}s",
+                                    text = "+${doubleTapState.seconds}s",
                                     style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
                                 )
                                 Icon(Icons.Default.FastForward, contentDescription = null, modifier = Modifier.size(24.dp))
@@ -203,11 +233,24 @@ fun BoxScope.PlayerHudOverlay(
                     }
                 }
             }
-            is GestureHudState.Speed -> {
+        }
+
+        // 5. Long-Press 2x Speed Pill
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.Speed,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 70.dp)
+        ) {
+            val speedState = hudState as? GestureHudState.Speed
+            if (speedState != null) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color.Black.copy(alpha = 0.8f),
-                    contentColor = Color(0xFFFFD54F)
+                    contentColor = Color(0xFFFFD54F),
+                    shadowElevation = 6.dp
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -216,13 +259,80 @@ fun BoxScope.PlayerHudOverlay(
                     ) {
                         Icon(Icons.Default.FastForward, contentDescription = null, modifier = Modifier.size(20.dp))
                         Text(
-                            text = "${hudState.speed}x 播放中",
+                            text = "${speedState.speed}x 播放中",
                             style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
                         )
                     }
                 }
             }
-            GestureHudState.Idle -> {}
+        }
+    }
+}
+
+/**
+ * MX Player style vertical capsule slider with animated fill bar and tabular numbers.
+ */
+@Composable
+private fun VerticalEdgeSlider(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    ratio: Float,
+    percentage: Int,
+    activeColor: Color
+) {
+    val animatedRatio by animateFloatAsState(targetValue = ratio.coerceIn(0f, 1f), label = "edgeRatio")
+
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = Color.Black.copy(alpha = 0.75f),
+        contentColor = Color.White,
+        shadowElevation = 8.dp,
+        modifier = Modifier
+            .width(44.dp)
+            .height(180.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+
+            // Vertical Track Container
+            Box(
+                modifier = Modifier
+                    .width(6.dp)
+                    .height(95.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color.White.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(6.dp)
+                        .fillMaxHeight(animatedRatio)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(activeColor)
+                )
+            }
+
+            // Tabular Number text
+            Text(
+                text = "$percentage%",
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFeatureSettings = "tnum"
+                ),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

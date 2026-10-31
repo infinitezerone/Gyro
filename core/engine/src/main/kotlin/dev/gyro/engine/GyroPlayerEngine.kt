@@ -60,6 +60,12 @@ class GyroPlayerEngine(
     private val _droppedFrames = MutableStateFlow(0L)
     val droppedFrames: StateFlow<Long> = _droppedFrames.asStateFlow()
 
+    private val _subDelay = MutableStateFlow(0.0)
+    val subDelay: StateFlow<Double> = _subDelay.asStateFlow()
+
+    private val _audioDelay = MutableStateFlow(0.0)
+    val audioDelay: StateFlow<Double> = _audioDelay.asStateFlow()
+
     private var pendingSeekMs: Long = -1L
     private var fileLoaded: Boolean = false
 
@@ -146,6 +152,12 @@ class GyroPlayerEngine(
                 "estimated-vf-fps" -> {
                     _fps.value = value
                 }
+                "sub-delay" -> {
+                    _subDelay.value = value
+                }
+                "audio-delay" -> {
+                    _audioDelay.value = value
+                }
             }
         }
 
@@ -216,6 +228,8 @@ class GyroPlayerEngine(
                 GyroNative.observeProperty("estimated-vf-fps", GyroNative.Format.DOUBLE)
                 GyroNative.observeProperty("frame-drop-count", GyroNative.Format.INT64)
                 GyroNative.observeProperty("track-list", GyroNative.Format.NONE)
+                GyroNative.observeProperty("sub-delay", GyroNative.Format.DOUBLE)
+                GyroNative.observeProperty("audio-delay", GyroNative.Format.DOUBLE)
 
                 Log.i(TAG, "GyroPlayerEngine initialized successfully")
             } catch (t: Throwable) {
@@ -347,6 +361,19 @@ class GyroPlayerEngine(
         GyroNative.command(arrayOf("sub-add", path, "select"))
         refreshTracks()
     }
+
+    fun setSubtitleDelay(delaySec: Double) {
+        val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(-10.0, 10.0)
+        _subDelay.value = clamped
+        GyroNative.setPropertyDouble("sub-delay", clamped)
+    }
+
+    fun setAudioDelay(delaySec: Double) {
+        val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(-5.0, 5.0)
+        _audioDelay.value = clamped
+        GyroNative.setPropertyDouble("audio-delay", clamped)
+    }
+
 
     fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) {
         _resizeMode.value = mode
