@@ -23,3 +23,19 @@ data class TrackInfo(
     val lang: String?,
     val isSelected: Boolean
 )
+
+enum class ResizeMode(val label: String) {
+    FIT("Fit"),
+    CROP("Crop"),
+    STRETCH("Stretch"),
+    ASPECT_16_9("16:9"),
+    ASPECT_21_9("21:9")
+}
+
+data class PerformanceStats(
+    val fps: Double = 0.0,
+    val droppedFrames: Long = 0L,
+    val powerWatts: Double = 0.0,
+    val currentMa: Int = 0,
+    val hwdec: String = ""
+)

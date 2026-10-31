@@ -48,6 +48,18 @@ class GyroPlayerEngine(
     private val _speed = MutableStateFlow(1.0f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
 
+    private val _tracks = MutableStateFlow<List<dev.gyro.engine.model.TrackInfo>>(emptyList())
+    val tracks: StateFlow<List<dev.gyro.engine.model.TrackInfo>> = _tracks.asStateFlow()
+
+    private val _resizeMode = MutableStateFlow(dev.gyro.engine.model.ResizeMode.FIT)
+    val resizeMode: StateFlow<dev.gyro.engine.model.ResizeMode> = _resizeMode.asStateFlow()
+
+    private val _fps = MutableStateFlow(0.0)
+    val fps: StateFlow<Double> = _fps.asStateFlow()
+
+    private val _droppedFrames = MutableStateFlow(0L)
+    val droppedFrames: StateFlow<Long> = _droppedFrames.asStateFlow()
+
     private var pendingSeekMs: Long = -1L
     private var fileLoaded: Boolean = false
 
@@ -59,6 +71,7 @@ class GyroPlayerEngine(
                     val hwdec = GyroNative.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
                     _playbackState.value = PlaybackState.READY
+                    refreshTracks()
                     Log.i(TAG, "File loaded, active hwdec=$hwdec")
 
                     if (pendingSeekMs >= 0L) {
@@ -66,6 +79,9 @@ class GyroPlayerEngine(
                         pendingSeekMs = -1L
                         seekTo(target)
                     }
+                }
+                GyroNative.Event.TRACKS_CHANGED -> {
+                    refreshTracks()
                 }
                 GyroNative.Event.END_FILE -> {
                     fileLoaded = false
@@ -87,7 +103,11 @@ class GyroPlayerEngine(
             }
         }
 
-        override fun onProperty(name: String) {}
+        override fun onProperty(name: String) {
+            when (name) {
+                "track-list" -> refreshTracks()
+            }
+        }
 
         override fun onPropertyLong(name: String, value: Long) {
             when (name) {
@@ -102,6 +122,9 @@ class GyroPlayerEngine(
                     if (w > 0 && value > 0) {
                         _videoDimensions.value = VideoDimensions(w, value.toInt())
                     }
+                }
+                "frame-drop-count" -> {
+                    _droppedFrames.value = value
                 }
             }
         }
@@ -119,6 +142,9 @@ class GyroPlayerEngine(
                 }
                 "speed" -> {
                     _speed.value = value.toFloat()
+                }
+                "estimated-vf-fps" -> {
+                    _fps.value = value
                 }
             }
         }
@@ -187,6 +213,9 @@ class GyroPlayerEngine(
                 GyroNative.observeProperty("height", GyroNative.Format.INT64)
                 GyroNative.observeProperty("hwdec-current", GyroNative.Format.STRING)
                 GyroNative.observeProperty("speed", GyroNative.Format.DOUBLE)
+                GyroNative.observeProperty("estimated-vf-fps", GyroNative.Format.DOUBLE)
+                GyroNative.observeProperty("frame-drop-count", GyroNative.Format.INT64)
+                GyroNative.observeProperty("track-list", GyroNative.Format.NONE)
 
                 Log.i(TAG, "GyroPlayerEngine initialized successfully")
             } catch (t: Throwable) {
@@ -274,6 +303,77 @@ class GyroPlayerEngine(
     fun setSpeed(speed: Float) {
         GyroNative.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
     }
+
+    fun refreshTracks() {
+        try {
+            val count = GyroNative.getLong("track-list/count") ?: 0L
+            val trackList = mutableListOf<dev.gyro.engine.model.TrackInfo>()
+            for (i in 0 until count) {
+                val id = GyroNative.getLong("track-list/$i/id")?.toInt() ?: (i.toInt() + 1)
+                val type = GyroNative.getPropertyString("track-list/$i/type") ?: ""
+                val title = GyroNative.getPropertyString("track-list/$i/title")
+                val lang = GyroNative.getPropertyString("track-list/$i/lang")
+                val selected = GyroNative.getBoolean("track-list/$i/selected") ?: false
+                trackList.add(dev.gyro.engine.model.TrackInfo(id, type, title, lang, selected))
+            }
+            _tracks.value = trackList
+            Log.i(TAG, "Refreshed tracks: count=$count, tracks=$trackList")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to refresh tracks: ${t.message}")
+        }
+    }
+
+    fun selectTrack(type: String, id: Int) {
+        when (type) {
+            "audio" -> {
+                if (id <= 0) {
+                    GyroNative.setPropertyString("aid", "no")
+                } else {
+                    GyroNative.setPropertyString("aid", "$id")
+                }
+            }
+            "sub" -> {
+                if (id <= 0) {
+                    GyroNative.setPropertyString("sid", "no")
+                } else {
+                    GyroNative.setPropertyString("sid", "$id")
+                }
+            }
+        }
+        refreshTracks()
+    }
+
+    fun addSubtitle(path: String) {
+        GyroNative.command(arrayOf("sub-add", path, "select"))
+        refreshTracks()
+    }
+
+    fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) {
+        _resizeMode.value = mode
+        when (mode) {
+            dev.gyro.engine.model.ResizeMode.FIT -> {
+                GyroNative.setPropertyDouble("panscan", 0.0)
+                GyroNative.setPropertyString("video-aspect-override", "-1")
+            }
+            dev.gyro.engine.model.ResizeMode.CROP -> {
+                GyroNative.setPropertyDouble("panscan", 1.0)
+                GyroNative.setPropertyString("video-aspect-override", "-1")
+            }
+            dev.gyro.engine.model.ResizeMode.STRETCH -> {
+                GyroNative.setPropertyDouble("panscan", 0.0)
+                GyroNative.setPropertyString("video-aspect-override", "no")
+            }
+            dev.gyro.engine.model.ResizeMode.ASPECT_16_9 -> {
+                GyroNative.setPropertyDouble("panscan", 0.0)
+                GyroNative.setPropertyString("video-aspect-override", "16:9")
+            }
+            dev.gyro.engine.model.ResizeMode.ASPECT_21_9 -> {
+                GyroNative.setPropertyDouble("panscan", 0.0)
+                GyroNative.setPropertyString("video-aspect-override", "21:9")
+            }
+        }
+    }
+
 
     fun attachSurface(surface: Surface) {
         isSurfaceAttached = true
