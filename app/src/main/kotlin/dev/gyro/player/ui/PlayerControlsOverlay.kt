@@ -5,21 +5,36 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import dev.gyro.engine.model.ResizeMode
 
 /**
  * 现代轻量级播放器控制遮罩骨架 (PlayerControlsOverlay)
- * 已彻底解耦巨型 Composable，将职责下沉至独立叶子节点：
- * - PlayerTopBar: 顶部导航、标题、画中画与右侧功能胶囊
- * - PlayerCenterControls: 画面中央核心播放/快退/快进集群与锁屏解锁键
- * - PlayerBottomBar: 底部进度条与操作（包含滑屏 Seek 极简态、竖屏纯净态与横屏专业态）
+ * - 画面正中保持绝对纯净，零任何大按键遮挡；
+ * - 锁屏按键悬浮于左侧边缘 (Alignment.CenterStart)；
+ * - 竖屏底栏采用经典单行内嵌布局，零多余按钮塞入；
+ * - 顶部栏承载标题、返回、画中画与次级设置。
  */
 @Composable
 fun BoxScope.PlayerControlsOverlay(
@@ -53,9 +68,40 @@ fun BoxScope.PlayerControlsOverlay(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 顶部操作栏（未锁屏且可见时展示）
+        // 1. 锁屏浮动悬浮球（位于左侧中央边缘 Alignment.CenterStart，无论是锁定时还是控制栏显现时均可操作）
         AnimatedVisibility(
-            visible = isVisible && !isLocked,
+            visible = isVisible || isLocked,
+            enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
+            exit = fadeOut(animationSpec = tween(300)) + scaleOut(targetScale = 0.85f),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .displayCutoutPadding()
+                .padding(start = 20.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.65f),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
+                shadowElevation = 6.dp,
+                modifier = Modifier.size(44.dp)
+            ) {
+                IconButton(onClick = onToggleLock) {
+                    Icon(
+                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (isLocked) "Unlock Screen" else "Lock Screen",
+                        tint = if (isLocked) Color(0xFFFFB74D) else Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+
+        // 锁定状态下，直接拦截隐藏所有其它控制元素
+        if (isLocked) return@Box
+
+        // 2. 顶部操作栏（未锁屏且可见时展示）
+        AnimatedVisibility(
+            visible = isVisible,
             enter = fadeIn(animationSpec = tween(200)),
             exit = fadeOut(animationSpec = tween(280)),
             modifier = Modifier.align(Alignment.TopCenter)
@@ -73,20 +119,8 @@ fun BoxScope.PlayerControlsOverlay(
             )
         }
 
-        // 2. 画面中央核心集群（大播放键/快进退，或锁屏时的解锁胶囊）
-        PlayerCenterControls(
-            isVisible = isVisible,
-            isLocked = isLocked,
-            isPlaying = isPlaying,
-            onTogglePlayPause = onTogglePlayPause,
-            onRewind10 = onRewind10,
-            onForward10 = onForward10,
-            onToggleLock = onToggleLock,
-            modifier = Modifier.align(Alignment.Center)
-        )
-
         // 3. 底部栏（可见态或滑屏 Seek 态）
-        val showBottomBar = (isVisible && !isLocked) || scrubState.isActive
+        val showBottomBar = isVisible || scrubState.isActive
         AnimatedVisibility(
             visible = showBottomBar,
             enter = fadeIn(animationSpec = tween(200)),

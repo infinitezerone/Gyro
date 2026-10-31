@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,10 +44,9 @@ import dev.gyro.engine.model.ResizeMode
 
 /**
  * 底部控制栏容器组件 (PlayerBottomBar)
- * 职责分明：
- * 1. 滑屏 Seek 态：仅展示通栏进度条与实时目标时间，零多余元素；
- * 2. 竖屏态：极简两行（首行通栏进度条，次行左侧时间、右侧全屏键，杜绝塞乱七八糟的按钮）；
- * 3. 横屏态：双行专业排布（首行通栏进度条，次行双手人体工学功能集群）。
+ * 1. 拖动屏幕 Seek 时：仅展示进度条与时间，其他不显示；
+ * 2. 竖屏模式：经典单行内嵌（播放键 + 开始时间 + 居中自适应进度条 + 总时间 + 全屏切换），画面零遮挡；
+ * 3. 横屏模式：成熟双行布局（Row 1 全宽通栏进度条，Row 2 双手功能集群）。
  */
 @Composable
 fun PlayerBottomBar(
@@ -85,7 +85,7 @@ fun PlayerBottomBar(
         val isScreenScrubOnly = !isVisible && scrubState.isActive
 
         if (isScreenScrubOnly) {
-            // A. 滑屏手势 Seek 极简态：复用进度条与时间，其他一切隐藏
+            // A. 拖拽屏幕 Seek 时：只显示复用进度条与时间，极简纯粹
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -123,55 +123,89 @@ fun PlayerBottomBar(
                 }
             }
         } else if (!isLandscape) {
-            // B. 竖屏极简标准态：首行通栏进度条，次行左侧时间、右侧全屏键，彻底清爽！
-            Column(modifier = Modifier.fillMaxWidth()) {
-                PlayerScrubBar(
-                    timePosMs = timePosMs,
-                    durationMs = durationMs,
-                    bufferedPosMs = bufferedPosMs,
-                    scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction
+            // B. 竖屏经典单行内嵌布局 (Single-Row Inline Layout) - 纯净舒适、零画面遮挡
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 播放/暂停键
+                IconButton(
+                    onClick = onTogglePlayPause,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                val displayPos = if (scrubState.isActive) {
+                    (scrubState.fraction * durationMs.coerceAtLeast(1L)).toLong()
+                } else {
+                    timePosMs
+                }
+                Text(
+                    text = formatTime(displayPos),
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        fontFeatureSettings = "tnum"
+                    )
                 )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // 居中自适应撑满进度条
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center
                 ) {
-                    val displayPos = if (scrubState.isActive) {
-                        (scrubState.fraction * durationMs.coerceAtLeast(1L)).toLong()
-                    } else {
-                        timePosMs
-                    }
-                    // 左侧等宽时间戳
-                    Text(
-                        text = "${formatTime(displayPos)} / ${formatTime(durationMs)}",
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.95f),
-                            fontFeatureSettings = "tnum"
-                        )
+                    PlayerScrubBar(
+                        timePosMs = timePosMs,
+                        durationMs = durationMs,
+                        bufferedPosMs = bufferedPosMs,
+                        scrubState = scrubState,
+                        onSeekToFraction = onSeekToFraction
                     )
+                }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                    // 右侧全屏切换
-                    IconButton(onClick = onToggleOrientation, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "Fullscreen",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
+                Text(
+                    text = formatTime(durationMs),
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontFeatureSettings = "tnum"
+                    )
+                )
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // 全屏/旋转切换
+                IconButton(onClick = onToggleOrientation, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Fullscreen",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
         } else {
-            // C. 横屏专业双行态 (Dual-Row Layout)
+            // C. 横屏成熟双行布局 (Dual-Row Layout)
             Column(modifier = Modifier.fillMaxWidth()) {
-                // 首行：通栏全宽自适应进度条
+                // Row 1: 全宽通栏自适应进度条
                 PlayerScrubBar(
                     timePosMs = timePosMs,
                     durationMs = durationMs,
@@ -182,14 +216,13 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // 次行：横屏控制集群 (40dp 高度)
+                // Row 2: 控制行 (40dp 高度)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(40.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧操作：小播放/暂停 + 快退/快进 + 时间
                     IconButton(
                         onClick = onTogglePlayPause,
                         modifier = Modifier
@@ -232,13 +265,6 @@ fun PlayerBottomBar(
                     )
 
                     Spacer(modifier = Modifier.weight(1f))
-
-                    // 右侧动作：锁屏 + 倍速 + 画幅 + 轨道 + 退出全屏
-                    IconButton(onClick = onToggleLock, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.LockOpen, contentDescription = "Lock", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(19.dp))
-                    }
-
-                    Spacer(modifier = Modifier.width(2.dp))
 
                     // 倍速快捷胶囊
                     Surface(
