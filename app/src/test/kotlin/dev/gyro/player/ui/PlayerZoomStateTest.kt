@@ -210,4 +210,36 @@ class PlayerZoomStateTest {
         assertTrue(zoomState.contentOffset.x in 0f..maxX)
         assertTrue(zoomState.contentOffset.y in 0f..maxY)
     }
+
+    @Test
+    fun testAnimateResetSynchronizesScaleAndTranslation() = runBlocking {
+        val clock = object : androidx.compose.runtime.MonotonicFrameClock {
+            override suspend fun <R> withFrameNanos(onFrame: (frameTimeNanos: Long) -> R): R {
+                return onFrame(System.nanoTime())
+            }
+        }
+        kotlinx.coroutines.withContext(clock) {
+            val zoomState = PlayerZoomState()
+            val viewport = Size(1000f, 600f)
+            val anchor = Offset(700f, 400f)
+
+            // Shrink to 0.7x anchored around (700, 400)
+            zoomState.onGesture(
+                zoomChange = 0.7f,
+                panDelta = Offset.Zero,
+                centroid = anchor,
+                viewportSize = viewport,
+                isPinch = true
+            )
+            assertEquals(0.7f, zoomState.scale, 0.001f)
+            assertTrue(zoomState.translationX != 0f)
+
+            // Reset animation should complete with scale = 1.0f and translation = 0f
+            zoomState.animateReset()
+            assertEquals(1.0f, zoomState.scale, 0.001f)
+            assertEquals(0f, zoomState.translationX, 0.001f)
+            assertEquals(0f, zoomState.translationY, 0.001f)
+            assertEquals(Offset.Zero, zoomState.contentOffset)
+        }
+    }
 }

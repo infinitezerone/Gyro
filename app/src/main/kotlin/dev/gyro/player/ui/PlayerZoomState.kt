@@ -118,13 +118,14 @@ class PlayerZoomState(
     }
 
     /**
-     * Smoothly animates scale and offset back to 1.0x resting center,
-     * eliminating abrupt jarring snaps.
+     * Smoothly animates scale and screen translation back to 1.0x resting center,
+     * maintaining 1:1 visual synchronization between scale expansion and translation movement on screen.
      */
     suspend fun animateReset() {
         val startScale = scale
-        val startOffset = contentOffset
-        if (startScale == 1.0f && startOffset == Offset.Zero) return
+        val startTransX = translationX
+        val startTransY = translationY
+        if (startScale == 1.0f && startTransX == 0f && startTransY == 0f) return
 
         val anim = Animatable(0f)
         anim.animateTo(
@@ -132,11 +133,16 @@ class PlayerZoomState(
             animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
         ) {
             val progress = value
-            scale = startScale + (1.0f - startScale) * progress
-            contentOffset = Offset(
-                x = startOffset.x + (0f - startOffset.x) * progress,
-                y = startOffset.y + (0f - startOffset.y) * progress
-            )
+            val curScale = startScale + (1.0f - startScale) * progress
+            val curTransX = startTransX * (1.0f - progress)
+            val curTransY = startTransY * (1.0f - progress)
+
+            scale = curScale
+            contentOffset = if (curScale > 0f) {
+                Offset(-curTransX / curScale, -curTransY / curScale)
+            } else {
+                Offset.Zero
+            }
         }
         scale = 1.0f
         contentOffset = Offset.Zero
