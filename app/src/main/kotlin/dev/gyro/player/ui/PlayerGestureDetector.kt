@@ -68,8 +68,9 @@ fun Modifier.playerGestures(
     durationMs: () -> Long,
     scrubState: PlayerScrubState,
     zoomScale: () -> Float,
-    onZoomChange: (zoom: Float, pan: Offset, centroid: Offset) -> Unit,
+    onZoomChange: (zoom: Float, pan: Offset, centroid: Offset, isPinch: Boolean) -> Unit,
     onResetZoom: () -> Unit,
+    onSettleZoom: () -> Unit,
     onSingleTap: () -> Unit,
     onDoubleTapSeek: (Long) -> Unit,
     onDoubleTapPlayPause: () -> Unit,
@@ -86,6 +87,7 @@ fun Modifier.playerGestures(
 
     val currentOnZoomChange by rememberUpdatedState(onZoomChange)
     val currentOnResetZoom by rememberUpdatedState(onResetZoom)
+    val currentOnSettleZoom by rememberUpdatedState(onSettleZoom)
     val currentOnSingleTap by rememberUpdatedState(onSingleTap)
     val currentOnDoubleTapSeek by rememberUpdatedState(onDoubleTapSeek)
     val currentOnDoubleTapPlayPause by rememberUpdatedState(onDoubleTapPlayPause)
@@ -174,7 +176,7 @@ fun Modifier.playerGestures(
 
                     if (zoomChange != 1f || panChange != Offset.Zero) {
                         val effectiveCentroid = if (centroid != Offset.Unspecified) centroid else Offset(size.width / 2f, size.height / 2f)
-                        currentOnZoomChange(zoomChange, panChange, effectiveCentroid)
+                        currentOnZoomChange(zoomChange, panChange, effectiveCentroid, true)
                     }
 
                     event.changes.forEach {
@@ -221,6 +223,7 @@ fun Modifier.playerGestures(
                         if (zoomScale() > 1.05f) {
                             // Zoomed in: single finger drag smoothly pans the zoomed video content
                             dragMode = DragMode.PAN_ZOOM
+                            currentOnZoomChange(1.0f, dragDelta, pointer.position, false)
                         } else if (!isEdgeExclusion) {
                             if (abs(dragDelta.x) > abs(dragDelta.y) * 1.5f) {
                                 dragMode = DragMode.HORIZONTAL_SEEK
@@ -245,7 +248,7 @@ fun Modifier.playerGestures(
                         DragMode.PAN_ZOOM -> {
                             pointer.consume()
                             if (posChange != Offset.Zero) {
-                                currentOnZoomChange(1.0f, posChange, pointer.position)
+                                currentOnZoomChange(1.0f, posChange, pointer.position, false)
                             }
                         }
                         DragMode.HORIZONTAL_SEEK -> {
@@ -323,6 +326,8 @@ fun Modifier.playerGestures(
 
                 if (zoomScale() < 1.0f) {
                     currentOnResetZoom()
+                } else {
+                    currentOnSettleZoom()
                 }
                 return@awaitEachGesture
             }

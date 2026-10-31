@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 
 /**
  * Anchored zoom & pan math model,
- * strictly maintaining the touch centroid as the anchor across all scales (both > 1f and < 1f).
+ * strictly maintaining the touch centroid as the anchor across all scales (both > 1f, = 1f, and < 1f).
  *
  * Separates Screen/Viewport coordinates from Content coordinates:
  * - Content Point: screenPoint / scale + offset
@@ -41,13 +41,17 @@ class PlayerZoomState(
     /**
      * Executes anchored zoom transformation:
      * Maintains the exact content point under [centroid] at [centroid + panDelta] across scale changes,
-     * ensuring zooming in and shrinking down both anchor strictly to the two fingers.
+     * ensuring zooming in and shrinking down both anchor strictly to the two fingers without sudden snapping.
+     *
+     * @param isPinch true for multi-touch pinch gestures where the content must remain anchored
+     *                to the fingers without boundary clamping snapping the view to origin at 1.0f.
      */
     fun onGesture(
         zoomChange: Float,
         panDelta: Offset,
         centroid: Offset,
-        viewportSize: Size
+        viewportSize: Size,
+        isPinch: Boolean = false
     ) {
         if (viewportSize.width <= 0f || viewportSize.height <= 0f) return
 
@@ -55,21 +59,30 @@ class PlayerZoomState(
         val targetScale = (currentScale * zoomChange).coerceIn(minScale, maxScale)
 
         // Anchored offset formula:
-        // Maintains the content point under centroid stationary across scale changes
+        // screenPoint = (contentPoint - offset) * scale
+        // anchoredContentPoint = contentOffset + centroid / currentScale
+        // target screen position = centroid + panDelta
+        // nextOffset = anchoredContentPoint - (centroid + panDelta) / targetScale
         val nextOffset = if (currentScale > 0f && targetScale > 0f) {
-            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
+            (contentOffset + centroid / currentScale) - (centroid + panDelta) / targetScale
         } else {
             contentOffset
         }
 
         scale = targetScale
-        contentOffset = clampOffset(nextOffset, targetScale, viewportSize)
+        contentOffset = if (isPinch) {
+            // Keep anchor locked to fingers during pinch gesture (even across 1.0f or below 1.0f)
+            nextOffset
+        } else {
+            // Single-finger drag clamped within content boundary
+            clampOffset(nextOffset, targetScale, viewportSize)
+        }
     }
 
     /**
      * Clamps content offset within viewport boundaries:
      * - scale >= 1.0f: offset clamped in [0, (w * s - w) / s]
-     * - scale < 1.0f: offset clamped in [(w * s - w) / s, 0] so content stays within view while anchored to fingers
+     * - scale < 1.0f: resting center offset ((w - w / s) / 2, (h - h / s) / 2)
      */
     fun clampOffset(
         offset: Offset,
@@ -80,17 +93,19 @@ class PlayerZoomState(
         val h = viewportSize.height
         if (w <= 0f || h <= 0f) return Offset.Zero
 
-        val boundX = (w * targetScale - w) / targetScale
-        val minX = kotlin.math.min(0f, boundX)
-        val maxX = kotlin.math.max(0f, boundX)
+        if (targetScale < 1.0f) {
+            return Offset(
+                x = (w - w / targetScale) / 2f,
+                y = (h - h / targetScale) / 2f
+            )
+        }
 
-        val boundY = (h * targetScale - h) / targetScale
-        val minY = kotlin.math.min(0f, boundY)
-        val maxY = kotlin.math.max(0f, boundY)
+        val maxX = (w * targetScale - w) / targetScale
+        val maxY = (h * targetScale - h) / targetScale
 
         return Offset(
-            x = offset.x.coerceIn(minX, maxX),
-            y = offset.y.coerceIn(minY, maxY)
+            x = offset.x.coerceIn(0f, maxX),
+            y = offset.y.coerceIn(0f, maxY)
         )
     }
 
@@ -125,6 +140,29 @@ class PlayerZoomState(
         }
         scale = 1.0f
         contentOffset = Offset.Zero
+    }
+
+    /**
+     * Smoothly springs contentOffset back into valid resting boundaries,
+     * used when multi-touch release occurs at scale >= 1.0f.
+     */
+    suspend fun animateSettle(viewportSize: Size) {
+        val targetOffset = clampOffset(contentOffset, scale, viewportSize)
+        if (targetOffset == contentOffset) return
+
+        val startOffset = contentOffset
+        val anim = Animatable(0f)
+        anim.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+        ) {
+            val progress = value
+            contentOffset = Offset(
+                x = startOffset.x + (targetOffset.x - startOffset.x) * progress,
+                y = startOffset.y + (targetOffset.y - startOffset.y) * progress
+            )
+        }
+        contentOffset = targetOffset
     }
 
     /**

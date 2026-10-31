@@ -190,7 +190,7 @@ fun PlayerScreen(
             durationMs = { durationMs },
             scrubState = scrubState,
             zoomScale = { zoomState.scale },
-            onZoomChange = { zoom, pan, centroid ->
+            onZoomChange = { zoom, pan, centroid, isPinch ->
                 resetJob?.cancel()
                 resetJob = null
                 val vpSize = containerSize.toSize()
@@ -198,13 +198,21 @@ fun PlayerScreen(
                     zoomChange = zoom,
                     panDelta = pan,
                     centroid = centroid,
-                    viewportSize = vpSize
+                    viewportSize = vpSize,
+                    isPinch = isPinch
                 )
             },
             onResetZoom = {
                 resetJob?.cancel()
                 resetJob = scope.launch {
                     zoomState.animateReset()
+                }
+            },
+            onSettleZoom = {
+                resetJob?.cancel()
+                resetJob = scope.launch {
+                    val vpSize = containerSize.toSize()
+                    zoomState.animateSettle(vpSize)
                 }
             },
             onSingleTap = {
