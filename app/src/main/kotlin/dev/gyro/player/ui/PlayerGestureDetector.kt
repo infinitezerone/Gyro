@@ -148,6 +148,12 @@ fun Modifier.playerGestures(
                 if (pressedPointers.size >= 2) {
                     if (!isMultiTouch) {
                         isMultiTouch = true
+                        lastTapTimestamp = 0L
+                        lastTapPosition = Offset.Zero
+                        singleTapJob?.cancel()
+                        singleTapJob = null
+                        doubleTapJob?.cancel()
+                        doubleTapJob = null
                         longPressJob?.cancel()
                         longPressJob = null
                         if (isLongPressing) {
@@ -203,6 +209,12 @@ fun Modifier.playerGestures(
                 if (!hasPassedTouchSlop) {
                     if (dist > touchSlop) {
                         hasPassedTouchSlop = true
+                        lastTapTimestamp = 0L
+                        lastTapPosition = Offset.Zero
+                        singleTapJob?.cancel()
+                        singleTapJob = null
+                        doubleTapJob?.cancel()
+                        doubleTapJob = null
                         longPressJob?.cancel()
                         longPressJob = null
 
@@ -301,7 +313,14 @@ fun Modifier.playerGestures(
             }
 
             if (isMultiTouch) {
-                // Pinch-to-zoom ended cleanly. If released below 1.0x, snap back to resting center.
+                // Pinch-to-zoom ended cleanly. Reset tap state so it never false-triggers double tap.
+                lastTapTimestamp = 0L
+                lastTapPosition = Offset.Zero
+                singleTapJob?.cancel()
+                singleTapJob = null
+                doubleTapJob?.cancel()
+                doubleTapJob = null
+
                 if (zoomScale() < 1.0f) {
                     currentOnResetZoom()
                 }
@@ -309,6 +328,13 @@ fun Modifier.playerGestures(
             }
 
             if (hasPassedTouchSlop) {
+                lastTapTimestamp = 0L
+                lastTapPosition = Offset.Zero
+                singleTapJob?.cancel()
+                singleTapJob = null
+                doubleTapJob?.cancel()
+                doubleTapJob = null
+
                 if (dragMode == DragMode.HORIZONTAL_SEEK) {
                     val totalDur = durationMs()
                     val finalMs = (scrubState.fraction * totalDur).toLong()
@@ -323,7 +349,7 @@ fun Modifier.playerGestures(
                 return@awaitEachGesture
             }
 
-            // Tap & Double-Tap Processing
+            // Tap & Double-Tap Processing (Only for clean single-finger taps without movement)
             val now = SystemClock.uptimeMillis()
             val timeDelta = now - lastTapTimestamp
             val tapDist = hypot(downPosition.x - lastTapPosition.x, downPosition.y - lastTapPosition.y)
@@ -336,7 +362,7 @@ fun Modifier.playerGestures(
                 lastTapTimestamp = 0L
 
                 if (zoomScale() > 1.05f) {
-                    // Zoomed in: reset scale & pan to 1.0x
+                    // Zoomed in: smoothly reset scale & pan to 1.0x
                     currentOnResetZoom()
                     return@awaitEachGesture
                 }

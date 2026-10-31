@@ -1,5 +1,8 @@
 package dev.gyro.player.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -54,7 +57,7 @@ class PlayerZoomState(
         // Anchored offset formula:
         // Maintains the content point under centroid stationary across scale changes
         val nextOffset = if (currentScale > 0f && targetScale > 0f) {
-            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / targetScale)
+            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
         } else {
             contentOffset
         }
@@ -92,9 +95,34 @@ class PlayerZoomState(
     }
 
     /**
-     * Resets scale and offset back to 1.0x resting center.
+     * Resets scale and offset back to 1.0x resting center immediately.
      */
     fun reset() {
+        scale = 1.0f
+        contentOffset = Offset.Zero
+    }
+
+    /**
+     * Smoothly animates scale and offset back to 1.0x resting center,
+     * eliminating abrupt jarring snaps.
+     */
+    suspend fun animateReset() {
+        val startScale = scale
+        val startOffset = contentOffset
+        if (startScale == 1.0f && startOffset == Offset.Zero) return
+
+        val anim = Animatable(0f)
+        anim.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+        ) {
+            val progress = value
+            scale = startScale + (1.0f - startScale) * progress
+            contentOffset = Offset(
+                x = startOffset.x + (0f - startOffset.x) * progress,
+                y = startOffset.y + (0f - startOffset.y) * progress
+            )
+        }
         scale = 1.0f
         contentOffset = Offset.Zero
     }

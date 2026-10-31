@@ -39,6 +39,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.ui.GyroPlayerSurface
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -141,6 +142,7 @@ fun PlayerScreen(
 
     // 4. Anchored Pinch-to-Zoom & Pan State (Compose Style API Math)
     val zoomState = rememberPlayerZoomState()
+    var resetJob by remember { mutableStateOf<Job?>(null) }
 
     // 5. Power & Thermal Monitor
     val powerMonitor = remember { PowerMonitor(context) }
@@ -189,6 +191,8 @@ fun PlayerScreen(
             scrubState = scrubState,
             zoomScale = { zoomState.scale },
             onZoomChange = { zoom, pan, centroid ->
+                resetJob?.cancel()
+                resetJob = null
                 val vpSize = containerSize.toSize()
                 zoomState.onGesture(
                     zoomChange = zoom,
@@ -198,7 +202,10 @@ fun PlayerScreen(
                 )
             },
             onResetZoom = {
-                zoomState.reset()
+                resetJob?.cancel()
+                resetJob = scope.launch {
+                    zoomState.animateReset()
+                }
             },
             onSingleTap = {
                 showControls = !showControls
