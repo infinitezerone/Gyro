@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.gyro.engine.model.ResizeMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -350,6 +351,31 @@ fun PlayerScreen(
                     resetControlsTimeout()
                     val target = (fraction * durationMs).toLong()
                     engine.seekTo(target)
+                },
+                onRewind10 = {
+                    resetControlsTimeout()
+                    engine.seekRelative(-10_000L)
+                },
+                onForward10 = {
+                    resetControlsTimeout()
+                    engine.seekRelative(10_000L)
+                },
+                onCycleSpeed = {
+                    resetControlsTimeout()
+                    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+                    val nextIdx = (speeds.indexOf(speed) + 1).coerceAtLeast(0) % speeds.size
+                    engine.setSpeed(speeds[nextIdx])
+                },
+                onCycleResizeMode = {
+                    resetControlsTimeout()
+                    val nextMode = when (resizeMode) {
+                        ResizeMode.FIT -> ResizeMode.CROP
+                        ResizeMode.CROP -> ResizeMode.STRETCH
+                        ResizeMode.STRETCH -> ResizeMode.ASPECT_16_9
+                        ResizeMode.ASPECT_16_9 -> ResizeMode.ASPECT_21_9
+                        ResizeMode.ASPECT_21_9 -> ResizeMode.FIT
+                    }
+                    engine.setResizeMode(nextMode)
                 },
                 onOpenTracksSheet = {
                     resetControlsTimeout()
