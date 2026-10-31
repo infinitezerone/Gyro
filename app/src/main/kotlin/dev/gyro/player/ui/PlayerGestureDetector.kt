@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -65,7 +66,7 @@ fun Modifier.playerGestures(
     durationMs: () -> Long,
     scrubState: PlayerScrubState,
     zoomScale: Float,
-    onZoomChange: (Float, Offset) -> Unit,
+    onZoomChange: (zoom: Float, pan: Offset, centroid: Offset) -> Unit,
     onResetZoom: () -> Unit,
     onSingleTap: () -> Unit,
     onDoubleTapSeek: (Long) -> Unit,
@@ -152,8 +153,10 @@ fun Modifier.playerGestures(
 
                     val zoom = event.calculateZoom()
                     val pan = event.calculatePan()
+                    val centroid = event.calculateCentroid(useCurrent = false)
                     if (zoom != 1f || pan != Offset.Zero) {
-                        onZoomChange(zoom, pan)
+                        val effectiveCentroid = if (centroid != Offset.Unspecified) centroid else Offset(size.width / 2f, size.height / 2f)
+                        onZoomChange(zoom, pan, effectiveCentroid)
                     }
                     event.changes.forEach {
                         if (it.positionChanged()) {

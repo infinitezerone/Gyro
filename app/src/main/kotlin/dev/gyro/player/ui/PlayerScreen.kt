@@ -32,6 +32,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.toSize
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -72,9 +73,8 @@ fun PlayerScreen(
     var gestureHudState by remember { mutableStateOf<GestureHudState>(GestureHudState.Idle) }
     val scrubState = remember { PlayerScrubState() }
 
-    // 3. Pinch-to-Zoom & Pan State (0.5x - 4.0x)
-    var zoomScale by remember { mutableFloatStateOf(1.0f) }
-    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    // 3. Anchored Pinch-to-Zoom & Pan State (ComposeStyleAPI Zoom Math)
+    val zoomState = rememberPlayerZoomState()
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     // 4. Power & Thermal Monitor
@@ -126,25 +126,17 @@ fun PlayerScreen(
                 currentPosMs = { timePosMs },
                 durationMs = { durationMs },
                 scrubState = scrubState,
-                zoomScale = zoomScale,
-                onZoomChange = { zoom, pan ->
-                    val newScale = (zoomScale * zoom).coerceIn(0.5f, 4.0f)
-                    zoomScale = newScale
-                    if (newScale > 1.0f && containerSize.width > 0 && containerSize.height > 0) {
-                        val maxPanX = (containerSize.width * (newScale - 1f) / 2f).coerceAtLeast(0f)
-                        val maxPanY = (containerSize.height * (newScale - 1f) / 2f).coerceAtLeast(0f)
-                        val newPan = panOffset + pan
-                        panOffset = Offset(
-                            x = newPan.x.coerceIn(-maxPanX, maxPanX),
-                            y = newPan.y.coerceIn(-maxPanY, maxPanY)
-                        )
-                    } else {
-                        panOffset = Offset.Zero
-                    }
+                zoomScale = zoomState.scale,
+                onZoomChange = { zoom, pan, centroid ->
+                    zoomState.onGesture(
+                        zoomChange = zoom,
+                        panDelta = pan,
+                        centroid = centroid,
+                        viewportSize = containerSize.toSize()
+                    )
                 },
                 onResetZoom = {
-                    zoomScale = 1.0f
-                    panOffset = Offset.Zero
+                    zoomState.reset()
                 },
                 onSingleTap = {
                     showControls = !showControls
@@ -167,19 +159,18 @@ fun PlayerScreen(
                 }
             )
     ) {
-        // A. Direct Native EGL Video Surface with Pinch-to-Zoom Graphics Layer & View Transforms
+        // A. Direct Native EGL Video Surface with Anchored Pinch-to-Zoom Graphics Layer
         GyroPlayerSurface(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = zoomScale
-                    scaleY = zoomScale
-                    translationX = panOffset.x
-                    translationY = panOffset.y
+                    scaleX = zoomState.scale
+                    scaleY = zoomState.scale
+                    translationX = zoomState.translationX
+                    translationY = zoomState.translationY
+                    transformOrigin = zoomState.transformOrigin
                 },
-            engine = engine,
-            zoomScale = zoomScale,
-            panOffset = panOffset
+            engine = engine
         )
 
         // B. Buffering Spinner

@@ -1,0 +1,101 @@
+package dev.gyro.player.ui
+
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PlayerZoomStateTest {
+
+    @Test
+    fun testInitialState() {
+        val zoomState = PlayerZoomState()
+        assertEquals(1.0f, zoomState.scale, 0.001f)
+        assertEquals(Offset.Zero, zoomState.contentOffset)
+        assertEquals(0f, zoomState.translationX, 0.001f)
+        assertEquals(0f, zoomState.translationY, 0.001f)
+        assertFalse(zoomState.isZoomed)
+    }
+
+    @Test
+    fun testCenterPinchToZoom() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+        val centerCentroid = Offset(500f, 300f)
+
+        // Zoom 2x around screen center
+        zoomState.onGesture(
+            zoomChange = 2.0f,
+            panDelta = Offset.Zero,
+            centroid = centerCentroid,
+            viewportSize = viewport
+        )
+
+        assertEquals(2.0f, zoomState.scale, 0.001f)
+        assertTrue(zoomState.isZoomed)
+
+        // Center point in screen coordinates before zoom: (500, 300)
+        // With scale=2 and contentOffset, screenPoint = (contentPoint - offset) * scale
+        // contentPoint at center: offset(0,0) + centroid(500, 300) / 1.0 = (500, 300)
+        // Rendered position: (500 - contentOffset.x) * 2
+        val renderedX = (500f - zoomState.contentOffset.x) * zoomState.scale
+        val renderedY = (300f - zoomState.contentOffset.y) * zoomState.scale
+        assertEquals(500f, renderedX, 0.01f)
+        assertEquals(300f, renderedY, 0.01f)
+    }
+
+    @Test
+    fun testOffCenterAnchoredZoomWithoutSlippage() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+        // Anchor near top-left: (200, 150)
+        val anchor = Offset(200f, 150f)
+
+        // Zoom 2.5x around anchor
+        zoomState.onGesture(
+            zoomChange = 2.5f,
+            panDelta = Offset.Zero,
+            centroid = anchor,
+            viewportSize = viewport
+        )
+
+        assertEquals(2.5f, zoomState.scale, 0.001f)
+
+        // The point under the anchor before zoom was (200, 150)
+        val renderedX = (200f - zoomState.contentOffset.x) * zoomState.scale
+        val renderedY = (150f - zoomState.contentOffset.y) * zoomState.scale
+        assertEquals(200f, renderedX, 0.01f)
+        assertEquals(150f, renderedY, 0.01f)
+    }
+
+    @Test
+    fun testResetZoom() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+        zoomState.onGesture(3.0f, Offset(50f, 50f), Offset(400f, 300f), viewport)
+        assertTrue(zoomState.isZoomed)
+
+        zoomState.reset()
+        assertEquals(1.0f, zoomState.scale, 0.001f)
+        assertEquals(Offset.Zero, zoomState.contentOffset)
+        assertEquals(0f, zoomState.translationX, 0.001f)
+        assertEquals(0f, zoomState.translationY, 0.001f)
+        assertFalse(zoomState.isZoomed)
+    }
+
+    @Test
+    fun testScaleClampingWithinMinMax() {
+        val zoomState = PlayerZoomState(minScale = 0.5f, maxScale = 5.0f)
+        val viewport = Size(1000f, 600f)
+
+        // Try zooming beyond max (10x)
+        zoomState.onGesture(10.0f, Offset.Zero, Offset(500f, 300f), viewport)
+        assertEquals(5.0f, zoomState.scale, 0.001f)
+
+        // Try zooming below min (0.1x)
+        zoomState.onGesture(0.01f, Offset.Zero, Offset(500f, 300f), viewport)
+        assertEquals(0.5f, zoomState.scale, 0.001f)
+    }
+}
