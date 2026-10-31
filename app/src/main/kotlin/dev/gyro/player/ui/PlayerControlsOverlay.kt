@@ -2,6 +2,7 @@ package dev.gyro.player.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -88,8 +89,8 @@ fun BoxScope.PlayerControlsOverlay(
     // 1. Lock Screen Floating Button (Accessible when controls are shown or screen is locked)
     AnimatedVisibility(
         visible = isVisible || isLocked,
-        enter = fadeIn() + scaleIn(initialScale = 0.8f),
-        exit = fadeOut() + scaleOut(targetScale = 0.8f),
+        enter = fadeIn(animationSpec = tween(250)) + scaleIn(initialScale = 0.8f, animationSpec = tween(250)),
+        exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.8f, animationSpec = tween(400)),
         modifier = Modifier
             .align(Alignment.CenterStart)
             .displayCutoutPadding()
@@ -116,8 +117,8 @@ fun BoxScope.PlayerControlsOverlay(
     // 2. Full Interactive Controls (Top Bar & Bottom Bar)
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn(),
-        exit = fadeOut()
+        enter = fadeIn(animationSpec = tween(250)),
+        exit = fadeOut(animationSpec = tween(400))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Top Bar with Cutout Safe Padding & Gradient

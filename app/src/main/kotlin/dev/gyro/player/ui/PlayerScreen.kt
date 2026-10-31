@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -151,22 +153,42 @@ fun PlayerScreen(
         powerMonitor.startMonitoring(this)
     }
 
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    // Reset zoom state on orientation change so portrait pan offsets don't displace video in landscape
+    LaunchedEffect(isLandscape) {
+        resetJob?.cancel()
+        resetJob = null
+        zoomState.reset()
+    }
+
+    var lastInteractionTrigger by remember { mutableLongStateOf(0L) }
+    fun resetControlsTimeout() {
+        lastInteractionTrigger = SystemClock.uptimeMillis()
+    }
+
     // 6. Sticky Immersive System Bars (Transient Swipe)
-    LaunchedEffect(showControls, isPipLayout) {
+    LaunchedEffect(showControls, isPipLayout, isLandscape) {
         val window = activity?.window ?: return@LaunchedEffect
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (showControls && !isPipLayout) {
-            insetsController.show(WindowInsetsCompat.Type.systemBars())
-        } else {
+        if (isLandscape) {
+            // In landscape: ALWAYS keep system bars hidden!
+            // Swiping down from top edge transiently reveals status bar without displacing layout.
             insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            if (showControls && !isPipLayout) {
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
 
-    // 7. Auto-hide controls timer
-    LaunchedEffect(showControls, isPlaying, scrubState.isActive, isLocked, isPipLayout) {
-        if (showControls && isPlaying && !scrubState.isActive && !isLocked && !isPipLayout) {
-            delay(4000L)
+    // 7. Auto-hide controls timer (3.5s of inactivity while playing)
+    LaunchedEffect(showControls, isPlaying, scrubState.isActive, isLocked, isPipLayout, showTracksSheet, lastInteractionTrigger) {
+        if (showControls && isPlaying && !scrubState.isActive && !isLocked && !isPipLayout && !showTracksSheet) {
+            delay(3500L)
             showControls = false
         }
     }
@@ -230,6 +252,9 @@ fun PlayerScreen(
             },
             onSingleTap = {
                 showControls = !showControls
+                if (showControls) {
+                    resetControlsTimeout()
+                }
             },
             onDoubleTapSeek = { deltaMs ->
                 engine.seekRelative(deltaMs)
@@ -312,16 +337,24 @@ fun PlayerScreen(
                 resizeMode = resizeMode,
                 speed = speed,
                 scrubState = scrubState,
-                onTogglePlayPause = { engine.togglePlayPause() },
+                onTogglePlayPause = {
+                    resetControlsTimeout()
+                    engine.togglePlayPause()
+                },
                 onToggleLock = {
+                    resetControlsTimeout()
                     isLocked = !isLocked
                     showControls = !isLocked
                 },
                 onSeekToFraction = { fraction ->
+                    resetControlsTimeout()
                     val target = (fraction * durationMs).toLong()
                     engine.seekTo(target)
                 },
-                onOpenTracksSheet = { showTracksSheet = true },
+                onOpenTracksSheet = {
+                    resetControlsTimeout()
+                    showTracksSheet = true
+                },
                 onEnterPiP = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && componentActivity != null) {
                         if (pipEntering) return@PlayerControlsOverlay
