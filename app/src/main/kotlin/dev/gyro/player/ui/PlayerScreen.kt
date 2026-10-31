@@ -181,6 +181,17 @@ fun PlayerScreen(
         }
     }
 
+    val composeVideoBounds = remember(videoSourceRect) {
+        videoSourceRect?.let {
+            androidx.compose.ui.geometry.Rect(
+                left = it.left.toFloat(),
+                top = it.top.toFloat(),
+                right = it.right.toFloat(),
+                bottom = it.bottom.toFloat()
+            )
+        }
+    }
+
     val gestureModifier = if (!isPipLayout && !pipEntering) {
         Modifier.playerGestures(
             context = context,
@@ -199,20 +210,22 @@ fun PlayerScreen(
                     panDelta = pan,
                     centroid = centroid,
                     viewportSize = vpSize,
+                    contentBounds = composeVideoBounds,
                     isPinch = isPinch
                 )
             },
             onResetZoom = {
                 resetJob?.cancel()
                 resetJob = scope.launch {
-                    zoomState.animateReset()
+                    val vpSize = containerSize.toSize()
+                    zoomState.animateReset(vpSize, composeVideoBounds)
                 }
             },
             onSettleZoom = {
                 resetJob?.cancel()
                 resetJob = scope.launch {
                     val vpSize = containerSize.toSize()
-                    zoomState.animateSettle(vpSize)
+                    zoomState.animateSettle(vpSize, composeVideoBounds)
                 }
             },
             onSingleTap = {

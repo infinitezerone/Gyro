@@ -242,4 +242,45 @@ class PlayerZoomStateTest {
             assertEquals(Offset.Zero, zoomState.contentOffset)
         }
     }
+
+    @Test
+    fun testVerticalAndHorizontalClampingWithContentBounds() {
+        val zoomState = PlayerZoomState()
+        // Portrait viewport: 1000 x 2000, 16:9 video is 1000 x 562, yOffset = (2000 - 562) / 2 = 719
+        val viewport = Size(1000f, 2000f)
+        val videoRect = androidx.compose.ui.geometry.Rect(0f, 719f, 1000f, 1281f)
+
+        // 1. Zoom 1.5x in portrait: scaled height is 562 * 1.5 = 843 <= 2000 (shorter than viewport)
+        // Scaled width is 1000 * 1.5 = 1500 > 1000 (wider than viewport)
+        zoomState.onGesture(
+            zoomChange = 1.5f,
+            panDelta = Offset(500f, 500f), // User tries to pan wildly
+            centroid = Offset(500f, 1000f),
+            viewportSize = viewport,
+            contentBounds = videoRect,
+            isPinch = false
+        )
+
+        // Vertical MUST be locked centered, not swimming freely
+        val expectedY = 719f - (2000f / 1.5f - 562f) / 2f
+        assertEquals(expectedY, zoomState.contentOffset.y, 0.01f)
+
+        // Horizontal MUST be clamped strictly between 0 and (1000 - 1000 / 1.5)
+        val maxOffsetW = 1000f - 1000f / 1.5f
+        assertTrue(zoomState.contentOffset.x in 0f..maxOffsetW)
+
+        // 2. Zoom 4.0x: scaled height is 562 * 4.0 = 2248 > 2000 (taller than viewport)
+        // Now vertical panning is permitted, but strictly bounded between top and bottom video edges
+        zoomState.onGesture(
+            zoomChange = 4.0f / 1.5f,
+            panDelta = Offset(0f, 9999f), // User tries to pan completely offscreen
+            centroid = Offset(500f, 1000f),
+            viewportSize = viewport,
+            contentBounds = videoRect,
+            isPinch = false
+        )
+        val minY = 719f
+        val maxY = 1281f - 2000f / 4.0f
+        assertEquals(minY, zoomState.contentOffset.y, 0.01f) // Clamped to top edge
+    }
 }
