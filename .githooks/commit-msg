@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Gyro Project - Commit Message & English-Only Enforcement Hook
+
+COMMIT_MSG_FILE="$1"
+FIRST_LINE=$(head -n 1 "$COMMIT_MSG_FILE")
+
+# 1. Allow merge commits and initial tags
+if echo "$FIRST_LINE" | grep -qE "^Merge branch|Initial commit"; then
+    exit 0
+fi
+
+# 2. Enforce English-only (Pure ASCII)
+if grep -P -n "[\x80-\xFF]" "$COMMIT_MSG_FILE" >/dev/null 2>&1; then
+    echo "========================================================================"
+    echo "❌ COMMIT REJECTED: NON-ENGLISH / NON-ASCII CHARACTERS DETECTED"
+    echo "------------------------------------------------------------------------"
+    echo "All commit messages in the Gyro project MUST be written in English only."
+    echo "Non-ASCII line(s) found in commit message:"
+    grep -P -n "[\x80-\xFF]" "$COMMIT_MSG_FILE"
+    echo "========================================================================"
+    exit 1
+fi
+
+# 3. Enforce Conventional Commits Format: <type>(<scope>): <subject>
+# Allowed types: feat, fix, perf, refactor, test, build, ci, docs, chore, style, revert
+PATTERN='^(feat|fix|perf|refactor|test|build|ci|docs|chore|style|revert)(\([a-z0-9_\-]+\))?!?: [a-zA-Z0-9].*[^.]$'
+
+if ! echo "$FIRST_LINE" | grep -P -q "$PATTERN"; then
+    echo "========================================================================"
+    echo "❌ COMMIT REJECTED: INVALID CONVENTIONAL COMMIT FORMAT"
+    echo "------------------------------------------------------------------------"
+    echo "Subject was: \"$FIRST_LINE\""
+    echo ""
+    echo "Format must strictly follow: <type>(<scope>): <subject>"
+    echo ""
+    echo "Allowed types:"
+    echo "  feat, fix, perf, refactor, test, build, ci, docs, chore, style, revert"
+    echo ""
+    echo "Common scopes:"
+    echo "  engine   (Rust NDK / EGL / mpv core)"
+    echo "  player   (Kotlin player state machine / engine)"
+    echo "  ui       (Compose player UI / controls)"
+    echo "  shader   (Anime4K / GLSL shader pipeline)"
+    echo "  test     (Automated stress / instrumented tests)"
+    echo "  build    (Gradle / Cargo / NDK build scripts)"
+    echo ""
+    echo "Rules:"
+    echo "  - Must be in English (ASCII only)"
+    echo "  - Do not end subject with a period ('.')"
+    echo "  - Example: feat(ui): add real-time power and performance hud"
+    echo "  - Example: fix(engine): eliminate sync_file fd leak in fence wrapper"
+    echo "========================================================================"
+    exit 1
+fi
+
+# 4. Check subject length (<= 80 chars)
+LEN=${#FIRST_LINE}
+if [ "$LEN" -gt 80 ]; then
+    echo "⚠️  WARNING: Commit subject length is $LEN chars (> 80). Consider keeping it concise."
+fi
+
+exit 0

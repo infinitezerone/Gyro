@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Gyro Project - Pre-Push Safety Guard
+
+echo "🔍 Running pre-push checks..."
+
+# 1. Check for illegally tracked large binary files or build artifacts
+FORBIDDEN_PATTERNS="\.apk$|\.dex$|\.hprof$|/target/|/build/"
+OFFENDING_FILES=$(git diff --name-only origin/master..HEAD 2>/dev/null | grep -E "$FORBIDDEN_PATTERNS" || true)
+
+if [ -n "$OFFENDING_FILES" ]; then
+    echo "========================================================================"
+    echo "❌ PUSH REJECTED: FORBIDDEN BUILD ARTIFACTS OR BINARIES DETECTED"
+    echo "------------------------------------------------------------------------"
+    echo "The following forbidden files are present in the push range:"
+    echo "$OFFENDING_FILES"
+    echo "Please remove them or ensure they are listed in .gitignore."
+    echo "========================================================================"
+    exit 1
+fi
+
+# 2. Validate commit message convention and English-only constraint
+if command -v python >/dev/null 2>&1; then
+    python scripts/validate_commits.py "HEAD~10..HEAD" || exit 1
+elif command -v python3 >/dev/null 2>&1; then
+    python3 scripts/validate_commits.py "HEAD~10..HEAD" || exit 1
+fi
+
+echo "✅ Pre-push verification passed."
+exit 0
