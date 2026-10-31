@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
@@ -107,6 +108,11 @@ fun Modifier.playerGestures(
             val touchSlop = viewConfiguration.touchSlop
             val isEdgeExclusion = downPosition.x < edgeThresholdPx || downPosition.x > size.width - edgeThresholdPx
 
+            val activePointers = mutableMapOf<PointerId, Offset>()
+            activePointers[down.id] = downPosition
+            var prevDistance = 0f
+            var prevCentroid = Offset.Zero
+
             var isMultiTouch = false
             var isLongPressing = false
             var hasPassedTouchSlop = false
@@ -126,15 +132,28 @@ fun Modifier.playerGestures(
 
             while (true) {
                 val event = awaitPointerEvent()
-                val pressed = event.changes.filter { it.pressed }
 
-                if (pressed.isEmpty()) {
+                for (change in event.changes) {
+                    if (change.pressed) {
+                        activePointers[change.id] = change.position
+                    } else {
+                        activePointers.remove(change.id)
+                    }
+                }
+
+                if (activePointers.isEmpty()) {
                     // All fingers lifted
                     break
                 }
 
-                // 1. Two-finger Pinch-to-Zoom & Pan Priority
-                if (pressed.size >= 2) {
+                // 1. Two-finger Pinch-to-Zoom & Pan Priority (Continuous tracking across all packets)
+                if (activePointers.size >= 2) {
+                    val pointerList = activePointers.values.toList()
+                    val p1 = pointerList[0]
+                    val p2 = pointerList[1]
+                    val currentDistance = (p1 - p2).getDistance()
+                    val currentCentroid = (p1 + p2) / 2f
+
                     if (!isMultiTouch) {
                         isMultiTouch = true
                         longPressJob?.cancel()
@@ -149,15 +168,20 @@ fun Modifier.playerGestures(
                             onHudStateChange(GestureHudState.Idle)
                         }
                         dragMode = DragMode.UNDETERMINED
+                        prevDistance = currentDistance
+                        prevCentroid = currentCentroid
+                    } else {
+                        if (prevDistance > 0f) {
+                            val zoom = currentDistance / prevDistance
+                            val pan = currentCentroid - prevCentroid
+                            if (zoom != 1f || pan != Offset.Zero) {
+                                onZoomChange(zoom, pan, prevCentroid)
+                            }
+                        }
+                        prevDistance = currentDistance
+                        prevCentroid = currentCentroid
                     }
 
-                    val zoom = event.calculateZoom()
-                    val pan = event.calculatePan()
-                    val centroid = event.calculateCentroid(useCurrent = false)
-                    if (zoom != 1f || pan != Offset.Zero) {
-                        val effectiveCentroid = if (centroid != Offset.Unspecified) centroid else Offset(size.width / 2f, size.height / 2f)
-                        onZoomChange(zoom, pan, effectiveCentroid)
-                    }
                     event.changes.forEach {
                         if (it.positionChanged()) {
                             it.consume()
@@ -177,7 +201,7 @@ fun Modifier.playerGestures(
                 }
 
                 // 3. Single Pointer Handling
-                val pointer = pressed[0]
+                val pointer = event.changes.firstOrNull { it.pressed } ?: break
                 if (isLongPressing) {
                     // Long press is active: consume drag events without seek/volume/brightness
                     pointer.consume()

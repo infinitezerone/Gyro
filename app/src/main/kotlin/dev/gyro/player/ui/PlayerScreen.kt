@@ -159,7 +159,7 @@ fun PlayerScreen(
                 }
             )
     ) {
-        // A. Direct Native EGL Video Surface with Anchored Pinch-to-Zoom Graphics Layer
+        // A. Direct Native EGL Video Surface with Anchored Pinch-to-Zoom Graphics Layer & View Transforms
         GyroPlayerSurface(
             modifier = Modifier
                 .fillMaxSize()
@@ -170,7 +170,10 @@ fun PlayerScreen(
                     translationY = zoomState.translationY
                     transformOrigin = zoomState.transformOrigin
                 },
-            engine = engine
+            engine = engine,
+            zoomScale = zoomState.scale,
+            translationX = zoomState.translationX,
+            translationY = zoomState.translationY
         )
 
         // B. Buffering Spinner

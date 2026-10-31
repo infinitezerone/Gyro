@@ -69,7 +69,10 @@ class GyroSurfaceView @JvmOverloads constructor(
 @Composable
 fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
-    engine: GyroPlayerEngine? = null
+    engine: GyroPlayerEngine? = null,
+    zoomScale: Float = 1.0f,
+    translationX: Float = 0f,
+    translationY: Float = 0f
 ) {
     val context = LocalContext.current
     val surfaceView = remember {
@@ -87,7 +90,15 @@ fun GyroPlayerSurface(
 
     AndroidView(
         factory = { surfaceView },
-        update = { it.engine = engine },
+        update = { view ->
+            view.engine = engine
+            view.pivotX = 0f
+            view.pivotY = 0f
+            view.scaleX = zoomScale
+            view.scaleY = zoomScale
+            view.translationX = translationX
+            view.translationY = translationY
+        },
         modifier = modifier
     )
 }
