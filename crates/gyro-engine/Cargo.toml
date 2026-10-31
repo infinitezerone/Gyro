@@ -1,0 +1,13 @@
+[package]
+name = "gyro-engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+jni = "0.21"
+libloading = "0.8"

@@ -1,0 +1,21 @@
+*.iml
+.gradle
+local.properties
+.idea/
+.DS_Store
+build/
+**/build/
+captures/
+.externalNativeBuild
+.cxx
+
+# Rust / Cargo build outputs
+target/
+**/target/
+
+# Local diagnostic / test dumps
+*.png
+mpv_comments.*
+mpv_android_comments.*
+
+
