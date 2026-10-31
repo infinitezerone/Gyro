@@ -2,6 +2,7 @@ package dev.gyro.player.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -13,9 +14,12 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -69,7 +73,8 @@ fun formatTime(ms: Long): String {
 @Composable
 fun BoxScope.PlayerHudOverlay(
     hudState: GestureHudState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showBottomBar: Boolean = true
 ) {
     Box(
         modifier = modifier.fillMaxSize()
@@ -179,6 +184,112 @@ fun BoxScope.PlayerHudOverlay(
                                 text = " / ${formatTime(seekState.totalMs)}",
                                 style = TextStyle(
                                     fontSize = 14.sp,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontFeatureSettings = "tnum"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3b. MiniBgm Style Bottom Seek Progress Bar
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.Seek && showBottomBar,
+            enter = fadeIn(animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(350)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+        ) {
+            val seekState = hudState as? GestureHudState.Seek
+            if (seekState != null && seekState.totalMs > 0L) {
+                val fraction = (seekState.targetMs.toFloat() / seekState.totalMs.toFloat()).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
+                            )
+                        )
+                        .displayCutoutPadding()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 24.dp, vertical = 20.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Track
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(14.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            // Inactive Background Track
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Color.White.copy(alpha = 0.25f))
+                            )
+
+                            // Active Played Track with Glowing Thumb
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction)
+                                    .fillMaxHeight(),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(Color(0xFF64B5F6))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color(0xFF64B5F6), CircleShape)
+                                )
+                            }
+                        }
+
+                        // Timestamps below track
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = formatTime(seekState.targetMs),
+                                style = TextStyle(
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64B5F6),
+                                    fontFeatureSettings = "tnum"
+                                )
+                            )
+                            val deltaSign = if (seekState.deltaMs >= 0) "+" else ""
+                            val deltaSec = seekState.deltaMs / 1000L
+                            Text(
+                                text = "${deltaSign}${deltaSec}s",
+                                style = TextStyle(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (seekState.deltaMs >= 0) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                    fontFeatureSettings = "tnum"
+                                )
+                            )
+                            Text(
+                                text = formatTime(seekState.totalMs),
+                                style = TextStyle(
+                                    fontSize = 13.sp,
                                     color = Color.White.copy(alpha = 0.7f),
                                     fontFeatureSettings = "tnum"
                                 )

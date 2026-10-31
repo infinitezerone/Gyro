@@ -316,7 +316,8 @@ fun PlayerScreen(
         // C. MX Player Style Vertical Sliders & Central Seek Card HUD (hidden in PiP)
         if (!isPipLayout && !pipEntering) {
             PlayerHudOverlay(
-                hudState = gestureHudState
+                hudState = gestureHudState,
+                showBottomBar = !showControls
             )
         }
 
