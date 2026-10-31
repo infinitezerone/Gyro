@@ -39,10 +39,6 @@ class PlayerZoomStateTest {
         assertTrue(zoomState.isZoomed)
         assertEquals(TransformOrigin(0f, 0f), zoomState.transformOrigin)
 
-        // Center point in screen coordinates before zoom: (500, 300)
-        // With scale=2 and contentOffset, screenPoint = (contentPoint - offset) * scale
-        // contentPoint at center: offset(0,0) + centroid(500, 300) / 1.0 = (500, 300)
-        // Rendered position: (500 - contentOffset.x) * 2
         val renderedX = (500f - zoomState.contentOffset.x) * zoomState.scale
         val renderedY = (300f - zoomState.contentOffset.y) * zoomState.scale
         assertEquals(500f, renderedX, 0.01f)
@@ -66,11 +62,34 @@ class PlayerZoomStateTest {
 
         assertEquals(2.5f, zoomState.scale, 0.001f)
 
-        // The point under the anchor before zoom was (200, 150)
         val renderedX = (200f - zoomState.contentOffset.x) * zoomState.scale
         val renderedY = (150f - zoomState.contentOffset.y) * zoomState.scale
         assertEquals(200f, renderedX, 0.01f)
         assertEquals(150f, renderedY, 0.01f)
+    }
+
+    @Test
+    fun testShrinkBelowOneAnchoredAroundFingers() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+        val anchor = Offset(400f, 250f)
+
+        // Shrink to 0.8x anchored around (400, 250)
+        zoomState.onGesture(
+            zoomChange = 0.8f,
+            panDelta = Offset.Zero,
+            centroid = anchor,
+            viewportSize = viewport
+        )
+
+        assertEquals(0.8f, zoomState.scale, 0.001f)
+        assertFalse(zoomState.isZoomed)
+
+        // The point under the fingers must remain exactly at (400, 250)
+        val renderedX = (400f - zoomState.contentOffset.x) * zoomState.scale
+        val renderedY = (250f - zoomState.contentOffset.y) * zoomState.scale
+        assertEquals(400f, renderedX, 0.01f)
+        assertEquals(250f, renderedY, 0.01f)
     }
 
     @Test

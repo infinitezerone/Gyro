@@ -12,13 +12,13 @@ import androidx.compose.ui.graphics.TransformOrigin
 
 /**
  * Anchored zoom & pan math model,
- * precisely aligned with 《ComposeStyleAPI Zoom 系统设计与关键算法》 and ReadScreen.kt.
+ * strictly maintaining the touch centroid as the anchor across all scales (both > 1f and < 1f).
  *
  * Separates Screen/Viewport coordinates from Content coordinates:
  * - Content Point: screenPoint / scale + offset
  * - Screen Point: (contentPoint - offset) * scale
  * - graphicsLayer translation: -offset * scale
- * - graphicsLayer transformOrigin: Center when scale < 1.0f else (0, 0)
+ * - graphicsLayer transformOrigin: TransformOrigin(0f, 0f) for strict coordinate alignment
  */
 class PlayerZoomState(
     initialScale: Float = 1.0f,
@@ -37,7 +37,8 @@ class PlayerZoomState(
 
     /**
      * Executes anchored zoom transformation:
-     * Maintains the exact content point under [centroid] at [centroid + panDelta] across scale changes.
+     * Maintains the exact content point under [centroid] at [centroid + panDelta] across scale changes,
+     * ensuring zooming in and shrinking down both anchor strictly to the two fingers.
      */
     fun onGesture(
         zoomChange: Float,
@@ -51,9 +52,9 @@ class PlayerZoomState(
         val targetScale = (currentScale * zoomChange).coerceIn(minScale, maxScale)
 
         // Anchored offset formula:
-        // nextOffset = (currentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
+        // Maintains the content point under centroid stationary across scale changes
         val nextOffset = if (currentScale > 0f && targetScale > 0f) {
-            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / currentScale)
+            (contentOffset + centroid / currentScale) - (centroid / targetScale + panDelta / targetScale)
         } else {
             contentOffset
         }
@@ -63,9 +64,9 @@ class PlayerZoomState(
     }
 
     /**
-     * Clamps content offset within content boundaries:
-     * - Content >= Viewport (targetScale >= 1.0f): [0, (w * s - w) / s]
-     * - Content < Viewport (targetScale < 1.0f): resting centered offset
+     * Clamps content offset within viewport boundaries:
+     * - scale >= 1.0f: offset clamped in [0, (w * s - w) / s]
+     * - scale < 1.0f: offset clamped in [(w * s - w) / s, 0] so content stays within view while anchored to fingers
      */
     fun clampOffset(
         offset: Offset,
@@ -76,20 +77,18 @@ class PlayerZoomState(
         val h = viewportSize.height
         if (w <= 0f || h <= 0f) return Offset.Zero
 
-        return if (targetScale >= 1.0f) {
-            val maxX = ((w * targetScale - w) / targetScale).coerceAtLeast(0f)
-            val maxY = ((h * targetScale - h) / targetScale).coerceAtLeast(0f)
-            Offset(
-                x = offset.x.coerceIn(0f, maxX),
-                y = offset.y.coerceIn(0f, maxY)
-            )
-        } else {
-            // Centered offset when smaller than viewport
-            Offset(
-                x = ((w / 2f) * (targetScale - 1f)) / targetScale,
-                y = ((h / 2f) * (targetScale - 1f)) / targetScale
-            )
-        }
+        val boundX = (w * targetScale - w) / targetScale
+        val minX = kotlin.math.min(0f, boundX)
+        val maxX = kotlin.math.max(0f, boundX)
+
+        val boundY = (h * targetScale - h) / targetScale
+        val minY = kotlin.math.min(0f, boundY)
+        val maxY = kotlin.math.max(0f, boundY)
+
+        return Offset(
+            x = offset.x.coerceIn(minX, maxX),
+            y = offset.y.coerceIn(minY, maxY)
+        )
     }
 
     /**
@@ -110,11 +109,7 @@ class PlayerZoomState(
     val translationY: Float
         get() = -contentOffset.y * scale
 
-    /**
-     * TransformOrigin is Center for scale < 1f, or (0,0) for scale >= 1f
-     */
-    val transformOrigin: TransformOrigin
-        get() = if (scale < 1.0f) TransformOrigin.Center else TransformOrigin(0f, 0f)
+    val transformOrigin: TransformOrigin = TransformOrigin(0f, 0f)
 }
 
 @Composable

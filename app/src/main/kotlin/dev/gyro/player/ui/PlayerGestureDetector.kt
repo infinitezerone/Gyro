@@ -301,7 +301,10 @@ fun Modifier.playerGestures(
             }
 
             if (isMultiTouch) {
-                // Pinch-to-zoom ended cleanly
+                // Pinch-to-zoom ended cleanly. If released below 1.0x, snap back to resting center.
+                if (zoomScale() < 1.0f) {
+                    currentOnResetZoom()
+                }
                 return@awaitEachGesture
             }
 
