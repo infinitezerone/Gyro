@@ -16,20 +16,17 @@ internal object GyroNative {
     private const val TAG = "GyroNative"
 
     init {
-        System.loadLibrary("gyro_engine")
+        try {
+            System.loadLibrary("gyro_engine")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w(TAG, "Native library gyro_engine not loaded: ${e.message}")
+        }
     }
 
-    interface EventListener {
-        fun onEvent(eventId: Int)
-        fun onProperty(name: String)
-        fun onPropertyLong(name: String, value: Long)
-        fun onPropertyDouble(name: String, value: Double)
-        fun onPropertyFlag(name: String, value: Boolean)
-        fun onPropertyString(name: String, value: String)
-    }
+    typealias EventListener = MpvNativeBridge.EventListener
 
     @Volatile
-    var eventListener: EventListener? = null
+    var eventListener: MpvNativeBridge.EventListener? = null
 
     // ---------- JNI Native Methods ----------
 

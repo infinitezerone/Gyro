@@ -11,4 +11,6 @@ sealed interface Screen : NavKey {
     data class Player(val uri: Uri) : Screen
     data object Settings : Screen
     data object FolderManagement : Screen
+    data object MpvConfigEditor : Screen
+    data object GestureSettings : Screen
 }

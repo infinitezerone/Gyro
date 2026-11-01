@@ -168,4 +168,115 @@
     <string name="folders_action_revoke">解除授权</string>
     <string name="folders_revoke_dialog_title">解除目录授权？</string>
     <string name="folders_revoke_dialog_desc">解除后，媒体库将不再索引此目录中的视频文件，现有本地文件不受影响。</string>
+    <!-- Common Elements & Action Additions (R6) -->
+    <string name="common_unknown">未知</string>
+    <string name="common_undetermined">未知语言</string>
+    <string name="common_off">关闭</string>
+    <string name="common_on">开启</string>
+    <string name="common_default">默认</string>
+    <string name="common_custom">自定义</string>
+    <string name="action_play">播放</string>
+    <string name="action_pause">暂停</string>
+    <string name="action_prev">上一集</string>
+    <string name="action_next">下一集</string>
+    <string name="action_stop">停止</string>
+    <string name="folder_custom_default">自定义目录</string>
+    <string name="folder_default_video">视频</string>
+    <string name="track_internal_sub">内置字幕 #%d</string>
+    <string name="track_internal_audio">音频轨道 #%d</string>
+    <string name="track_off">关闭</string>
+    <string name="cd_selected">已选中</string>
+    <string name="cd_brightness">亮度</string>
+    <string name="cd_volume">音量</string>
+    <string name="hud_speed_indicator">%1$.1fX 播放中</string>
+    <string name="hud_rewind_seconds">-%d秒</string>
+    <string name="hud_forward_seconds">+%d秒</string>
+
+    <!-- R1: GLSL Shaders Management -->
+    <string name="sheet_tab_shaders">着色器</string>
+    <string name="shader_off">关闭着色器</string>
+    <string name="shader_cas">AMD CAS 锐化</string>
+    <string name="shader_anime4k">Anime4K 动漫增强</string>
+    <string name="shader_custom">自定义着色器</string>
+    <string name="shader_import_saf">导入本地着色器 (.glsl)</string>
+    <string name="shader_active_badge">生效中</string>
+    <string name="shader_desc_cas">自适应对比度锐化，增强纹理细节与边缘清晰度</string>
+    <string name="shader_desc_anime4k">高质量动漫线条重建与高阶超分辨率重构</string>
+    <string name="shader_desc_custom">从设备本地加载用户提供的 GLSL 着色器文件</string>
+    <string name="shader_import_success">着色器加载成功</string>
+    <string name="shader_import_error">着色器文件读取失败</string>
+
+    <!-- R2: Custom mpv.conf Configuration -->
+    <string name="settings_group_advanced">高级配置</string>
+    <string name="settings_mpv_conf">mpv.conf 高级配置</string>
+    <string name="settings_mpv_conf_desc">自定义 mpv 原生配置文件与底层参数注入</string>
+    <string name="mpv_config_title">mpv.conf 编辑器</string>
+    <string name="mpv_config_save">保存并应用</string>
+    <string name="mpv_config_reset_default">恢复默认配置</string>
+    <string name="mpv_config_saved_toast">配置已保存并生效</string>
+    <string name="mpv_config_reset_dialog_title">恢复默认 mpv.conf？</string>
+    <string name="mpv_config_reset_dialog_desc">此操作将清除所有自定义参数并还原为官方默认推荐配置。</string>
+    <string name="mpv_config_hint">每行一个 mpv 参数，如：\nvo=gpu-next\ngpu-context=android\n# GUI 设置具有最高优先级，覆盖配置文件中的同名选项</string>
+    <string name="mpv_config_help_title">配置指南</string>
+    <string name="mpv_config_help_desc">支持 mpv 原生语法（key=value 或 key）。播放器 GUI 设置（如硬件加速、画面比例、色彩滤镜）将在运行时保持最高优先级。</string>
+
+    <!-- R3: Video Chapters & Scrub Marks -->
+    <string name="sheet_tab_chapters">章节</string>
+    <string name="chapter_empty">视频未包含章节标记</string>
+    <string name="chapter_item_title">章节 %1$d: %2$s</string>
+    <string name="chapter_current_badge">当前章节</string>
+    <string name="chapter_seek_notice">已跳转至章节: %s</string>
+
+    <!-- R4: Audiovisual Enhancements & Overdrive -->
+    <string name="sheet_tab_effects">视听增强</string>
+    <string name="hud_overdrive_badge">超频软增益</string>
+    <string name="hud_volume_overdrive">音量 %d%% (超频)</string>
+    <string name="audio_limiter_active">防破音压限保护生效中</string>
+    <string name="effects_deband">一键去色带 (Deband)</string>
+    <string name="effects_deband_desc">消除视频暗场与色彩渐变中的断层与色块</string>
+    <string name="effects_color_group">画面色彩调节</string>
+    <string name="effects_color_brightness">画面亮度</string>
+    <string name="effects_color_contrast">画面对比度</string>
+    <string name="effects_color_saturation">画面饱和度</string>
+    <string name="effects_color_reset">重置色彩</string>
+    <string name="effects_audio_group">音频增强滤镜</string>
+    <string name="effects_night_dialogue">夜间对白增强 (dynaudnorm)</string>
+    <string name="effects_night_dialogue_desc">动态响度均衡，抑制剧烈爆音并提升人声对白清晰度</string>
+    <string name="effects_stereo_downmix">立体声下混 (Stereo Downmix)</string>
+    <string name="effects_stereo_downmix_desc">将 5.1/7.1 多声道音频下混为双声道立体声输出</string>
+
+    <!-- R5: System Integration & Background MediaSession -->
+    <string name="notification_channel_name">媒体播放</string>
+    <string name="notification_channel_desc">后台音频播放通知与锁屏控制卡片</string>
+    <string name="notification_playing">正在播放</string>
+    <string name="notification_paused">已暂停</string>
+
+    <!-- R7: MX Player Style Custom Gestures -->
+    <string name="settings_group_gestures_detail">手势与操控设置</string>
+    <string name="settings_group_gestures_detail_desc">配置屏幕滑动、双击行为、长按倍速与手势灵敏度</string>
+    <string name="gesture_settings_title">手势与操控设置</string>
+    <string name="settings_gesture_switches_group">手势开关</string>
+    <string name="settings_gesture_volume">垂直滑动调节音量</string>
+    <string name="settings_gesture_volume_desc">屏幕右侧上下滑动调节音量（支持 200% 超频增益）</string>
+    <string name="settings_gesture_brightness">垂直滑动调节亮度</string>
+    <string name="settings_gesture_brightness_desc">屏幕左侧上下滑动调节屏幕亮度</string>
+    <string name="settings_gesture_seek">水平滑动进度调节</string>
+    <string name="settings_gesture_seek_desc">屏幕水平横向滑动进行快退与快进</string>
+    <string name="settings_gesture_double_tap_seek">双击边缘快退/快进</string>
+    <string name="settings_gesture_double_tap_seek_desc">双击左侧快退，双击右侧快进</string>
+    <string name="settings_gesture_double_tap_play">双击中心播放/暂停</string>
+    <string name="settings_gesture_double_tap_play_desc">双击屏幕中央区域切换播放与暂停</string>
+    <string name="settings_gesture_long_press_speed">长按屏幕倍速播放</string>
+    <string name="settings_gesture_long_press_speed_desc">长按屏幕以指定倍速播放，松开恢复正常倍速</string>
+    <string name="settings_gesture_zoom">双指缩放与自由拖拽</string>
+    <string name="settings_gesture_zoom_desc">双指捏合缩放画面，缩放后可自由拖动平移</string>
+    <string name="settings_gesture_swap_sides">左右手习惯对调</string>
+    <string name="settings_gesture_swap_sides_desc">将左侧改为调节音量，右侧改为调节亮度</string>
+    <string name="settings_gesture_tuning_group">手势参数调节</string>
+    <string name="settings_gesture_seek_seconds">双击快进步长</string>
+    <string name="settings_gesture_seek_seconds_val">%d 秒</string>
+    <string name="settings_gesture_speed_multiplier">长按倍速档位</string>
+    <string name="settings_gesture_speed_multiplier_val">%.1fX</string>
+    <string name="settings_gesture_reset_defaults">恢复默认手势设置</string>
+
 </resources>

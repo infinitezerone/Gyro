@@ -1,0 +1,107 @@
+# Project: Gyro Android Player Core Features & Audiovisual Upgrade
+
+## Architecture
+Gyro is a modern Jetpack Compose Android video player powered by a native Rust/mpv engine (`libgyro_engine.so`).
+The codebase is structured into modular layers:
+- `:core:model`: Pure Kotlin data models (`UserSettings`, `PlayerGestureConfig`, `MpvConfig`, `ChapterInfo`, `MediaInfo`, `PlaybackProgress`).
+- `:core:data`: Repositories and persistence (`SettingsRepository`, `MpvConfigRepository`, `PlaybackHistoryRepository`, `CustomFolderManager`).
+- `:core:designsystem`: Design tokens, Compose themes, icons, and centralized localized string resources (`values/strings.xml`, `values-en/strings.xml`).
+- `:core:navigation`: Type-safe Navigation 3 route definitions (`Screen`).
+- `:core:engine`: Native JNI bridge (`GyroNative`), decoupling bridge (`MpvNativeBridge`), and lifecycle player engine (`GyroPlayerEngine`).
+- `:core:testing`: Test fakes, rules, and mock bridges (`FakeMpvNativeBridge`, `MainDispatcherRule`, `TestUri`).
+- `:feature:settings`: Preference screens (`SettingsScreen`, `MpvConfigEditorScreen`, `GestureSettingsScreen`, `FolderManagementScreen`).
+- `:feature:player`: Video playback surface (`GyroSurfaceView`), gesture recognition (`PlayerGestureNode`, `PlayerGestureDetector`), controls overlay (`PlayerControlsOverlay`, `PlayerScrubBar`, `PlayerTrackSelectionSheet`, `PlayerHudOverlay`).
+- `:app`: Application entry point, `MainActivity`, `PlaybackService` foreground media service with `MediaSessionCompat`.
+
+Data Flow:
+- User Preferences & Configurations: `SettingsRepository` & `MpvConfigRepository` (persisted in internal files & prefs) -> `UserSettings` / `MpvConfig` -> injected into `GyroPlayerEngine` and observed by Feature ViewModels.
+- Playback & Audio Pipeline: `GyroPlayerEngine` coordinates mpv native core via `MpvNativeBridge`, driving audio filters (`alimiter`, `dynaudnorm`, stereo downmix), shader hotplugging (`glsl-shaders`), and chapter tracking.
+- Audio Overdrive Flow: Gestures split travel at 100%: 0~100% adjusts Android `AudioManager.STREAM_MUSIC`; 101~200% adjusts internal mpv software gain with dynamic `alimiter` anti-clipping filter and amber HUD. Auto-reset to 100% on track change/exit.
+
+## Feature Inventory
+| # | Feature | Description | Milestone | Source |
+|---|---------|-------------|-----------|--------|
+| 1 | Built-in GLSL Shaders | Asset packaging & extraction of AMD CAS and Anime4K Lite shaders | M2 | R1 |
+| 2 | Custom Shader SAF Import | SAF file picker integration and internal cache for local `.glsl` files | M2, M4 | R1 |
+| 3 | Shader Hot-swapping | Runtime hot-swapping via `change-list glsl-shaders set/clr` | M2 | R1 |
+| 4 | Shaders Selection Tab | Bottom sheet tab in `PlayerTrackSelectionSheet` for shader switching | M4 | R1 |
+| 5 | MpvConfigRepository | File-backed repository persisting custom `mpv.conf` text | M1 | R2 |
+| 6 | MpvConfigEditorScreen | Monospace editor in Settings for `mpv.conf` with guidance and presets | M3 | R2 |
+| 7 | mpv.conf Injection | Injection of custom options into `GyroPlayerEngine` during init | M2 | R2 |
+| 8 | GUI Override Precedence | Guarantee GUI explicit settings override `mpv.conf` pre-init & runtime | M2 | R2 |
+| 9 | Chapter List Parsing | Observe `chapter-list` and parse into `ChapterInfo` models in engine | M2 | R3 |
+| 10 | Glowing Chapter Markers | Render micro-glow tick marks at chapter fractions on `PlayerScrubBar` | M4 | R3 |
+| 11 | Chapter Selection Drawer | List chapters in bottom sheet with formatted time and click-to-seek | M4 | R3 |
+| 12 | 2-Stage Volume Gesture | 0-100% system volume, 101-200% software gain strictly isolated | M2, M4 | R4 |
+| 13 | Overdrive Amber HUD | Top capsule HUD switches to warm amber with overdrive indicator | M4 | R4 |
+| 14 | Software Gain Safety Reset | Auto-reset software gain to 100% (0dB) on video switch or player exit | M2, M4 | R4 |
+| 15 | Audio Limiter Protection | Dynamic `alimiter` filter in `af` to eliminate clipping at 200% volume | M2 | R4 |
+| 16 | Deband Filter Toggle | One-click deband filter toggle (`deband=yes`) | M2, M4 | R4 |
+| 17 | Color Adjustments | Sliders for brightness, contrast, and saturation (-100 to 100) | M2, M4 | R4 |
+| 18 | Night Mode Dialogue | Dynamic Audio Normalizer filter (`dynaudnorm`) for clear dialogue | M2, M4 | R4 |
+| 19 | Stereo Downmixing | Downmix multi-channel audio to 2.0 stereo via `pan` audio filter | M2, M4 | R4 |
+| 20 | Background Playback Service | Foreground `PlaybackService` with `mediaPlayback` type | M5 | R5 |
+| 21 | MediaSession & Notification | `MediaSessionCompat` and `MediaStyle` notification with lock screen card | M5 | R5 |
+| 22 | Headset Controls | Wire and bluetooth headset media button handling | M5 | R5 |
+| 23 | Surface Detachment | Headless background playback with `EGL_NO_SURFACE` | M5 | R5 |
+| 24 | Strings Centralization | All UI strings centralized in `:core:designsystem` | M1, M4 | R6 |
+| 25 | Full Bilingual i18n | Complete paired `values-en/strings.xml` eliminating hardcoded strings | M1, M4 | R6 |
+| 26 | Pure Floating UI Style | Floating controls with 16dp interaction margins, no solid card blocks | M3, M4 | R6 |
+| 27 | Model & Data Gesture Config | Move `PlayerGestureConfig` to `:core:model` & persist in `SettingsRepository` | M1 | R7 |
+| 28 | Gestures Settings Screen | MX Player style graphical switches for gestures and sensitivities | M3 | R7 |
+| 29 | Player Gesture Dynamic Binding | Wire custom gesture config in `PlayerScreen` & restore speed on release | M4 | R7 |
+| 30 | JVM Unit Test Infrastructure | Decoupled `MpvNativeBridge` and `FakeMpvNativeBridge` in `:core:testing` | M2 | AC |
+
+## Milestones
+| # | Name | Scope | Dependencies | Status |
+|---|------|-------|-------------|--------|
+| M1 | Core Foundation: Models, Data, Settings & i18n Strings | `:core:model`, `:core:data`, `:core:navigation`, `:core:designsystem` (strings.xml & values-en) | none | DONE |
+| M2 | Engine Core & Audiovisual Infrastructure | `:core:engine`, `:core:testing` (`MpvNativeBridge`, shaders, mpv.conf injection & overrides, chapters, volume overdrive & limiter, deband, colors, audio filters) | M1 | IN_PROGRESS |
+| M3 | Settings & Configuration UI | `:feature:settings` (`MpvConfigEditorScreen`, `GestureSettingsScreen`, Navigation 3 wiring) | M1 | PLANNED |
+| M4 | Player UI, Gestures & Audiovisual Controls | `:feature:player` (`PlayerTrackSelectionSheet` shaders/chapters/effects tabs, `PlayerScrubBar` chapter ticks, overdrive amber HUD, dynamic gestures, 16dp floating styling) | M1, M2 | PLANNED |
+| M5 | System Integration: Background Playback & MediaSession | `:app`, `:feature:player` (Manifest permissions, `PlaybackService`, `MediaSessionCompat`, notification card, headset controls, headless surface detachment, MainActivity navigation) | M2, M3, M4 | PLANNED |
+| M6 | Final Milestone: 100% E2E Test Pass & Adversarial Hardening | Phase 1: Pass 100% of E2E test suite (Tiers 1-4). Phase 2: Adversarial coverage hardening (Tier 5). | M1, M2, M3, M4, M5, TEST_READY | PLANNED |
+
+## Interface Contracts
+
+### `:core:model` ↔ `:core:data` & `:core:engine`
+- `MpvConfig`: `data class MpvConfig(val rawText: String, val options: Map<String, String>)` with `parse(text: String): Map<String, String>` companion method.
+- `ChapterInfo`: `data class ChapterInfo(val index: Int, val title: String, val timeMs: Long)`.
+- `PlayerGestureConfig`: Migrated from `:feature:player` to `dev.gyro.core.model.PlayerGestureConfig`.
+- `UserSettings`: Embeds `val gestureConfig: PlayerGestureConfig = PlayerGestureConfig()`.
+
+### `:core:data` ↔ `:core:engine` & `:feature:settings`
+- `MpvConfigRepository`:
+  - `val configText: StateFlow<String>`
+  - `suspend fun saveConfig(content: String)`
+  - `suspend fun resetToDefault()`
+  - `fun getParsedOptions(): Map<String, String>`
+  - `fun getConfigFile(): File`
+- `SettingsRepository`:
+  - `val settings: StateFlow<UserSettings>`
+  - Granular and bulk update methods for `PlayerGestureConfig` and `UserSettings`.
+
+### `:core:engine` ↔ `:feature:player` & `:app`
+- `MpvNativeBridge`: Interface abstracting all `GyroNative` calls (`command`, `setOptionString`, `getProperty*`, `setProperty*`, `observeProperty`).
+- `GyroPlayerEngine`:
+  - Shader API: `val shaderState: StateFlow<GlslShaderState>`, `fun setShader(shader: GlslShader, customPath: String? = null)`, `fun clearShader()`.
+  - Chapter API: `val chapters: StateFlow<List<ChapterInfo>>`, `val currentChapter: StateFlow<Int>`, `fun seekToChapter(index: Int)`.
+  - Volume Overdrive & Limiter API: `fun setSoftwareVolume(gain: Double)`, `fun resetSoftwareGain()`.
+  - Audiovisual Filter API: `fun setDeband(enabled: Boolean)`, `fun setBrightness(value: Int)`, `fun setContrast(value: Int)`, `fun setSaturation(value: Int)`, `fun resetColors()`, `fun setNightMode(enabled: Boolean)`, `fun setStereoDownmix(enabled: Boolean)`.
+  - Surface Control: `fun attachSurface(surface: Surface)`, `fun detachSurface()`.
+
+### `:core:navigation` ↔ `:feature:settings` & `:app`
+- `Screen.MpvConfigEditor : Screen`
+- `Screen.GestureSettings : Screen`
+
+## Code Layout
+- Existing conventions across Android Gradle modular structure:
+  - Model definitions: `core/model/src/main/kotlin/dev/gyro/core/model/`
+  - Repositories: `core/data/src/main/kotlin/dev/gyro/core/data/repository/`
+  - Engine & Bridges: `core/engine/src/main/kotlin/dev/gyro/engine/`
+  - Test Fakes & Mocks: `core/testing/src/main/kotlin/dev/gyro/core/testing/`
+  - Strings & Design System: `core/designsystem/src/main/res/values/strings.xml`, `values-en/strings.xml`
+  - Navigation Routes: `core/navigation/src/main/kotlin/dev/gyro/core/navigation/`
+  - Settings UI: `feature/settings/src/main/kotlin/dev/gyro/feature/settings/`
+  - Player UI & Gestures: `feature/player/src/main/kotlin/dev/gyro/feature/player/`
+  - Service & App Entry: `app/src/main/kotlin/dev/gyro/player/`

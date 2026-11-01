@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
@@ -63,6 +63,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.core.data.repository.CompanionSubtitleScanner
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine

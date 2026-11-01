@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.hypot
+import dev.gyro.core.model.PlayerGestureConfig
 
 enum class DragMode {
     UNDETERMINED,

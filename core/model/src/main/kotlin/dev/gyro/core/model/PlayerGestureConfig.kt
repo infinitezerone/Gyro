@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.core.model
 
 /**
  * Configuration for player gestures aligning with MX Player customizable gesture model:

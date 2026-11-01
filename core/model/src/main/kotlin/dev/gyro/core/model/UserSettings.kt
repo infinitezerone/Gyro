@@ -6,5 +6,6 @@ data class UserSettings(
     val seekStepSeconds: Int = 10, // 5, 10, 15, 30
     val defaultHwdec: String = "mediacodec", // "mediacodec", "mediacodec-copy", ""
     val subAutoLoad: Boolean = true,
-    val gesturesEnabled: Boolean = true
+    val gesturesEnabled: Boolean = true,
+    val gestureConfig: PlayerGestureConfig = PlayerGestureConfig()
 )

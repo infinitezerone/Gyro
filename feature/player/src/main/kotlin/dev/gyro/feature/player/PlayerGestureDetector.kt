@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import android.content.Context
 import androidx.compose.runtime.Composable
@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import dev.gyro.core.model.PlayerGestureConfig
 
 enum class DoubleTapSide {
     LEFT,

@@ -1,9 +1,11 @@
 package dev.gyro.core.testing.data
 
 import android.net.TestUri
+import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.PlaybackProgress
+import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 
@@ -47,14 +49,52 @@ object TestData {
         seekStepSeconds: Int = 10,
         defaultHwdec: String = "mediacodec",
         subAutoLoad: Boolean = true,
-        gesturesEnabled: Boolean = true
+        gesturesEnabled: Boolean = true,
+        gestureConfig: PlayerGestureConfig = PlayerGestureConfig()
     ): UserSettings = UserSettings(
         autoResume = autoResume,
         backgroundPlayMode = backgroundPlayMode,
         seekStepSeconds = seekStepSeconds,
         defaultHwdec = defaultHwdec,
         subAutoLoad = subAutoLoad,
-        gesturesEnabled = gesturesEnabled
+        gesturesEnabled = gesturesEnabled,
+        gestureConfig = gestureConfig
+    )
+
+    fun testPlayerGestureConfig(
+        isLocked: Boolean = false,
+        isVolumeEnabled: Boolean = true,
+        isBrightnessEnabled: Boolean = true,
+        isSeekEnabled: Boolean = true,
+        isZoomEnabled: Boolean = true,
+        isDoubleTapSeekEnabled: Boolean = true,
+        isDoubleTapPlayPauseEnabled: Boolean = true,
+        isLongPressSpeedEnabled: Boolean = true,
+        swapVolumeAndBrightness: Boolean = false,
+        doubleTapSeekSeconds: Int = 10,
+        longPressSpeed: Float = 2.0f
+    ): PlayerGestureConfig = PlayerGestureConfig(
+        isLocked = isLocked,
+        isVolumeEnabled = isVolumeEnabled,
+        isBrightnessEnabled = isBrightnessEnabled,
+        isSeekEnabled = isSeekEnabled,
+        isZoomEnabled = isZoomEnabled,
+        isDoubleTapSeekEnabled = isDoubleTapSeekEnabled,
+        isDoubleTapPlayPauseEnabled = isDoubleTapPlayPauseEnabled,
+        isLongPressSpeedEnabled = isLongPressSpeedEnabled,
+        swapVolumeAndBrightness = swapVolumeAndBrightness,
+        doubleTapSeekSeconds = doubleTapSeekSeconds,
+        longPressSpeed = longPressSpeed
+    )
+
+    fun testChapterInfo(
+        index: Int = 0,
+        title: String = "Chapter 1",
+        timeMs: Long = 60_000L
+    ): ChapterInfo = ChapterInfo(
+        index = index,
+        title = title,
+        timeMs = timeMs
     )
 
     fun testMediaInfo(
