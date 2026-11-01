@@ -104,4 +104,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
     }
+
+    fun addCustomFolder(treeUri: android.net.Uri) {
+        val success = repository.addCustomFolder(treeUri)
+        if (success) {
+            refreshVideos()
+        }
+    }
 }

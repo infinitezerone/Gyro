@@ -2,6 +2,7 @@ package dev.gyro.player.data.repository
 
 import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import dev.gyro.player.data.model.VideoMediaItem
@@ -9,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class MediaRepository(private val context: Context) {
+
+    val customFolderManager = CustomFolderManager(context)
 
     suspend fun getVideos(): List<VideoMediaItem> = withContext(Dispatchers.IO) {
         val videoList = mutableListOf<VideoMediaItem>()
@@ -87,6 +90,26 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        videoList
+        // 检索用户主动授权添加的外部自定义目录视频
+        try {
+            val customVideos = customFolderManager.scanCustomFolders()
+            // 去重（避免文件名和大小完全相同的重复项）
+            val existingNames = videoList.map { it.displayName to it.sizeBytes }.toSet()
+            for (item in customVideos) {
+                if ((item.displayName to item.sizeBytes) !in existingNames) {
+                    videoList.add(item)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        videoList.sortedByDescending { it.dateModified }
     }
+
+    fun addCustomFolder(treeUri: Uri): Boolean = customFolderManager.addFolder(treeUri)
+
+    fun removeCustomFolder(treeUri: Uri) = customFolderManager.removeFolder(treeUri)
+
+    fun getSavedCustomFolders(): Set<Uri> = customFolderManager.getSavedFolderUris()
 }

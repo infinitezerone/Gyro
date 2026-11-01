@@ -33,7 +33,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
@@ -49,6 +51,8 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -89,6 +93,13 @@ fun HomeScreen(
         uri?.let { onPlayVideo(it) }
     }
 
+    // SAF Directory Picker (OpenDocumentTree)
+    val openFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri: Uri? ->
+        treeUri?.let { viewModel.addCustomFolder(it) }
+    }
+
     // Permission Launcher
     val requiredPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_VIDEO
@@ -114,6 +125,7 @@ fun HomeScreen(
         uiState = uiState,
         onPlayVideo = onPlayVideo,
         onOpenFile = { openDocumentLauncher.launch(arrayOf("video/*")) },
+        onPickFolder = { openFolderLauncher.launch(null) },
         onRequestPermission = { permissionLauncher.launch(requiredPermission) },
         onRefresh = { viewModel.refreshVideos() },
         onSelectFolder = { viewModel.selectFolder(it) },
@@ -129,6 +141,7 @@ fun HomeContent(
     uiState: HomeUiState,
     onPlayVideo: (Uri) -> Unit,
     onOpenFile: () -> Unit,
+    onPickFolder: () -> Unit,
     onRequestPermission: () -> Unit,
     onRefresh: () -> Unit,
     onSelectFolder: (String?) -> Unit,
@@ -201,6 +214,9 @@ fun HomeContent(
                         IconButton(onClick = { onToggleSearch(true) }) {
                             Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
                         }
+                        IconButton(onClick = onPickFolder) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = "Add Custom Folder", tint = Color.White)
+                        }
                         IconButton(onClick = onOpenFile) {
                             Icon(Icons.Default.FolderOpen, contentDescription = "Open Document", tint = Color.White)
                         }
@@ -232,6 +248,7 @@ fun HomeContent(
                     PermissionCard(
                         onRequestPermission = onRequestPermission,
                         onOpenFile = onOpenFile,
+                        onPickFolder = onPickFolder,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(24.dp)
@@ -250,6 +267,7 @@ fun HomeContent(
                     EmptyVideosCard(
                         isSearching = uiState.isSearching,
                         onOpenFile = onOpenFile,
+                        onPickFolder = onPickFolder,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(24.dp)
@@ -292,6 +310,24 @@ fun HomeContent(
                                         )
                                     )
                                 }
+
+                                InputChip(
+                                    selected = false,
+                                    onClick = onPickFolder,
+                                    label = { Text("添加目录") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64B5F6),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    colors = InputChipDefaults.inputChipColors(
+                                        containerColor = Color(0xFF192535),
+                                        labelColor = Color(0xFF64B5F6)
+                                    )
+                                )
                             }
                         }
 
@@ -436,6 +472,7 @@ fun VideoListItemCard(
 fun PermissionCard(
     onRequestPermission: () -> Unit,
     onOpenFile: () -> Unit,
+    onPickFolder: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -463,18 +500,24 @@ fun PermissionCard(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Gyro 需要存储权限以扫描并展示本地视频文件。您也可以直接使用文件选择器挑选视频播放。",
+                text = "Gyro 需要存储权限以扫描系统视频库。您也可以直接指定要扫描的特定目录或直接选片播放。",
                 fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.65f),
                 modifier = Modifier.padding(horizontal = 8.dp)
             )
             Spacer(modifier = Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onRequestPermission,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
                 ) {
                     Text("授予权限")
+                }
+                Button(
+                    onClick = onPickFolder,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E3545))
+                ) {
+                    Text("选择目录")
                 }
                 Button(
                     onClick = onOpenFile,
@@ -491,6 +534,7 @@ fun PermissionCard(
 fun EmptyVideosCard(
     isSearching: Boolean,
     onOpenFile: () -> Unit,
+    onPickFolder: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -518,17 +562,25 @@ fun EmptyVideosCard(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = if (isSearching) "请尝试更换关键词搜索" else "设备中未检索到视频，您可以点击下方按钮从文件管理器中打开视频",
+                text = if (isSearching) "请尝试更换关键词搜索" else "设备中未检索到视频，您可以添加自定义目录进行扫描，或直接打开单文件",
                 fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.6f)
             )
             if (!isSearching) {
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onOpenFile,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
-                ) {
-                    Text("打开本地视频文件")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = onPickFolder,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+                    ) {
+                        Text("添加本地目录")
+                    }
+                    Button(
+                        onClick = onOpenFile,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E3545))
+                    ) {
+                        Text("打开单文件")
+                    }
                 }
             }
         }

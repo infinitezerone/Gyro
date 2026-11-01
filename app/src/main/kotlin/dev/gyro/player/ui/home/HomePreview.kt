@@ -75,6 +75,7 @@ fun HomeScreenPreview() {
         uiState = state,
         onPlayVideo = {},
         onOpenFile = {},
+        onPickFolder = {},
         onRequestPermission = {},
         onRefresh = {},
         onSelectFolder = {},
