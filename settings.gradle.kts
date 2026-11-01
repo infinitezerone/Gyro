@@ -1,5 +1,7 @@
 pluginManagement {
     repositories {
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/public")
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -15,6 +17,8 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/public")
         google()
         mavenCentral()
     }
@@ -38,3 +42,8 @@ include(":core:model")
 include(":core:data")
 include(":core:navigation")
 include(":core:engine")
+include(":core:designsystem")
+include(":core:testing")
+include(":feature:settings")
+include(":feature:home")
+include(":feature:player")

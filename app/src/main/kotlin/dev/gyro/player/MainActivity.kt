@@ -23,14 +23,14 @@ import androidx.navigation3.ui.NavDisplay
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.navigation.Screen
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.player.ui.PlayerScreen
-import dev.gyro.player.ui.buildPipParams
-import dev.gyro.player.ui.folders.FolderManagementScreen
-import dev.gyro.player.ui.folders.FolderManagementViewModel
-import dev.gyro.player.ui.home.HomeScreen
-import dev.gyro.player.ui.home.HomeViewModel
-import dev.gyro.player.ui.settings.SettingsScreen
-import dev.gyro.player.ui.settings.SettingsViewModel
+import dev.gyro.feature.home.HomeScreen
+import dev.gyro.feature.home.HomeViewModel
+import dev.gyro.feature.player.PlayerScreen
+import dev.gyro.feature.player.buildPipParams
+import dev.gyro.feature.settings.SettingsScreen
+import dev.gyro.feature.settings.SettingsViewModel
+import dev.gyro.feature.settings.folders.FolderManagementScreen
+import dev.gyro.feature.settings.folders.FolderManagementViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {

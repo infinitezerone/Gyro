@@ -1,0 +1,162 @@
+﻿package dev.gyro.feature.player
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
+import dev.gyro.engine.model.ResizeMode
+
+@Preview(
+    name = "Portrait Controls - Full Screen",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF000000
+)
+@Composable
+fun PlayerControlsPortraitPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF101010))
+    ) {
+        // Simulated 16:9 Video centered in portrait screen
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .align(Alignment.Center)
+                .background(Color(0xFF222530)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Simulated 16:9 Video Frame", color = Color.White.copy(alpha = 0.6f))
+        }
+
+        PlayerControlsOverlay(
+            isVisible = true,
+            isLocked = false,
+            title = "Big Buck Bunny",
+            mediaSubtitle = "1920×1080 · 60fps · HW",
+            isPlaying = true,
+            timePosMs = 325_000L,
+            durationMs = 600_000L,
+            bufferedPosMs = 450_000L,
+            hwdec = "mediacodec",
+            fps = 60.0,
+            droppedFrames = 0L,
+            powerMetrics = PowerMetrics(0.0, 32),
+            resizeMode = ResizeMode.FIT,
+            speed = 1.0f,
+            scrubState = PlayerScrubState(),
+            onTogglePlayPause = {},
+            onSeekToFraction = {},
+            onRewind10 = {},
+            onForward10 = {},
+            onOpenSheetTab = {},
+            onToggleOrientation = {},
+            onBack = {},
+            onEnterPiP = {},
+            onToggleLock = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Landscape Controls - Dual Row",
+    device = "spec:width=891dp,height=411dp",
+    showBackground = true,
+    backgroundColor = 0xFF000000
+)
+@Composable
+fun PlayerControlsLandscapePreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF181824))
+    ) {
+        PlayerControlsOverlay(
+            isVisible = true,
+            isLocked = false,
+            title = "Big Buck Bunny",
+            mediaSubtitle = "1920×1080 · 60fps · HW",
+            isPlaying = true,
+            timePosMs = 325_000L,
+            durationMs = 600_000L,
+            bufferedPosMs = 450_000L,
+            hwdec = "mediacodec",
+            fps = 60.0,
+            droppedFrames = 0L,
+            powerMetrics = PowerMetrics(0.0, 32),
+            resizeMode = ResizeMode.FIT,
+            speed = 1.0f,
+            scrubState = PlayerScrubState(),
+            onTogglePlayPause = {},
+            onSeekToFraction = {},
+            onRewind10 = {},
+            onForward10 = {},
+            onOpenSheetTab = {},
+            onToggleOrientation = {},
+            onBack = {},
+            onEnterPiP = {},
+            onToggleLock = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Media Info Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerMediaInfoSheetPreview() {
+    val sampleMediaInfo = dev.gyro.core.model.MediaInfo(
+        title = "Suzume.no.Tojimari.2022.1080p.BluRay.x265.mkv",
+        pathOrUri = "/storage/emulated/0/Movies/Suzume.mkv",
+        containerFormat = "matroska",
+        fileSize = 4_831_838_208L,
+        durationMs = 7_260_000L,
+        videoCodec = "hevc (Main 10)",
+        videoResolution = "1920 × 1080",
+        videoFps = 23.976,
+        videoBitrate = 4_800_000L,
+        audioCodec = "flac",
+        audioChannels = "5.1 (side)",
+        audioSampleRate = 48_000L,
+        audioBitrate = 640_000L,
+        hwdecCurrent = "mediacodec",
+        droppedFrames = 0L
+    )
+
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.INFO,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            hwdec = "mediacodec",
+            fps = 23.976,
+            videoWidth = 1920,
+            videoHeight = 1080,
+            mediaInfo = sampleMediaInfo,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}

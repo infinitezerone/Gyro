@@ -36,6 +36,10 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:navigation"))
     implementation(project(":core:engine"))
+    implementation(project(":core:designsystem"))
+    implementation(project(":feature:home"))
+    implementation(project(":feature:player"))
+    implementation(project(":feature:settings"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -53,5 +57,5 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(project(":core:testing"))
 }
