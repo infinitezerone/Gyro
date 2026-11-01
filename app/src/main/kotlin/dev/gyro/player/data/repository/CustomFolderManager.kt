@@ -60,7 +60,7 @@ class CustomFolderManager(private val context: Context) {
 
         for (treeUri in uris) {
             try {
-                scanTreeRecursive(treeUri, result, depth = 0, maxDepth = 3)
+                scanTreeIterative(treeUri, result, maxDepth = 15)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -68,17 +68,28 @@ class CustomFolderManager(private val context: Context) {
         result
     }
 
-    private fun scanTreeRecursive(
+    /**
+     * 基于 BFS 广度优先迭代队列的目录扫描：
+     * 1. 彻底解除 3 级限制，支持影视/动漫常见的多层级深层目录 (放宽至 15 级安全上限)；
+     * 2. 具备已访问 docId 环路检测，从根本上防止软链接死循环；
+     * 3. 自动跳过 . 开头的隐藏目录与系统缓存目录，兼顾深层遍历与高性能；
+     * 4. 采用队列迭代而非深度递归，杜绝深层调用栈溢出 (StackOverflow)。
+     */
+    private fun scanTreeIterative(
         treeUri: Uri,
         outList: MutableList<VideoMediaItem>,
-        depth: Int,
-        maxDepth: Int,
-        parentDocId: String? = null
+        maxDepth: Int = 15
     ) {
-        if (depth > maxDepth) return
+        val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val initialFolderName = rootDocId.substringAfterLast(":").substringAfterLast("/").ifBlank { "自定义目录" }
 
-        val rootDocId = parentDocId ?: DocumentsContract.getTreeDocumentId(treeUri)
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootDocId)
+        data class DirQueueItem(val docId: String, val folderName: String, val depth: Int)
+
+        val queue = ArrayDeque<DirQueueItem>()
+        val visitedDocIds = mutableSetOf<String>()
+
+        queue.add(DirQueueItem(rootDocId, initialFolderName, depth = 0))
+        visitedDocIds.add(rootDocId)
 
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -88,43 +99,58 @@ class CustomFolderManager(private val context: Context) {
             DocumentsContract.Document.COLUMN_LAST_MODIFIED
         )
 
-        val folderName = rootDocId.substringAfterLast(":").substringAfterLast("/").ifBlank { "自定义目录" }
+        while (queue.isNotEmpty()) {
+            val (currentDocId, currentFolderName, currentDepth) = queue.removeFirst()
+            if (currentDepth > maxDepth) continue
 
-        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            val sizeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
-            val modCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, currentDocId)
 
-            while (cursor.moveToNext()) {
-                val docId = cursor.getString(idCol)
-                val displayName = cursor.getString(nameCol) ?: "Unknown"
-                val mimeType = cursor.getString(mimeCol) ?: ""
-                val size = cursor.getLong(sizeCol)
-                val lastModified = cursor.getLong(modCol)
+            try {
+                context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    val sizeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+                    val modCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
 
-                if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    scanTreeRecursive(treeUri, outList, depth + 1, maxDepth, docId)
-                } else if (isVideoFile(displayName, mimeType)) {
-                    val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                    val pseudoId = docId.hashCode().toLong()
+                    while (cursor.moveToNext()) {
+                        val docId = cursor.getString(idCol)
+                        val displayName = cursor.getString(nameCol) ?: "Unknown"
+                        val mimeType = cursor.getString(mimeCol) ?: ""
+                        val size = cursor.getLong(sizeCol)
+                        val lastModified = cursor.getLong(modCol)
 
-                    outList.add(
-                        VideoMediaItem(
-                            id = pseudoId,
-                            uri = fileUri,
-                            displayName = displayName,
-                            durationMs = 0L, // Custom SAF docs don't have instant duration without retriever
-                            sizeBytes = size,
-                            width = 0,
-                            height = 0,
-                            dateModified = lastModified / 1000L,
-                            folderName = folderName,
-                            mimeType = mimeType
-                        )
-                    )
+                        // 忽略隐藏文件夹与隐藏文件（如 .git, .cache, .thumbnails 等）
+                        if (displayName.startsWith(".")) continue
+
+                        if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            if (currentDepth < maxDepth && visitedDocIds.add(docId)) {
+                                queue.add(DirQueueItem(docId, displayName, currentDepth + 1))
+                            }
+                        } else if (isVideoFile(displayName, mimeType)) {
+                            val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                            val pseudoId = docId.hashCode().toLong()
+
+                            outList.add(
+                                VideoMediaItem(
+                                    id = pseudoId,
+                                    uri = fileUri,
+                                    displayName = displayName,
+                                    durationMs = 0L,
+                                    sizeBytes = size,
+                                    width = 0,
+                                    height = 0,
+                                    dateModified = lastModified / 1000L,
+                                    folderName = currentFolderName,
+                                    mimeType = mimeType
+                                )
+                            )
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                // 忽略单个无权子目录报错，不阻断其余扫描
+                e.printStackTrace()
             }
         }
     }
