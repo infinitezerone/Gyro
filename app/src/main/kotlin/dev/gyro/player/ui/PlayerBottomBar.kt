@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
@@ -25,7 +24,6 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -42,18 +40,8 @@ import dev.gyro.engine.model.ResizeMode
 /**
  * 底部控制栏统一组件 (PlayerBottomBar)
  *
- * 布局结构（全状态统一双行 Dual-Row 现代范式）：
- * 1. 拖动屏幕 Seek 时 (Screen Scrub Only)：
- *    仅显示全宽通栏进度条与实时目标时间，画面纯净；
- *
- * 2. 竖屏模式 (Portrait Mode)：
- *    - Row 1: 独占全屏宽度的高精度通栏进度条 (PlayerScrubBar)
- *    - Row 2: [左侧: 播放/暂停 + 实时等宽时间] ------- [右侧: 倍速胶囊 + 画面比例胶囊 + 全屏旋转按键]
- *    - 快进/快退统一由屏幕左右双击手势承载，无冗余按键挤压；
- *
- * 3. 横屏模式 (Landscape Mode)：
- *    - Row 1: 全宽通栏自适应进度条
- *    - Row 2: [左侧: 播放/暂停 + 实时等宽时间] ------- [右侧: 倍速 + 画幅 + 音画校准 + 字幕轨 + 退出全屏]
+ * 所有按键均采用【纯悬浮无背景】设计风格，零任何遮挡色块与药丸底色，
+ * 视觉极致清透无干扰，与视频画面浑然一体。
  */
 @Composable
 fun PlayerBottomBar(
@@ -77,7 +65,7 @@ fun PlayerBottomBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))
                 )
             )
             .displayCutoutPadding()
@@ -131,7 +119,7 @@ fun PlayerBottomBar(
         } else if (!isLandscape) {
             // B. 现代竖屏双行布局 (Portrait Dual-Row Layout)
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Row 1: 全宽通栏自适应进度条（全宽行程，拖拽精度最大化）
+                // Row 1: 全宽通栏自适应进度条
                 PlayerScrubBar(
                     timePosMs = timePosMs,
                     durationMs = durationMs,
@@ -142,29 +130,27 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Row 2: 黄金触达控制行 (40dp 高度)
+                // Row 2: 纯悬浮无背景控制行 (40dp 高度)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(40.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧：播放/暂停按键
+                    // 左侧：纯悬浮无背景 播放/暂停按键
                     IconButton(
                         onClick = onTogglePlayPause,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // 紧跟播放键的当前时间 / 总时长（等宽字体防抖动）
                     Text(
@@ -179,57 +165,45 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // 右侧：倍速胶囊（单手切倍速）
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White.copy(alpha = 0.15f),
+                    // 右侧：纯悬浮无背景 倍速
+                    Box(
                         modifier = Modifier
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .clickable { onOpenSheetTab(PlayerSheetTab.SPEED) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${speed}x",
-                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            )
-                        }
+                        Text(
+                            text = "${speed}x",
+                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
-                    // 画面比例胶囊 (适应/CROP)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White.copy(alpha = 0.15f),
+                    // 纯悬浮无背景 画面比例
+                    Box(
                         modifier = Modifier
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .clickable { onOpenSheetTab(PlayerSheetTab.ASPECT) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = resizeMode.label,
-                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            )
-                        }
+                        Text(
+                            text = resizeMode.label,
+                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(4.dp))
 
                     // 全屏切换按键
-                    IconButton(onClick = onToggleOrientation, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onToggleOrientation, modifier = Modifier.size(38.dp)) {
                         Icon(
                             imageVector = Icons.Default.Fullscreen,
                             contentDescription = "Fullscreen",
                             tint = Color.White,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -248,29 +222,27 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Row 2: 横屏双手控制行 (40dp 高度)
+                // Row 2: 横屏纯悬浮无背景控制行 (40dp 高度)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(40.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧：播放/暂停
+                    // 左侧：纯悬浮无背景 播放/暂停
                     IconButton(
                         onClick = onTogglePlayPause,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // 紧跟播放键的时间
                     Text(
@@ -285,67 +257,55 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // 右侧：倍速快捷胶囊
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White.copy(alpha = 0.15f),
+                    // 右侧：纯悬浮无背景 倍速
+                    Box(
                         modifier = Modifier
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .clickable { onOpenSheetTab(PlayerSheetTab.SPEED) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${speed}x",
-                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            )
-                        }
+                        Text(
+                            text = "${speed}x",
+                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
-                    // 画幅快捷胶囊
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White.copy(alpha = 0.15f),
+                    // 纯悬浮无背景 画幅
+                    Box(
                         modifier = Modifier
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .clickable { onOpenSheetTab(PlayerSheetTab.ASPECT) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = resizeMode.label,
-                                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            )
-                        }
+                        Text(
+                            text = resizeMode.label,
+                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     // 音画校准快捷入口 (Tune)
-                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SYNC) }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.Tune, contentDescription = "Sync", tint = Color.White, modifier = Modifier.size(19.dp))
+                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SYNC) }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Tune, contentDescription = "Sync", tint = Color.White, modifier = Modifier.size(22.dp))
                     }
 
                     Spacer(modifier = Modifier.width(2.dp))
 
                     // 轨道与字幕快捷入口
-                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.Subtitles, contentDescription = "Tracks", tint = Color.White, modifier = Modifier.size(19.dp))
+                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Subtitles, contentDescription = "Tracks", tint = Color.White, modifier = Modifier.size(22.dp))
                     }
 
                     Spacer(modifier = Modifier.width(2.dp))
 
                     // 退出全屏 / 返回竖屏
-                    IconButton(onClick = onToggleOrientation, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(22.dp))
+                    IconButton(onClick = onToggleOrientation, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(24.dp))
                     }
                 }
             }

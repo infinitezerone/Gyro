@@ -7,20 +7,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,7 +65,7 @@ fun BoxScope.PlayerControlsOverlay(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 锁屏浮动悬浮球（位于左侧中央边缘 Alignment.CenterStart，无论是锁定时还是控制栏显现时均可操作）
+        // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，纯悬浮无背景）
         AnimatedVisibility(
             visible = isVisible || isLocked,
             enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -76,23 +73,18 @@ fun BoxScope.PlayerControlsOverlay(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .displayCutoutPadding()
-                .padding(start = 20.dp)
+                .padding(start = 16.dp)
         ) {
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.65f),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
-                shadowElevation = 6.dp,
+            IconButton(
+                onClick = onToggleLock,
                 modifier = Modifier.size(44.dp)
             ) {
-                IconButton(onClick = onToggleLock) {
-                    Icon(
-                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (isLocked) "Unlock Screen" else "Lock Screen",
-                        tint = if (isLocked) Color(0xFFFFB74D) else Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                Icon(
+                    imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = if (isLocked) "Unlock Screen" else "Lock Screen",
+                    tint = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(26.dp)
+                )
             }
         }
 
