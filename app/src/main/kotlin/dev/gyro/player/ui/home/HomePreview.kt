@@ -84,7 +84,7 @@ fun HomeScreenPreview() {
 
     HomeContent(
         uiState = state,
-        onPlayVideo = {},
+        onPlayVideo = { _, _ -> },
         onOpenFile = {},
         onPickFolder = {},
         onOpenSettings = {},

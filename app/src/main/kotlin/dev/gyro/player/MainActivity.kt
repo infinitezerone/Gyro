@@ -21,6 +21,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.player.data.repository.PlaylistManager
 import dev.gyro.player.ui.PlayerScreen
 import dev.gyro.player.ui.buildPipParams
 import dev.gyro.player.ui.home.HomeScreen
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class MainActivity : ComponentActivity() {
 
     private lateinit var playerEngine: GyroPlayerEngine
+    private val playlistManager = PlaylistManager()
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val incomingIntentUri = MutableStateFlow<Uri?>(null)
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
+                    playlistManager.setSingle(uri, uri.lastPathSegment ?: "Video")
                     backStack.add(Screen.Player(uri))
                     val startPos = if (settings.autoResume) {
                         val progress = historyRepository.getProgress(uri)
@@ -101,15 +104,17 @@ class MainActivity : ComponentActivity() {
                         entry<Screen.Home> {
                             HomeScreen(
                                 viewModel = homeViewModel,
-                                onPlayVideo = { uri ->
-                                    backStack.add(Screen.Player(uri))
+                                onPlayVideo = { item, currentList ->
+                                    val idx = currentList.indexOfFirst { it.uri == item.uri }
+                                    playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
+                                    backStack.add(Screen.Player(item.uri))
                                     val startPos = if (settings.autoResume) {
-                                        val progress = historyRepository.getProgress(uri)
+                                        val progress = historyRepository.getProgress(item.uri)
                                         if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
                                             progress.positionMs
                                         } else 0L
                                     } else 0L
-                                    playerEngine.loadUri(uri, startPos)
+                                    playerEngine.loadUri(item.uri, startPos)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
@@ -123,6 +128,7 @@ class MainActivity : ComponentActivity() {
                                 currentUri = playerScreen.uri,
                                 settings = settings,
                                 historyRepository = historyRepository,
+                                playlistManager = playlistManager,
                                 onBack = {
                                     playerEngine.pause()
                                     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

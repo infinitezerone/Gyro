@@ -62,7 +62,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.R
+import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.player.data.repository.CompanionSubtitleScanner
 import dev.gyro.player.data.repository.PlaybackHistoryRepository
+import dev.gyro.player.data.repository.PlaylistManager
 import dev.gyro.player.data.repository.UserSettings
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
@@ -78,6 +81,7 @@ fun PlayerScreen(
     currentUri: Uri? = null,
     settings: UserSettings = UserSettings(),
     historyRepository: PlaybackHistoryRepository? = null,
+    playlistManager: PlaylistManager? = null,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -111,6 +115,57 @@ fun PlayerScreen(
     val subPos by engine.subPos.collectAsState()
     val videoDimensions by engine.videoDimensions.collectAsState()
     val mediaTitle by engine.mediaTitle.collectAsState()
+
+    var activeUri by remember(currentUri) { mutableStateOf(currentUri) }
+
+    val playlist by (playlistManager?.items ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }).collectAsState()
+    val currentPlaylistIndex by (playlistManager?.currentIndex ?: remember { kotlinx.coroutines.flow.MutableStateFlow(-1) }).collectAsState()
+    val hasPrevious = playlistManager?.hasPrevious ?: false
+    val hasNext = playlistManager?.hasNext ?: false
+
+    fun playMediaItem(item: VideoMediaItem) {
+        activeUri?.let { oldUri ->
+            val curPos = engine.timePosMs.value
+            val curDur = engine.durationMs.value
+            if (curDur > 0L) {
+                historyRepository?.saveProgress(oldUri, curPos, curDur)
+            }
+        }
+
+        activeUri = item.uri
+        val startPos = if (settings.autoResume) {
+            val p = historyRepository?.getProgress(item.uri)
+            if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
+        } else 0L
+
+        engine.loadUri(item.uri, startPos)
+
+        if (settings.subAutoLoad) {
+            val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, item.uri, item.displayName)
+            subs.forEach { path -> engine.addSubtitle(path) }
+        }
+    }
+
+    // Auto-advance to next video when current video completes
+    LaunchedEffect(playbackState) {
+        if (playbackState == PlaybackState.ENDED && playlistManager != null && playlistManager.hasNext) {
+            delay(500L)
+            val next = playlistManager.playNext()
+            if (next != null) {
+                playMediaItem(next)
+            }
+        }
+    }
+
+    // Auto-load companion subtitles when opening media
+    LaunchedEffect(activeUri) {
+        activeUri?.let { uri ->
+            if (settings.subAutoLoad) {
+                val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri)
+                subs.forEach { path -> engine.addSubtitle(path) }
+            }
+        }
+    }
 
     // Clear any residual MPV native video-zoom
     LaunchedEffect(Unit) {
@@ -288,35 +343,35 @@ fun PlayerScreen(
     }
 
     // Periodic progress persistence (every 4s while playing)
-    LaunchedEffect(isPlaying, currentUri, historyRepository) {
-        if (isPlaying && currentUri != null && historyRepository != null) {
+    LaunchedEffect(isPlaying, activeUri, historyRepository) {
+        if (isPlaying && activeUri != null && historyRepository != null) {
             while (true) {
                 delay(4000L)
                 val curPos = engine.timePosMs.value
                 val curDur = engine.durationMs.value
                 if (curDur > 0L) {
-                    historyRepository.saveProgress(currentUri, curPos, curDur)
+                    historyRepository.saveProgress(activeUri!!, curPos, curDur)
                 }
             }
         }
     }
 
     // Save on disposal (when leaving player screen or switching videos)
-    DisposableEffect(currentUri, historyRepository) {
+    DisposableEffect(activeUri, historyRepository) {
         onDispose {
-            if (currentUri != null && historyRepository != null) {
+            if (activeUri != null && historyRepository != null) {
                 val curPos = engine.timePosMs.value
                 val curDur = engine.durationMs.value
                 if (curDur > 0L) {
-                    historyRepository.saveProgress(currentUri, curPos, curDur)
+                    historyRepository.saveProgress(activeUri!!, curPos, curDur)
                 }
             }
         }
     }
 
     // Show brief top notice if auto-resumed at a position > 2s
-    var hasShownResumeNotice by remember(currentUri) { mutableStateOf(false) }
-    LaunchedEffect(timePosMs, currentUri) {
+    var hasShownResumeNotice by remember(activeUri) { mutableStateOf(false) }
+    LaunchedEffect(timePosMs, activeUri) {
         if (!hasShownResumeNotice && timePosMs > 2000L && playbackState == PlaybackState.READY) {
             hasShownResumeNotice = true
             gestureHudState = GestureHudState.Notice(
@@ -499,9 +554,19 @@ fun PlayerScreen(
                 resizeMode = resizeMode,
                 speed = speed,
                 scrubState = scrubState,
+                hasPrevious = hasPrevious,
+                hasNext = hasNext,
                 onTogglePlayPause = {
                     resetControlsTimeout()
                     engine.togglePlayPause()
+                },
+                onPlayPrevious = {
+                    resetControlsTimeout()
+                    playlistManager?.playPrevious()?.let { playMediaItem(it) }
+                },
+                onPlayNext = {
+                    resetControlsTimeout()
+                    playlistManager?.playNext()?.let { playMediaItem(it) }
                 },
                 onToggleLock = {
                     resetControlsTimeout()
@@ -567,6 +632,8 @@ fun PlayerScreen(
             if (!isPipLayout && !pipEntering) {
                 PlayerTrackSelectionSheet(
                     initialTab = tab,
+                    playlist = playlist,
+                    currentPlaylistIndex = currentPlaylistIndex,
                     tracks = tracks,
                     currentResizeMode = resizeMode,
                     currentSpeed = speed,
@@ -581,6 +648,9 @@ fun PlayerScreen(
                     videoHeight = videoDimensions.height,
                     powerMetrics = powerMetrics,
                     onDismiss = { activeSheetTab = null },
+                    onSelectPlaylistItem = { idx ->
+                        playlistManager?.playAtIndex(idx)?.let { playMediaItem(it) }
+                    },
                     onSelectTrack = { type, id -> engine.selectTrack(type, id) },
                     onSelectResizeMode = { mode -> engine.setResizeMode(mode) },
                     onSelectSpeed = { sp -> engine.setSpeed(sp) },

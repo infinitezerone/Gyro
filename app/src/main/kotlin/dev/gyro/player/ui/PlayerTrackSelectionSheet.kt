@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,14 +50,18 @@ import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.player.R
+import dev.gyro.player.data.model.VideoMediaItem
 import java.util.Locale
 
 enum class PlayerSheetTab(@StringRes val titleRes: Int) {
+    PLAYLIST(R.string.sheet_tab_playlist),
     SUBTITLES(R.string.sheet_tab_subtitles),
     AUDIO(R.string.sheet_tab_audio),
     SYNC(R.string.sheet_tab_sync),
@@ -68,6 +74,8 @@ enum class PlayerSheetTab(@StringRes val titleRes: Int) {
 @Composable
 fun PlayerTrackSelectionSheet(
     initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
+    playlist: List<VideoMediaItem> = emptyList(),
+    currentPlaylistIndex: Int = -1,
     tracks: List<TrackInfo>,
     currentResizeMode: ResizeMode,
     currentSpeed: Float,
@@ -82,6 +90,7 @@ fun PlayerTrackSelectionSheet(
     videoHeight: Int = 0,
     powerMetrics: PowerMetrics? = null,
     onDismiss: () -> Unit,
+    onSelectPlaylistItem: (Int) -> Unit = {},
     onSelectTrack: (type: String, id: Int) -> Unit,
     onSelectResizeMode: (ResizeMode) -> Unit,
     onSelectSpeed: (Float) -> Unit,
@@ -157,6 +166,67 @@ fun PlayerTrackSelectionSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             when (selectedTab) {
+                PlayerSheetTab.PLAYLIST -> {
+                    if (playlist.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(stringResource(R.string.playlist_empty), color = Color.White.copy(alpha = 0.5f))
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                            itemsIndexed(playlist) { index, item ->
+                                val isCurrent = index == currentPlaylistIndex
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onSelectPlaylistItem(index) }
+                                        .background(if (isCurrent) Color(0xFF64B5F6).copy(alpha = 0.12f) else Color.Transparent)
+                                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isCurrent) {
+                                        Icon(
+                                            Icons.Default.PlayArrow,
+                                            contentDescription = stringResource(R.string.playlist_current_playing),
+                                            tint = Color(0xFF64B5F6),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "${index + 1}",
+                                            fontSize = 13.sp,
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            modifier = Modifier.width(20.dp),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.displayName,
+                                            fontSize = 14.sp,
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isCurrent) Color(0xFF64B5F6) else Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (item.durationMs > 0L) {
+                                            Text(
+                                                text = item.formattedDuration,
+                                                fontSize = 11.sp,
+                                                color = Color.White.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 PlayerSheetTab.SUBTITLES -> {
                     // Subtitles Tab
                     LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {

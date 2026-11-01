@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -56,7 +59,11 @@ fun PlayerBottomBar(
     speed: Float,
     resizeMode: ResizeMode,
     scrubState: PlayerScrubState,
+    hasPrevious: Boolean = false,
+    hasNext: Boolean = false,
     onTogglePlayPause: () -> Unit,
+    onPlayPrevious: () -> Unit = {},
+    onPlayNext: () -> Unit = {},
     onSeekToFraction: (Float) -> Unit,
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
@@ -149,7 +156,22 @@ fun PlayerBottomBar(
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧：纯悬浮 播放/暂停
+                    // 左侧：纯悬浮 上一集 (若有)
+                    if (hasPrevious) {
+                        IconButton(
+                            onClick = onPlayPrevious,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = stringResource(R.string.cd_prev_video),
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    // 纯悬浮 播放/暂停
                     IconButton(
                         onClick = onTogglePlayPause,
                         modifier = Modifier.size(38.dp)
@@ -160,6 +182,21 @@ fun PlayerBottomBar(
                             tint = Color.White,
                             modifier = Modifier.size(26.dp)
                         )
+                    }
+
+                    // 纯悬浮 下一集 (若有)
+                    if (hasNext) {
+                        IconButton(
+                            onClick = onPlayNext,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = stringResource(R.string.cd_next_video),
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(6.dp))
@@ -176,6 +213,21 @@ fun PlayerBottomBar(
                     )
 
                     Spacer(modifier = Modifier.weight(1f))
+
+                    // 播放列表图标
+                    IconButton(
+                        onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
+                            contentDescription = stringResource(R.string.cd_playlist),
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(2.dp))
 
                     // 右侧：纯悬浮 倍速
                     Box(

@@ -44,8 +44,10 @@
     <string name="player_empty_title">暂无播放内容</string>
     <string name="player_empty_desc">请从媒体库选择或打开视频文件</string>
     <string name="player_resumed_notice">已恢复至 %s</string>
+    <string name="player_auto_next_notice">自动播放下一集: %s</string>
 
     <!-- Sheet Tabs -->
+    <string name="sheet_tab_playlist">列表</string>
     <string name="sheet_tab_subtitles">字幕</string>
     <string name="sheet_tab_audio">音轨</string>
     <string name="sheet_tab_sync">同步</string>
@@ -54,6 +56,8 @@
     <string name="sheet_tab_stats">统计</string>
 
     <!-- Sheet Content -->
+    <string name="playlist_empty">播放列表为空</string>
+    <string name="playlist_current_playing">播放中</string>
     <string name="track_none_subtitle">关闭字幕</string>
     <string name="track_none_audio">无多音轨</string>
     <string name="track_add_external_sub">添加外挂字幕</string>
@@ -82,6 +86,9 @@
     <!-- Content Descriptions for Accessibility -->
     <string name="cd_play">播放</string>
     <string name="cd_pause">暂停</string>
+    <string name="cd_prev_video">上一集</string>
+    <string name="cd_next_video">下一集</string>
+    <string name="cd_playlist">播放列表</string>
     <string name="cd_speed">倍速</string>
     <string name="cd_aspect">画幅模式</string>
     <string name="cd_fullscreen">全屏</string>

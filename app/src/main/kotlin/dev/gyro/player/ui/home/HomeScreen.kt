@@ -85,7 +85,7 @@ import dev.gyro.player.data.repository.PlaybackProgress
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
-    onPlayVideo: (Uri) -> Unit,
+    onPlayVideo: (VideoMediaItem, List<VideoMediaItem>) -> Unit,
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -96,7 +96,20 @@ fun HomeScreen(
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { onPlayVideo(it) }
+        uri?.let {
+            val singleItem = VideoMediaItem(
+                id = System.currentTimeMillis(),
+                uri = it,
+                displayName = it.lastPathSegment ?: "Video",
+                durationMs = 0L,
+                sizeBytes = 0L,
+                width = 0,
+                height = 0,
+                dateModified = 0L,
+                folderName = ""
+            )
+            onPlayVideo(singleItem, listOf(singleItem))
+        }
     }
 
     // SAF Directory Picker (OpenDocumentTree)
@@ -146,7 +159,7 @@ fun HomeScreen(
 @Composable
 fun HomeContent(
     uiState: HomeUiState,
-    onPlayVideo: (Uri) -> Unit,
+    onPlayVideo: (VideoMediaItem, List<VideoMediaItem>) -> Unit,
     onOpenFile: () -> Unit,
     onPickFolder: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -360,7 +373,7 @@ fun HomeContent(
                                 VideoListItemCard(
                                     item = item,
                                     progress = progress,
-                                    onClick = { onPlayVideo(item.uri) }
+                                    onClick = { onPlayVideo(item, uiState.filteredVideos) }
                                 )
                             }
                             item {
