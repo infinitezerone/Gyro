@@ -133,4 +133,54 @@ class TwoStageVolumeCalculatorTest {
         assertEquals(200.0, clampedTop.softwareVolume, 0.001)
         assertTrue(clampedTop.isOverdrive)
     }
+
+    @Test
+    fun testComputeInitialPercent_withNaNSoftwareVolume() {
+        // When software volume is NaN at max system volume, safely default to 100%
+        val initialPct = TwoStageVolumeCalculator.computeInitialPercent(
+            currentSystemVolume = 15,
+            maxSystemVolume = maxSysVolume,
+            currentSoftwareVolume = Double.NaN
+        )
+        assertEquals(100, initialPct)
+    }
+
+    @Test
+    fun testCalculate_withNaNDeltaRatio() {
+        // NaN deltaRatio should produce 0 delta, keeping dragStartPercent unchanged
+        val result = TwoStageVolumeCalculator.calculate(
+            dragStartPercent = 75,
+            deltaRatio = Float.NaN,
+            maxSystemVolume = maxSysVolume
+        )
+        assertEquals(75, result.totalPercent)
+    }
+
+    @Test
+    fun testCalculate_withPositiveInfinityDeltaRatio() {
+        // POSITIVE_INFINITY deltaRatio should saturate to maximum 200% overdrive
+        val result = TwoStageVolumeCalculator.calculate(
+            dragStartPercent = 50,
+            deltaRatio = Float.POSITIVE_INFINITY,
+            maxSystemVolume = maxSysVolume
+        )
+        assertEquals(200, result.totalPercent)
+        assertEquals(15, result.systemVolume)
+        assertEquals(200.0, result.softwareVolume, 0.001)
+        assertTrue(result.isOverdrive)
+    }
+
+    @Test
+    fun testCalculate_withNegativeInfinityDeltaRatio() {
+        // NEGATIVE_INFINITY deltaRatio should saturate to minimum 0%
+        val result = TwoStageVolumeCalculator.calculate(
+            dragStartPercent = 150,
+            deltaRatio = Float.NEGATIVE_INFINITY,
+            maxSystemVolume = maxSysVolume
+        )
+        assertEquals(0, result.totalPercent)
+        assertEquals(0, result.systemVolume)
+        assertEquals(100.0, result.softwareVolume, 0.001)
+        assertFalse(result.isOverdrive)
+    }
 }

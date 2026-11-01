@@ -28,10 +28,11 @@ object TwoStageVolumeCalculator {
         val safeMax = maxSystemVolume.coerceAtLeast(1)
         val sysRatio = (currentSystemVolume.toFloat() / safeMax.toFloat()).coerceIn(0f, 1f)
         val sysPct = (sysRatio * 100f).roundToInt()
+        val safeSoft = if (currentSoftwareVolume.isNaN()) 100.0 else currentSoftwareVolume
         return if (currentSystemVolume < safeMax) {
             sysPct
         } else {
-            100 + (currentSoftwareVolume - 100.0).roundToInt().coerceIn(0, 100)
+            100 + (safeSoft - 100.0).roundToInt().coerceIn(0, 100)
         }
     }
 
@@ -44,7 +45,12 @@ object TwoStageVolumeCalculator {
         maxSystemVolume: Int
     ): VolumeResult {
         val safeMax = maxSystemVolume.coerceAtLeast(1)
-        val targetPct = (dragStartPercent + (deltaRatio * 100f).roundToInt()).coerceIn(0, 200)
+        val deltaPct = when {
+            deltaRatio.isNaN() -> 0
+            deltaRatio.isInfinite() -> if (deltaRatio > 0f) 200 else -200
+            else -> (deltaRatio * 100f).roundToInt()
+        }
+        val targetPct = (dragStartPercent + deltaPct).coerceIn(0, 200)
         val isOverdrive = targetPct > 100
 
         val targetSysVol = if (isOverdrive) {
