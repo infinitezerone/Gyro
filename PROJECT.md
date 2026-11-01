@@ -56,10 +56,10 @@ Data Flow:
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M1 | Core Foundation: Models, Data, Settings & i18n Strings | `:core:model`, `:core:data`, `:core:navigation`, `:core:designsystem` (strings.xml & values-en) | none | DONE |
-| M2 | Engine Core & Audiovisual Infrastructure | `:core:engine`, `:core:testing` (`MpvNativeBridge`, shaders, mpv.conf injection & overrides, chapters, volume overdrive & limiter, deband, colors, audio filters) | M1 | IN_PROGRESS |
-| M3 | Settings & Configuration UI | `:feature:settings` (`MpvConfigEditorScreen`, `GestureSettingsScreen`, Navigation 3 wiring) | M1 | PLANNED |
-| M4 | Player UI, Gestures & Audiovisual Controls | `:feature:player` (`PlayerTrackSelectionSheet` shaders/chapters/effects tabs, `PlayerScrubBar` chapter ticks, overdrive amber HUD, dynamic gestures, 16dp floating styling) | M1, M2 | PLANNED |
-| M5 | System Integration: Background Playback & MediaSession | `:app`, `:feature:player` (Manifest permissions, `PlaybackService`, `MediaSessionCompat`, notification card, headset controls, headless surface detachment, MainActivity navigation) | M2, M3, M4 | PLANNED |
+| M2 | Engine Core & Audiovisual Infrastructure | `:core:engine`, `:core:testing` (`MpvNativeBridge`, shaders, mpv.conf injection & overrides, chapters, volume overdrive & limiter, deband, colors, audio filters) | M1 | DONE |
+| M3 | Settings & Configuration UI | `:feature:settings` (`MpvConfigEditorScreen`, `GestureSettingsScreen`, Navigation 3 wiring) | M1, M2 | DONE |
+| M4 | Player UI, Gestures & Audiovisual Controls | `:feature:player` (`PlayerTrackSelectionSheet` shaders/chapters/effects tabs, `PlayerScrubBar` chapter ticks, overdrive amber HUD, dynamic gestures, 16dp floating styling) | M1, M2, M3 | DONE |
+| M5 | System Integration: Background Playback & MediaSession | `:app`, `:feature:player` (Manifest permissions, `PlaybackService`, `MediaSessionCompat`, notification card, headset controls, headless surface detachment, MainActivity navigation) | M2, M3, M4 | IN_PROGRESS |
 | M6 | Final Milestone: 100% E2E Test Pass & Adversarial Hardening | Phase 1: Pass 100% of E2E test suite (Tiers 1-4). Phase 2: Adversarial coverage hardening (Tier 5). | M1, M2, M3, M4, M5, TEST_READY | PLANNED |
 
 ## Interface Contracts

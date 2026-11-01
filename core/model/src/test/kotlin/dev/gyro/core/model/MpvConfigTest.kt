@@ -140,4 +140,22 @@ class MpvConfigTest {
         assertEquals(config1, MpvConfig(raw, map))
         assertEquals(config1.hashCode(), MpvConfig(raw, map).hashCode())
     }
+
+    @Test
+    fun testHexColorsUnquotedAndQuotedWithComments() {
+        val input = """
+            osd-color=#FF0000
+            sub-color='#00FF00'
+            osd-border-color=#80000000 # Semi-transparent black
+            sub-back-color="#102030" # Quoted with comment
+            sub-border-color = #FFFFFF 
+        """.trimIndent()
+
+        val parsed = MpvConfig.parse(input)
+        assertEquals("#FF0000", parsed["osd-color"])
+        assertEquals("#00FF00", parsed["sub-color"])
+        assertEquals("#80000000", parsed["osd-border-color"])
+        assertEquals("#102030", parsed["sub-back-color"])
+        assertEquals("#FFFFFF", parsed["sub-border-color"])
+    }
 }

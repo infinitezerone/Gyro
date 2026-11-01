@@ -215,8 +215,10 @@
 
     <!-- R4: Audiovisual Enhancements & Overdrive -->
     <string name="sheet_tab_effects">AV Effects</string>
+    <string name="sheet_tab_audiovisual">Audiovisual</string>
     <string name="hud_overdrive_badge">OVERDRIVE</string>
     <string name="hud_volume_overdrive">Volume %d%% (Overdrive)</string>
+    <string name="hud_volume_overdrive_hint">(supports 200% overdrive)</string>
     <string name="audio_limiter_active">Audio Limiter Protection Active</string>
     <string name="effects_deband">Deband Filter</string>
     <string name="effects_deband_desc">Reduce banding and posterization artifacts in color gradients</string>
@@ -264,4 +266,24 @@
     <string name="settings_gesture_speed_multiplier">Long Press Speed Multiplier</string>
     <string name="settings_gesture_speed_multiplier_val">%.1fX</string>
     <string name="settings_gesture_reset_defaults">Reset Gesture Defaults</string>
+
+    <!-- mpv.conf Additions -->
+    <string name="mpv_config_copy">Copy</string>
+    <string name="mpv_config_copied_toast">Configuration copied to clipboard</string>
+    <string name="mpv_config_reset_success">Configuration reset to default</string>
+    <string name="mpv_config_discard_dialog_title">Discard unsaved changes?</string>
+    <string name="mpv_config_discard_dialog_desc">The configuration has been modified. Leaving will discard unsaved changes.</string>
+    <string name="mpv_config_action_discard">Discard</string>
+    <string name="mpv_config_quick_presets">Quick Presets</string>
+    <string name="mpv_config_unsaved">Unsaved</string>
+    <string name="mpv_config_stats_format">%1$d lines · %2$d chars</string>
+
+    <!-- R7: Gesture Categories & Reset Dialog -->
+    <string name="settings_gesture_group_vertical">Vertical Gestures</string>
+    <string name="settings_gesture_group_horizontal">Horizontal &amp; Seeking Gestures</string>
+    <string name="settings_gesture_group_playback">Playback Controls</string>
+    <string name="settings_gesture_group_advanced">Advanced Gestures</string>
+    <string name="settings_gesture_reset_dialog_title">Reset Gesture Settings?</string>
+    <string name="settings_gesture_reset_dialog_desc">This will reset all gesture toggles, seek steps, and speed multipliers to default.</string>
+
 </resources>

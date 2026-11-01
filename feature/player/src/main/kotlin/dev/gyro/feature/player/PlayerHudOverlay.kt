@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -37,11 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.R
 import java.util.Locale
 
 /**
@@ -88,10 +90,11 @@ fun BoxScope.PlayerHudOverlay(
                 is GestureHudState.Brightness -> {
                     TopCapsuleSlider(
                         icon = Icons.Default.BrightnessMedium,
-                        contentDescription = "Brightness",
+                        contentDescription = stringResource(R.string.cd_brightness),
                         ratio = hudState.brightnessRatio,
                         percentage = hudState.percent,
-                        activeColor = Color(0xFFFFB74D) // Warm Amber
+                        activeColor = Color(0xFFFFB74D), // Warm Amber
+                        isOverdrive = false
                     )
                 }
                 is GestureHudState.Volume -> {
@@ -100,12 +103,18 @@ fun BoxScope.PlayerHudOverlay(
                     } else {
                         Icons.AutoMirrored.Filled.VolumeUp
                     }
+                    val activeColor = if (hudState.isOverdrive) {
+                        Color(0xFFFF9800) // Warm Amber #FF9800 for overdrive
+                    } else {
+                        Color(0xFF64B5F6) // Material Blue for normal stream volume
+                    }
                     TopCapsuleSlider(
                         icon = icon,
-                        contentDescription = "Volume",
+                        contentDescription = stringResource(R.string.cd_volume),
                         ratio = hudState.volumeRatio,
                         percentage = hudState.percent,
-                        activeColor = Color(0xFF64B5F6) // Material Blue
+                        activeColor = activeColor,
+                        isOverdrive = hudState.isOverdrive
                     )
                 }
                 else -> Unit
@@ -139,12 +148,12 @@ fun BoxScope.PlayerHudOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Default.FastForward,
-                            contentDescription = "Speed",
+                            contentDescription = stringResource(R.string.speed_title),
                             tint = Color(0xFF64B5F6),
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "${speedState.speed}X 播放中",
+                            text = stringResource(R.string.hud_speed_indicator, speedState.speed),
                             style = TextStyle(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -185,12 +194,12 @@ fun BoxScope.PlayerHudOverlay(
                             if (isLeft) {
                                 Icon(Icons.Default.FastRewind, contentDescription = null, modifier = Modifier.size(20.dp))
                                 Text(
-                                    text = "-${doubleTapState.seconds}秒",
+                                    text = stringResource(R.string.hud_rewind_seconds, doubleTapState.seconds),
                                     style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
                                 )
                             } else {
                                 Text(
-                                    text = "+${doubleTapState.seconds}秒",
+                                    text = stringResource(R.string.hud_forward_seconds, doubleTapState.seconds),
                                     style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
                                 )
                                 Icon(Icons.Default.FastForward, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -250,15 +259,23 @@ private fun TopCapsuleSlider(
     contentDescription: String,
     ratio: Float,
     percentage: Int,
-    activeColor: Color
+    activeColor: Color,
+    isOverdrive: Boolean = false
 ) {
+    val borderColor = if (isOverdrive) {
+        Color(0xFFFF9800).copy(alpha = 0.6f)
+    } else {
+        Color.White.copy(alpha = 0.15f)
+    }
+    val capsuleWidth = if (isOverdrive) 264.dp else 210.dp
+
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = Color.Black.copy(alpha = 0.75f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
+        border = BorderStroke(if (isOverdrive) 1.dp else 0.5.dp, borderColor),
         shadowElevation = 6.dp,
         modifier = Modifier
-            .width(210.dp)
+            .width(capsuleWidth)
             .height(38.dp)
     ) {
         Row(
@@ -266,7 +283,7 @@ private fun TopCapsuleSlider(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
                 imageVector = icon,
@@ -299,12 +316,24 @@ private fun TopCapsuleSlider(
                 style = TextStyle(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = if (isOverdrive) activeColor else Color.White,
                     fontFeatureSettings = "tnum",
                     textAlign = TextAlign.End
                 ),
                 modifier = Modifier.width(36.dp)
             )
+
+            // Overdrive badge hint text (when > 100%)
+            if (isOverdrive) {
+                Text(
+                    text = stringResource(R.string.hud_volume_overdrive_hint),
+                    style = TextStyle(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFF9800)
+                    )
+                )
+            }
         }
     }
 }

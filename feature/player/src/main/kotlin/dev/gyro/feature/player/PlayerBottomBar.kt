@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,8 +37,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.gyro.engine.model.ResizeMode
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.model.ChapterInfo
+import dev.gyro.engine.model.ResizeMode
 
 /**
  * 底部控制栏统一组件 (PlayerBottomBar)
@@ -67,6 +68,7 @@ fun PlayerBottomBar(
     onSeekToFraction: (Float) -> Unit,
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
+    chapters: List<ChapterInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -105,6 +107,7 @@ fun PlayerBottomBar(
                     bufferedPosMs = bufferedPosMs,
                     scrubState = scrubState,
                     onSeekToFraction = onSeekToFraction,
+                    chapters = chapters,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
                 Row(
@@ -143,6 +146,7 @@ fun PlayerBottomBar(
                     bufferedPosMs = bufferedPosMs,
                     scrubState = scrubState,
                     onSeekToFraction = onSeekToFraction,
+                    chapters = chapters,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
 

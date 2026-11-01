@@ -17,5 +17,7 @@ target/
 *.png
 mpv_comments.*
 mpv_android_comments.*
+.kotlin/
+.agents/
 
 

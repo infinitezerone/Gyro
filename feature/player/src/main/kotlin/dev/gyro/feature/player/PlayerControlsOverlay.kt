@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import dev.gyro.core.designsystem.R
 import androidx.compose.ui.unit.dp
+import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
 
 /**
@@ -64,7 +65,8 @@ fun BoxScope.PlayerControlsOverlay(
     onEnterPiP: () -> Unit,
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    chapters: List<ChapterInfo> = emptyList()
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -138,7 +140,8 @@ fun BoxScope.PlayerControlsOverlay(
                 onPlayNext = onPlayNext,
                 onSeekToFraction = onSeekToFraction,
                 onOpenSheetTab = onOpenSheetTab,
-                onToggleOrientation = onToggleOrientation
+                onToggleOrientation = onToggleOrientation,
+                chapters = chapters
             )
         }
     }

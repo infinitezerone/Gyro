@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import android.app.Activity
 import android.content.Context
@@ -52,16 +52,18 @@ class DefaultPlayerGestureCallbacks(
     private val onSingleTap: () -> Unit,
     private val onDoubleTapSeek: (Long) -> Unit,
     private val onDoubleTapPlayPause: () -> Unit,
-    private val onFastForwardStart: () -> Unit,
+    private val onFastForwardStart: (Float) -> Unit,
     private val onFastForwardEnd: () -> Unit,
-    private val onHudStateChange: (GestureHudState) -> Unit
+    private val onHudStateChange: (GestureHudState) -> Unit,
+    private val onSoftwareVolumeChange: ((Double) -> Unit)? = null,
+    private val getSoftwareVolume: (() -> Double)? = null
 ) : PlayerGestureCallbacks {
 
     private val activity: Activity? = context?.findActivity()
     private val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.coerceAtLeast(1) ?: 15
 
-    private var dragStartVolume: Int = 0
+    private var dragStartOverallVolume: Int = 0
     private var dragStartBrightness: Float = 0.5f
 
     override fun getCurrentPositionMs(): Long = currentPosMs()
@@ -71,7 +73,7 @@ class DefaultPlayerGestureCallbacks(
     override fun onSingleTap() = onSingleTap.invoke()
     override fun onDoubleTapSeek(deltaMs: Long) = onDoubleTapSeek.invoke(deltaMs)
     override fun onDoubleTapPlayPause() = onDoubleTapPlayPause.invoke()
-    override fun onFastForwardStart(speed: Float) = onFastForwardStart.invoke()
+    override fun onFastForwardStart(speed: Float) = onFastForwardStart.invoke(speed)
     override fun onFastForwardEnd() = onFastForwardEnd.invoke()
 
     override fun onZoomPan(zoomChange: Float, panDelta: Offset, centroid: Offset, isPinch: Boolean) {
@@ -128,25 +130,47 @@ class DefaultPlayerGestureCallbacks(
     }
 
     override fun onVolumeStart() {
-        audioManager?.let { am ->
-            dragStartVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val ratio = dragStartVolume.toFloat() / maxVolume.toFloat()
-            val pct = (ratio * 100).toInt()
-            onHudStateChange.invoke(GestureHudState.Volume(pct, ratio))
-        }
+        val curSysVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+        val curSoftGain = getSoftwareVolume?.invoke() ?: 100.0
+        dragStartOverallVolume = TwoStageVolumeCalculator.computeInitialPercent(
+            currentSystemVolume = curSysVol,
+            maxSystemVolume = maxVolume,
+            currentSoftwareVolume = curSoftGain
+        )
+        val initialResult = TwoStageVolumeCalculator.calculate(
+            dragStartPercent = dragStartOverallVolume,
+            deltaRatio = 0f,
+            maxSystemVolume = maxVolume
+        )
+        onHudStateChange.invoke(
+            GestureHudState.Volume(
+                percent = initialResult.totalPercent,
+                volumeRatio = initialResult.volumeRatio,
+                isOverdrive = initialResult.isOverdrive
+            )
+        )
     }
 
     override fun onVolumeUpdate(deltaRatio: Float) {
+        val result = TwoStageVolumeCalculator.calculate(
+            dragStartPercent = dragStartOverallVolume,
+            deltaRatio = deltaRatio,
+            maxSystemVolume = maxVolume
+        )
         audioManager?.let { am ->
-            val targetVol = (dragStartVolume + deltaRatio * maxVolume).roundToInt().coerceIn(0, maxVolume)
             val curVol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (targetVol != curVol) {
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
+            if (result.systemVolume != curVol) {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, result.systemVolume, 0)
             }
-            val ratio = targetVol.toFloat() / maxVolume.toFloat()
-            val pct = (ratio * 100).toInt()
-            onHudStateChange.invoke(GestureHudState.Volume(pct, ratio))
         }
+        onSoftwareVolumeChange?.invoke(result.softwareVolume)
+        onHudStateChange.invoke(
+            GestureHudState.Volume(
+                percent = result.totalPercent,
+                volumeRatio = result.volumeRatio,
+                isOverdrive = result.isOverdrive
+            )
+        )
     }
 
     override fun onHudStateChange(state: GestureHudState) {

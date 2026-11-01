@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.settings
+package dev.gyro.feature.settings
 
 import dev.gyro.core.designsystem.R
 
@@ -54,6 +54,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onOpenFolderManagement: () -> Unit = {},
+    onNavigateToMpvConfig: () -> Unit = {},
+    onNavigateToGestures: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings by viewModel.settings.collectAsState()
@@ -61,6 +63,8 @@ fun SettingsScreen(
         settings = settings,
         onBack = onBack,
         onOpenFolderManagement = onOpenFolderManagement,
+        onNavigateToMpvConfig = onNavigateToMpvConfig,
+        onNavigateToGestures = onNavigateToGestures,
         onUpdateAutoResume = { viewModel.setAutoResume(it) },
         onUpdateBgPlay = { viewModel.setBackgroundPlayMode(it) },
         onUpdateSeekStep = { viewModel.setSeekStepSeconds(it) },
@@ -77,6 +81,8 @@ fun SettingsContent(
     settings: UserSettings,
     onBack: () -> Unit,
     onOpenFolderManagement: () -> Unit = {},
+    onNavigateToMpvConfig: () -> Unit = {},
+    onNavigateToGestures: () -> Unit = {},
     onUpdateAutoResume: (Boolean) -> Unit,
     onUpdateBgPlay: (String) -> Unit,
     onUpdateSeekStep: (Int) -> Unit,
@@ -190,10 +196,26 @@ fun SettingsContent(
                         checked = settings.gesturesEnabled,
                         onCheckedChange = onUpdateGestures
                     )
+                    PreferenceClickItem(
+                        title = stringResource(R.string.settings_group_gestures_detail),
+                        description = stringResource(R.string.settings_group_gestures_detail_desc),
+                        onClick = onNavigateToGestures
+                    )
                 }
             }
 
-            // 5. 存储与媒体库
+            // 5. 高级配置 (mpv.conf)
+            item {
+                PreferenceGroup(title = stringResource(R.string.settings_group_advanced)) {
+                    PreferenceClickItem(
+                        title = stringResource(R.string.settings_mpv_conf),
+                        description = stringResource(R.string.settings_mpv_conf_desc),
+                        onClick = onNavigateToMpvConfig
+                    )
+                }
+            }
+
+            // 6. 存储与媒体库
             item {
                 PreferenceGroup(title = stringResource(R.string.settings_group_storage)) {
                     PreferenceClickItem(

@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,7 +37,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -57,17 +62,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.model.ChapterInfo
+import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.core.designsystem.R
+import java.io.File
 import java.util.Locale
 
 enum class PlayerSheetTab(@StringRes val titleRes: Int) {
     PLAYLIST(R.string.sheet_tab_playlist),
+    CHAPTERS(R.string.sheet_tab_chapters),
     SUBTITLES(R.string.sheet_tab_subtitles),
     AUDIO(R.string.sheet_tab_audio),
+    SHADERS(R.string.sheet_tab_shaders),
+    AUDIOVISUAL(R.string.sheet_tab_audiovisual),
     SYNC(R.string.sheet_tab_sync),
     SPEED(R.string.sheet_tab_speed),
     ASPECT(R.string.sheet_tab_aspect),
@@ -81,6 +93,9 @@ fun PlayerTrackSelectionSheet(
     initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
     playlist: List<VideoMediaItem> = emptyList(),
     currentPlaylistIndex: Int = -1,
+    chapters: List<ChapterInfo> = emptyList(),
+    currentChapterIndex: Int = -1,
+    currentTimePosMs: Long = 0L,
     tracks: List<TrackInfo>,
     currentResizeMode: ResizeMode,
     currentSpeed: Float,
@@ -95,8 +110,28 @@ fun PlayerTrackSelectionSheet(
     videoHeight: Int = 0,
     powerMetrics: PowerMetrics? = null,
     mediaInfo: MediaInfo? = null,
+    shaderState: GlslShaderState = GlslShaderState(),
+    customShaders: List<File> = emptyList(),
+    deband: Boolean = false,
+    brightness: Int = 0,
+    contrast: Int = 0,
+    saturation: Int = 0,
+    nightMode: Boolean = false,
+    stereoDownmix: Boolean = false,
     onDismiss: () -> Unit,
     onSelectPlaylistItem: (Int) -> Unit = {},
+    onSelectChapter: (Int) -> Unit = {},
+    onSelectShader: (GlslShader) -> Unit = {},
+    onClearShader: () -> Unit = {},
+    onSelectCustomShaderFile: (File) -> Unit = {},
+    onImportCustomShader: () -> Unit = {},
+    onSetDeband: (Boolean) -> Unit = {},
+    onSetBrightness: (Int) -> Unit = {},
+    onSetContrast: (Int) -> Unit = {},
+    onSetSaturation: (Int) -> Unit = {},
+    onResetColors: () -> Unit = {},
+    onSetNightMode: (Boolean) -> Unit = {},
+    onSetStereoDownmix: (Boolean) -> Unit = {},
     onSelectTrack: (type: String, id: Int) -> Unit,
     onSelectResizeMode: (ResizeMode) -> Unit,
     onSelectSpeed: (Float) -> Unit,
@@ -120,6 +155,9 @@ fun PlayerTrackSelectionSheet(
             initialTab = initialTab,
             playlist = playlist,
             currentPlaylistIndex = currentPlaylistIndex,
+            chapters = chapters,
+            currentChapterIndex = currentChapterIndex,
+            currentTimePosMs = currentTimePosMs,
             tracks = tracks,
             currentResizeMode = currentResizeMode,
             currentSpeed = currentSpeed,
@@ -134,7 +172,27 @@ fun PlayerTrackSelectionSheet(
             videoHeight = videoHeight,
             powerMetrics = powerMetrics,
             mediaInfo = mediaInfo,
+            shaderState = shaderState,
+            customShaders = customShaders,
+            deband = deband,
+            brightness = brightness,
+            contrast = contrast,
+            saturation = saturation,
+            nightMode = nightMode,
+            stereoDownmix = stereoDownmix,
             onSelectPlaylistItem = onSelectPlaylistItem,
+            onSelectChapter = onSelectChapter,
+            onSelectShader = onSelectShader,
+            onClearShader = onClearShader,
+            onSelectCustomShaderFile = onSelectCustomShaderFile,
+            onImportCustomShader = onImportCustomShader,
+            onSetDeband = onSetDeband,
+            onSetBrightness = onSetBrightness,
+            onSetContrast = onSetContrast,
+            onSetSaturation = onSetSaturation,
+            onResetColors = onResetColors,
+            onSetNightMode = onSetNightMode,
+            onSetStereoDownmix = onSetStereoDownmix,
             onSelectTrack = onSelectTrack,
             onSelectResizeMode = onSelectResizeMode,
             onSelectSpeed = onSelectSpeed,
@@ -154,6 +212,9 @@ fun PlayerTrackSelectionSheetContent(
     initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
     playlist: List<VideoMediaItem> = emptyList(),
     currentPlaylistIndex: Int = -1,
+    chapters: List<ChapterInfo> = emptyList(),
+    currentChapterIndex: Int = -1,
+    currentTimePosMs: Long = 0L,
     tracks: List<TrackInfo>,
     currentResizeMode: ResizeMode,
     currentSpeed: Float,
@@ -168,7 +229,27 @@ fun PlayerTrackSelectionSheetContent(
     videoHeight: Int = 0,
     powerMetrics: PowerMetrics? = null,
     mediaInfo: MediaInfo? = null,
+    shaderState: GlslShaderState = GlslShaderState(),
+    customShaders: List<File> = emptyList(),
+    deband: Boolean = false,
+    brightness: Int = 0,
+    contrast: Int = 0,
+    saturation: Int = 0,
+    nightMode: Boolean = false,
+    stereoDownmix: Boolean = false,
     onSelectPlaylistItem: (Int) -> Unit = {},
+    onSelectChapter: (Int) -> Unit = {},
+    onSelectShader: (GlslShader) -> Unit = {},
+    onClearShader: () -> Unit = {},
+    onSelectCustomShaderFile: (File) -> Unit = {},
+    onImportCustomShader: () -> Unit = {},
+    onSetDeband: (Boolean) -> Unit = {},
+    onSetBrightness: (Int) -> Unit = {},
+    onSetContrast: (Int) -> Unit = {},
+    onSetSaturation: (Int) -> Unit = {},
+    onResetColors: () -> Unit = {},
+    onSetNightMode: (Boolean) -> Unit = {},
+    onSetStereoDownmix: (Boolean) -> Unit = {},
     onSelectTrack: (type: String, id: Int) -> Unit,
     onSelectResizeMode: (ResizeMode) -> Unit,
     onSelectSpeed: (Float) -> Unit,
@@ -298,6 +379,104 @@ fun PlayerTrackSelectionSheetContent(
                         }
                     }
                 }
+                PlayerSheetTab.CHAPTERS -> {
+                    if (chapters.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.chapter_empty),
+                                color = Color.White.copy(alpha = 0.5f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    } else {
+                        val activeIndex = if (currentChapterIndex in chapters.indices) {
+                            currentChapterIndex
+                        } else {
+                            chapters.indexOfLast { it.timeMs <= currentTimePosMs }.coerceAtLeast(0)
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp)
+                        ) {
+                            itemsIndexed(chapters) { index, chapter ->
+                                val isCurrent = index == activeIndex
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onSelectChapter(index) }
+                                        .background(
+                                            if (isCurrent) Color(0xFF64B5F6).copy(alpha = 0.12f)
+                                            else Color.Transparent
+                                        )
+                                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isCurrent) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = stringResource(R.string.chapter_current_badge),
+                                            tint = Color(0xFF64B5F6),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "${index + 1}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            modifier = Modifier.width(24.dp),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = chapter.title.ifBlank { "Chapter ${index + 1}" },
+                                            fontSize = 14.sp,
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isCurrent) Color(0xFF64B5F6) else Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = chapter.formattedTime,
+                                            fontSize = 12.sp,
+                                            color = if (isCurrent) Color(0xFF64B5F6).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.5f),
+                                            style = TextStyle(fontFeatureSettings = "tnum")
+                                        )
+                                    }
+
+                                    if (isCurrent) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF64B5F6).copy(alpha = 0.15f),
+                                            modifier = Modifier.padding(start = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.chapter_current_badge),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFF64B5F6),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 PlayerSheetTab.SUBTITLES -> {
                     // Subtitles Tab
                     LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {
@@ -398,6 +577,33 @@ fun PlayerTrackSelectionSheetContent(
                             }
                         }
                     }
+                }
+                PlayerSheetTab.SHADERS -> {
+                    ShadersTabContent(
+                        shaderState = shaderState,
+                        customShaders = customShaders,
+                        onSelectShader = onSelectShader,
+                        onClearShader = onClearShader,
+                        onSelectCustomShaderFile = onSelectCustomShaderFile,
+                        onImportCustomShader = onImportCustomShader
+                    )
+                }
+                PlayerSheetTab.AUDIOVISUAL -> {
+                    AudiovisualTabContent(
+                        deband = deband,
+                        brightness = brightness,
+                        contrast = contrast,
+                        saturation = saturation,
+                        nightMode = nightMode,
+                        stereoDownmix = stereoDownmix,
+                        onSetDeband = onSetDeband,
+                        onSetBrightness = onSetBrightness,
+                        onSetContrast = onSetContrast,
+                        onSetSaturation = onSetSaturation,
+                        onResetColors = onResetColors,
+                        onSetNightMode = onSetNightMode,
+                        onSetStereoDownmix = onSetStereoDownmix
+                    )
                 }
                 PlayerSheetTab.SYNC -> {
                     // Sync & Tuning (Both Audio & Subtitle Delays)
@@ -751,3 +957,310 @@ private fun EmptyTrackNotice(message: String) {
         Text(text = message, color = Color.White.copy(alpha = 0.5f))
     }
 }
+
+@Composable
+private fun ShadersTabContent(
+    shaderState: GlslShaderState,
+    customShaders: List<File>,
+    onSelectShader: (GlslShader) -> Unit,
+    onClearShader: () -> Unit,
+    onSelectCustomShaderFile: (File) -> Unit,
+    onImportCustomShader: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 380.dp),
+        contentPadding = PaddingValues(vertical = 4.dp)
+    ) {
+        // 1. Off
+        item {
+            TrackItem(
+                title = stringResource(R.string.shader_off),
+                subtitle = stringResource(R.string.common_off),
+                isSelected = shaderState.activeShader == GlslShader.OFF,
+                onClick = onClearShader
+            )
+        }
+
+        // 2. AMD FidelityFX CAS
+        item {
+            TrackItem(
+                title = stringResource(R.string.shader_cas),
+                subtitle = stringResource(R.string.shader_desc_cas),
+                isSelected = shaderState.activeShader == GlslShader.CAS,
+                onClick = { onSelectShader(GlslShader.CAS) }
+            )
+        }
+
+        // 3. Anime4K Lite
+        item {
+            TrackItem(
+                title = stringResource(R.string.shader_anime4k),
+                subtitle = stringResource(R.string.shader_desc_anime4k),
+                isSelected = shaderState.activeShader == GlslShader.ANIME4K,
+                onClick = { onSelectShader(GlslShader.ANIME4K) }
+            )
+        }
+
+        // Divider
+        item {
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                color = Color.White.copy(alpha = 0.1f)
+            )
+        }
+
+        // 4. Cached Custom Shaders
+        if (customShaders.isNotEmpty()) {
+            item {
+                Text(
+                    text = stringResource(R.string.shader_custom),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF64B5F6),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+                )
+            }
+            items(customShaders) { file ->
+                val isSelected = shaderState.activeShader == GlslShader.CUSTOM &&
+                        shaderState.currentPath == file.absolutePath
+                TrackItem(
+                    title = file.nameWithoutExtension,
+                    subtitle = file.name,
+                    isSelected = isSelected,
+                    onClick = { onSelectCustomShaderFile(file) }
+                )
+            }
+        }
+
+        // 5. Import Action Item via SAF
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onImportCustomShader() }
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = Color(0xFF64B5F6),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = stringResource(R.string.shader_import_saf),
+                        color = Color(0xFF64B5F6),
+                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = stringResource(R.string.shader_desc_custom),
+                        color = Color.White.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudiovisualTabContent(
+    deband: Boolean,
+    brightness: Int,
+    contrast: Int,
+    saturation: Int,
+    nightMode: Boolean,
+    stereoDownmix: Boolean,
+    onSetDeband: (Boolean) -> Unit,
+    onSetBrightness: (Int) -> Unit,
+    onSetContrast: (Int) -> Unit,
+    onSetSaturation: (Int) -> Unit,
+    onResetColors: () -> Unit,
+    onSetNightMode: (Boolean) -> Unit,
+    onSetStereoDownmix: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 420.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 6.dp)
+    ) {
+        // Group 1: 画面色彩调节
+        Text(
+            text = stringResource(R.string.effects_color_group),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF64B5F6),
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+        )
+
+        FilterSwitchRow(
+            title = stringResource(R.string.effects_deband),
+            description = stringResource(R.string.effects_deband_desc),
+            checked = deband,
+            onCheckedChange = onSetDeband
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        ColorSliderRow(
+            label = stringResource(R.string.effects_color_brightness),
+            value = brightness,
+            onValueChange = onSetBrightness
+        )
+
+        ColorSliderRow(
+            label = stringResource(R.string.effects_color_contrast),
+            value = contrast,
+            onValueChange = onSetContrast
+        )
+
+        ColorSliderRow(
+            label = stringResource(R.string.effects_color_saturation),
+            value = saturation,
+            onValueChange = onSetSaturation
+        )
+
+        val hasColorModifications = brightness != 0 || contrast != 0 || saturation != 0
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            OutlinedButton(
+                onClick = onResetColors,
+                enabled = hasColorModifications,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(text = stringResource(R.string.effects_color_reset))
+            }
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            color = Color.White.copy(alpha = 0.1f)
+        )
+
+        // Group 2: 音频增强滤镜
+        Text(
+            text = stringResource(R.string.effects_audio_group),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF64B5F6),
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+        )
+
+        FilterSwitchRow(
+            title = stringResource(R.string.effects_night_dialogue),
+            description = stringResource(R.string.effects_night_dialogue_desc),
+            checked = nightMode,
+            onCheckedChange = onSetNightMode
+        )
+
+        FilterSwitchRow(
+            title = stringResource(R.string.effects_stereo_downmix),
+            description = stringResource(R.string.effects_stereo_downmix_desc),
+            checked = stereoDownmix,
+            onCheckedChange = onSetStereoDownmix
+        )
+    }
+}
+
+@Composable
+private fun FilterSwitchRow(
+    title: String,
+    description: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 24.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            if (!description.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.55f)
+                )
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFF64B5F6),
+                checkedTrackColor = Color(0xFF64B5F6).copy(alpha = 0.35f),
+                uncheckedThumbColor = Color.White.copy(alpha = 0.7f),
+                uncheckedTrackColor = Color.White.copy(alpha = 0.15f)
+            )
+        )
+    }
+}
+
+@Composable
+private fun ColorSliderRow(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.85f),
+                fontWeight = FontWeight.Normal
+            )
+            Text(
+                text = if (value > 0) "+$value" else "$value",
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (value != 0) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.5f),
+                    fontFeatureSettings = "tnum"
+                )
+            )
+        }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(Math.round(it)) },
+            valueRange = -100f..100f,
+            colors = SliderDefaults.colors(
+                thumbColor = Color(0xFF64B5F6),
+                activeTrackColor = Color(0xFF64B5F6),
+                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
+            )
+        )
+    }
+}
+

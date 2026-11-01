@@ -63,6 +63,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.core.data.repository.CompanionSubtitleScanner
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
@@ -116,6 +117,15 @@ fun PlayerScreen(
     val subPos by engine.subPos.collectAsState()
     val videoDimensions by engine.videoDimensions.collectAsState()
     val mediaTitle by engine.mediaTitle.collectAsState()
+    val chapters by engine.chapters.collectAsState()
+    val currentChapter by engine.currentChapter.collectAsState()
+    val shaderState by engine.shaderState.collectAsState()
+    val deband by engine.deband.collectAsState()
+    val brightness by engine.brightness.collectAsState()
+    val contrast by engine.contrast.collectAsState()
+    val saturation by engine.saturation.collectAsState()
+    val nightMode by engine.nightMode.collectAsState()
+    val stereoDownmix by engine.stereoDownmix.collectAsState()
 
     var activeUri by remember(currentUri) { mutableStateOf(currentUri) }
 
@@ -305,6 +315,14 @@ fun PlayerScreen(
         }
     }
 
+    val shaderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            engine.importAndSetCustomShader(it)
+        }
+    }
+
     val composeVideoBounds = remember(videoSourceRect) {
         videoSourceRect?.let {
             androidx.compose.ui.geometry.Rect(
@@ -330,17 +348,22 @@ fun PlayerScreen(
         if (parts.isNotEmpty()) parts.joinToString(" · ") else null
     }
 
-    val gestureConfig = remember(settings, isLocked) {
-        PlayerGestureConfig(
-            isLocked = isLocked,
-            isVolumeEnabled = settings.gesturesEnabled,
-            isBrightnessEnabled = settings.gesturesEnabled,
-            isSeekEnabled = settings.gesturesEnabled,
-            isDoubleTapSeekEnabled = settings.gesturesEnabled,
-            isDoubleTapPlayPauseEnabled = settings.gesturesEnabled,
-            isLongPressSpeedEnabled = settings.gesturesEnabled,
-            doubleTapSeekSeconds = settings.seekStepSeconds
-        )
+    val dynamicConfig = settings.gestureConfig
+    val gestureConfig = remember(dynamicConfig, settings.gesturesEnabled, isLocked) {
+        if (!settings.gesturesEnabled) {
+            dynamicConfig.copy(
+                isLocked = isLocked,
+                isVolumeEnabled = false,
+                isBrightnessEnabled = false,
+                isSeekEnabled = false,
+                isDoubleTapSeekEnabled = false,
+                isDoubleTapPlayPauseEnabled = false,
+                isLongPressSpeedEnabled = false,
+                isZoomEnabled = false
+            )
+        } else {
+            dynamicConfig.copy(isLocked = isLocked)
+        }
     }
 
     // Periodic progress persistence (every 4s while playing)
@@ -360,6 +383,7 @@ fun PlayerScreen(
     // Save on disposal (when leaving player screen or switching videos)
     DisposableEffect(activeUri, historyRepository) {
         onDispose {
+            engine.resetSoftwareGain()
             if (activeUri != null && historyRepository != null) {
                 val curPos = engine.timePosMs.value
                 val curDur = engine.durationMs.value
@@ -384,6 +408,8 @@ fun PlayerScreen(
             }
         }
     }
+
+    var priorSpeedBeforeBoost by remember { mutableStateOf<Float?>(null) }
 
     val gestureModifier = if (!isPipLayout && !pipEntering) {
         Modifier.playerGestures(
@@ -433,15 +459,25 @@ fun PlayerScreen(
             onDoubleTapPlayPause = {
                 engine.togglePlayPause()
             },
-            onFastForwardStart = {
-                engine.setSpeed(2.0f)
-                gestureHudState = GestureHudState.Speed(2.0f)
+            onFastForwardStart = { targetSpeed ->
+                priorSpeedBeforeBoost = speed
+                engine.setSpeed(targetSpeed)
+                gestureHudState = GestureHudState.Speed(targetSpeed)
             },
             onFastForwardEnd = {
-                engine.setSpeed(1.0f)
+                val restoreSpeed = priorSpeedBeforeBoost ?: 1.0f
+                engine.setSpeed(restoreSpeed)
+                priorSpeedBeforeBoost = null
+                gestureHudState = GestureHudState.Idle
             },
             onHudStateChange = { newState ->
                 gestureHudState = newState
+            },
+            onSoftwareVolumeChange = { gain ->
+                engine.setSoftwareVolume(gain)
+            },
+            getSoftwareVolume = {
+                engine.softwareVolume.value
             },
             config = gestureConfig
         )
@@ -624,7 +660,8 @@ fun PlayerScreen(
                         }
                     }
                 },
-                onBack = onBack
+                onBack = onBack,
+                chapters = chapters
             )
         }
 
@@ -641,6 +678,9 @@ fun PlayerScreen(
                     initialTab = tab,
                     playlist = playlist,
                     currentPlaylistIndex = currentPlaylistIndex,
+                    chapters = chapters,
+                    currentChapterIndex = currentChapter,
+                    currentTimePosMs = timePosMs,
                     tracks = tracks,
                     currentResizeMode = resizeMode,
                     currentSpeed = speed,
@@ -655,10 +695,37 @@ fun PlayerScreen(
                     videoHeight = videoDimensions.height,
                     powerMetrics = powerMetrics,
                     mediaInfo = currentMediaInfo,
+                    shaderState = shaderState,
+                    customShaders = remember(shaderState) { engine.getCustomShaders() },
+                    deband = deband,
+                    brightness = brightness,
+                    contrast = contrast,
+                    saturation = saturation,
+                    nightMode = nightMode,
+                    stereoDownmix = stereoDownmix,
                     onDismiss = { activeSheetTab = null },
                     onSelectPlaylistItem = { idx ->
                         playlistManager?.playAtIndex(idx)?.let { playMediaItem(it) }
                     },
+                    onSelectChapter = { idx ->
+                        engine.seekToChapter(idx)
+                        activeSheetTab = null
+                    },
+                    onSelectShader = { shader -> engine.setShader(shader) },
+                    onClearShader = { engine.clearShader() },
+                    onSelectCustomShaderFile = { file ->
+                        engine.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
+                    },
+                    onImportCustomShader = {
+                        shaderPicker.launch(arrayOf("*/*"))
+                    },
+                    onSetDeband = { enabled -> engine.setDeband(enabled) },
+                    onSetBrightness = { value -> engine.setBrightness(value) },
+                    onSetContrast = { value -> engine.setContrast(value) },
+                    onSetSaturation = { value -> engine.setSaturation(value) },
+                    onResetColors = { engine.resetColors() },
+                    onSetNightMode = { enabled -> engine.setNightMode(enabled) },
+                    onSetStereoDownmix = { enabled -> engine.setStereoDownmix(enabled) },
                     onSelectTrack = { type, id -> engine.selectTrack(type, id) },
                     onSelectResizeMode = { mode -> engine.setResizeMode(mode) },
                     onSelectSpeed = { sp -> engine.setSpeed(sp) },

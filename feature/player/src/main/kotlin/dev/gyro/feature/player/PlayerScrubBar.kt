@@ -1,7 +1,8 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -16,12 +17,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import dev.gyro.core.model.ChapterInfo
 
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
@@ -35,6 +40,7 @@ fun PlayerScrubBar(
     bufferedPosMs: Long,
     scrubState: PlayerScrubState,
     onSeekToFraction: (Float) -> Unit,
+    chapters: List<ChapterInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val isHoveredOrScrubbing = scrubState.isActive
@@ -48,6 +54,19 @@ fun PlayerScrubBar(
         animationSpec = tween(150),
         label = "thumbSize"
     )
+
+    val chapterFractions = remember(chapters, durationMs) {
+        if (durationMs <= 0L || chapters.isEmpty()) {
+            emptyList()
+        } else {
+            val durFloat = durationMs.toFloat()
+            chapters.mapNotNull { ch ->
+                if (ch.timeMs > 0L && ch.timeMs < durationMs) {
+                    (ch.timeMs.toFloat() / durFloat).coerceIn(0f, 1f)
+                } else null
+            }
+        }
+    }
 
     val validDuration = durationMs.coerceAtLeast(1L)
     val playedRatio = if (scrubState.isActive) {
@@ -117,7 +136,42 @@ fun PlayerScrubBar(
                 .background(Color(0xFF64B5F6))
         )
 
-        // 4. 动态滑块 (Thumb)
+        // 4. 微光章节刻度标线 (Chapter Demarcation Micro-Ticks)
+        if (chapterFractions.isNotEmpty()) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(barHeight + 2.dp)
+            ) {
+                val w = size.width
+                val h = size.height
+                if (w <= 0f) return@Canvas
+                val coreWidth = 2.dp.toPx()
+                val glowWidth = 4.dp.toPx()
+
+                for (frac in chapterFractions) {
+                    val x = frac * w
+                    // 柔和微光外晕 (Subtle Cyan Glow Aura)
+                    drawLine(
+                        color = Color(0xFF64B5F6).copy(alpha = 0.55f),
+                        start = Offset(x, 0f),
+                        end = Offset(x, h),
+                        strokeWidth = glowWidth,
+                        cap = StrokeCap.Round
+                    )
+                    // 锐利高对比度核心标线 (Crisp Core Tick)
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(x, 0f),
+                        end = Offset(x, h),
+                        strokeWidth = coreWidth,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+        }
+
+        // 5. 动态滑块 (Thumb)
         if (thumbSize > 0.dp) {
             Box(
                 modifier = Modifier

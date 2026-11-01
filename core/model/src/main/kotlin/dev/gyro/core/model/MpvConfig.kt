@@ -39,7 +39,7 @@ data class MpvConfig(
                 if (line.isEmpty() || line.startsWith("#")) return@forEach
 
                 val cleanLine = line.removePrefix("--").trim()
-                if (cleanLine.isEmpty() || cleanLine.startsWith("=")) return@forEach
+                if (cleanLine.isEmpty() || cleanLine.startsWith("=") || cleanLine.startsWith("#")) return@forEach
 
                 val eqIndex = cleanLine.indexOf('=')
                 if (eqIndex > 0) {
@@ -92,7 +92,7 @@ data class MpvConfig(
                 } else if (c == '"' && !inSingleQuote) {
                     inDoubleQuote = !inDoubleQuote
                 } else if (c == '#' && !inSingleQuote && !inDoubleQuote) {
-                    if (i == 0 || str[i - 1].isWhitespace()) {
+                    if (i > 0 && str[i - 1].isWhitespace()) {
                         return i
                     }
                 }

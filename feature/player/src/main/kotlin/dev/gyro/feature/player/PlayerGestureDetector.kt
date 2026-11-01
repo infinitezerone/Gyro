@@ -16,7 +16,11 @@ enum class DoubleTapSide {
 
 sealed class GestureHudState {
     data object Idle : GestureHudState()
-    data class Volume(val percent: Int, val volumeRatio: Float) : GestureHudState()
+    data class Volume(
+        val percent: Int,
+        val volumeRatio: Float,
+        val isOverdrive: Boolean = percent > 100
+    ) : GestureHudState()
     data class Brightness(val percent: Int, val brightnessRatio: Float) : GestureHudState()
     data class Seek(val targetMs: Long, val deltaMs: Long, val totalMs: Long) : GestureHudState()
     data class DoubleTap(val side: DoubleTapSide, val seconds: Int) : GestureHudState()
@@ -53,9 +57,11 @@ fun Modifier.playerGestures(
     onSingleTap: () -> Unit,
     onDoubleTapSeek: (Long) -> Unit,
     onDoubleTapPlayPause: () -> Unit,
-    onFastForwardStart: () -> Unit,
+    onFastForwardStart: (Float) -> Unit,
     onFastForwardEnd: () -> Unit,
     onHudStateChange: (GestureHudState) -> Unit,
+    onSoftwareVolumeChange: ((Double) -> Unit)? = null,
+    getSoftwareVolume: (() -> Double)? = null,
     config: PlayerGestureConfig = PlayerGestureConfig()
 ): Modifier {
     val density = LocalDensity.current
@@ -82,7 +88,9 @@ fun Modifier.playerGestures(
         onDoubleTapPlayPause,
         onFastForwardStart,
         onFastForwardEnd,
-        onHudStateChange
+        onHudStateChange,
+        onSoftwareVolumeChange,
+        getSoftwareVolume
     ) {
         DefaultPlayerGestureCallbacks(
             context = context,
@@ -98,7 +106,9 @@ fun Modifier.playerGestures(
             onDoubleTapPlayPause = onDoubleTapPlayPause,
             onFastForwardStart = onFastForwardStart,
             onFastForwardEnd = onFastForwardEnd,
-            onHudStateChange = onHudStateChange
+            onHudStateChange = onHudStateChange,
+            onSoftwareVolumeChange = onSoftwareVolumeChange,
+            getSoftwareVolume = getSoftwareVolume
         )
     }
 

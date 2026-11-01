@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.settings
+package dev.gyro.feature.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -34,6 +34,9 @@ fun SettingsScreenPreview() {
         SettingsContent(
             settings = mockSettings,
             onBack = {},
+            onOpenFolderManagement = {},
+            onNavigateToMpvConfig = {},
+            onNavigateToGestures = {},
             onUpdateAutoResume = {},
             onUpdateBgPlay = {},
             onUpdateSeekStep = {},

@@ -229,8 +229,10 @@
 
     <!-- R4: Audiovisual Enhancements & Overdrive -->
     <string name="sheet_tab_effects">视听增强</string>
+    <string name="sheet_tab_audiovisual">视听调节</string>
     <string name="hud_overdrive_badge">超频软增益</string>
     <string name="hud_volume_overdrive">音量 %d%% (超频)</string>
+    <string name="hud_volume_overdrive_hint">(支持 200% 超频)</string>
     <string name="audio_limiter_active">防破音压限保护生效中</string>
     <string name="effects_deband">一键去色带 (Deband)</string>
     <string name="effects_deband_desc">消除视频暗场与色彩渐变中的断层与色块</string>
@@ -278,5 +280,24 @@
     <string name="settings_gesture_speed_multiplier">长按倍速档位</string>
     <string name="settings_gesture_speed_multiplier_val">%.1fX</string>
     <string name="settings_gesture_reset_defaults">恢复默认手势设置</string>
+
+    <!-- mpv.conf Additions -->
+    <string name="mpv_config_copy">复制配置</string>
+    <string name="mpv_config_copied_toast">配置内容已复制到剪贴板</string>
+    <string name="mpv_config_reset_success">已恢复默认配置</string>
+    <string name="mpv_config_discard_dialog_title">放弃未保存的更改？</string>
+    <string name="mpv_config_discard_dialog_desc">当前配置已被修改，离开将丢失未保存的内容。</string>
+    <string name="mpv_config_action_discard">放弃更改</string>
+    <string name="mpv_config_quick_presets">常用参数</string>
+    <string name="mpv_config_unsaved">未保存</string>
+    <string name="mpv_config_stats_format">%1$d 行 · %2$d 字符</string>
+
+    <!-- R7: Gesture Categories & Reset Dialog -->
+    <string name="settings_gesture_group_vertical">垂直滑动手势</string>
+    <string name="settings_gesture_group_horizontal">水平与快进手势</string>
+    <string name="settings_gesture_group_playback">播放控制手势</string>
+    <string name="settings_gesture_group_advanced">高级手势</string>
+    <string name="settings_gesture_reset_dialog_title">恢复默认手势设置？</string>
+    <string name="settings_gesture_reset_dialog_desc">此操作将所有手势开关、快进步长与倍速档位恢复为默认推荐配置。</string>
 
 </resources>

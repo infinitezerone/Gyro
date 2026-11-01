@@ -31,6 +31,8 @@ import dev.gyro.feature.settings.SettingsScreen
 import dev.gyro.feature.settings.SettingsViewModel
 import dev.gyro.feature.settings.folders.FolderManagementScreen
 import dev.gyro.feature.settings.folders.FolderManagementViewModel
+import dev.gyro.feature.settings.gestures.GestureSettingsScreen
+import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
@@ -153,6 +155,12 @@ class MainActivity : ComponentActivity() {
                                 onOpenFolderManagement = {
                                     backStack.add(Screen.FolderManagement)
                                 },
+                                onNavigateToMpvConfig = {
+                                    backStack.add(Screen.MpvConfigEditor)
+                                },
+                                onNavigateToGestures = {
+                                    backStack.add(Screen.GestureSettings)
+                                },
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -162,6 +170,22 @@ class MainActivity : ComponentActivity() {
                                 onBack = {
                                     backStack.removeLast()
                                     homeViewModel.refreshVideos()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        entry<Screen.MpvConfigEditor> {
+                            MpvConfigEditorScreen(
+                                onBack = {
+                                    backStack.removeLast()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        entry<Screen.GestureSettings> {
+                            GestureSettingsScreen(
+                                onBack = {
+                                    backStack.removeLast()
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )

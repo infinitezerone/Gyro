@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -38,6 +38,13 @@ fun PlayerControlsPortraitPreview() {
             Text("Simulated 16:9 Video Frame", color = Color.White.copy(alpha = 0.6f))
         }
 
+        val sampleChapters = listOf(
+            dev.gyro.core.model.ChapterInfo(0, "Introduction", 0L),
+            dev.gyro.core.model.ChapterInfo(1, "Part 1 - Awakening", 120_000L),
+            dev.gyro.core.model.ChapterInfo(2, "Part 2 - The Journey", 300_000L),
+            dev.gyro.core.model.ChapterInfo(3, "Credits", 540_000L)
+        )
+
         PlayerControlsOverlay(
             isVisible = true,
             isLocked = false,
@@ -62,7 +69,8 @@ fun PlayerControlsPortraitPreview() {
             onToggleOrientation = {},
             onBack = {},
             onEnterPiP = {},
-            onToggleLock = {}
+            onToggleLock = {},
+            chapters = sampleChapters
         )
     }
 }
@@ -151,6 +159,41 @@ fun PlayerMediaInfoSheetPreview() {
             videoWidth = 1920,
             videoHeight = 1080,
             mediaInfo = sampleMediaInfo,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Audiovisual Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerAudiovisualSheetPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.AUDIOVISUAL,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            deband = true,
+            brightness = 15,
+            contrast = 5,
+            saturation = -10,
+            nightMode = true,
+            stereoDownmix = false,
             onSelectTrack = { _, _ -> },
             onSelectResizeMode = {},
             onSelectSpeed = {},
