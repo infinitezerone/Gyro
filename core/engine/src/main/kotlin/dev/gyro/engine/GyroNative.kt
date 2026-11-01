@@ -12,7 +12,7 @@ import android.view.Surface
  * - [detachSurface]: signals native render thread to swap to EGL_NO_SURFACE without destroying EGLContext
  * - Native callbacks dispatch directly to [eventListener]
  */
-object GyroNative {
+internal object GyroNative {
     private const val TAG = "GyroNative"
 
     init {
