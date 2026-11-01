@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,16 +28,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,25 +50,45 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import java.util.Locale
 
+enum class PlayerSheetTab(val label: String) {
+    SUBTITLES("字幕"),
+    AUDIO("音轨"),
+    SYNC("音画同步"),
+    SPEED("倍速"),
+    ASPECT("画面比例"),
+    STATS("统计与解码")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerTrackSelectionSheet(
+    initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
     tracks: List<TrackInfo>,
     currentResizeMode: ResizeMode,
     currentSpeed: Float,
     subDelaySec: Double,
     audioDelaySec: Double,
+    subScale: Double = 1.0,
+    subPos: Long = 100L,
+    hwdec: String = "",
+    fps: Double = 0.0,
+    droppedFrames: Long = 0L,
+    videoWidth: Int = 0,
+    videoHeight: Int = 0,
+    powerMetrics: PowerMetrics? = null,
     onDismiss: () -> Unit,
     onSelectTrack: (type: String, id: Int) -> Unit,
     onSelectResizeMode: (ResizeMode) -> Unit,
     onSelectSpeed: (Float) -> Unit,
     onSetSubDelay: (Double) -> Unit,
     onSetAudioDelay: (Double) -> Unit,
+    onSetSubScale: (Double) -> Unit = {},
+    onSetSubPos: (Long) -> Unit = {},
+    onToggleHwdec: () -> Unit = {},
     onAddExternalSubtitle: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Audio", "Subtitles", "Sync", "Aspect", "Speed")
+    var selectedTab by remember { mutableStateOf(initialTab) }
 
     val audioTracks = remember(tracks) { tracks.filter { it.type == "audio" } }
     val subtitleTracks = remember(tracks) { tracks.filter { it.type == "sub" } }
@@ -86,53 +105,42 @@ fun PlayerTrackSelectionSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "Playback Settings",
+                text = "播放器控制面板",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
             )
 
-            PrimaryTabRow(
-                selectedTabIndex = selectedTab,
+            PrimaryScrollableTabRow(
+                selectedTabIndex = selectedTab.ordinal,
+                edgePadding = 16.dp,
                 containerColor = Color(0xFF1E1E1E),
                 contentColor = Color.White
             ) {
-                tabs.forEachIndexed { index, title ->
+                PlayerSheetTab.entries.forEach { tab ->
                     Tab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) }
+                        selected = selectedTab == tab,
+                        onClick = { selectedTab = tab },
+                        text = {
+                            Text(
+                                text = tab.label,
+                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 14.sp
+                            )
+                        }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             when (selectedTab) {
-                0 -> {
-                    // Audio Tracks
-                    LazyColumn(modifier = Modifier.fillMaxWidth().height(260.dp)) {
-                        items(audioTracks) { track ->
-                            TrackItem(
-                                title = track.title ?: "Audio Track #${track.id}",
-                                subtitle = track.lang?.uppercase() ?: "Undetermined",
-                                isSelected = track.isSelected,
-                                onClick = { onSelectTrack("audio", track.id) }
-                            )
-                        }
-                        if (audioTracks.isEmpty()) {
-                            item {
-                                EmptyTrackNotice("No internal audio tracks detected")
-                            }
-                        }
-                    }
-                }
-                1 -> {
-                    // Subtitle Tracks
-                    LazyColumn(modifier = Modifier.fillMaxWidth().height(260.dp)) {
+                PlayerSheetTab.SUBTITLES -> {
+                    // Subtitles Tab
+                    LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {
                         item {
                             TrackItem(
-                                title = "Disable Subtitles",
+                                title = "关闭字幕",
                                 subtitle = "Off",
                                 isSelected = subtitleTracks.none { it.isSelected },
                                 onClick = { onSelectTrack("sub", 0) }
@@ -140,7 +148,7 @@ fun PlayerTrackSelectionSheet(
                         }
                         items(subtitleTracks) { track ->
                             TrackItem(
-                                title = track.title ?: "Subtitle #${track.id}",
+                                title = track.title ?: "内置字幕 #${track.id}",
                                 subtitle = track.lang?.uppercase() ?: "ASS/SRT",
                                 isSelected = track.isSelected,
                                 onClick = { onSelectTrack("sub", track.id) }
@@ -152,47 +160,123 @@ fun PlayerTrackSelectionSheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onAddExternalSubtitle() }
-                                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                                    .padding(horizontal = 24.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF64B5F6))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("Add External Subtitle File...", color = Color(0xFF64B5F6), fontWeight = FontWeight.Medium)
+                                Text("添加外挂字幕文件 (.srt / .ass / .vtt)...", color = Color(0xFF64B5F6), fontWeight = FontWeight.Medium)
+                            }
+                        }
+                        item {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.White.copy(alpha = 0.1f))
+                            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)) {
+                                SyncCalibrationItem(
+                                    label = "字幕延时 (Subtitle Delay)",
+                                    currentSec = subDelaySec,
+                                    onValueChange = onSetSubDelay
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text("字幕尺寸缩放", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(0.8, 1.0, 1.2, 1.5).forEach { scale ->
+                                        FilterChip(
+                                            selected = Math.abs(subScale - scale) < 0.05,
+                                            onClick = { onSetSubScale(scale) },
+                                            label = { Text("${scale}x") }
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("字幕垂直位置", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(100L to "底端 (100%)", 95L to "抬升 (95%)", 90L to "居中偏下 (90%)").forEach { (pos, label) ->
+                                        FilterChip(
+                                            selected = subPos == pos,
+                                            onClick = { onSetSubPos(pos) },
+                                            label = { Text(label) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                2 -> {
-                    // Sync & Tuning (Audio & Subtitle Delays)
+                PlayerSheetTab.AUDIO -> {
+                    // Audio Tracks
+                    LazyColumn(modifier = Modifier.fillMaxWidth().height(300.dp)) {
+                        items(audioTracks) { track ->
+                            TrackItem(
+                                title = track.title ?: "音频轨道 #${track.id}",
+                                subtitle = track.lang?.uppercase() ?: "Undetermined",
+                                isSelected = track.isSelected,
+                                onClick = { onSelectTrack("audio", track.id) }
+                            )
+                        }
+                        if (audioTracks.isEmpty()) {
+                            item {
+                                EmptyTrackNotice("未检测到多音轨")
+                            }
+                        }
+                        item {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(alpha = 0.1f))
+                            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+                                SyncCalibrationItem(
+                                    label = "音频延时 (Audio Delay - 解决蓝牙耳机延迟)",
+                                    currentSec = audioDelaySec,
+                                    onValueChange = onSetAudioDelay
+                                )
+                            }
+                        }
+                    }
+                }
+                PlayerSheetTab.SYNC -> {
+                    // Sync & Tuning (Both Audio & Subtitle Delays)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(18.dp)
                     ) {
-                        // Subtitle Sync Stepper
                         SyncCalibrationItem(
-                            label = "Subtitle Delay",
+                            label = "字幕延时 (Subtitle Delay)",
                             currentSec = subDelaySec,
-                            minSec = -5.0,
-                            maxSec = 5.0,
                             onValueChange = onSetSubDelay
                         )
 
                         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
 
-                        // Audio Sync Stepper
                         SyncCalibrationItem(
-                            label = "Audio Delay",
+                            label = "音频延时 (Audio Delay)",
                             currentSec = audioDelaySec,
-                            minSec = -2.0,
-                            maxSec = 2.0,
                             onValueChange = onSetAudioDelay
                         )
                     }
                 }
-                3 -> {
-                    // Resize Mode
+                PlayerSheetTab.SPEED -> {
+                    // Speed Tab
+                    val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        Text("播放速度设置", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            speedOptions.forEach { sp ->
+                                FilterChip(
+                                    selected = currentSpeed == sp,
+                                    onClick = { onSelectSpeed(sp) },
+                                    label = { Text("${sp}x") }
+                                )
+                            }
+                        }
+                    }
+                }
+                PlayerSheetTab.ASPECT -> {
+                    // Aspect / ResizeMode
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -203,11 +287,11 @@ fun PlayerTrackSelectionSheet(
                             TrackItem(
                                 title = mode.label,
                                 subtitle = when (mode) {
-                                    ResizeMode.FIT -> "Maintain aspect ratio with black bars (Letterbox)"
-                                    ResizeMode.CROP -> "Crop and fill screen completely (Pan & Scan)"
-                                    ResizeMode.STRETCH -> "Stretch to fill display ignoring ratio"
-                                    ResizeMode.ASPECT_16_9 -> "Force standard widescreen 16:9"
-                                    ResizeMode.ASPECT_21_9 -> "Force cinematic ultrawide 21:9"
+                                    ResizeMode.FIT -> "保持原画比例，黑边填充 (Letterbox)"
+                                    ResizeMode.CROP -> "按屏幕撑满裁剪 (Pan & Scan)"
+                                    ResizeMode.STRETCH -> "拉伸填满屏幕，忽略原长宽比"
+                                    ResizeMode.ASPECT_16_9 -> "强制 16:9 宽屏"
+                                    ResizeMode.ASPECT_21_9 -> "强制 21:9 超宽影院"
                                 },
                                 isSelected = currentResizeMode == mode,
                                 onClick = { onSelectResizeMode(mode) }
@@ -215,21 +299,62 @@ fun PlayerTrackSelectionSheet(
                         }
                     }
                 }
-                4 -> {
-                    // Speed
-                    val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
-                    Row(
+                PlayerSheetTab.STATS -> {
+                    // Stats & Decoding Tab
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                            .padding(horizontal = 24.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        speedOptions.forEach { sp ->
-                            FilterChip(
-                                selected = currentSpeed == sp,
-                                onClick = { onSelectSpeed(sp) },
-                                label = { Text("${sp}x") }
-                            )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.08f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("媒体流参数与性能监控", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF64B5F6))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("原始分辨率", color = Color.White.copy(alpha = 0.7f))
+                                    Text(if (videoWidth > 0 && videoHeight > 0) "${videoWidth} × ${videoHeight}" else "待加载", fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("视频帧率", color = Color.White.copy(alpha = 0.7f))
+                                    Text("${String.format(Locale.US, "%.1f", fps)} FPS", fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("丢帧统计", color = Color.White.copy(alpha = 0.7f))
+                                    Text("$droppedFrames 帧", fontWeight = FontWeight.Bold, color = if (droppedFrames > 0) Color(0xFFFFB74D) else Color.White)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("当前解码器", color = Color.White.copy(alpha = 0.7f))
+                                    val isHw = hwdec.contains("mediacodec")
+                                    Text(if (isHw) "硬件解码 ($hwdec)" else "软件解码 (CPU Softdec)", fontWeight = FontWeight.Bold, color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D))
+                                }
+                                powerMetrics?.let { pm ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("实时功耗估算", color = Color.White.copy(alpha = 0.7f))
+                                        Text("${String.format(Locale.US, "%.2f", pm.powerWatts)} W", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Decoder toggle action
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("硬件解码加速", fontWeight = FontWeight.SemiBold)
+                                Text("MediaCodec 硬解更省电；软解兼容性更强", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+                            }
+                            OutlinedButton(onClick = onToggleHwdec) {
+                                Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (hwdec.contains("mediacodec")) "切换为软解" else "切换为硬解")
+                            }
                         }
                     }
                 }
@@ -242,8 +367,6 @@ fun PlayerTrackSelectionSheet(
 private fun SyncCalibrationItem(
     label: String,
     currentSec: Double,
-    minSec: Double,
-    maxSec: Double,
     onValueChange: (Double) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -252,7 +375,7 @@ private fun SyncCalibrationItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             val sign = if (currentSec > 0.0) "+" else ""
             Text(
                 text = "$sign${String.format(Locale.US, "%.1fs", currentSec)}",
@@ -278,7 +401,7 @@ private fun SyncCalibrationItem(
                 onClick = { onValueChange(0.0) },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f))
             ) {
-                Text("Reset")
+                Text("重置")
             }
             OutlinedButton(onClick = { onValueChange(currentSec + 0.1) }) { Text("+0.1s") }
             OutlinedButton(onClick = { onValueChange(currentSec + 0.5) }) { Text("+0.5s") }

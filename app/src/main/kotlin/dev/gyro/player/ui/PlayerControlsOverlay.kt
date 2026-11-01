@@ -34,13 +34,14 @@ import dev.gyro.engine.model.ResizeMode
  * - 画面正中保持绝对纯净，零任何大按键遮挡；
  * - 锁屏按键悬浮于左侧边缘 (Alignment.CenterStart)；
  * - 竖屏底栏采用经典单行内嵌布局，零多余按钮塞入；
- * - 顶部栏承载标题、返回、画中画与次级设置。
+ * - 顶部栏承载标题、文件打开、画中画与次级设置。
  */
 @Composable
 fun BoxScope.PlayerControlsOverlay(
     isVisible: Boolean,
     isLocked: Boolean,
     title: String,
+    mediaSubtitle: String? = null,
     isPlaying: Boolean,
     timePosMs: Long,
     durationMs: Long,
@@ -57,10 +58,9 @@ fun BoxScope.PlayerControlsOverlay(
     onSeekToFraction: (Float) -> Unit,
     onRewind10: () -> Unit,
     onForward10: () -> Unit,
-    onCycleSpeed: () -> Unit,
-    onCycleResizeMode: () -> Unit,
-    onOpenTracksSheet: () -> Unit,
+    onOpenFile: () -> Unit,
     onEnterPiP: () -> Unit,
+    onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -108,14 +108,12 @@ fun BoxScope.PlayerControlsOverlay(
         ) {
             PlayerTopBar(
                 title = title,
-                speed = speed,
-                resizeMode = resizeMode,
+                mediaSubtitle = mediaSubtitle,
                 isLandscape = isLandscape,
                 onBack = onBack,
+                onOpenFile = onOpenFile,
                 onEnterPiP = onEnterPiP,
-                onCycleSpeed = onCycleSpeed,
-                onCycleResizeMode = onCycleResizeMode,
-                onOpenTracksSheet = onOpenTracksSheet
+                onOpenSheetTab = onOpenSheetTab
             )
         }
 
@@ -141,10 +139,7 @@ fun BoxScope.PlayerControlsOverlay(
                 onSeekToFraction = onSeekToFraction,
                 onRewind10 = onRewind10,
                 onForward10 = onForward10,
-                onToggleLock = onToggleLock,
-                onCycleSpeed = onCycleSpeed,
-                onCycleResizeMode = onCycleResizeMode,
-                onOpenTracksSheet = onOpenTracksSheet,
+                onOpenSheetTab = onOpenSheetTab,
                 onToggleOrientation = onToggleOrientation
             )
         }

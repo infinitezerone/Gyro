@@ -11,10 +11,28 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -28,23 +46,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import dev.gyro.engine.model.ResizeMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
+import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.ui.GyroPlayerSurface
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun PlayerScreen(
@@ -71,7 +92,10 @@ fun PlayerScreen(
     val droppedFrames by engine.droppedFrames.collectAsState()
     val subDelaySec by engine.subDelay.collectAsState()
     val audioDelaySec by engine.audioDelay.collectAsState()
+    val subScale by engine.subScale.collectAsState()
+    val subPos by engine.subPos.collectAsState()
     val videoDimensions by engine.videoDimensions.collectAsState()
+    val mediaTitle by engine.mediaTitle.collectAsState()
 
     // Clear any residual MPV native video-zoom
     LaunchedEffect(Unit) {
@@ -139,7 +163,7 @@ fun PlayerScreen(
     // 3. UI Interactive States
     var showControls by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
-    var showTracksSheet by remember { mutableStateOf(false) }
+    var activeSheetTab by remember { mutableStateOf<PlayerSheetTab?>(null) }
     var gestureHudState by remember { mutableStateOf<GestureHudState>(GestureHudState.Idle) }
     val scrubState = remember { PlayerScrubState() }
 
@@ -174,8 +198,6 @@ fun PlayerScreen(
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         if (isLandscape) {
-            // In landscape: ALWAYS keep system bars hidden!
-            // Swiping down from top edge transiently reveals status bar without displacing layout.
             insetsController.hide(WindowInsetsCompat.Type.systemBars())
         } else {
             if (showControls && !isPipLayout) {
@@ -187,20 +209,28 @@ fun PlayerScreen(
     }
 
     // 7. Auto-hide controls timer (3.5s of inactivity while playing)
-    LaunchedEffect(showControls, isPlaying, scrubState.isActive, isLocked, isPipLayout, showTracksSheet, lastInteractionTrigger) {
-        if (showControls && isPlaying && !scrubState.isActive && !isLocked && !isPipLayout && !showTracksSheet) {
+    LaunchedEffect(showControls, isPlaying, scrubState.isActive, isLocked, isPipLayout, activeSheetTab, lastInteractionTrigger) {
+        if (showControls && isPlaying && !scrubState.isActive && !isLocked && !isPipLayout && activeSheetTab == null) {
             delay(3500L)
             showControls = false
         }
     }
 
-    // 8. SAF Pickers for video & external subtitles
+    // 8. Pickers for video file & external subtitles
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             val path = it.path ?: it.toString()
             engine.addSubtitle(path)
+        }
+    }
+
+    val videoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            engine.loadUri(it)
         }
     }
 
@@ -213,6 +243,20 @@ fun PlayerScreen(
                 bottom = it.bottom.toFloat()
             )
         }
+    }
+
+    val mediaSubtitle = remember(videoDimensions, hwdecCurrent, fps) {
+        val parts = mutableListOf<String>()
+        if (videoDimensions.width > 0 && videoDimensions.height > 0) {
+            parts.add("${videoDimensions.width}×${videoDimensions.height}")
+        }
+        if (fps > 0.0) {
+            parts.add("${String.format(Locale.US, "%.0f", fps)}fps")
+        }
+        if (hwdecCurrent.isNotBlank() && hwdecCurrent != "no") {
+            parts.add("HW")
+        }
+        if (parts.isNotEmpty()) parts.joinToString(" · ") else null
     }
 
     val gestureModifier = if (!isPipLayout && !pipEntering) {
@@ -284,8 +328,7 @@ fun PlayerScreen(
             .background(Color.Black)
             .onSizeChanged { containerSize = it }
     ) {
-        // A. Direct Native EGL Video Surface with Hardware graphicsLayer Transform.
-        // Pure RenderNode transformation in draw phase without JNI IPC or MPV mutex locks.
+        // A. Direct Native EGL Video Surface with Hardware graphicsLayer Transform
         GyroPlayerSurface(
             modifier = Modifier
                 .fillMaxSize()
@@ -306,7 +349,7 @@ fun PlayerScreen(
                 .then(gestureModifier)
         )
 
-        // B. Buffering Spinner
+        // C. Buffering Spinner
         if (playbackState == PlaybackState.BUFFERING && !isPipLayout) {
             CircularProgressIndicator(
                 color = Color(0xFF64B5F6),
@@ -314,19 +357,66 @@ fun PlayerScreen(
             )
         }
 
-        // C. Clean Top Floating Capsule HUD (Volume/Brightness/Speed/Double-Tap)
+        // D. Empty State / No Media Selected Card
+        if (playbackState == PlaybackState.IDLE && durationMs == 0L && !isPipLayout) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.82f),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VideoLibrary,
+                        contentDescription = null,
+                        tint = Color(0xFF64B5F6),
+                        modifier = Modifier.size(54.dp)
+                    )
+                    Text(
+                        text = "Gyro 本地极速播放器",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "未选择播放媒体，点击下方按钮打开本地视频",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                    Button(
+                        onClick = {
+                            videoPicker.launch(arrayOf("video/*", "audio/*", "*/*"))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("打开视频文件")
+                    }
+                }
+            }
+        }
+
+        // E. Clean Top Floating Capsule HUD (Volume/Brightness/Speed/Double-Tap)
         if (!isPipLayout && !pipEntering) {
             PlayerHudOverlay(
                 hudState = gestureHudState
             )
         }
 
-        // D. Top & Bottom Streamline Controls Overlay (hidden in PiP)
+        // F. Top & Bottom Streamline Controls Overlay (hidden in PiP)
         if (!isPipLayout && !pipEntering) {
             PlayerControlsOverlay(
                 isVisible = showControls,
                 isLocked = isLocked,
-                title = "",
+                title = mediaTitle.ifBlank { "Gyro Player" },
+                mediaSubtitle = mediaSubtitle,
                 isPlaying = isPlaying,
                 timePosMs = timePosMs,
                 durationMs = durationMs,
@@ -360,26 +450,13 @@ fun PlayerScreen(
                     resetControlsTimeout()
                     engine.seekRelative(10_000L)
                 },
-                onCycleSpeed = {
+                onOpenFile = {
                     resetControlsTimeout()
-                    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
-                    val nextIdx = (speeds.indexOf(speed) + 1).coerceAtLeast(0) % speeds.size
-                    engine.setSpeed(speeds[nextIdx])
+                    videoPicker.launch(arrayOf("video/*", "audio/*", "*/*"))
                 },
-                onCycleResizeMode = {
+                onOpenSheetTab = { tab ->
                     resetControlsTimeout()
-                    val nextMode = when (resizeMode) {
-                        ResizeMode.FIT -> ResizeMode.CROP
-                        ResizeMode.CROP -> ResizeMode.STRETCH
-                        ResizeMode.STRETCH -> ResizeMode.ASPECT_16_9
-                        ResizeMode.ASPECT_16_9 -> ResizeMode.ASPECT_21_9
-                        ResizeMode.ASPECT_21_9 -> ResizeMode.FIT
-                    }
-                    engine.setResizeMode(nextMode)
-                },
-                onOpenTracksSheet = {
-                    resetControlsTimeout()
-                    showTracksSheet = true
+                    activeSheetTab = tab
                 },
                 onEnterPiP = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && componentActivity != null) {
@@ -418,24 +495,38 @@ fun PlayerScreen(
             )
         }
 
-        // E. Modal Track, Audio/Sub Sync, and Settings Sheet
-        if (showTracksSheet && !isPipLayout && !pipEntering) {
-            PlayerTrackSelectionSheet(
-                tracks = tracks,
-                currentResizeMode = resizeMode,
-                currentSpeed = speed,
-                subDelaySec = subDelaySec,
-                audioDelaySec = audioDelaySec,
-                onDismiss = { showTracksSheet = false },
-                onSelectTrack = { type, id -> engine.selectTrack(type, id) },
-                onSelectResizeMode = { mode -> engine.setResizeMode(mode) },
-                onSelectSpeed = { sp -> engine.setSpeed(sp) },
-                onSetSubDelay = { delay -> engine.setSubtitleDelay(delay) },
-                onSetAudioDelay = { delay -> engine.setAudioDelay(delay) },
-                onAddExternalSubtitle = {
-                    subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
-                }
-            )
+        // G. Modal Tabbed Settings & Calibrator Bottom Sheet
+        activeSheetTab?.let { tab ->
+            if (!isPipLayout && !pipEntering) {
+                PlayerTrackSelectionSheet(
+                    initialTab = tab,
+                    tracks = tracks,
+                    currentResizeMode = resizeMode,
+                    currentSpeed = speed,
+                    subDelaySec = subDelaySec,
+                    audioDelaySec = audioDelaySec,
+                    subScale = subScale,
+                    subPos = subPos,
+                    hwdec = hwdecCurrent,
+                    fps = fps,
+                    droppedFrames = droppedFrames,
+                    videoWidth = videoDimensions.width,
+                    videoHeight = videoDimensions.height,
+                    powerMetrics = powerMetrics,
+                    onDismiss = { activeSheetTab = null },
+                    onSelectTrack = { type, id -> engine.selectTrack(type, id) },
+                    onSelectResizeMode = { mode -> engine.setResizeMode(mode) },
+                    onSelectSpeed = { sp -> engine.setSpeed(sp) },
+                    onSetSubDelay = { delay -> engine.setSubtitleDelay(delay) },
+                    onSetAudioDelay = { delay -> engine.setAudioDelay(delay) },
+                    onSetSubScale = { scale -> engine.setSubtitleScale(scale) },
+                    onSetSubPos = { pos -> engine.setSubtitlePosition(pos) },
+                    onToggleHwdec = { engine.toggleHwdec() },
+                    onAddExternalSubtitle = {
+                        subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
+                    }
+                )
+            }
         }
     }
 }

@@ -42,6 +42,9 @@ class GyroPlayerEngine(
     private val _videoDimensions = MutableStateFlow(VideoDimensions())
     val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
 
+    private val _mediaTitle = MutableStateFlow("")
+    val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
+
     private val _hwdecCurrent = MutableStateFlow("")
     val hwdecCurrent: StateFlow<String> = _hwdecCurrent.asStateFlow()
 
@@ -66,6 +69,12 @@ class GyroPlayerEngine(
     private val _audioDelay = MutableStateFlow(0.0)
     val audioDelay: StateFlow<Double> = _audioDelay.asStateFlow()
 
+    private val _subScale = MutableStateFlow(1.0)
+    val subScale: StateFlow<Double> = _subScale.asStateFlow()
+
+    private val _subPos = MutableStateFlow(100L)
+    val subPos: StateFlow<Long> = _subPos.asStateFlow()
+
     private var pendingSeekMs: Long = -1L
     private var fileLoaded: Boolean = false
 
@@ -76,6 +85,10 @@ class GyroPlayerEngine(
                     fileLoaded = true
                     val hwdec = GyroNative.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
+                    val title = GyroNative.getPropertyString("media-title")
+                    if (!title.isNullOrBlank()) {
+                        _mediaTitle.value = title
+                    }
                     _playbackState.value = PlaybackState.READY
                     refreshTracks()
                     Log.i(TAG, "File loaded, active hwdec=$hwdec")
@@ -132,6 +145,9 @@ class GyroPlayerEngine(
                 "frame-drop-count" -> {
                     _droppedFrames.value = value
                 }
+                "sub-pos" -> {
+                    _subPos.value = value
+                }
             }
         }
 
@@ -158,6 +174,9 @@ class GyroPlayerEngine(
                 "audio-delay" -> {
                     _audioDelay.value = value
                 }
+                "sub-scale" -> {
+                    _subScale.value = value
+                }
             }
         }
 
@@ -182,6 +201,7 @@ class GyroPlayerEngine(
         override fun onPropertyString(name: String, value: String) {
             when (name) {
                 "hwdec-current" -> _hwdecCurrent.value = value
+                "media-title" -> if (value.isNotBlank()) _mediaTitle.value = value
             }
         }
     }
@@ -230,6 +250,9 @@ class GyroPlayerEngine(
                 GyroNative.observeProperty("track-list", GyroNative.Format.NONE)
                 GyroNative.observeProperty("sub-delay", GyroNative.Format.DOUBLE)
                 GyroNative.observeProperty("audio-delay", GyroNative.Format.DOUBLE)
+                GyroNative.observeProperty("media-title", GyroNative.Format.STRING)
+                GyroNative.observeProperty("sub-scale", GyroNative.Format.DOUBLE)
+                GyroNative.observeProperty("sub-pos", GyroNative.Format.INT64)
 
                 Log.i(TAG, "GyroPlayerEngine initialized successfully")
             } catch (t: Throwable) {
@@ -240,6 +263,18 @@ class GyroPlayerEngine(
     }
 
     fun loadUri(uri: android.net.Uri, startPositionMs: Long = 0L) {
+        val displayName = runCatching {
+            appContext.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else null
+            }
+        }.getOrNull() ?: uri.lastPathSegment ?: ""
+        if (displayName.isNotBlank()) {
+            _mediaTitle.value = displayName
+        }
+
         val targetPath = try {
             val pfd = appContext.contentResolver.openFileDescriptor(uri, "r")
             val fd = pfd?.detachFd() ?: -1
@@ -268,6 +303,12 @@ class GyroPlayerEngine(
     fun load(url: String, startPositionMs: Long = 0L) {
         Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
         ensureInitialized()
+        if (_mediaTitle.value.isBlank()) {
+            val candidate = url.substringAfterLast('/').substringAfterLast('\\')
+            if (candidate.isNotBlank() && !candidate.startsWith("fdclose://")) {
+                _mediaTitle.value = candidate
+            }
+        }
         if (!isSurfaceAttached) {
             Log.i(TAG, "load: SurfaceView 尚未挂载，先进入等待队列: $url")
             pendingLoadUrl = url
@@ -372,6 +413,26 @@ class GyroPlayerEngine(
         val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(-5.0, 5.0)
         _audioDelay.value = clamped
         GyroNative.setPropertyDouble("audio-delay", clamped)
+    }
+
+    fun setSubtitleScale(scale: Double) {
+        val clamped = (Math.round(scale * 100.0) / 100.0).coerceIn(0.5, 3.0)
+        _subScale.value = clamped
+        GyroNative.setPropertyDouble("sub-scale", clamped)
+    }
+
+    fun setSubtitlePosition(posPercent: Long) {
+        val clamped = posPercent.coerceIn(0L, 100L)
+        _subPos.value = clamped
+        GyroNative.setPropertyLong("sub-pos", clamped)
+    }
+
+    fun toggleHwdec() {
+        val current = _hwdecCurrent.value
+        val isHw = current.contains("mediacodec")
+        val target = if (isHw) "no" else (if (GyroNative.isZeroCopySafe()) "mediacodec,mediacodec-copy" else "mediacodec-copy")
+        GyroNative.setPropertyString("hwdec", target)
+        _hwdecCurrent.value = target
     }
 
 

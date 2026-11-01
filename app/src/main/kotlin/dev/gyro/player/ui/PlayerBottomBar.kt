@@ -20,12 +20,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -46,7 +45,7 @@ import dev.gyro.engine.model.ResizeMode
  * 底部控制栏容器组件 (PlayerBottomBar)
  * 1. 拖动屏幕 Seek 时：仅展示进度条与时间，其他不显示；
  * 2. 竖屏模式：经典单行内嵌（播放键 + 开始时间 + 居中自适应进度条 + 总时间 + 全屏切换），画面零遮挡；
- * 3. 横屏模式：成熟双行布局（Row 1 全宽通栏进度条，Row 2 双手功能集群）。
+ * 3. 横屏模式：成熟双行布局（Row 1 全宽通栏进度条，Row 2 双手功能集群：播放、快退、快进、倍速、画幅、音画微调、字幕轨、全屏）。
  */
 @Composable
 fun PlayerBottomBar(
@@ -63,10 +62,7 @@ fun PlayerBottomBar(
     onSeekToFraction: (Float) -> Unit,
     onRewind10: () -> Unit,
     onForward10: () -> Unit,
-    onToggleLock: () -> Unit,
-    onCycleSpeed: () -> Unit,
-    onCycleResizeMode: () -> Unit,
-    onOpenTracksSheet: () -> Unit,
+    onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -223,6 +219,7 @@ fun PlayerBottomBar(
                         .height(40.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 播放/暂停
                     IconButton(
                         onClick = onTogglePlayPause,
                         modifier = Modifier
@@ -239,10 +236,12 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
+                    // 快退 10s
                     IconButton(onClick = onRewind10, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.Replay10, contentDescription = "Rewind 10s", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(20.dp))
                     }
 
+                    // 快进 10s
                     IconButton(onClick = onForward10, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.Forward10, contentDescription = "Forward 10s", tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(20.dp))
                     }
@@ -266,14 +265,14 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // 倍速快捷胶囊
+                    // 倍速快捷胶囊 (点击直达倍速调节面板)
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color.White.copy(alpha = 0.15f),
                         modifier = Modifier
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { onCycleSpeed() }
+                            .clickable { onOpenSheetTab(PlayerSheetTab.SPEED) }
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 8.dp),
@@ -288,14 +287,14 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    // 画幅快捷胶囊
+                    // 画幅快捷胶囊 (点击直达画幅调节面板)
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color.White.copy(alpha = 0.15f),
                         modifier = Modifier
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { onCycleResizeMode() }
+                            .clickable { onOpenSheetTab(PlayerSheetTab.ASPECT) }
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 8.dp),
@@ -310,12 +309,21 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    IconButton(onClick = onOpenTracksSheet, modifier = Modifier.size(34.dp)) {
+                    // 音画同步校准按键 (Tune)
+                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SYNC) }, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.Tune, contentDescription = "Sync", tint = Color.White, modifier = Modifier.size(19.dp))
+                    }
+
+                    Spacer(modifier = Modifier.width(2.dp))
+
+                    // 轨道与字幕快捷按键
+                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.Subtitles, contentDescription = "Tracks", tint = Color.White, modifier = Modifier.size(19.dp))
                     }
 
                     Spacer(modifier = Modifier.width(2.dp))
 
+                    // 退出全屏 / 返回竖屏按键
                     IconButton(onClick = onToggleOrientation, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(22.dp))
                     }
