@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -98,14 +97,9 @@ fun PlayerTopBar(
                 Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(20.dp))
             }
 
-            // 字幕与音轨入口 (直达 Subtitles Tab)
+            // 设置与全量面板入口 (直达全功能控制面板：字幕/音轨/校准/倍速/画幅/统计)
             IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Default.Subtitles, contentDescription = "Subtitles & Tracks", tint = Color.White, modifier = Modifier.size(20.dp))
-            }
-
-            // 设置与全量面板入口 (直达 Stats Tab)
-            IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.STATS) }, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Settings & Stats", tint = Color.White, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.MoreVert, contentDescription = "Settings & Tracks", tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
     }

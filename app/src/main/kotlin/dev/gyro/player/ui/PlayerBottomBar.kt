@@ -88,14 +88,15 @@ fun PlayerBottomBar(
         }
 
         if (isScreenScrubOnly) {
-            // A. 拖拽屏幕 Seek 时：真正全宽通栏进度条与时间反馈
+            // A. 拖拽屏幕 Seek 时：两侧留出安全间距的进度条与时间反馈
             Column(modifier = Modifier.fillMaxWidth()) {
                 PlayerScrubBar(
                     timePosMs = timePosMs,
                     durationMs = durationMs,
                     bufferedPosMs = bufferedPosMs,
                     scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction
+                    onSeekToFraction = onSeekToFraction,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
                 Row(
                     modifier = Modifier
@@ -126,13 +127,14 @@ fun PlayerBottomBar(
         } else {
             // B. 现代双行布局（竖屏与横屏统一架构，零功能重复）
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Row 1: 真正贴合屏幕两端的全宽高精度通栏进度条
+                // Row 1: 两侧保留 16dp 舒适呼吸间距与防误触缓冲的进度条
                 PlayerScrubBar(
                     timePosMs = timePosMs,
                     durationMs = durationMs,
                     bufferedPosMs = bufferedPosMs,
                     scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction
+                    onSeekToFraction = onSeekToFraction,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
@@ -142,7 +144,7 @@ fun PlayerBottomBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(40.dp)
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 左侧：纯悬浮 播放/暂停
