@@ -63,11 +63,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             val backStack = rememberNavBackStack(Screen.Home)
             val intentUri by incomingIntentUri.collectAsState()
+            val settings by settingsViewModel.settings.collectAsState()
+            val historyRepository = homeViewModel.historyRepository
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
                     backStack.add(Screen.Player(uri))
-                    playerEngine.loadUri(uri)
+                    val startPos = if (settings.autoResume) {
+                        val progress = historyRepository.getProgress(uri)
+                        if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
+                            progress.positionMs
+                        } else 0L
+                    } else 0L
+                    playerEngine.loadUri(uri, startPos)
                 }
             }
 
@@ -95,7 +103,13 @@ class MainActivity : ComponentActivity() {
                                 viewModel = homeViewModel,
                                 onPlayVideo = { uri ->
                                     backStack.add(Screen.Player(uri))
-                                    playerEngine.loadUri(uri)
+                                    val startPos = if (settings.autoResume) {
+                                        val progress = historyRepository.getProgress(uri)
+                                        if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
+                                            progress.positionMs
+                                        } else 0L
+                                    } else 0L
+                                    playerEngine.loadUri(uri, startPos)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
@@ -106,6 +120,9 @@ class MainActivity : ComponentActivity() {
                         entry<Screen.Player> { playerScreen ->
                             PlayerScreen(
                                 engine = playerEngine,
+                                currentUri = playerScreen.uri,
+                                settings = settings,
+                                historyRepository = historyRepository,
                                 onBack = {
                                     playerEngine.pause()
                                     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -167,7 +184,6 @@ class MainActivity : ComponentActivity() {
         android.util.Log.i("MainActivity", "handleIntent: action=${intent.action}, uri=$uri")
         uri?.let {
             incomingIntentUri.value = it
-            playerEngine.loadUri(it)
         }
     }
 

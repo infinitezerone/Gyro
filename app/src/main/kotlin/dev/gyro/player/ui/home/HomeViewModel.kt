@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.gyro.player.data.model.VideoMediaItem
 import dev.gyro.player.data.repository.MediaRepository
+import dev.gyro.player.data.repository.PlaybackHistoryRepository
+import dev.gyro.player.data.repository.PlaybackProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +23,8 @@ data class HomeUiState(
     val folders: List<String> = emptyList(),
     val selectedFolder: String? = null,
     val searchQuery: String = "",
-    val isSearching: Boolean = false
+    val isSearching: Boolean = false,
+    val playbackMap: Map<String, PlaybackProgress> = emptyMap()
 )
 
 private data class FilterState(
@@ -33,6 +36,7 @@ private data class FilterState(
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MediaRepository(application)
+    val historyRepository = PlaybackHistoryRepository(application)
 
     private val _isLoading = MutableStateFlow(false)
     private val _hasPermission = MutableStateFlow(false)
@@ -43,8 +47,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _isLoading,
         _hasPermission,
         _rawVideos,
-        _filters
-    ) { isLoading, hasPermission, rawVideos, filters ->
+        _filters,
+        historyRepository.progressMap
+    ) { isLoading, hasPermission, rawVideos, filters, progressMap ->
         val folders = rawVideos.map { it.folderName }.distinct().sorted()
 
         val filtered = rawVideos.filter { video ->
@@ -61,7 +66,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             folders = folders,
             selectedFolder = filters.selectedFolder,
             searchQuery = filters.searchQuery,
-            isSearching = filters.isSearching
+            isSearching = filters.isSearching,
+            playbackMap = progressMap
         )
     }.stateIn(
         scope = viewModelScope,

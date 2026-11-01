@@ -20,6 +20,7 @@ sealed class GestureHudState {
     data class Seek(val targetMs: Long, val deltaMs: Long, val totalMs: Long) : GestureHudState()
     data class DoubleTap(val side: DoubleTapSide, val seconds: Int) : GestureHudState()
     data class Speed(val speed: Float) : GestureHudState()
+    data class Notice(val message: String) : GestureHudState()
 }
 
 /**

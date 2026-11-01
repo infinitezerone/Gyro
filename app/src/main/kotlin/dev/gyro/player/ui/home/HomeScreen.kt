@@ -54,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -79,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import dev.gyro.player.R
 import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.player.data.repository.PlaybackProgress
 
 @Composable
 fun HomeScreen(
@@ -354,8 +356,10 @@ fun HomeContent(
                                 items = uiState.filteredVideos,
                                 key = { it.id }
                             ) { item ->
+                                val progress = uiState.playbackMap[item.uri.toString()]
                                 VideoListItemCard(
                                     item = item,
+                                    progress = progress,
                                     onClick = { onPlayVideo(item.uri) }
                                 )
                             }
@@ -373,6 +377,7 @@ fun HomeContent(
 @Composable
 fun VideoListItemCard(
     item: VideoMediaItem,
+    progress: PlaybackProgress? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -414,6 +419,20 @@ fun VideoListItemCard(
                         fontWeight = FontWeight.Medium,
                         color = Color.White,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+
+                // 播放断点进度条
+                if (progress != null && progress.positionMs > 2000L && progress.durationMs > 0L) {
+                    LinearProgressIndicator(
+                        progress = { progress.progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.BottomCenter),
+                        color = Color(0xFF2196F3),
+                        trackColor = Color.White.copy(alpha = 0.25f),
+                        drawStopIndicator = {}
                     )
                 }
             }

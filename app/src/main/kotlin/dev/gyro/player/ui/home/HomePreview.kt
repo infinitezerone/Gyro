@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.player.data.repository.PlaybackProgress
 
 @Preview(
     name = "Home Screen - Media Library",
@@ -16,7 +17,7 @@ fun HomeScreenPreview() {
     val sampleVideos = listOf(
         VideoMediaItem(
             id = 1L,
-            uri = Uri.EMPTY,
+            uri = Uri.parse("content://media/external/video/media/1"),
             displayName = "Big Buck Bunny 4K 60fps HDR.mp4",
             durationMs = 596_000L,
             sizeBytes = 1_288_490_188L, // ~1.2 GB
@@ -27,7 +28,7 @@ fun HomeScreenPreview() {
         ),
         VideoMediaItem(
             id = 2L,
-            uri = Uri.EMPTY,
+            uri = Uri.parse("content://media/external/video/media/2"),
             displayName = "Tears of Steel 1080p Sci-Fi.mkv",
             durationMs = 734_000L,
             sizeBytes = 644_245_094L, // ~614 MB
@@ -38,7 +39,7 @@ fun HomeScreenPreview() {
         ),
         VideoMediaItem(
             id = 3L,
-            uri = Uri.EMPTY,
+            uri = Uri.parse("content://media/external/video/media/3"),
             displayName = "Sintel Animated Short Movie 720p.mp4",
             durationMs = 888_000L,
             sizeBytes = 320_000_000L,
@@ -49,7 +50,7 @@ fun HomeScreenPreview() {
         ),
         VideoMediaItem(
             id = 4L,
-            uri = Uri.EMPTY,
+            uri = Uri.parse("content://media/external/video/media/4"),
             displayName = "VID_20260401_Camera_Rec.mp4",
             durationMs = 45_000L,
             sizeBytes = 110_000_000L,
@@ -57,6 +58,15 @@ fun HomeScreenPreview() {
             height = 1080,
             dateModified = 1711670400L,
             folderName = "Camera"
+        )
+    )
+
+    val samplePlaybackMap = mapOf(
+        "content://media/external/video/media/1" to PlaybackProgress(
+            uriString = "content://media/external/video/media/1",
+            positionMs = 280_000L,
+            durationMs = 596_000L,
+            lastPlayedTimestamp = System.currentTimeMillis()
         )
     )
 
@@ -68,7 +78,8 @@ fun HomeScreenPreview() {
         folders = listOf("Camera", "Download", "Movies"),
         selectedFolder = null,
         searchQuery = "",
-        isSearching = false
+        isSearching = false,
+        playbackMap = samplePlaybackMap
     )
 
     HomeContent(

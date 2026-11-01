@@ -43,6 +43,7 @@
     <string name="player_default_title">Gyro Player</string>
     <string name="player_empty_title">暂无播放内容</string>
     <string name="player_empty_desc">请从媒体库选择或打开视频文件</string>
+    <string name="player_resumed_notice">已恢复至 %s</string>
 
     <!-- Sheet Tabs -->
     <string name="sheet_tab_subtitles">字幕</string>

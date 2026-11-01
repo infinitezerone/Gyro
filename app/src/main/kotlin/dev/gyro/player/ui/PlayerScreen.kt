@@ -62,6 +62,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.R
+import dev.gyro.player.data.repository.PlaybackHistoryRepository
+import dev.gyro.player.data.repository.UserSettings
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.ui.GyroPlayerSurface
@@ -73,6 +75,9 @@ import java.util.Locale
 @Composable
 fun PlayerScreen(
     engine: GyroPlayerEngine,
+    currentUri: Uri? = null,
+    settings: UserSettings = UserSettings(),
+    historyRepository: PlaybackHistoryRepository? = null,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -269,6 +274,61 @@ fun PlayerScreen(
         if (parts.isNotEmpty()) parts.joinToString(" · ") else null
     }
 
+    val gestureConfig = remember(settings, isLocked) {
+        PlayerGestureConfig(
+            isLocked = isLocked,
+            isVolumeEnabled = settings.gesturesEnabled,
+            isBrightnessEnabled = settings.gesturesEnabled,
+            isSeekEnabled = settings.gesturesEnabled,
+            isDoubleTapSeekEnabled = settings.gesturesEnabled,
+            isDoubleTapPlayPauseEnabled = settings.gesturesEnabled,
+            isLongPressSpeedEnabled = settings.gesturesEnabled,
+            doubleTapSeekSeconds = settings.seekStepSeconds
+        )
+    }
+
+    // Periodic progress persistence (every 4s while playing)
+    LaunchedEffect(isPlaying, currentUri, historyRepository) {
+        if (isPlaying && currentUri != null && historyRepository != null) {
+            while (true) {
+                delay(4000L)
+                val curPos = engine.timePosMs.value
+                val curDur = engine.durationMs.value
+                if (curDur > 0L) {
+                    historyRepository.saveProgress(currentUri, curPos, curDur)
+                }
+            }
+        }
+    }
+
+    // Save on disposal (when leaving player screen or switching videos)
+    DisposableEffect(currentUri, historyRepository) {
+        onDispose {
+            if (currentUri != null && historyRepository != null) {
+                val curPos = engine.timePosMs.value
+                val curDur = engine.durationMs.value
+                if (curDur > 0L) {
+                    historyRepository.saveProgress(currentUri, curPos, curDur)
+                }
+            }
+        }
+    }
+
+    // Show brief top notice if auto-resumed at a position > 2s
+    var hasShownResumeNotice by remember(currentUri) { mutableStateOf(false) }
+    LaunchedEffect(timePosMs, currentUri) {
+        if (!hasShownResumeNotice && timePosMs > 2000L && playbackState == PlaybackState.READY) {
+            hasShownResumeNotice = true
+            gestureHudState = GestureHudState.Notice(
+                context.getString(R.string.player_resumed_notice, formatTime(timePosMs))
+            )
+            delay(2500L)
+            if (gestureHudState is GestureHudState.Notice) {
+                gestureHudState = GestureHudState.Idle
+            }
+        }
+    }
+
     val gestureModifier = if (!isPipLayout && !pipEntering) {
         Modifier.playerGestures(
             context = context,
@@ -326,7 +386,8 @@ fun PlayerScreen(
             },
             onHudStateChange = { newState ->
                 gestureHudState = newState
-            }
+            },
+            config = gestureConfig
         )
     } else {
         Modifier
@@ -454,11 +515,11 @@ fun PlayerScreen(
                 },
                 onRewind10 = {
                     resetControlsTimeout()
-                    engine.seekRelative(-10_000L)
+                    engine.seekRelative(-settings.seekStepSeconds * 1000L)
                 },
                 onForward10 = {
                     resetControlsTimeout()
-                    engine.seekRelative(10_000L)
+                    engine.seekRelative(settings.seekStepSeconds * 1000L)
                 },
                 onOpenSheetTab = { tab ->
                     resetControlsTimeout()
