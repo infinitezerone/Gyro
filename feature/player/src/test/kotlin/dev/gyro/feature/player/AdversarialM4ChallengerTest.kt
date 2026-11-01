@@ -176,40 +176,30 @@ class AdversarialM4ChallengerTest {
 
     @Test
     fun testExtremeInputs_nanDeltaRatio() {
-        // In Kotlin's roundToInt(), Float.NaN throws IllegalArgumentException("Cannot round NaN value.")
-        try {
-            TwoStageVolumeCalculator.calculate(
-                dragStartPercent = 80,
-                deltaRatio = Float.NaN,
-                maxSystemVolume = maxSysVolume
-            )
-            org.junit.Assert.fail("Expected IllegalArgumentException for Float.NaN in TwoStageVolumeCalculator.calculate")
-        } catch (e: IllegalArgumentException) {
-            assertEquals("Cannot round NaN value.", e.message)
-        }
+        // Defensive arithmetic handles Float.NaN safely without throwing, producing 0 delta
+        val result = TwoStageVolumeCalculator.calculate(
+            dragStartPercent = 80,
+            deltaRatio = Float.NaN,
+            maxSystemVolume = maxSysVolume
+        )
+        assertEquals(80, result.totalPercent)
 
-        // computeInitialPercent with Double.NaN also throws IllegalArgumentException
-        try {
-            TwoStageVolumeCalculator.computeInitialPercent(
-                currentSystemVolume = 15,
-                maxSystemVolume = maxSysVolume,
-                currentSoftwareVolume = Double.NaN
-            )
-            org.junit.Assert.fail("Expected IllegalArgumentException for Double.NaN in TwoStageVolumeCalculator.computeInitialPercent")
-        } catch (e: IllegalArgumentException) {
-            assertEquals("Cannot round NaN value.", e.message)
-        }
+        // computeInitialPercent with Double.NaN safely defaults to 100.0
+        val initialPct = TwoStageVolumeCalculator.computeInitialPercent(
+            currentSystemVolume = 15,
+            maxSystemVolume = maxSysVolume,
+            currentSoftwareVolume = Double.NaN
+        )
+        assertEquals(100, initialPct)
     }
 
     @Test
     fun testExtremeInputs_infinityDeltaRatio() {
-        // Math.round(Float.POSITIVE_INFINITY) returns Integer.MAX_VALUE (2147483647).
-        // 100 + Integer.MAX_VALUE overflows to -2147483549, which .coerceIn(0, 200) clamps to 0!
+        // Defensive arithmetic clamps POSITIVE_INFINITY to max overdrive (200) without integer overflow
         val posInf = TwoStageVolumeCalculator.calculate(100, Float.POSITIVE_INFINITY, maxSysVolume)
-        assertEquals(0, posInf.totalPercent)
+        assertEquals(200, posInf.totalPercent)
 
-        // Math.round(Float.NEGATIVE_INFINITY) returns Integer.MIN_VALUE (-2147483648).
-        // 100 + Integer.MIN_VALUE overflows to -2147483548, which .coerceIn(0, 200) clamps to 0.
+        // NEGATIVE_INFINITY clamps to 0
         val negInf = TwoStageVolumeCalculator.calculate(100, Float.NEGATIVE_INFINITY, maxSysVolume)
         assertEquals(0, negInf.totalPercent)
     }

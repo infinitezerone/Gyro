@@ -59,7 +59,7 @@ Data Flow:
 | M2 | Engine Core & Audiovisual Infrastructure | `:core:engine`, `:core:testing` (`MpvNativeBridge`, shaders, mpv.conf injection & overrides, chapters, volume overdrive & limiter, deband, colors, audio filters) | M1 | DONE |
 | M3 | Settings & Configuration UI | `:feature:settings` (`MpvConfigEditorScreen`, `GestureSettingsScreen`, Navigation 3 wiring) | M1, M2 | DONE |
 | M4 | Player UI, Gestures & Audiovisual Controls | `:feature:player` (`PlayerTrackSelectionSheet` shaders/chapters/effects tabs, `PlayerScrubBar` chapter ticks, overdrive amber HUD, dynamic gestures, 16dp floating styling) | M1, M2, M3 | DONE |
-| M5 | System Integration: Background Playback & MediaSession | `:app`, `:feature:player` (Manifest permissions, `PlaybackService`, `MediaSessionCompat`, notification card, headset controls, headless surface detachment, MainActivity navigation) | M2, M3, M4 | IN_PROGRESS |
+| M5 | System Integration: Background Playback & MediaSession | `:app`, `:feature:player` (Manifest permissions, `PlaybackService`, `MediaSessionCompat`, notification card, headset controls, headless surface detachment, MainActivity navigation) | M2, M3, M4 | DONE |
 | M6 | Final Milestone: 100% E2E Test Pass & Adversarial Hardening | Phase 1: Pass 100% of E2E test suite (Tiers 1-4). Phase 2: Adversarial coverage hardening (Tier 5). | M1, M2, M3, M4, M5, TEST_READY | PLANNED |
 
 ## Interface Contracts

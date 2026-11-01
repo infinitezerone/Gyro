@@ -64,6 +64,8 @@ class MainActivity : ComponentActivity() {
         playerEngine = GyroPlayerEngine(this).apply {
             ensureInitialized()
         }
+        PlaybackService.activeEngine = playerEngine
+        PlaybackService.activePlaylistManager = playlistManager
 
         handleIntent(intent)
 
@@ -258,8 +260,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+        if (!inPip && ::playerEngine.isInitialized && playerEngine.isPlaying.value) {
+            // Detach video surface for headless EGL_NO_SURFACE operation in background
+            playerEngine.detachSurface()
+            // Launch foreground service for background audio playback
+            PlaybackService.start(this)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        PlaybackService.stop(this)
+        PlaybackService.activeEngine = null
+        PlaybackService.activePlaylistManager = null
         if (::playerEngine.isInitialized) {
             playerEngine.release()
         }
