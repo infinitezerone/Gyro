@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -70,6 +71,7 @@ import java.util.Locale
 @Composable
 fun PlayerScreen(
     engine: GyroPlayerEngine,
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -77,6 +79,11 @@ fun PlayerScreen(
     val componentActivity = remember(context) { context.findComponentActivity() }
     val configuration = LocalConfiguration.current
     val scope = rememberCoroutineScope()
+
+    // Handle system back gesture / back button to return to Home Screen
+    BackHandler {
+        onBack()
+    }
 
     // 1. Engine & Playback States
     val playbackState by engine.playbackState.collectAsState()
@@ -487,7 +494,7 @@ fun PlayerScreen(
                         }
                     }
                 },
-                onBack = { activity?.finish() }
+                onBack = onBack
             )
         }
 

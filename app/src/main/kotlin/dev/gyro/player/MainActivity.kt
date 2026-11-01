@@ -1,5 +1,7 @@
 package dev.gyro.player
 
+import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -7,17 +9,29 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.ui.PlayerScreen
 import dev.gyro.player.ui.buildPipParams
+import dev.gyro.player.ui.home.HomeScreen
+import dev.gyro.player.ui.home.HomeViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var playerEngine: GyroPlayerEngine
+    private val homeViewModel: HomeViewModel by viewModels()
+    private val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,14 +57,40 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
 
         setContent {
+            var activeMediaUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+            val intentUri by incomingIntentUri.collectAsState()
+
+            LaunchedEffect(intentUri) {
+                intentUri?.let {
+                    activeMediaUri = it
+                }
+            }
+
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = Color.Black
             ) {
-                PlayerScreen(
-                    engine = playerEngine,
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (activeMediaUri != null) {
+                    PlayerScreen(
+                        engine = playerEngine,
+                        onBack = {
+                            playerEngine.pause()
+                            activeMediaUri = null
+                            incomingIntentUri.value = null
+                            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    HomeScreen(
+                        viewModel = homeViewModel,
+                        onPlayVideo = { uri ->
+                            activeMediaUri = uri
+                            playerEngine.loadUri(uri)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     }
@@ -88,6 +128,7 @@ class MainActivity : ComponentActivity() {
 
         android.util.Log.i("MainActivity", "handleIntent: action=${intent.action}, uri=$uri")
         uri?.let {
+            incomingIntentUri.value = it
             playerEngine.loadUri(it)
         }
     }
