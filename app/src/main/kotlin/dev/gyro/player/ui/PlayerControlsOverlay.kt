@@ -28,10 +28,10 @@ import dev.gyro.engine.model.ResizeMode
 
 /**
  * 现代轻量级播放器控制遮罩骨架 (PlayerControlsOverlay)
- * - 画面正中保持绝对纯净，零任何大按键遮挡；
+ * - 纯悬浮无背景设计，零遮挡色块；
  * - 锁屏按键悬浮于左侧边缘 (Alignment.CenterStart)；
- * - 竖屏底栏采用经典单行内嵌布局，零多余按钮塞入；
- * - 顶部栏承载标题、文件打开、画中画与次级设置。
+ * - 顶部栏承载返回、标题与次级设置；
+ * - 底部栏采用现代高精度双行通栏架构。
  */
 @Composable
 fun BoxScope.PlayerControlsOverlay(
@@ -53,9 +53,8 @@ fun BoxScope.PlayerControlsOverlay(
     onTogglePlayPause: () -> Unit,
     onToggleLock: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
-    onRewind10: () -> Unit,
-    onForward10: () -> Unit,
-    onOpenFile: () -> Unit,
+    onRewind10: () -> Unit = {},
+    onForward10: () -> Unit = {},
     onEnterPiP: () -> Unit,
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
@@ -65,7 +64,7 @@ fun BoxScope.PlayerControlsOverlay(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，纯悬浮无背景）
+        // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，纯悬浮微透明）
         AnimatedVisibility(
             visible = isVisible || isLocked,
             enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -73,17 +72,17 @@ fun BoxScope.PlayerControlsOverlay(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .displayCutoutPadding()
-                .padding(start = 16.dp)
+                .padding(start = 14.dp)
         ) {
             IconButton(
                 onClick = onToggleLock,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
                     contentDescription = if (isLocked) "Unlock Screen" else "Lock Screen",
-                    tint = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.size(26.dp)
+                    tint = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -103,7 +102,6 @@ fun BoxScope.PlayerControlsOverlay(
                 mediaSubtitle = mediaSubtitle,
                 isLandscape = isLandscape,
                 onBack = onBack,
-                onOpenFile = onOpenFile,
                 onEnterPiP = onEnterPiP,
                 onOpenSheetTab = onOpenSheetTab
             )

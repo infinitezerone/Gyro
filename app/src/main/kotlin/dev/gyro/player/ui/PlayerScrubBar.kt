@@ -44,7 +44,7 @@ fun PlayerScrubBar(
         label = "barHeight"
     )
     val thumbSize by animateDpAsState(
-        targetValue = if (isHoveredOrScrubbing) 14.dp else 0.dp,
+        targetValue = if (isHoveredOrScrubbing) 16.dp else 10.dp,
         animationSpec = tween(150),
         label = "thumbSize"
     )

@@ -20,8 +20,6 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -40,8 +38,10 @@ import dev.gyro.engine.model.ResizeMode
 /**
  * 底部控制栏统一组件 (PlayerBottomBar)
  *
- * 所有按键均采用【纯悬浮无背景】设计风格，零任何遮挡色块与药丸底色，
- * 视觉极致清透无干扰，与视频画面浑然一体。
+ * 规范：
+ * 1. 进度条真正通栏 (Edge-to-Edge)：零左右 padding 限制，全宽铺满屏幕两端；
+ * 2. 纯悬浮无背景设计：零遮挡色块，纯白矢量与等宽字体；
+ * 3. 去重与极简：横竖屏一致采用 [播放/时间] + [倍速/画幅/全屏]，杜绝与顶部栏重复。
  */
 @Composable
 fun PlayerBottomBar(
@@ -65,12 +65,12 @@ fun PlayerBottomBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
                 )
             )
             .displayCutoutPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(bottom = 6.dp)
     ) {
         val isScreenScrubOnly = !isVisible && scrubState.isActive
         val displayPos = if (scrubState.isActive) {
@@ -79,12 +79,17 @@ fun PlayerBottomBar(
             timePosMs
         }
 
+        val aspectLabel = when (resizeMode) {
+            ResizeMode.FIT -> "适应"
+            ResizeMode.CROP -> "填充"
+            ResizeMode.STRETCH -> "拉伸"
+            ResizeMode.ASPECT_16_9 -> "16:9"
+            ResizeMode.ASPECT_21_9 -> "21:9"
+        }
+
         if (isScreenScrubOnly) {
-            // A. 拖拽屏幕 Seek 时：仅展示复用进度条与时间反馈，极简纯粹
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
+            // A. 拖拽屏幕 Seek 时：真正全宽通栏进度条与时间反馈
+            Column(modifier = Modifier.fillMaxWidth()) {
                 PlayerScrubBar(
                     timePosMs = timePosMs,
                     durationMs = durationMs,
@@ -93,7 +98,9 @@ fun PlayerBottomBar(
                     onSeekToFraction = onSeekToFraction
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -116,10 +123,10 @@ fun PlayerBottomBar(
                     )
                 }
             }
-        } else if (!isLandscape) {
-            // B. 现代竖屏双行布局 (Portrait Dual-Row Layout)
+        } else {
+            // B. 现代双行布局（竖屏与横屏统一架构，零功能重复）
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Row 1: 全宽通栏自适应进度条
+                // Row 1: 真正贴合屏幕两端的全宽高精度通栏进度条
                 PlayerScrubBar(
                     timePosMs = timePosMs,
                     durationMs = durationMs,
@@ -128,16 +135,17 @@ fun PlayerBottomBar(
                     onSeekToFraction = onSeekToFraction
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
-                // Row 2: 纯悬浮无背景控制行 (40dp 高度)
+                // Row 2: 黄金触达纯悬浮控制行 (40dp 高度)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(40.dp),
+                        .height(40.dp)
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧：纯悬浮无背景 播放/暂停按键
+                    // 左侧：纯悬浮 播放/暂停
                     IconButton(
                         onClick = onTogglePlayPause,
                         modifier = Modifier.size(38.dp)
@@ -152,7 +160,7 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // 紧跟播放键的当前时间 / 总时长（等宽字体防抖动）
+                    // 紧跟播放键的当前时间 / 总时长
                     Text(
                         text = "${formatTime(displayPos)} / ${formatTime(durationMs)}",
                         style = TextStyle(
@@ -165,7 +173,7 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // 右侧：纯悬浮无背景 倍速
+                    // 右侧：纯悬浮 倍速
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -181,7 +189,7 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    // 纯悬浮无背景 画面比例
+                    // 纯悬浮 画面比例 (中文规范)
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -190,122 +198,21 @@ fun PlayerBottomBar(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = resizeMode.label,
+                            text = aspectLabel,
                             style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         )
                     }
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    // 全屏切换按键
+                    // 全屏切换 / 退出全屏按键
                     IconButton(onClick = onToggleOrientation, modifier = Modifier.size(38.dp)) {
                         Icon(
-                            imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "Fullscreen",
+                            imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isLandscape) "Exit Fullscreen" else "Fullscreen",
                             tint = Color.White,
                             modifier = Modifier.size(24.dp)
                         )
-                    }
-                }
-            }
-        } else {
-            // C. 现代横屏双行布局 (Landscape Dual-Row Layout)
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // Row 1: 全宽通栏自适应进度条
-                PlayerScrubBar(
-                    timePosMs = timePosMs,
-                    durationMs = durationMs,
-                    bufferedPosMs = bufferedPosMs,
-                    scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Row 2: 横屏纯悬浮无背景控制行 (40dp 高度)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 左侧：纯悬浮无背景 播放/暂停
-                    IconButton(
-                        onClick = onTogglePlayPause,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // 紧跟播放键的时间
-                    Text(
-                        text = "${formatTime(displayPos)} / ${formatTime(durationMs)}",
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.95f),
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // 右侧：纯悬浮无背景 倍速
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { onOpenSheetTab(PlayerSheetTab.SPEED) }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "${speed}x",
-                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // 纯悬浮无背景 画幅
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { onOpenSheetTab(PlayerSheetTab.ASPECT) }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = resizeMode.label,
-                            style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // 音画校准快捷入口 (Tune)
-                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SYNC) }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Tune, contentDescription = "Sync", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-
-                    Spacer(modifier = Modifier.width(2.dp))
-
-                    // 轨道与字幕快捷入口
-                    IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Subtitles, contentDescription = "Tracks", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-
-                    Spacer(modifier = Modifier.width(2.dp))
-
-                    // 退出全屏 / 返回竖屏
-                    IconButton(onClick = onToggleOrientation, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White, modifier = Modifier.size(24.dp))
                     }
                 }
             }

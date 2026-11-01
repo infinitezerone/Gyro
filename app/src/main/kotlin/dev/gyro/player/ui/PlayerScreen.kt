@@ -450,10 +450,6 @@ fun PlayerScreen(
                     resetControlsTimeout()
                     engine.seekRelative(10_000L)
                 },
-                onOpenFile = {
-                    resetControlsTimeout()
-                    videoPicker.launch(arrayOf("video/*", "audio/*", "*/*"))
-                },
                 onOpenSheetTab = { tab ->
                     resetControlsTimeout()
                     activeSheetTab = tab
