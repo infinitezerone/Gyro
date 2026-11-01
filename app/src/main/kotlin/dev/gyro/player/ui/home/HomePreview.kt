@@ -3,8 +3,8 @@ package dev.gyro.player.ui.home
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
-import dev.gyro.player.data.model.VideoMediaItem
-import dev.gyro.player.data.repository.PlaybackProgress
+import dev.gyro.core.model.PlaybackProgress
+import dev.gyro.core.model.VideoMediaItem
 
 @Preview(
     name = "Home Screen - Media Library",

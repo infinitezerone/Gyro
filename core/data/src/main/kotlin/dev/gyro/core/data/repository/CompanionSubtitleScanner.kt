@@ -1,10 +1,8 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.data.repository
 
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.provider.DocumentsContract
-import android.provider.MediaStore
 import android.util.Log
 import java.io.File
 

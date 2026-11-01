@@ -1,4 +1,4 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

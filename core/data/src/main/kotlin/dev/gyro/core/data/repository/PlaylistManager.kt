@@ -1,7 +1,7 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.data.repository
 
 import android.net.Uri
-import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

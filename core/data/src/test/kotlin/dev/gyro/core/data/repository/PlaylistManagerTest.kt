@@ -1,7 +1,7 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.data.repository
 
 import android.net.TestUri
-import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.core.model.VideoMediaItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

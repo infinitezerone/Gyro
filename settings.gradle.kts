@@ -34,4 +34,7 @@ android {
 rootProject.name = "Gyro"
 
 include(":app")
+include(":core:model")
+include(":core:data")
+include(":core:navigation")
 include(":core:engine")

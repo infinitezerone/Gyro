@@ -1,10 +1,10 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.data.repository
 
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
-import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -60,7 +60,9 @@ class CustomFolderManager(private val context: Context) {
 
         for (treeUri in uris) {
             try {
-                scanTreeIterative(treeUri, result, maxDepth = 15)
+                val folderName = getDocDisplayName(treeUri) ?: "自定义目录"
+                val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+                scanFolderBfs(treeUri, rootDocId, folderName, result)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -68,42 +70,33 @@ class CustomFolderManager(private val context: Context) {
         result
     }
 
-    /**
-     * 基于 BFS 广度优先迭代队列的目录扫描：
-     * 1. 彻底解除 3 级限制，支持影视/动漫常见的多层级深层目录 (放宽至 15 级安全上限)；
-     * 2. 具备已访问 docId 环路检测，从根本上防止软链接死循环；
-     * 3. 自动跳过 . 开头的隐藏目录与系统缓存目录，兼顾深层遍历与高性能；
-     * 4. 采用队列迭代而非深度递归，杜绝深层调用栈溢出 (StackOverflow)。
-     */
-    private fun scanTreeIterative(
+    private data class QueueNode(val docId: String, val folderName: String, val depth: Int)
+
+    private fun scanFolderBfs(
         treeUri: Uri,
-        outList: MutableList<VideoMediaItem>,
-        maxDepth: Int = 15
+        rootDocId: String,
+        rootFolderName: String,
+        outList: MutableList<VideoMediaItem>
     ) {
-        val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
-        val initialFolderName = rootDocId.substringAfterLast(":").substringAfterLast("/").ifBlank { "自定义目录" }
+        val queue = ArrayDeque<QueueNode>()
+        val visitedDocIds = HashSet<String>()
 
-        data class DirQueueItem(val docId: String, val folderName: String, val depth: Int)
-
-        val queue = ArrayDeque<DirQueueItem>()
-        val visitedDocIds = mutableSetOf<String>()
-
-        queue.add(DirQueueItem(rootDocId, initialFolderName, depth = 0))
+        queue.add(QueueNode(rootDocId, rootFolderName, depth = 0))
         visitedDocIds.add(rootDocId)
 
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE,
-            DocumentsContract.Document.COLUMN_SIZE,
-            DocumentsContract.Document.COLUMN_LAST_MODIFIED
-        )
+        val maxSafeDepth = 15
 
         while (queue.isNotEmpty()) {
             val (currentDocId, currentFolderName, currentDepth) = queue.removeFirst()
-            if (currentDepth > maxDepth) continue
 
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, currentDocId)
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED
+            )
 
             try {
                 context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
@@ -111,33 +104,32 @@ class CustomFolderManager(private val context: Context) {
                     val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                     val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
                     val sizeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
-                    val modCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    val dateCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
 
                     while (cursor.moveToNext()) {
-                        val docId = cursor.getString(idCol)
+                        val childDocId = cursor.getString(idCol) ?: continue
                         val displayName = cursor.getString(nameCol) ?: "Unknown"
                         val mimeType = cursor.getString(mimeCol) ?: ""
-                        val size = cursor.getLong(sizeCol)
-                        val lastModified = cursor.getLong(modCol)
+                        val sizeBytes = cursor.getLong(sizeCol)
+                        val lastModified = cursor.getLong(dateCol)
 
-                        // 忽略隐藏文件夹与隐藏文件（如 .git, .cache, .thumbnails 等）
-                        if (displayName.startsWith(".")) continue
+                        if (displayName.startsWith(".")) {
+                            continue
+                        }
 
                         if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                            if (currentDepth < maxDepth && visitedDocIds.add(docId)) {
-                                queue.add(DirQueueItem(docId, displayName, currentDepth + 1))
+                            if (currentDepth < maxSafeDepth && visitedDocIds.add(childDocId)) {
+                                queue.add(QueueNode(childDocId, displayName, currentDepth + 1))
                             }
-                        } else if (isVideoFile(displayName, mimeType)) {
-                            val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                            val pseudoId = docId.hashCode().toLong()
-
+                        } else if (mimeType.startsWith("video/") || isVideoFile(displayName)) {
+                            val fileDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId)
                             outList.add(
                                 VideoMediaItem(
-                                    id = pseudoId,
-                                    uri = fileUri,
+                                    id = childDocId.hashCode().toLong(),
+                                    uri = fileDocUri,
                                     displayName = displayName,
                                     durationMs = 0L,
-                                    sizeBytes = size,
+                                    sizeBytes = sizeBytes,
                                     width = 0,
                                     height = 0,
                                     dateModified = lastModified / 1000L,
@@ -149,17 +141,33 @@ class CustomFolderManager(private val context: Context) {
                     }
                 }
             } catch (e: Exception) {
-                // 忽略单个无权子目录报错，不阻断其余扫描
                 e.printStackTrace()
             }
         }
     }
 
-    private fun isVideoFile(name: String, mimeType: String): Boolean {
-        if (mimeType.startsWith("video/", ignoreCase = true)) return true
-        val lower = name.lowercase()
-        return lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") ||
-               lower.endsWith(".avi") || lower.endsWith(".mov") || lower.endsWith(".flv") ||
-               lower.endsWith(".ts") || lower.endsWith(".m4v") || lower.endsWith(".wmv")
+    private fun isVideoFile(fileName: String): Boolean {
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        return ext in setOf("mp4", "mkv", "webm", "avi", "mov", "flv", "wmv", "3gp", "ts", "m2ts")
+    }
+
+    private fun getDocDisplayName(treeUri: Uri): String? {
+        return try {
+            val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri)
+            )
+            context.contentResolver.query(
+                docUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 }

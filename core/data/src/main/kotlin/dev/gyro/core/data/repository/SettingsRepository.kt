@@ -1,20 +1,12 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-
-data class UserSettings(
-    val autoResume: Boolean = true,
-    val backgroundPlayMode: String = "pip", // "pip", "audio_only", "off"
-    val seekStepSeconds: Int = 10, // 5, 10, 15, 30
-    val defaultHwdec: String = "mediacodec", // "mediacodec", "mediacodec-copy", ""
-    val subAutoLoad: Boolean = true,
-    val gesturesEnabled: Boolean = true
-)
 
 class SettingsRepository(context: Context) {
 

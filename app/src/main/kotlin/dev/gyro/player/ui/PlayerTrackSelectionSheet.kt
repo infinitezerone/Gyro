@@ -54,10 +54,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.player.R
-import dev.gyro.player.data.model.VideoMediaItem
 import java.util.Locale
 
 enum class PlayerSheetTab(@StringRes val titleRes: Int) {

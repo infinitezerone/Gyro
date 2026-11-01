@@ -1,4 +1,4 @@
-package dev.gyro.player.ui.navigation
+package dev.gyro.core.navigation
 
 import android.net.Uri
 import androidx.navigation3.runtime.NavKey

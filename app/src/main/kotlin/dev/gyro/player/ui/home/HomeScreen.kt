@@ -78,9 +78,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import dev.gyro.core.model.PlaybackProgress
+import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.player.R
-import dev.gyro.player.data.model.VideoMediaItem
-import dev.gyro.player.data.repository.PlaybackProgress
 
 @Composable
 fun HomeScreen(

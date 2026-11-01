@@ -2,8 +2,8 @@ package dev.gyro.player.ui.settings
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import dev.gyro.player.data.repository.SettingsRepository
-import dev.gyro.player.data.repository.UserSettings
+import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.flow.StateFlow
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {

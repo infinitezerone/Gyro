@@ -3,10 +3,10 @@ package dev.gyro.player.ui.home
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import dev.gyro.player.data.model.VideoMediaItem
-import dev.gyro.player.data.repository.MediaRepository
-import dev.gyro.player.data.repository.PlaybackHistoryRepository
-import dev.gyro.player.data.repository.PlaybackProgress
+import dev.gyro.core.data.repository.MediaRepository
+import dev.gyro.core.data.repository.PlaybackHistoryRepository
+import dev.gyro.core.model.PlaybackProgress
+import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow

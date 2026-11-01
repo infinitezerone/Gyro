@@ -46,8 +46,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.model.UserSettings
 import dev.gyro.player.R
-import dev.gyro.player.data.repository.UserSettings
 
 @Composable
 fun SettingsScreen(

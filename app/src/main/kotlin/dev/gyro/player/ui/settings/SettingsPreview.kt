@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
-import dev.gyro.player.data.repository.UserSettings
+import dev.gyro.core.model.UserSettings
 
 @Preview(
     name = "Settings Screen - Light & Dark Clean",

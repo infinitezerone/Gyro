@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

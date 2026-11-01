@@ -1,11 +1,11 @@
-package dev.gyro.player.data.repository
+package dev.gyro.core.data.repository
 
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import dev.gyro.player.data.model.VideoMediaItem
+import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -104,12 +104,18 @@ class MediaRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        videoList.sortedByDescending { it.dateModified }
+        videoList
     }
 
-    fun addCustomFolder(treeUri: Uri): Boolean = customFolderManager.addFolder(treeUri)
+    fun addCustomFolder(treeUri: Uri): Boolean {
+        return customFolderManager.addFolder(treeUri)
+    }
 
-    fun removeCustomFolder(treeUri: Uri) = customFolderManager.removeFolder(treeUri)
+    fun removeCustomFolder(treeUri: Uri) {
+        customFolderManager.removeFolder(treeUri)
+    }
 
-    fun getSavedCustomFolders(): Set<Uri> = customFolderManager.getSavedFolderUris()
+    fun getCustomFolders(): Set<Uri> {
+        return customFolderManager.getSavedFolderUris()
+    }
 }

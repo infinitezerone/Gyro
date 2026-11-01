@@ -32,6 +32,9 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:model"))
+    implementation(project(":core:data"))
+    implementation(project(":core:navigation"))
     implementation(project(":core:engine"))
 
     implementation(libs.androidx.core.ktx)

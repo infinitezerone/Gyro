@@ -1,4 +1,4 @@
-package dev.gyro.player.data.model
+package dev.gyro.core.model
 
 import android.net.Uri
 
@@ -50,18 +50,15 @@ data class VideoMediaItem(
         }
 
     /**
-     * 分辨率等级标识 (如 4K, 1080P, 720P)
+     * 分辨率徽章 (如 4K, 1080P, 720P)
      */
     val resolutionBadge: String?
-        get() {
-            val maxDim = maxOf(width, height)
-            return when {
-                maxDim >= 3840 -> "4K"
-                maxDim >= 2560 -> "2K"
-                maxDim >= 1920 -> "1080P"
-                maxDim >= 1280 -> "720P"
-                maxDim > 0 -> "${maxDim}P"
-                else -> null
-            }
+        get() = when {
+            width >= 3840 || height >= 2160 -> "4K"
+            width >= 2560 || height >= 1440 -> "2K"
+            width >= 1920 || height >= 1080 -> "1080P"
+            width >= 1280 || height >= 720 -> "720P"
+            width > 0 && height > 0 -> "${height}P"
+            else -> null
         }
 }

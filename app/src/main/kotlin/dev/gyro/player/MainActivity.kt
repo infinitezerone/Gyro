@@ -20,13 +20,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.navigation.Screen
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.player.data.repository.PlaylistManager
 import dev.gyro.player.ui.PlayerScreen
 import dev.gyro.player.ui.buildPipParams
 import dev.gyro.player.ui.home.HomeScreen
 import dev.gyro.player.ui.home.HomeViewModel
-import dev.gyro.player.ui.navigation.Screen
 import dev.gyro.player.ui.settings.SettingsScreen
 import dev.gyro.player.ui.settings.SettingsViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
