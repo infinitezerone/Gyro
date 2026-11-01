@@ -111,7 +111,8 @@ fun PlayerTrackSelectionSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
             )
 
-            PrimaryScrollableTabRow(
+            @Suppress("DEPRECATION")
+            ScrollableTabRow(
                 selectedTabIndex = selectedTab.ordinal,
                 edgePadding = 16.dp,
                 containerColor = Color(0xFF1E1E1E),

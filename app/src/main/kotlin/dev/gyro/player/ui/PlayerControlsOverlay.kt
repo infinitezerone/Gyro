@@ -137,8 +137,6 @@ fun BoxScope.PlayerControlsOverlay(
                 scrubState = scrubState,
                 onTogglePlayPause = onTogglePlayPause,
                 onSeekToFraction = onSeekToFraction,
-                onRewind10 = onRewind10,
-                onForward10 = onForward10,
                 onOpenSheetTab = onOpenSheetTab,
                 onToggleOrientation = onToggleOrientation
             )
