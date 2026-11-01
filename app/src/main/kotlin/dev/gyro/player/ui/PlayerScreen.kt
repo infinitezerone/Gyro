@@ -74,6 +74,7 @@ import java.util.Locale
 fun PlayerScreen(
     engine: GyroPlayerEngine,
     onBack: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -529,6 +530,10 @@ fun PlayerScreen(
                     onToggleHwdec = { engine.toggleHwdec() },
                     onAddExternalSubtitle = {
                         subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
+                    },
+                    onOpenFullSettings = {
+                        activeSheetTab = null
+                        onOpenSettings()
                     }
                 )
             }

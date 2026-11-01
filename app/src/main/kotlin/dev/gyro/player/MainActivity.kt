@@ -15,22 +15,26 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.ui.PlayerScreen
 import dev.gyro.player.ui.buildPipParams
 import dev.gyro.player.ui.home.HomeScreen
 import dev.gyro.player.ui.home.HomeViewModel
+import dev.gyro.player.ui.navigation.Screen
+import dev.gyro.player.ui.settings.SettingsScreen
+import dev.gyro.player.ui.settings.SettingsViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var playerEngine: GyroPlayerEngine
     private val homeViewModel: HomeViewModel by viewModels()
+    private val settingsViewModel: SettingsViewModel by viewModels()
     private val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,12 +61,13 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
 
         setContent {
-            var activeMediaUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+            val backStack = rememberNavBackStack(Screen.Home)
             val intentUri by incomingIntentUri.collectAsState()
 
             LaunchedEffect(intentUri) {
-                intentUri?.let {
-                    activeMediaUri = it
+                intentUri?.let { uri ->
+                    backStack.add(Screen.Player(uri))
+                    playerEngine.loadUri(uri)
                 }
             }
 
@@ -70,27 +75,60 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 color = Color.Black
             ) {
-                if (activeMediaUri != null) {
-                    PlayerScreen(
-                        engine = playerEngine,
-                        onBack = {
-                            playerEngine.pause()
-                            activeMediaUri = null
-                            incomingIntentUri.value = null
-                            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    HomeScreen(
-                        viewModel = homeViewModel,
-                        onPlayVideo = { uri ->
-                            activeMediaUri = uri
-                            playerEngine.loadUri(uri)
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                NavDisplay(
+                    backStack = backStack,
+                    onBack = {
+                        if (backStack.size > 1) {
+                            val popped = backStack.removeLast()
+                            if (popped is Screen.Player) {
+                                playerEngine.pause()
+                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                incomingIntentUri.value = null
+                            }
+                        } else {
+                            finish()
+                        }
+                    },
+                    entryProvider = entryProvider {
+                        entry<Screen.Home> {
+                            HomeScreen(
+                                viewModel = homeViewModel,
+                                onPlayVideo = { uri ->
+                                    backStack.add(Screen.Player(uri))
+                                    playerEngine.loadUri(uri)
+                                },
+                                onOpenSettings = {
+                                    backStack.add(Screen.Settings)
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        entry<Screen.Player> { playerScreen ->
+                            PlayerScreen(
+                                engine = playerEngine,
+                                onBack = {
+                                    playerEngine.pause()
+                                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                    incomingIntentUri.value = null
+                                    backStack.removeLast()
+                                },
+                                onOpenSettings = {
+                                    backStack.add(Screen.Settings)
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        entry<Screen.Settings> {
+                            SettingsScreen(
+                                viewModel = settingsViewModel,
+                                onBack = {
+                                    backStack.removeLast()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                )
             }
         }
     }

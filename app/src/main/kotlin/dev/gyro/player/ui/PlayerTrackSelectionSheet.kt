@@ -19,12 +19,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -88,7 +90,8 @@ fun PlayerTrackSelectionSheet(
     onSetSubScale: (Double) -> Unit = {},
     onSetSubPos: (Long) -> Unit = {},
     onToggleHwdec: () -> Unit = {},
-    onAddExternalSubtitle: () -> Unit
+    onAddExternalSubtitle: () -> Unit,
+    onOpenFullSettings: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTab by remember { mutableStateOf(initialTab) }
@@ -107,12 +110,27 @@ fun PlayerTrackSelectionSheet(
                 .fillMaxWidth()
                 .padding(bottom = 32.dp)
         ) {
-            Text(
-                text = stringResource(R.string.cd_settings),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.cd_settings),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onOpenFullSettings, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = stringResource(R.string.settings_title),
+                        tint = Color(0xFF64B5F6),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
 
             @Suppress("DEPRECATION")
             ScrollableTabRow(

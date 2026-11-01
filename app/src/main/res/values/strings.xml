@@ -90,4 +90,39 @@
     <string name="cd_pip">画中画</string>
     <string name="cd_settings">设置与面板</string>
     <string name="cd_close_search">关闭搜索</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">设置</string>
+    <string name="settings_group_playback">播放</string>
+    <string name="settings_auto_resume">断点续播</string>
+    <string name="settings_auto_resume_desc">自动恢复上次播放进度</string>
+    <string name="settings_seek_step">快进步长</string>
+    <string name="settings_seek_step_val">%d 秒</string>
+    <string name="settings_bg_play">后台播放</string>
+    <string name="settings_bg_play_pip">自动画中画</string>
+    <string name="settings_bg_play_audio">仅纯音频</string>
+    <string name="settings_bg_play_off">关闭</string>
+
+    <!-- Settings: Decoder & Video -->
+    <string name="settings_group_decoder">解码与视频</string>
+    <string name="settings_default_hwdec">默认解码器</string>
+    <string name="settings_hwdec_mediacodec">硬件加速 (MediaCodec)</string>
+    <string name="settings_hwdec_copy">硬件复制 (MediaCodec-Copy)</string>
+    <string name="settings_hwdec_sw">软件解码 (CPU Softdec)</string>
+
+    <!-- Settings: Audio & Subtitles -->
+    <string name="settings_group_subtitles">字幕与音频</string>
+    <string name="settings_sub_autoload">自动加载外挂字幕</string>
+    <string name="settings_sub_autoload_desc">自动匹配同目录同名字幕</string>
+
+    <!-- Settings: Gestures -->
+    <string name="settings_group_gestures">手势控制</string>
+    <string name="settings_gestures_enabled">屏幕触控手势</string>
+    <string name="settings_gestures_enabled_desc">左侧亮度、右侧音量、双击快进</string>
+
+    <!-- Settings: About -->
+    <string name="settings_group_about">关于</string>
+    <string name="settings_app_version">版本</string>
+    <string name="settings_engine_core">播放核心</string>
+    <string name="settings_engine_core_val">mpv 0.38 + OpenGL ES</string>
 </resources>

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,6 +84,7 @@ import dev.gyro.player.data.model.VideoMediaItem
 fun HomeScreen(
     viewModel: HomeViewModel,
     onPlayVideo: (Uri) -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -128,6 +130,7 @@ fun HomeScreen(
         onPlayVideo = onPlayVideo,
         onOpenFile = { openDocumentLauncher.launch(arrayOf("video/*")) },
         onPickFolder = { openFolderLauncher.launch(null) },
+        onOpenSettings = onOpenSettings,
         onRequestPermission = { permissionLauncher.launch(requiredPermission) },
         onRefresh = { viewModel.refreshVideos() },
         onSelectFolder = { viewModel.selectFolder(it) },
@@ -144,6 +147,7 @@ fun HomeContent(
     onPlayVideo: (Uri) -> Unit,
     onOpenFile: () -> Unit,
     onPickFolder: () -> Unit,
+    onOpenSettings: () -> Unit,
     onRequestPermission: () -> Unit,
     onRefresh: () -> Unit,
     onSelectFolder: (String?) -> Unit,
@@ -228,6 +232,9 @@ fun HomeContent(
                         }
                         IconButton(onClick = onRefresh) {
                             Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_refresh), tint = Color.White)
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings_title), tint = Color.White)
                         }
                     }
                 )
