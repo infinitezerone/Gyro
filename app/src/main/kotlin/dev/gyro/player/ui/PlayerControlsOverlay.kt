@@ -23,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
+import dev.gyro.player.R
 import androidx.compose.ui.unit.dp
 import dev.gyro.engine.model.ResizeMode
 
@@ -80,7 +82,7 @@ fun BoxScope.PlayerControlsOverlay(
             ) {
                 Icon(
                     imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = if (isLocked) "Unlock Screen" else "Lock Screen",
+                    contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
                     tint = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
                     modifier = Modifier.size(22.dp)
                 )

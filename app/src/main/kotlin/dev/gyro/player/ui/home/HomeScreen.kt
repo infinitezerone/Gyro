@@ -70,11 +70,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import dev.gyro.player.R
 import dev.gyro.player.data.model.VideoMediaItem
 
 @Composable
@@ -166,12 +168,12 @@ fun HomeContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { onToggleSearch(false) }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close Search", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_close_search), tint = Color.White)
                         }
                         OutlinedTextField(
                             value = uiState.searchQuery,
                             onValueChange = onSearchQueryChange,
-                            placeholder = { Text("搜索本地视频...", color = Color.White.copy(alpha = 0.5f)) },
+                            placeholder = { Text(stringResource(R.string.home_search_hint), color = Color.White.copy(alpha = 0.5f)) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
@@ -182,7 +184,7 @@ fun HomeContent(
                             trailingIcon = {
                                 if (uiState.searchQuery.isNotEmpty()) {
                                     IconButton(onClick = { onSearchQueryChange("") }) {
-                                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.White.copy(alpha = 0.7f))
+                                        Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.action_clear), tint = Color.White.copy(alpha = 0.7f))
                                     }
                                 }
                             },
@@ -195,13 +197,17 @@ fun HomeContent(
                     title = {
                         Column {
                             Text(
-                                text = "Gyro 媒体库",
+                                text = stringResource(R.string.home_title),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = Color.White
                             )
                             Text(
-                                text = if (uiState.hasPermission) "${uiState.rawVideos.size} 个视频" else "未连接存储",
+                                text = if (uiState.hasPermission) {
+                                    stringResource(R.string.home_video_count, uiState.rawVideos.size)
+                                } else {
+                                    stringResource(R.string.home_storage_unconnected)
+                                },
                                 fontSize = 12.sp,
                                 color = Color.White.copy(alpha = 0.6f)
                             )
@@ -212,16 +218,16 @@ fun HomeContent(
                     ),
                     actions = {
                         IconButton(onClick = { onToggleSearch(true) }) {
-                            Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search), tint = Color.White)
                         }
                         IconButton(onClick = onPickFolder) {
-                            Icon(Icons.Default.CreateNewFolder, contentDescription = "Add Custom Folder", tint = Color.White)
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = stringResource(R.string.action_add_folder), tint = Color.White)
                         }
                         IconButton(onClick = onOpenFile) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = "Open Document", tint = Color.White)
+                            Icon(Icons.Default.FolderOpen, contentDescription = stringResource(R.string.action_open_file), tint = Color.White)
                         }
                         IconButton(onClick = onRefresh) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                            Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_refresh), tint = Color.White)
                         }
                     }
                 )
@@ -288,7 +294,7 @@ fun HomeContent(
                                 FilterChip(
                                     selected = uiState.selectedFolder == null,
                                     onClick = { onSelectFolder(null) },
-                                    label = { Text("全部 (${uiState.rawVideos.size})") },
+                                    label = { Text(stringResource(R.string.home_folder_all_count, uiState.rawVideos.size)) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color(0xFF2196F3),
                                         selectedLabelColor = Color.White,
@@ -301,7 +307,7 @@ fun HomeContent(
                                     FilterChip(
                                         selected = uiState.selectedFolder == folder,
                                         onClick = { onSelectFolder(folder) },
-                                        label = { Text("$folder ($count)") },
+                                        label = { Text(stringResource(R.string.home_folder_item_count, folder, count)) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = Color(0xFF2196F3),
                                             selectedLabelColor = Color.White,
@@ -314,7 +320,7 @@ fun HomeContent(
                                 InputChip(
                                     selected = false,
                                     onClick = onPickFolder,
-                                    label = { Text("添加目录") },
+                                    label = { Text(stringResource(R.string.action_add_folder)) },
                                     leadingIcon = {
                                         Icon(
                                             imageVector = Icons.Default.Add,
@@ -493,14 +499,14 @@ fun PermissionCard(
             )
             Spacer(modifier = Modifier.height(14.dp))
             Text(
-                text = "需要读取视频媒体权限",
+                text = stringResource(R.string.home_permission_title),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Gyro 需要存储权限以扫描系统视频库。您也可以直接指定要扫描的特定目录或直接选片播放。",
+                text = stringResource(R.string.home_permission_desc),
                 fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.65f),
                 modifier = Modifier.padding(horizontal = 8.dp)
@@ -511,19 +517,19 @@ fun PermissionCard(
                     onClick = onRequestPermission,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
                 ) {
-                    Text("授予权限")
+                    Text(stringResource(R.string.action_grant_permission))
                 }
                 Button(
                     onClick = onPickFolder,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E3545))
                 ) {
-                    Text("选择目录")
+                    Text(stringResource(R.string.action_add_folder))
                 }
                 Button(
                     onClick = onOpenFile,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E3545))
                 ) {
-                    Text("直接选片")
+                    Text(stringResource(R.string.action_open_file))
                 }
             }
         }
@@ -555,14 +561,22 @@ fun EmptyVideosCard(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = if (isSearching) "未找到匹配视频" else "未发现本地视频",
+                text = if (isSearching) {
+                    stringResource(R.string.home_empty_search_title)
+                } else {
+                    stringResource(R.string.home_empty_videos_title)
+                },
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = if (isSearching) "请尝试更换关键词搜索" else "设备中未检索到视频，您可以添加自定义目录进行扫描，或直接打开单文件",
+                text = if (isSearching) {
+                    stringResource(R.string.home_empty_search_desc)
+                } else {
+                    stringResource(R.string.home_empty_videos_desc)
+                },
                 fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.6f)
             )
@@ -573,13 +587,13 @@ fun EmptyVideosCard(
                         onClick = onPickFolder,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
                     ) {
-                        Text("添加本地目录")
+                        Text(stringResource(R.string.action_add_folder))
                     }
                     Button(
                         onClick = onOpenFile,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E3545))
                     ) {
-                        Text("打开单文件")
+                        Text(stringResource(R.string.action_open_file))
                     }
                 }
             }

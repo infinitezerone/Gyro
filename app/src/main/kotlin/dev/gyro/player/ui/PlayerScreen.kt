@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.player.R
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.ui.GyroPlayerSurface
@@ -386,13 +388,13 @@ fun PlayerScreen(
                         modifier = Modifier.size(54.dp)
                     )
                     Text(
-                        text = "Gyro 本地极速播放器",
+                        text = stringResource(R.string.player_empty_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
-                        text = "未选择播放媒体，点击下方按钮打开本地视频",
+                        text = stringResource(R.string.player_empty_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.7f)
                     )
@@ -404,7 +406,7 @@ fun PlayerScreen(
                     ) {
                         Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("打开视频文件")
+                        Text(stringResource(R.string.action_open_file))
                     }
                 }
             }

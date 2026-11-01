@@ -42,21 +42,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
+import dev.gyro.player.R
 import java.util.Locale
 
-enum class PlayerSheetTab(val label: String) {
-    SUBTITLES("字幕"),
-    AUDIO("音轨"),
-    SYNC("音画同步"),
-    SPEED("倍速"),
-    ASPECT("画面比例"),
-    STATS("统计与解码")
+enum class PlayerSheetTab(@StringRes val titleRes: Int) {
+    SUBTITLES(R.string.sheet_tab_subtitles),
+    AUDIO(R.string.sheet_tab_audio),
+    SYNC(R.string.sheet_tab_sync),
+    SPEED(R.string.sheet_tab_speed),
+    ASPECT(R.string.sheet_tab_aspect),
+    STATS(R.string.sheet_tab_stats)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,7 +108,7 @@ fun PlayerTrackSelectionSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "播放器控制面板",
+                text = stringResource(R.string.cd_settings),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
@@ -124,7 +127,7 @@ fun PlayerTrackSelectionSheet(
                         onClick = { selectedTab = tab },
                         text = {
                             Text(
-                                text = tab.label,
+                                text = stringResource(tab.titleRes),
                                 fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 14.sp
                             )
@@ -141,7 +144,7 @@ fun PlayerTrackSelectionSheet(
                     LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {
                         item {
                             TrackItem(
-                                title = "关闭字幕",
+                                title = stringResource(R.string.track_none_subtitle),
                                 subtitle = "Off",
                                 isSelected = subtitleTracks.none { it.isSelected },
                                 onClick = { onSelectTrack("sub", 0) }
@@ -166,19 +169,19 @@ fun PlayerTrackSelectionSheet(
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF64B5F6))
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("添加外挂字幕文件 (.srt / .ass / .vtt)...", color = Color(0xFF64B5F6), fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.track_add_external_sub), color = Color(0xFF64B5F6), fontWeight = FontWeight.Medium)
                             }
                         }
                         item {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.White.copy(alpha = 0.1f))
                             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)) {
                                 SyncCalibrationItem(
-                                    label = "字幕延时 (Subtitle Delay)",
+                                    label = stringResource(R.string.sync_sub_delay),
                                     currentSec = subDelaySec,
                                     onValueChange = onSetSubDelay
                                 )
                                 Spacer(modifier = Modifier.height(14.dp))
-                                Text("字幕尺寸缩放", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.sub_scale_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(0.8, 1.0, 1.2, 1.5).forEach { scale ->
@@ -190,10 +193,14 @@ fun PlayerTrackSelectionSheet(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Text("字幕垂直位置", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.sub_pos_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf(100L to "底端 (100%)", 95L to "抬升 (95%)", 90L to "居中偏下 (90%)").forEach { (pos, label) ->
+                                    listOf(
+                                        100L to stringResource(R.string.sub_pos_bottom),
+                                        95L to stringResource(R.string.sub_pos_raised),
+                                        90L to stringResource(R.string.sub_pos_middle)
+                                    ).forEach { (pos, label) ->
                                         FilterChip(
                                             selected = subPos == pos,
                                             onClick = { onSetSubPos(pos) },
@@ -218,14 +225,14 @@ fun PlayerTrackSelectionSheet(
                         }
                         if (audioTracks.isEmpty()) {
                             item {
-                                EmptyTrackNotice("未检测到多音轨")
+                                EmptyTrackNotice(stringResource(R.string.track_none_audio))
                             }
                         }
                         item {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(alpha = 0.1f))
                             Column(modifier = Modifier.padding(horizontal = 24.dp)) {
                                 SyncCalibrationItem(
-                                    label = "音频延时 (Audio Delay - 解决蓝牙耳机延迟)",
+                                    label = stringResource(R.string.sync_audio_delay),
                                     currentSec = audioDelaySec,
                                     onValueChange = onSetAudioDelay
                                 )
@@ -242,7 +249,7 @@ fun PlayerTrackSelectionSheet(
                         verticalArrangement = Arrangement.spacedBy(18.dp)
                     ) {
                         SyncCalibrationItem(
-                            label = "字幕延时 (Subtitle Delay)",
+                            label = stringResource(R.string.sync_sub_delay),
                             currentSec = subDelaySec,
                             onValueChange = onSetSubDelay
                         )
@@ -250,7 +257,7 @@ fun PlayerTrackSelectionSheet(
                         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
 
                         SyncCalibrationItem(
-                            label = "音频延时 (Audio Delay)",
+                            label = stringResource(R.string.sync_audio_delay),
                             currentSec = audioDelaySec,
                             onValueChange = onSetAudioDelay
                         )
@@ -260,7 +267,7 @@ fun PlayerTrackSelectionSheet(
                     // Speed Tab
                     val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                        Text("播放速度设置", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f))
+                        Text(stringResource(R.string.speed_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f))
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -288,11 +295,11 @@ fun PlayerTrackSelectionSheet(
                             TrackItem(
                                 title = mode.label,
                                 subtitle = when (mode) {
-                                    ResizeMode.FIT -> "保持原画比例，黑边填充 (Letterbox)"
-                                    ResizeMode.CROP -> "按屏幕撑满裁剪 (Pan & Scan)"
-                                    ResizeMode.STRETCH -> "拉伸填满屏幕，忽略原长宽比"
-                                    ResizeMode.ASPECT_16_9 -> "强制 16:9 宽屏"
-                                    ResizeMode.ASPECT_21_9 -> "强制 21:9 超宽影院"
+                                    ResizeMode.FIT -> stringResource(R.string.aspect_fit_desc)
+                                    ResizeMode.CROP -> stringResource(R.string.aspect_crop_desc)
+                                    ResizeMode.STRETCH -> stringResource(R.string.aspect_stretch_desc)
+                                    ResizeMode.ASPECT_16_9 -> stringResource(R.string.aspect_16_9_desc)
+                                    ResizeMode.ASPECT_21_9 -> stringResource(R.string.aspect_21_9_desc)
                                 },
                                 isSelected = currentResizeMode == mode,
                                 onClick = { onSelectResizeMode(mode) }
@@ -314,27 +321,27 @@ fun PlayerTrackSelectionSheet(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("媒体流参数与性能监控", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF64B5F6))
+                                Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF64B5F6))
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("原始分辨率", color = Color.White.copy(alpha = 0.7f))
-                                    Text(if (videoWidth > 0 && videoHeight > 0) "${videoWidth} × ${videoHeight}" else "待加载", fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.stats_resolution), color = Color.White.copy(alpha = 0.7f))
+                                    Text(if (videoWidth > 0 && videoHeight > 0) "${videoWidth} × ${videoHeight}" else stringResource(R.string.stats_pending), fontWeight = FontWeight.Bold)
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("视频帧率", color = Color.White.copy(alpha = 0.7f))
+                                    Text(stringResource(R.string.stats_framerate), color = Color.White.copy(alpha = 0.7f))
                                     Text("${String.format(Locale.US, "%.1f", fps)} FPS", fontWeight = FontWeight.Bold)
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("丢帧统计", color = Color.White.copy(alpha = 0.7f))
-                                    Text("$droppedFrames 帧", fontWeight = FontWeight.Bold, color = if (droppedFrames > 0) Color(0xFFFFB74D) else Color.White)
+                                    Text(stringResource(R.string.stats_dropped_frames), color = Color.White.copy(alpha = 0.7f))
+                                    Text("$droppedFrames", fontWeight = FontWeight.Bold, color = if (droppedFrames > 0) Color(0xFFFFB74D) else Color.White)
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("当前解码器", color = Color.White.copy(alpha = 0.7f))
+                                    Text(stringResource(R.string.stats_decoder), color = Color.White.copy(alpha = 0.7f))
                                     val isHw = hwdec.contains("mediacodec")
-                                    Text(if (isHw) "硬件解码 ($hwdec)" else "软件解码 (CPU Softdec)", fontWeight = FontWeight.Bold, color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D))
+                                    Text(if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software), fontWeight = FontWeight.Bold, color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D))
                                 }
                                 powerMetrics?.let { pm ->
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("实时功耗估算", color = Color.White.copy(alpha = 0.7f))
+                                        Text(stringResource(R.string.stats_power), color = Color.White.copy(alpha = 0.7f))
                                         Text("${String.format(Locale.US, "%.2f", pm.powerWatts)} W", fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -348,13 +355,17 @@ fun PlayerTrackSelectionSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("硬件解码加速", fontWeight = FontWeight.SemiBold)
-                                Text("MediaCodec 硬解更省电；软解兼容性更强", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+                                Text(stringResource(R.string.stats_hwdec_title), fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = if (hwdec.contains("mediacodec")) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.6f)
+                                )
                             }
                             OutlinedButton(onClick = onToggleHwdec) {
                                 Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (hwdec.contains("mediacodec")) "切换为软解" else "切换为硬解")
+                                Text(stringResource(if (hwdec.contains("mediacodec")) R.string.stats_switch_to_sw else R.string.stats_switch_to_hw))
                             }
                         }
                     }

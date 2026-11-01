@@ -29,11 +29,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.player.R
 
 /**
  * 底部控制栏统一组件 (PlayerBottomBar)
@@ -80,11 +82,11 @@ fun PlayerBottomBar(
         }
 
         val aspectLabel = when (resizeMode) {
-            ResizeMode.FIT -> "适应"
-            ResizeMode.CROP -> "填充"
-            ResizeMode.STRETCH -> "拉伸"
-            ResizeMode.ASPECT_16_9 -> "16:9"
-            ResizeMode.ASPECT_21_9 -> "21:9"
+            ResizeMode.FIT -> stringResource(R.string.resize_fit)
+            ResizeMode.CROP -> stringResource(R.string.resize_crop)
+            ResizeMode.STRETCH -> stringResource(R.string.resize_stretch)
+            ResizeMode.ASPECT_16_9 -> stringResource(R.string.resize_16_9)
+            ResizeMode.ASPECT_21_9 -> stringResource(R.string.resize_21_9)
         }
 
         if (isScreenScrubOnly) {
@@ -154,7 +156,7 @@ fun PlayerBottomBar(
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
                             tint = Color.White,
                             modifier = Modifier.size(26.dp)
                         )
@@ -211,7 +213,7 @@ fun PlayerBottomBar(
                     IconButton(onClick = onToggleOrientation, modifier = Modifier.size(38.dp)) {
                         Icon(
                             imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = if (isLandscape) "Exit Fullscreen" else "Fullscreen",
+                            contentDescription = if (isLandscape) stringResource(R.string.cd_exit_fullscreen) else stringResource(R.string.cd_fullscreen),
                             tint = Color.White,
                             modifier = Modifier.size(24.dp)
                         )

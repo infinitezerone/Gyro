@@ -23,11 +23,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.player.R
 
 /**
  * 顶部导航与快捷入口栏 (PlayerTopBar)
@@ -65,7 +67,7 @@ fun PlayerTopBar(
         ) {
             // 返回键（返回首页媒体库）
             IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Color.White)
             }
 
             Spacer(modifier = Modifier.width(6.dp))
@@ -75,7 +77,7 @@ fun PlayerTopBar(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = title.ifBlank { "Gyro Player" },
+                    text = title.ifBlank { stringResource(R.string.player_default_title) },
                     style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -94,12 +96,12 @@ fun PlayerTopBar(
 
             // 画中画 (PiP)
             IconButton(onClick = onEnterPiP, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Default.PictureInPictureAlt, contentDescription = "PiP", tint = Color.White, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.PictureInPictureAlt, contentDescription = stringResource(R.string.cd_pip), tint = Color.White, modifier = Modifier.size(20.dp))
             }
 
             // 设置与全量面板入口 (直达全功能控制面板：字幕/音轨/校准/倍速/画幅/统计)
             IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Settings & Tracks", tint = Color.White, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.cd_settings), tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
     }
