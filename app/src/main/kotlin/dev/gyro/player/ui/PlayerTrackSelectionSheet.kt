@@ -2,6 +2,8 @@ package dev.gyro.player.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,6 +57,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
@@ -67,7 +71,8 @@ enum class PlayerSheetTab(@StringRes val titleRes: Int) {
     SYNC(R.string.sheet_tab_sync),
     SPEED(R.string.sheet_tab_speed),
     ASPECT(R.string.sheet_tab_aspect),
-    STATS(R.string.sheet_tab_stats)
+    STATS(R.string.sheet_tab_stats),
+    INFO(R.string.sheet_tab_info)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,6 +94,7 @@ fun PlayerTrackSelectionSheet(
     videoWidth: Int = 0,
     videoHeight: Int = 0,
     powerMetrics: PowerMetrics? = null,
+    mediaInfo: MediaInfo? = null,
     onDismiss: () -> Unit,
     onSelectPlaylistItem: (Int) -> Unit = {},
     onSelectTrack: (type: String, id: Int) -> Unit,
@@ -103,10 +109,6 @@ fun PlayerTrackSelectionSheet(
     onOpenFullSettings: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var selectedTab by remember { mutableStateOf(initialTab) }
-
-    val audioTracks = remember(tracks) { tracks.filter { it.type == "audio" } }
-    val subtitleTracks = remember(tracks) { tracks.filter { it.type == "sub" } }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -114,11 +116,80 @@ fun PlayerTrackSelectionSheet(
         containerColor = Color(0xFF1E1E1E),
         contentColor = Color.White
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp)
-        ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = initialTab,
+            playlist = playlist,
+            currentPlaylistIndex = currentPlaylistIndex,
+            tracks = tracks,
+            currentResizeMode = currentResizeMode,
+            currentSpeed = currentSpeed,
+            subDelaySec = subDelaySec,
+            audioDelaySec = audioDelaySec,
+            subScale = subScale,
+            subPos = subPos,
+            hwdec = hwdec,
+            fps = fps,
+            droppedFrames = droppedFrames,
+            videoWidth = videoWidth,
+            videoHeight = videoHeight,
+            powerMetrics = powerMetrics,
+            mediaInfo = mediaInfo,
+            onSelectPlaylistItem = onSelectPlaylistItem,
+            onSelectTrack = onSelectTrack,
+            onSelectResizeMode = onSelectResizeMode,
+            onSelectSpeed = onSelectSpeed,
+            onSetSubDelay = onSetSubDelay,
+            onSetAudioDelay = onSetAudioDelay,
+            onSetSubScale = onSetSubScale,
+            onSetSubPos = onSetSubPos,
+            onToggleHwdec = onToggleHwdec,
+            onAddExternalSubtitle = onAddExternalSubtitle,
+            onOpenFullSettings = onOpenFullSettings
+        )
+    }
+}
+
+@Composable
+fun PlayerTrackSelectionSheetContent(
+    initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
+    playlist: List<VideoMediaItem> = emptyList(),
+    currentPlaylistIndex: Int = -1,
+    tracks: List<TrackInfo>,
+    currentResizeMode: ResizeMode,
+    currentSpeed: Float,
+    subDelaySec: Double,
+    audioDelaySec: Double,
+    subScale: Double = 1.0,
+    subPos: Long = 100L,
+    hwdec: String = "",
+    fps: Double = 0.0,
+    droppedFrames: Long = 0L,
+    videoWidth: Int = 0,
+    videoHeight: Int = 0,
+    powerMetrics: PowerMetrics? = null,
+    mediaInfo: MediaInfo? = null,
+    onSelectPlaylistItem: (Int) -> Unit = {},
+    onSelectTrack: (type: String, id: Int) -> Unit,
+    onSelectResizeMode: (ResizeMode) -> Unit,
+    onSelectSpeed: (Float) -> Unit,
+    onSetSubDelay: (Double) -> Unit,
+    onSetAudioDelay: (Double) -> Unit,
+    onSetSubScale: (Double) -> Unit = {},
+    onSetSubPos: (Long) -> Unit = {},
+    onToggleHwdec: () -> Unit = {},
+    onAddExternalSubtitle: () -> Unit,
+    onOpenFullSettings: () -> Unit = {}
+) {
+    var selectedTab by remember { mutableStateOf(initialTab) }
+
+    val audioTracks = remember(tracks) { tracks.filter { it.type == "audio" } }
+    val subtitleTracks = remember(tracks) { tracks.filter { it.type == "sub" } }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 32.dp)
+    ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -458,8 +529,135 @@ fun PlayerTrackSelectionSheet(
                         }
                     }
                 }
+                PlayerSheetTab.INFO -> {
+                    val resolvedInfo = mediaInfo ?: MediaInfo(
+                        videoResolution = if (videoWidth > 0 && videoHeight > 0) "${videoWidth} × ${videoHeight}" else "",
+                        videoFps = fps,
+                        hwdecCurrent = hwdec,
+                        droppedFrames = droppedFrames
+                    )
+                    MediaInfoTabContent(mediaInfo = resolvedInfo)
+                }
             }
         }
+    }
+
+@Composable
+private fun MediaInfoTabContent(mediaInfo: MediaInfo) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 420.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. 容器与文件
+        MediaInfoGroup(title = stringResource(R.string.info_group_file)) {
+            if (mediaInfo.title.isNotBlank()) {
+                MediaInfoRow(label = stringResource(R.string.info_title), value = mediaInfo.title)
+            }
+            if (mediaInfo.containerFormat.isNotBlank()) {
+                MediaInfoRow(label = stringResource(R.string.info_container), value = mediaInfo.containerFormat.uppercase())
+            }
+            if (mediaInfo.fileSize > 0) {
+                MediaInfoRow(label = stringResource(R.string.info_file_size), value = mediaInfo.formattedFileSize)
+            }
+            if (mediaInfo.durationMs > 0) {
+                val sec = mediaInfo.durationMs / 1000
+                val min = sec / 60
+                val remSec = sec % 60
+                val durStr = String.format(Locale.US, "%02d:%02d", min, remSec)
+                MediaInfoRow(label = stringResource(R.string.info_duration), value = durStr)
+            }
+        }
+
+        // 2. 视频流
+        MediaInfoGroup(title = stringResource(R.string.info_group_video)) {
+            val codec = mediaInfo.videoCodec.ifBlank { "未知" }
+            MediaInfoRow(label = stringResource(R.string.info_video_codec), value = codec.uppercase())
+            if (mediaInfo.videoResolution.isNotBlank()) {
+                MediaInfoRow(label = stringResource(R.string.info_video_resolution), value = mediaInfo.videoResolution)
+            }
+            if (mediaInfo.videoFps > 0) {
+                MediaInfoRow(label = stringResource(R.string.info_video_framerate), value = "${String.format(Locale.US, "%.2f", mediaInfo.videoFps)} FPS")
+            }
+            if (mediaInfo.videoBitrate > 0) {
+                MediaInfoRow(label = stringResource(R.string.info_video_bitrate), value = mediaInfo.formattedVideoBitrate)
+            }
+            val isHw = mediaInfo.hwdecCurrent.contains("mediacodec")
+            MediaInfoRow(
+                label = stringResource(R.string.stats_decoder),
+                value = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software)
+            )
+        }
+
+        // 3. 音频流
+        MediaInfoGroup(title = stringResource(R.string.info_group_audio)) {
+            val aCodec = mediaInfo.audioCodec.ifBlank { "未知" }
+            MediaInfoRow(label = stringResource(R.string.info_audio_codec), value = aCodec.uppercase())
+            if (mediaInfo.audioChannels.isNotBlank()) {
+                MediaInfoRow(label = stringResource(R.string.info_audio_channels), value = mediaInfo.audioChannels)
+            }
+            if (mediaInfo.audioSampleRate > 0) {
+                MediaInfoRow(label = stringResource(R.string.info_audio_samplerate), value = mediaInfo.formattedSampleRate)
+            }
+            if (mediaInfo.audioBitrate > 0) {
+                MediaInfoRow(label = stringResource(R.string.info_audio_bitrate), value = mediaInfo.formattedAudioBitrate)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaInfoGroup(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White.copy(alpha = 0.08f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6)
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun MediaInfoRow(
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = Color.White.copy(alpha = 0.7f)
+        )
+        Text(
+            text = value,
+            style = TextStyle(
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                fontFeatureSettings = "tnum"
+            )
+        )
     }
 }
 

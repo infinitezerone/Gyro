@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
+import dev.gyro.core.model.MediaInfo
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.VideoDimensions
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -487,6 +488,38 @@ class GyroPlayerEngine(
     fun detachSurface() {
         isSurfaceAttached = false
         GyroNative.detachSurface()
+    }
+
+    fun queryMediaInfo(fallbackTitle: String = "", fallbackUri: String = "", fallbackSize: Long = 0L): MediaInfo {
+        val title = _mediaTitle.value.ifBlank { fallbackTitle }
+        val dims = _videoDimensions.value
+        val resStr = if (dims.width > 0 && dims.height > 0) "${dims.width} × ${dims.height}" else ""
+        val format = GyroNative.getPropertyString("file-format") ?: ""
+        val vCodec = GyroNative.getPropertyString("video-codec") ?: GyroNative.getPropertyString("video-format") ?: ""
+        val vBitrate = GyroNative.getLong("video-bitrate") ?: 0L
+        val aCodec = GyroNative.getPropertyString("audio-codec-name") ?: GyroNative.getPropertyString("audio-format") ?: ""
+        val aChannels = GyroNative.getPropertyString("audio-params/channels") ?: ""
+        val aSampleRate = GyroNative.getLong("audio-params/samplerate") ?: 0L
+        val aBitrate = GyroNative.getLong("audio-bitrate") ?: 0L
+        val size = GyroNative.getLong("file-size")?.takeIf { it > 0 } ?: fallbackSize
+
+        return MediaInfo(
+            title = title,
+            pathOrUri = fallbackUri,
+            containerFormat = format,
+            fileSize = size,
+            durationMs = _durationMs.value,
+            videoCodec = vCodec,
+            videoResolution = resStr,
+            videoFps = _fps.value,
+            videoBitrate = vBitrate,
+            audioCodec = aCodec,
+            audioChannels = aChannels,
+            audioSampleRate = aSampleRate,
+            audioBitrate = aBitrate,
+            hwdecCurrent = _hwdecCurrent.value,
+            droppedFrames = _droppedFrames.value
+        )
     }
 
     fun release() {

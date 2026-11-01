@@ -25,6 +25,8 @@ import dev.gyro.core.navigation.Screen
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.ui.PlayerScreen
 import dev.gyro.player.ui.buildPipParams
+import dev.gyro.player.ui.folders.FolderManagementScreen
+import dev.gyro.player.ui.folders.FolderManagementViewModel
 import dev.gyro.player.ui.home.HomeScreen
 import dev.gyro.player.ui.home.HomeViewModel
 import dev.gyro.player.ui.settings.SettingsScreen
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private val playlistManager = PlaylistManager()
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
+    private val folderViewModel: FolderManagementViewModel by viewModels()
     private val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -146,6 +149,19 @@ class MainActivity : ComponentActivity() {
                                 viewModel = settingsViewModel,
                                 onBack = {
                                     backStack.removeLast()
+                                },
+                                onOpenFolderManagement = {
+                                    backStack.add(Screen.FolderManagement)
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        entry<Screen.FolderManagement> {
+                            FolderManagementScreen(
+                                viewModel = folderViewModel,
+                                onBack = {
+                                    backStack.removeLast()
+                                    homeViewModel.refreshVideos()
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )

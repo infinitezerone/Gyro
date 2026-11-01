@@ -53,12 +53,14 @@ import dev.gyro.player.R
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
+    onOpenFolderManagement: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings by viewModel.settings.collectAsState()
     SettingsContent(
         settings = settings,
         onBack = onBack,
+        onOpenFolderManagement = onOpenFolderManagement,
         onUpdateAutoResume = { viewModel.setAutoResume(it) },
         onUpdateBgPlay = { viewModel.setBackgroundPlayMode(it) },
         onUpdateSeekStep = { viewModel.setSeekStepSeconds(it) },
@@ -74,6 +76,7 @@ fun SettingsScreen(
 fun SettingsContent(
     settings: UserSettings,
     onBack: () -> Unit,
+    onOpenFolderManagement: () -> Unit = {},
     onUpdateAutoResume: (Boolean) -> Unit,
     onUpdateBgPlay: (String) -> Unit,
     onUpdateSeekStep: (Int) -> Unit,
@@ -190,7 +193,18 @@ fun SettingsContent(
                 }
             }
 
-            // 5. 关于
+            // 5. 存储与媒体库
+            item {
+                PreferenceGroup(title = stringResource(R.string.settings_group_storage)) {
+                    PreferenceClickItem(
+                        title = stringResource(R.string.settings_folders_manage),
+                        description = stringResource(R.string.settings_folders_manage_desc),
+                        onClick = onOpenFolderManagement
+                    )
+                }
+            }
+
+            // 6. 关于
             item {
                 PreferenceGroup(title = stringResource(R.string.settings_group_about)) {
                     PreferenceInfoItem(
@@ -324,6 +338,7 @@ private fun PreferenceSwitchItem(
 private fun PreferenceClickItem(
     title: String,
     value: String? = null,
+    description: String? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -333,7 +348,13 @@ private fun PreferenceClickItem(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            if (description != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = description, fontSize = 12.sp, color = Color.White.copy(alpha = 0.5f))
+            }
+        }
         if (value != null) {
             Text(text = value, fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f))
             Spacer(modifier = Modifier.width(6.dp))

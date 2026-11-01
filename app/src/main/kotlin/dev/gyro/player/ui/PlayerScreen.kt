@@ -630,6 +630,12 @@ fun PlayerScreen(
         // G. Modal Tabbed Settings & Calibrator Bottom Sheet
         activeSheetTab?.let { tab ->
             if (!isPipLayout && !pipEntering) {
+                val currentMediaInfo = remember(activeSheetTab, activeUri) {
+                    engine.queryMediaInfo(
+                        fallbackTitle = mediaTitle,
+                        fallbackUri = activeUri?.toString() ?: ""
+                    )
+                }
                 PlayerTrackSelectionSheet(
                     initialTab = tab,
                     playlist = playlist,
@@ -647,6 +653,7 @@ fun PlayerScreen(
                     videoWidth = videoDimensions.width,
                     videoHeight = videoDimensions.height,
                     powerMetrics = powerMetrics,
+                    mediaInfo = currentMediaInfo,
                     onDismiss = { activeSheetTab = null },
                     onSelectPlaylistItem = { idx ->
                         playlistManager?.playAtIndex(idx)?.let { playMediaItem(it) }

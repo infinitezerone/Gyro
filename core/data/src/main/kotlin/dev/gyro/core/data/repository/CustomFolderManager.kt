@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,6 +53,32 @@ class CustomFolderManager(private val context: Context) {
         val current = getSavedFolderUris().map { it.toString() }.toMutableSet()
         current.remove(treeUri.toString())
         prefs.edit().putStringSet(keyCustomUris, current).apply()
+    }
+
+    suspend fun getFolderDetails(): List<CustomFolderDetail> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<CustomFolderDetail>()
+        val uris = getSavedFolderUris()
+
+        for (treeUri in uris) {
+            try {
+                val folderName = getDocDisplayName(treeUri) ?: "自定义目录"
+                val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+                val items = mutableListOf<VideoMediaItem>()
+                scanFolderBfs(treeUri, rootDocId, folderName, items)
+                val totalSize = items.sumOf { it.sizeBytes }
+                result.add(
+                    CustomFolderDetail(
+                        uri = treeUri,
+                        displayName = folderName,
+                        videoCount = items.size,
+                        totalSizeBytes = totalSize
+                    )
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        result
     }
 
     suspend fun scanCustomFolders(): List<VideoMediaItem> = withContext(Dispatchers.IO) {

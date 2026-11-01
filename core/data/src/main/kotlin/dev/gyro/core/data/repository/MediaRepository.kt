@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -117,5 +118,9 @@ class MediaRepository(private val context: Context) {
 
     fun getCustomFolders(): Set<Uri> {
         return customFolderManager.getSavedFolderUris()
+    }
+
+    suspend fun getCustomFolderDetails(): List<CustomFolderDetail> {
+        return customFolderManager.getFolderDetails()
     }
 }

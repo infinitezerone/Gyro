@@ -10,4 +10,5 @@ sealed interface Screen : NavKey {
     data object Home : Screen
     data class Player(val uri: Uri) : Screen
     data object Settings : Screen
+    data object FolderManagement : Screen
 }

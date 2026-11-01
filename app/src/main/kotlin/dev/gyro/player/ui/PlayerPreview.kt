@@ -108,3 +108,55 @@ fun PlayerControlsLandscapePreview() {
         )
     }
 }
+
+@Preview(
+    name = "Player Media Info Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerMediaInfoSheetPreview() {
+    val sampleMediaInfo = dev.gyro.core.model.MediaInfo(
+        title = "Suzume.no.Tojimari.2022.1080p.BluRay.x265.mkv",
+        pathOrUri = "/storage/emulated/0/Movies/Suzume.mkv",
+        containerFormat = "matroska",
+        fileSize = 4_831_838_208L,
+        durationMs = 7_260_000L,
+        videoCodec = "hevc (Main 10)",
+        videoResolution = "1920 × 1080",
+        videoFps = 23.976,
+        videoBitrate = 4_800_000L,
+        audioCodec = "flac",
+        audioChannels = "5.1 (side)",
+        audioSampleRate = 48_000L,
+        audioBitrate = 640_000L,
+        hwdecCurrent = "mediacodec",
+        droppedFrames = 0L
+    )
+
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.INFO,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            hwdec = "mediacodec",
+            fps = 23.976,
+            videoWidth = 1920,
+            videoHeight = 1080,
+            mediaInfo = sampleMediaInfo,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
