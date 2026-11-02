@@ -248,7 +248,9 @@ fun PlayerScreen(
     }
 
     // 3. UI Interactive States
-    var showControls by remember { mutableStateOf(true) }
+    // Opening a video should show the picture, not a wall of controls. Starting hidden also keeps
+    // the first composition cheap: the overlay's contents are not composed until the viewer taps.
+    var showControls by remember { mutableStateOf(false) }
     var isLocked by remember { mutableStateOf(false) }
     var activeSheetTab by remember { mutableStateOf<PlayerSheetTab?>(null) }
     var gestureHudState by remember { mutableStateOf<GestureHudState>(GestureHudState.Idle) }
