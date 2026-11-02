@@ -245,6 +245,72 @@ pub fn request_ack<C>(
     }
 }
 
+/// Which thread owns the GL context.
+///
+/// `0` means unowned. Threads are identified by a lazily assigned logical id rather than a platform
+/// thread handle, so the guard needs no libc binding and stays testable on the host.
+///
+/// The point is not to prove safety at compile time but to turn "this GL call must happen on the
+/// render thread" from a comment into something that fails immediately when it is wrong. Calling GL
+/// without a current context is undefined behaviour that drivers report inconsistently: silence on
+/// one device, a crash on another, months later.
+#[derive(Debug, Default)]
+pub struct ThreadAffinity {
+    owner: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum AffinityVerdict {
+    /// Called from the thread that owns the context.
+    Owner,
+    /// No thread owns the context, so nothing can be violated.
+    Unowned,
+    /// Called from a thread that does not own the context.
+    Violation,
+}
+
+impl ThreadAffinity {
+    pub const fn new() -> Self {
+        Self { owner: 0 }
+    }
+
+    /// Claims ownership for `tid`.
+    ///
+    /// Returns false when a different thread already owns the context: two live render loops sharing
+    /// one GL context is a bug worth surfacing, not papering over.
+    pub fn claim(&mut self, tid: u64) -> bool {
+        if tid == 0 {
+            return false;
+        }
+        if self.owner == 0 || self.owner == tid {
+            self.owner = tid;
+            return true;
+        }
+        false
+    }
+
+    /// Releases ownership, but only for the thread that holds it.
+    pub fn release(&mut self, tid: u64) {
+        if self.owner == tid {
+            self.owner = 0;
+        }
+    }
+
+    pub fn check(&self, tid: u64) -> AffinityVerdict {
+        if self.owner == 0 {
+            AffinityVerdict::Unowned
+        } else if self.owner == tid {
+            AffinityVerdict::Owner
+        } else {
+            AffinityVerdict::Violation
+        }
+    }
+
+    pub fn is_owner(&self, tid: u64) -> bool {
+        self.owner != 0 && self.owner == tid
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +463,65 @@ mod tests {
             assert_ne!(WatchdogVerdict::Trip, w.on_frame(16, 16));
         }
         assert!(!w.is_tripped());
+    }
+
+    // ---------- ThreadAffinity ----------
+
+    #[test]
+    fn affinity_tracks_the_owning_thread() {
+        let mut affinity = ThreadAffinity::new();
+        assert_eq!(AffinityVerdict::Unowned, affinity.check(1));
+        assert!(affinity.claim(1));
+        assert_eq!(AffinityVerdict::Owner, affinity.check(1));
+        assert_eq!(AffinityVerdict::Violation, affinity.check(2));
+        assert!(affinity.is_owner(1));
+        assert!(!affinity.is_owner(2));
+    }
+
+    #[test]
+    fn affinity_refuses_a_second_owner() {
+        let mut affinity = ThreadAffinity::new();
+        assert!(affinity.claim(1));
+        // A second live render loop must not silently steal the context.
+        assert!(!affinity.claim(2));
+        assert_eq!(AffinityVerdict::Owner, affinity.check(1));
+    }
+
+    #[test]
+    fn affinity_allows_the_owner_to_reclaim() {
+        let mut affinity = ThreadAffinity::new();
+        assert!(affinity.claim(1));
+        assert!(affinity.claim(1));
+        assert_eq!(AffinityVerdict::Owner, affinity.check(1));
+    }
+
+    #[test]
+    fn affinity_only_the_owner_can_release() {
+        let mut affinity = ThreadAffinity::new();
+        assert!(affinity.claim(1));
+        affinity.release(2);
+        assert_eq!(AffinityVerdict::Owner, affinity.check(1));
+        affinity.release(1);
+        assert_eq!(AffinityVerdict::Unowned, affinity.check(1));
+        assert_eq!(AffinityVerdict::Unowned, affinity.check(2));
+    }
+
+    #[test]
+    fn affinity_rejects_the_unowned_sentinel() {
+        let mut affinity = ThreadAffinity::new();
+        assert!(!affinity.claim(0));
+        assert_eq!(AffinityVerdict::Unowned, affinity.check(0));
+    }
+
+    #[test]
+    fn affinity_can_be_reclaimed_after_release() {
+        let mut affinity = ThreadAffinity::new();
+        assert!(affinity.claim(1));
+        affinity.release(1);
+        // A restarted render thread gets a new id and must be able to take over.
+        assert!(affinity.claim(2));
+        assert_eq!(AffinityVerdict::Owner, affinity.check(2));
+        assert_eq!(AffinityVerdict::Violation, affinity.check(1));
     }
 
     // ---------- DegradeState ----------

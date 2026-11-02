@@ -2,7 +2,7 @@
 
 mod logic;
 
-use logic::{AckOutcome, DegradeState, FrameCoalescer, request_ack};
+use logic::{AckOutcome, AffinityVerdict, DegradeState, FrameCoalescer, ThreadAffinity, request_ack};
 // Render timing only exists in the Android render loop.
 #[cfg(target_os = "android")]
 use logic::{RenderWatchdog, WatchdogVerdict};
@@ -11,7 +11,7 @@ use jni::sys::{jboolean, jdouble, jint, jlong, jobject, JNI_VERSION_1_6};
 use jni::{JNIEnv, JavaVM};
 use libloading::{Library, Symbol};
 use std::ffi::{c_char, c_double, c_int, c_void, CStr, CString};
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -352,6 +352,33 @@ static RENDER_THREAD: OnceLock<Mutex<Option<RenderThreadHandle>>> = OnceLock::ne
 /// Collapses mpv's per-frame update notifications into one queued render command.
 static G_FRAME_GATE: FrameCoalescer = FrameCoalescer::new();
 
+// ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
+static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
+static NEXT_LOGICAL_TID: AtomicU64 = AtomicU64::new(1);
+
+/// Lazily assigned per-thread id. `0` is reserved for "unowned".
+fn logical_thread_id() -> u64 {
+    thread_local! {
+        static TID: u64 = NEXT_LOGICAL_TID.fetch_add(1, Ordering::Relaxed);
+    }
+    TID.with(|id| *id)
+}
+
+/// Fails loudly in debug builds when a GL entry point runs on a thread that does not own the
+/// context. Release builds compile this down to a single relaxed atomic load.
+#[inline]
+unsafe fn assert_render_thread(what: &str) {
+    let tid = logical_thread_id();
+    let verdict = match G_AFFINITY.lock() {
+        Ok(affinity) => affinity.check(tid),
+        Err(_) => return,
+    };
+    if verdict == AffinityVerdict::Violation {
+        nlog(&format!("FATAL: {what} 在非渲染线程被调用 (tid={tid})"));
+        debug_assert!(false, "{what} called off the render thread");
+    }
+}
+
 // ---------- 防御层 1：冷启动离屏环境探针 (Static Env Probe) ----------
 static G_ZERO_COPY_SAFE: AtomicBool = AtomicBool::new(true);
 static G_GPU_RENDERER: OnceLock<String> = OnceLock::new();
@@ -494,6 +521,7 @@ static REAL_GL_DELETE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mu
 static ACTIVE_FENCES: Mutex<Vec<SyncHandle>> = Mutex::new(Vec::new());
 
 unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c_void {
+    assert_render_thread("glFenceSync");
     let real_fn = REAL_GL_FENCE_SYNC.load(Ordering::Relaxed);
     if real_fn.is_null() {
         return std::ptr::null_mut();
@@ -521,6 +549,7 @@ unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c
 }
 
 unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
+    assert_render_thread("glDeleteSync");
     if !sync.is_null() {
         let was_tracked = if let Ok(mut lock) = ACTIVE_FENCES.lock() {
             if let Some(pos) = lock.iter().position(|s| s.0 == sync) {
@@ -551,6 +580,7 @@ unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
 /// deletes the fences it still tracks through [wrapped_gl_delete_sync], so whatever survives that is
 /// a leak from the sliding window and is safe to delete here.
 unsafe fn drain_active_fences() {
+    assert_render_thread("drain_active_fences");
     let Ok(mut fences) = ACTIVE_FENCES.lock() else { return };
     if fences.is_empty() {
         return;
@@ -609,6 +639,13 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
 
     #[cfg(target_os = "android")]
     unsafe {
+        let owner_tid = logical_thread_id();
+        if let Ok(mut affinity) = G_AFFINITY.lock() {
+            if !affinity.claim(owner_tid) {
+                nlog("EGL: 上下文已归其他线程所有，当前渲染线程的声明被拒绝");
+            }
+        }
+
         let display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if display == EGL_NO_DISPLAY {
             nlog("EGL: eglGetDisplay 失败");
@@ -813,6 +850,11 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         eglDestroyContext(display, egl_context);
                     }
                     eglTerminate(display);
+                    // Release ownership last: anything still holding the id would otherwise look
+                    // like a live render thread.
+                    if let Ok(mut affinity) = G_AFFINITY.lock() {
+                        affinity.release(owner_tid);
+                    }
                     break;
                 }
             }
@@ -839,6 +881,7 @@ unsafe fn draw_frame_native(
     if ctx.is_null() || surface == EGL_NO_SURFACE {
         return;
     }
+    assert_render_thread("draw_frame_native");
     let _ = with_api(|api| {
         if !force {
             let flags = (api.mpv_render_context_update)(ctx);
