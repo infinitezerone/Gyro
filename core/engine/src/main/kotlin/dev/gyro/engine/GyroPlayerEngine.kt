@@ -105,6 +105,17 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _bufferedPosMs = MutableStateFlow(0L)
     val bufferedPosMs: StateFlow<Long> = _bufferedPosMs.asStateFlow()
 
+    /**
+     * Aspect ratio the picture is actually shown at, rotation included.
+     *
+     * Neither `dwidth`/`dheight` nor `video-params/aspect` apply the rotation flag on this mpv
+     * build, so a portrait clip stored as 1920x1080 plus `rotate=90` reports 1.78 while being
+     * displayed at 0.5625. Everything that lays the picture out - the PiP window, the letterbox
+     * maths - needs the rotated ratio.
+     */
+    private val _videoAspect = MutableStateFlow(0f)
+    val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
+
     private val _videoDimensions = MutableStateFlow(VideoDimensions())
     val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
 
@@ -204,6 +215,15 @@ class GyroPlayerEngine @JvmOverloads constructor(
                         }
                     }
                     _playbackState.value = PlaybackState.READY
+                    // mpv owns the paused state. After a file ends the engine marks itself stopped
+                    // while mpv keeps pause=false, so the next load fires no `pause` change and the
+                    // controls would sit on "play" over a playing video. Mirror it on every load.
+                    bridge.getBoolean("pause")?.let { paused -> _isPlaying.value = !paused }
+                    // Read the size here instead of relying on the property observers: observing
+                    // `width`/`height`/`dwidth`/`dheight` never delivers a change event on this mpv
+                    // build, so the dimensions stayed at zero and every consumer silently fell back
+                    // to track-list data or to 16:9.
+                    publishVideoDimensions()
                     refreshTracks()
                     refreshChapters()
                     Log.i(TAG, "File loaded, active hwdec=$hwdec")
@@ -247,23 +267,21 @@ class GyroPlayerEngine @JvmOverloads constructor(
             when (name) {
                 "track-list" -> refreshTracks()
                 "chapter-list" -> refreshChapters()
+                // `video-params` flips once the decoder knows the real stream parameters, which is
+                // the earliest point where dwidth/dheight carry the rotated (displayed) size.
+                "video-params" -> publishVideoDimensions()
             }
         }
 
         override fun onPropertyLong(name: String, value: Long) {
             when (name) {
-                "width" -> {
-                    val h = bridge.getLong("height")?.toInt() ?: 0
-                    if (value > 0 && h > 0) {
-                        _videoDimensions.value = VideoDimensions(value.toInt(), h)
-                    }
-                }
-                "height" -> {
-                    val w = bridge.getLong("width")?.toInt() ?: 0
-                    if (w > 0 && value > 0) {
-                        _videoDimensions.value = VideoDimensions(w, value.toInt())
-                    }
-                }
+                "width" -> publishVideoDimensions()
+                "height" -> publishVideoDimensions()
+                // dwidth/dheight already account for rotation and sample aspect ratio, and they are
+                // what the picture is actually laid out with: a portrait recording is stored as
+                // 1920x1080 plus a 90 degree rotation, so `width`/`height` alone would hand callers a
+                // landscape size and give PiP a landscape window around a portrait picture.
+                "dwidth", "dheight" -> publishVideoDimensions()
                 "frame-drop-count" -> {
                     _droppedFrames.value = value
                 }
@@ -432,12 +450,15 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 bridge.observeProperty("pause", MpvNativeBridge.Format.FLAG)
                 bridge.observeProperty("paused-for-cache", MpvNativeBridge.Format.FLAG)
                 bridge.observeProperty("demuxer-cache-time", MpvNativeBridge.Format.DOUBLE)
+                bridge.observeProperty("dwidth", MpvNativeBridge.Format.INT64)
+                bridge.observeProperty("dheight", MpvNativeBridge.Format.INT64)
                 bridge.observeProperty("width", MpvNativeBridge.Format.INT64)
                 bridge.observeProperty("height", MpvNativeBridge.Format.INT64)
                 bridge.observeProperty("hwdec-current", MpvNativeBridge.Format.STRING)
                 bridge.observeProperty("speed", MpvNativeBridge.Format.DOUBLE)
                 bridge.observeProperty("estimated-vf-fps", MpvNativeBridge.Format.DOUBLE)
                 bridge.observeProperty("frame-drop-count", MpvNativeBridge.Format.INT64)
+                bridge.observeProperty("video-params", MpvNativeBridge.Format.NONE)
                 bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
                 bridge.observeProperty("sub-delay", MpvNativeBridge.Format.DOUBLE)
                 bridge.observeProperty("audio-delay", MpvNativeBridge.Format.DOUBLE)
@@ -508,8 +529,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
     }
 
+    /** True while the native renderer holds a bound surface; false means nothing is painting. */
     @Volatile
-    private var isSurfaceAttached = false
+    var isSurfaceAttached = false
+        private set
     @Volatile
     private var pendingLoadUrl: String? = null
     @Volatile
@@ -605,6 +628,30 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     fun setSpeed(speed: Float) {
         bridge.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
+    }
+
+    /**
+     * Publishes the size the picture is actually presented at.
+     *
+     * `dwidth`/`dheight` have rotation and the sample aspect ratio applied, so a portrait recording
+     * stored as 1920x1080 plus a 90 degree rotation reports 1080x1920 here. That is the size callers
+     * lay out with, and the one that gives picture in picture a window matching the picture instead
+     * of a landscape window around a portrait video. `width`/`height` remain the fallback for the
+     * window before mpv has decoded a frame, where the display size is still unknown.
+     */
+    private fun publishVideoDimensions() {
+        val dw = bridge.getLong("dwidth")?.toInt() ?: 0
+        val dh = bridge.getLong("dheight")?.toInt() ?: 0
+        val hasDisplaySize = dw > 0 && dh > 0
+        val w = if (hasDisplaySize) dw else bridge.getLong("width")?.toInt() ?: 0
+        val h = if (hasDisplaySize) dh else bridge.getLong("height")?.toInt() ?: 0
+        if (w > 0 && h > 0) {
+            _videoDimensions.value = VideoDimensions(w, h)
+            // A quarter-turn swap is the only thing standing between the coded size and what the
+            // viewer sees; 180 turns leave the ratio alone.
+            val quarterTurn = (bridge.getLong("video-params/rotate") ?: 0L) % 180L != 0L
+            _videoAspect.value = if (quarterTurn) h.toFloat() / w else w.toFloat() / h
+        }
     }
 
     fun refreshTracks() {
@@ -747,7 +794,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     fun queryMediaInfo(fallbackTitle: String = "", fallbackUri: String = "", fallbackSize: Long = 0L): MediaInfo {
         val title = _mediaTitle.value.ifBlank { fallbackTitle }
         val dims = _videoDimensions.value
-        val resStr = if (dims.width > 0 && dims.height > 0) "${dims.width} × ${dims.height}" else ""
+        val resStr = if (dims.width > 0 && dims.height > 0) "${dims.width} x ${dims.height}" else ""
         val format = bridge.getPropertyString("file-format") ?: ""
         val vCodec = bridge.getPropertyString("video-codec") ?: bridge.getPropertyString("video-format") ?: ""
         val vBitrate = bridge.getLong("video-bitrate") ?: 0L
