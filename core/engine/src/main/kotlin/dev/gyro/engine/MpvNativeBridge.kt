@@ -55,6 +55,11 @@ interface MpvNativeBridge {
      */
     fun detachSurface()
 
+    /**
+     * Forces immediate redraw of the current frame on the active surface.
+     */
+    fun redraw()
+
     // ---------- Commands and Options ----------
 
     /**

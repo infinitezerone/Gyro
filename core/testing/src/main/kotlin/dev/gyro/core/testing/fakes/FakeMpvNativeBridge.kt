@@ -52,6 +52,9 @@ class FakeMpvNativeBridge(
     private val _detachSurfaceCount = AtomicInteger(0)
     val detachSurfaceCount: Int get() = _detachSurfaceCount.get()
 
+    private val _redrawCount = AtomicInteger(0)
+    val redrawCount: Int get() = _redrawCount.get()
+
     // Recorded invocations & state store using concurrent thread-safe collections
     val commands: CopyOnWriteArrayList<List<String>> = CopyOnWriteArrayList()
     val recordedCommands: CopyOnWriteArrayList<List<String>> get() = commands
@@ -84,6 +87,10 @@ class FakeMpvNativeBridge(
 
     override fun detachSurface() {
         _detachSurfaceCount.incrementAndGet()
+    }
+
+    override fun redraw() {
+        _redrawCount.incrementAndGet()
     }
 
     override fun command(cmd: Array<out String>) {
@@ -289,6 +296,7 @@ class FakeMpvNativeBridge(
         _destroyCount.set(0)
         _attachSurfaceCount.set(0)
         _detachSurfaceCount.set(0)
+        _redrawCount.set(0)
         commands.clear()
         options.clear()
         properties.clear()

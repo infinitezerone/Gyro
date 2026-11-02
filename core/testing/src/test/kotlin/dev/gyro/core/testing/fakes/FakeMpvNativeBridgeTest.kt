@@ -113,6 +113,10 @@ class FakeMpvNativeBridgeTest {
 
         fakeBridge.detachSurface()
         assertEquals("detachSurfaceCount must be 2", 2, fakeBridge.detachSurfaceCount)
+
+        assertEquals("Initial redrawCount must be 0", 0, fakeBridge.redrawCount)
+        fakeBridge.redraw()
+        assertEquals("redrawCount must be 1", 1, fakeBridge.redrawCount)
     }
 
     // =========================================================================
