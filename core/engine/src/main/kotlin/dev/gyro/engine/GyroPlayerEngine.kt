@@ -17,9 +17,15 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.shader.ShaderManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -52,6 +58,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     private val appContext = runCatching { context.applicationContext }.getOrNull() ?: context
     private val isInitialized = AtomicBoolean(false)
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
      * Audio focus lives here rather than in the ViewModel or the service so that the same state
@@ -428,42 +435,51 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
         resetSoftwareGain()
-        val displayName = runCatching {
-            appContext.contentResolver.query(
-                uri,
-                arrayOf(OpenableColumns.DISPLAY_NAME),
-                null,
-                null,
-                null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) cursor.getString(idx) else null
-                } else null
-            }
-        }.getOrNull() ?: uri.lastPathSegment ?: ""
-        if (displayName.isNotBlank()) {
-            _mediaTitle.value = displayName
+        val fastTitle = uri.lastPathSegment ?: ""
+        if (fastTitle.isNotBlank()) {
+            _mediaTitle.value = fastTitle
         }
 
-        val targetPath = try {
-            val pfd = appContext.contentResolver.openFileDescriptor(uri, "r")
-            val fd = pfd?.detachFd() ?: -1
-            if (fd >= 0) {
-                "fdclose://$fd"
-            } else {
-                uri.path ?: uri.toString()
+        engineScope.launch(Dispatchers.IO) {
+            val displayName = runCatching {
+                appContext.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) cursor.getString(idx) else null
+                    } else null
+                }
+            }.getOrNull() ?: fastTitle
+            if (displayName.isNotBlank()) {
+                _mediaTitle.value = displayName
             }
-        } catch (e: Throwable) {
-            Log.w(TAG, "openFileDescriptor fallback for uri=$uri: ${e.message}")
-            if (uri.scheme == "file") {
-                uri.path ?: uri.toString()
-            } else {
-                uri.toString()
+
+            val targetPath = try {
+                val pfd = appContext.contentResolver.openFileDescriptor(uri, "r")
+                val fd = pfd?.detachFd() ?: -1
+                if (fd >= 0) {
+                    "fdclose://$fd"
+                } else {
+                    uri.path ?: uri.toString()
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "openFileDescriptor fallback for uri=$uri: ${e.message}")
+                if (uri.scheme == "file") {
+                    uri.path ?: uri.toString()
+                } else {
+                    uri.toString()
+                }
+            }
+            Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
+            withContext(Dispatchers.Main) {
+                load(targetPath, startPositionMs)
             }
         }
-        Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
-        load(targetPath, startPositionMs)
     }
 
     @Volatile
@@ -668,8 +684,15 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun detachSurface() {
+        if (!isSurfaceAttached) return
         isSurfaceAttached = false
         bridge.detachSurface()
+    }
+
+    fun redraw() {
+        if (isSurfaceAttached) {
+            bridge.redraw()
+        }
     }
 
     fun queryMediaInfo(fallbackTitle: String = "", fallbackUri: String = "", fallbackSize: Long = 0L): MediaInfo {
@@ -937,6 +960,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun release() {
+        engineScope.cancel()
         audioFocusManager.abandon()
         resetSoftwareGain()
         isInitialized.set(false)
