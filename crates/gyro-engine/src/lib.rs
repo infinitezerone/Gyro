@@ -363,6 +363,10 @@ struct RenderThreadHandle {
 static RENDER_THREAD: OnceLock<Mutex<Option<RenderThreadHandle>>> = OnceLock::new();
 /// Collapses mpv's per-frame update notifications into one queued render command.
 static G_FRAME_GATE: FrameCoalescer = FrameCoalescer::new();
+/// Frames actually presented, used to tell "nothing drawn" apart from "drawn but black".
+static G_FRAMES_DRAWN: AtomicU64 = AtomicU64::new(0);
+/// Frames skipped because mpv had nothing new, used to spot a stalled producer.
+static G_FRAMES_STARVED: AtomicU64 = AtomicU64::new(0);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
 static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
@@ -864,13 +868,23 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     nlog("EGL: 收到 AttachSurface 命令");
                     match slot.attach(window, egl_context, visual_id) {
                         Ok(()) => {
-                            // Wake the UI thread before the first frame is decoded and drawn,
-                            // otherwise its surface-ready callback lands after a dropped frame.
-                            let _ = ack.send(());
+                            // Establish the render context BEFORE acknowledging the caller.
+                            //
+                            // The Kotlin side usually follows surfaceCreated with a loadfile. If
+                            // that load reaches libmpv first, video out initialisation finds no
+                            // render context, logs "No render context set", and permanently gives
+                            // up on video for that file: the audio plays over a black screen. The
+                            // acknowledgement is what unblocks the load, so it has to come after.
                             if slot.is_ready() {
                                 ensure_render_context(&mut mpv_render_ctx);
                                 draw_frame_native(display, slot.surface(), mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                             }
+                            nlog(&format!(
+                                "EGL: attach 完成 ready={} ctx_null={}",
+                                slot.is_ready(),
+                                mpv_render_ctx.is_null()
+                            ));
+                            let _ = ack.send(());
                         }
                         Err(_) => {
                             // The caller is blocked on this acknowledgement; release it even when
@@ -960,6 +974,16 @@ unsafe fn draw_frame_native(
         if !force {
             let flags = (api.mpv_render_context_update)(ctx);
             if flags & MPV_RENDER_UPDATE_FRAME == 0 {
+                let starved = G_FRAMES_STARVED.fetch_add(1, Ordering::Relaxed) + 1;
+                // A rising starved count with a frozen presented count means mpv stopped producing
+                // frames, not that the render loop stopped asking for them.
+                if starved % 120 == 0 {
+                    nlog(&format!(
+                        "RENDER: presented={} starved={}",
+                        G_FRAMES_DRAWN.load(Ordering::Relaxed),
+                        starved
+                    ));
+                }
                 return;
             }
         }
@@ -998,6 +1022,15 @@ unsafe fn draw_frame_native(
         (api.mpv_render_context_report_swap)(ctx);
         let swap_rc = eglSwapBuffers(display, surface);
         let elapsed = render_start.elapsed();
+        let presented = G_FRAMES_DRAWN.fetch_add(1, Ordering::Relaxed) + 1;
+        if presented <= 3 || presented % 300 == 0 {
+            nlog(&format!(
+                "RENDER: presented={} elapsed={}ms starved={}",
+                presented,
+                elapsed.as_millis(),
+                G_FRAMES_STARVED.load(Ordering::Relaxed)
+            ));
+        }
 
         if swap_rc != EGL_TRUE {
             let err = eglGetError();
