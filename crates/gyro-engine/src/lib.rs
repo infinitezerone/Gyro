@@ -919,6 +919,18 @@ unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
     }
 }
 
+/// Clones the render command sender out of the global slot.
+///
+/// Every caller needs to queue a command and then wait for its acknowledgement, and that wait can
+/// last hundreds of milliseconds. Doing it while holding `RENDER_THREAD` would block
+/// `mpv_update_callback`, which needs the same lock on mpv's thread, so the lock is only held long
+/// enough to clone the sender.
+fn render_sender() -> Option<Sender<RenderCommand>> {
+    let lock = RENDER_THREAD.get()?;
+    let guard = lock.lock().ok()?;
+    guard.as_ref().map(|handle| handle.sender.clone())
+}
+
 fn ensure_render_thread() {
     let lock = RENDER_THREAD.get_or_init(|| Mutex::new(None));
     if let Ok(mut guard) = lock.lock() {
@@ -1040,13 +1052,14 @@ unsafe fn safe_terminate_mpv(api: &MpvApi, handle: *mut c_void) {
     }
 
     // 2. 必须在 mpv_destroy 前释放 render context
-    if let Some(lock) = RENDER_THREAD.get() {
-        if let Ok(guard) = lock.lock() {
-            if let Some(ref r_handle) = *guard {
-                let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
-                let _ = r_handle.sender.send(RenderCommand::DestroyContext(ack_tx));
-                let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
-            }
+    //    The wait happens outside the global lock, and a timeout is reported instead of being
+    //    silently swallowed: proceeding to mpv_terminate_destroy while the render thread might still
+    //    be inside mpv_render_context_render is the classic use-after-free shape.
+    if let Some(sender) = render_sender() {
+        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+        let _ = sender.send(RenderCommand::DestroyContext(ack_tx));
+        if ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_err() {
+            nlog("safe_terminate_mpv: 渲染线程未在 2s 内确认释放 render context，可能仍在渲染");
         }
     }
 
@@ -1254,13 +1267,14 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_destroy(
         }
     });
 
-    if let Some(lock) = RENDER_THREAD.get() {
-        if let Ok(mut guard) = lock.lock() {
-            if let Some(handle) = guard.take() {
-                let _ = handle.sender.send(RenderCommand::Shutdown);
-                let _ = handle._thread.join();
-            }
-        }
+    // Join outside the global lock: the render thread takes no locks itself, but mpv's update
+    // callback does, and holding it here would stall frame production during teardown.
+    let handle = RENDER_THREAD
+        .get()
+        .and_then(|lock| lock.lock().ok().and_then(|mut guard| guard.take()));
+    if let Some(handle) = handle {
+        let _ = handle.sender.send(RenderCommand::Shutdown);
+        let _ = handle._thread.join();
     }
 }
 
@@ -1282,13 +1296,23 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_attachSurface(
         }
         ANativeWindow_acquire(win);
 
-        if let Some(lock) = RENDER_THREAD.get() {
-            if let Ok(guard) = lock.lock() {
-                if let Some(ref handle) = *guard {
-                    let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
-                    let _ = handle.sender.send(RenderCommand::AttachSurface(NativeWindowPtr(win), ack_tx));
-                    let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(1000));
+        match render_sender() {
+            Some(sender) => {
+                let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+                match sender.send(RenderCommand::AttachSurface(NativeWindowPtr(win), ack_tx)) {
+                    Ok(()) => {
+                        let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(1000));
+                    }
+                    Err(_) => {
+                        // Render thread already exited: hand the reference back instead of leaking it.
+                        nlog("attachSurface: 渲染线程已退出，归还窗口引用");
+                        ANativeWindow_release(win);
+                    }
                 }
+            }
+            None => {
+                nlog("attachSurface: 渲染线程不存在，归还窗口引用");
+                ANativeWindow_release(win);
             }
         }
     }
@@ -1299,15 +1323,12 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_detachSurface(
     _env: JNIEnv,
     _class: JClass,
 ) {
-    if let Some(lock) = RENDER_THREAD.get() {
-        if let Ok(guard) = lock.lock() {
-            if let Some(ref handle) = *guard {
-                let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
-                let _ = handle.sender.send(RenderCommand::DetachSurface(ack_tx));
-                // 严格遵循 Android surfaceDestroyed 协议：必须同步等待渲染线程销毁当前 EGLSurface
-                let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
-            }
-        }
+    // Strict surfaceDestroyed contract: the EGL surface must be gone before this returns, but the
+    // wait happens outside the global lock so the frame notification path stays responsive.
+    if let Some(sender) = render_sender() {
+        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+        let _ = sender.send(RenderCommand::DetachSurface(ack_tx));
+        let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
     }
 }
 
@@ -1316,12 +1337,8 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_redraw(
     _env: JNIEnv,
     _class: JClass,
 ) {
-    if let Some(lock) = RENDER_THREAD.get() {
-        if let Ok(guard) = lock.lock() {
-            if let Some(ref handle) = *guard {
-                let _ = handle.sender.send(RenderCommand::Redraw);
-            }
-        }
+    if let Some(sender) = render_sender() {
+        let _ = sender.send(RenderCommand::Redraw);
     }
 }
 
