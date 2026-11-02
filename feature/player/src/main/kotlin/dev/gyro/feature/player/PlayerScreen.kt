@@ -120,6 +120,10 @@ fun PlayerScreen(
     val subScale by engine.subScale.collectAsState()
     val subPos by engine.subPos.collectAsState()
     val videoDimensions by engine.videoDimensions.collectAsState()
+    // Rotation-aware: `videoDimensions` is the coded size, which is landscape for a portrait clip
+    // that carries a 90 degree rotation flag. The PiP window and the letterbox maths need the shape
+    // the viewer actually sees, otherwise a portrait video gets a landscape window.
+    val videoAspect by engine.videoAspect.collectAsState()
     val mediaTitle by engine.mediaTitle.collectAsState()
     val chapters by engine.chapters.collectAsState()
     val currentChapter by engine.currentChapter.collectAsState()
@@ -194,22 +198,26 @@ fun PlayerScreen(
         onTogglePlayPause = { engine.togglePlayPause() }
     )
 
-    val targetAspectRatio = remember(videoDimensions) {
-        if (videoDimensions.width > 0 && videoDimensions.height > 0) {
-            val ratio = (videoDimensions.width.toFloat() / videoDimensions.height.toFloat()).coerceIn(0.42f, 2.38f)
-            val num = (ratio * 1000).toInt()
-            Rational(num, 1000)
-        } else {
-            Rational(16, 9)
-        }
+    val targetAspectRatio = remember(videoDimensions, videoAspect) {
+        val ratio = when {
+            videoAspect > 0f -> videoAspect
+            videoDimensions.height > 0 -> videoDimensions.width.toFloat() / videoDimensions.height
+            else -> 16f / 9f
+        }.coerceIn(0.42f, 2.38f)
+        Rational((ratio * 1000).toInt(), 1000)
     }
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    // The PiP source rect hint describes where the video sits in the *fullscreen* window and only
+    // matters for the enter transition. Sizing it from the container while already in picture in
+    // picture would rebuild the params for the shrunk window, and every re-applied params set makes
+    // the system run the resize again - that second pass is the flash seen on entering PiP.
+    var fullscreenContainerSize by remember { mutableStateOf(IntSize.Zero) }
 
-    val videoSourceRect = remember(containerSize, targetAspectRatio, resizeMode) {
-        if (containerSize.width > 0 && containerSize.height > 0) {
+    val videoSourceRect = remember(fullscreenContainerSize, targetAspectRatio, resizeMode) {
+        if (fullscreenContainerSize.width > 0 && fullscreenContainerSize.height > 0) {
             calculateVideoSourceRect(
-                Rect(0, 0, containerSize.width, containerSize.height),
+                Rect(0, 0, fullscreenContainerSize.width, fullscreenContainerSize.height),
                 targetAspectRatio,
                 resizeMode
             )
@@ -350,7 +358,7 @@ fun PlayerScreen(
     val mediaSubtitle = remember(videoDimensions, hwdecCurrent, fps) {
         val parts = mutableListOf<String>()
         if (videoDimensions.width > 0 && videoDimensions.height > 0) {
-            parts.add("${videoDimensions.width}×${videoDimensions.height}")
+            parts.add("${videoDimensions.width}x${videoDimensions.height}")
         }
         if (fps > 0.0) {
             parts.add("${String.format(Locale.US, "%.0f", fps)}fps")
@@ -522,7 +530,10 @@ fun PlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onSizeChanged { containerSize = it }
+            .onSizeChanged {
+                containerSize = it
+                if (!isPipLayout) fullscreenContainerSize = it
+            }
     ) {
         // A. Direct Native EGL Video Surface with Hardware graphicsLayer Transform
         GyroPlayerSurface(
