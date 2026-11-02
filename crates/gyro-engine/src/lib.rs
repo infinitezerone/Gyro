@@ -537,6 +537,30 @@ unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
     }
 }
 
+/// Deletes fence objects left behind by mpv's renderer.
+///
+/// Must be called on the render thread while the EGL context is current: GL calls from any other
+/// thread have no context and are undefined behaviour. When mpv's render context is freed it
+/// deletes the fences it still tracks through [wrapped_gl_delete_sync], so whatever survives that is
+/// a leak from the sliding window and is safe to delete here.
+unsafe fn drain_active_fences() {
+    let Ok(mut fences) = ACTIVE_FENCES.lock() else { return };
+    if fences.is_empty() {
+        return;
+    }
+    let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
+    if del_fn.is_null() {
+        fences.clear();
+        return;
+    }
+    let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
+    let leaked = fences.len();
+    for sync in fences.drain(..) {
+        del(sync.0);
+    }
+    nlog(&format!("EGL: 已释放 {leaked} 个残留 fence 对象"));
+}
+
 unsafe extern "C" fn gl_proc_address(_ctx: *mut c_void, name: *const c_char) -> *mut c_void {
     #[cfg(target_os = "android")]
     {
@@ -759,6 +783,10 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         mpv_render_ctx = std::ptr::null_mut();
                         nlog("EGL: mpv_render_context 已在渲染线程安全释放");
                     }
+                    // Fence objects belong to the GL context that is current on this thread only.
+                    // mpv releases the ones it still tracks, so anything left is a leak; deleting it
+                    // from the caller thread would be a GL call without a current context.
+                    drain_active_fences();
                     let _ = ack.send(());
                 }
                 RenderCommand::Shutdown => {
@@ -1022,17 +1050,10 @@ unsafe fn safe_terminate_mpv(api: &MpvApi, handle: *mut c_void) {
         }
     }
 
-    // 释放未决的栅栏句柄，避免悬空
-    if let Ok(mut f_lock) = ACTIVE_FENCES.lock() {
-        let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
-        if !del_fn.is_null() {
-            let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
-            for sync in f_lock.drain(..) {
-                del(sync.0);
-            }
-        } else {
-            f_lock.clear();
-        }
+    // Fence cleanup already happened inside the DestroyContext round-trip above, on the render
+    // thread where the GL context is current. Dropping the handles here only clears stale slots.
+    if let Ok(mut fences) = ACTIVE_FENCES.lock() {
+        fences.clear();
     }
 
     // 3. 安全销毁 mpv 句柄
