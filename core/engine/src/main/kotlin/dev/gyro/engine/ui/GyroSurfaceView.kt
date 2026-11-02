@@ -50,7 +50,46 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d(TAG, "surfaceChanged: width=$width, height=$height")
-        // Native render thread automatically detects size change via eglQuerySurface
+        // Rotation, split screen and PiP only resize the window; it survives, so no attach happens.
+        // While video is running the next frame reads the new size from eglQuerySurface and repaints
+        // itself. A paused player produces no frames at all, so it is the only case that needs to be
+        // told to repaint.
+        val target = engine
+        // A live surface with the native side unbound is the frozen-picture case: `surfaceDestroyed`
+        // ran, no `surfaceCreated` followed because the view was reused, and drawing silently stops
+        // while audio keeps playing. Re-bind before deciding whether a repaint is needed.
+        if (target != null && !target.isSurfaceAttached && holder.surface?.isValid == true) {
+            Log.i(TAG, "surfaceChanged -> re-attach unbound surface")
+            target.attachSurface(holder.surface)
+            return
+        }
+        if (target != null && target.isPlaying.value) return
+        if (target != null) {
+            target.redraw()
+        } else {
+            GyroNative.redraw()
+        }
+    }
+
+    /**
+     * Re-binds a surface that is still valid but was unbound earlier.
+     *
+     * Compose reuses this view across layouts - rotation, full screen, leaving PiP - so it can be
+     * detached and attached again without `surfaceCreated` firing a second time. `surfaceDestroyed`
+     * has already unbound the native side by then, and nothing paints afterwards: audio keeps
+     * playing while the picture stays frozen on the last frame.
+     */
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        val surface = holder.surface
+        if (surface != null && surface.isValid) {
+            Log.i(TAG, "onAttachedToWindow -> re-attach existing surface")
+            if (engine != null) {
+                engine?.attachSurface(surface)
+            } else {
+                GyroNative.attachSurface(surface)
+            }
+        }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
