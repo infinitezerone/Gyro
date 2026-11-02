@@ -3,6 +3,9 @@
 mod logic;
 
 use logic::{AckOutcome, AffinityVerdict, DegradeState, FrameCoalescer, ThreadAffinity, request_ack};
+// Only the Android render loop reacts to a lost context.
+#[cfg(target_os = "android")]
+use logic::{ContextRecovery, RecoveryVerdict};
 // Render timing only exists in the Android render loop.
 #[cfg(target_os = "android")]
 use logic::{RenderWatchdog, WatchdogVerdict};
@@ -62,6 +65,13 @@ const EGL_CONTEXT_LOST: EGLint = 0x300E;
 const GL_VENDOR: u32 = 0x1F00;
 const GL_RENDERER: u32 = 0x1F01;
 const GL_EXTENSIONS: u32 = 0x1F03;
+
+/// Upper bound for the attach handshake; the caller is the UI thread, so it must never be unbounded.
+#[cfg(target_os = "android")]
+const ATTACH_ACK_TIMEOUT_MS: u64 = 1000;
+/// How long `surfaceCreated` may block before the wait is worth reporting as an ANR risk.
+#[cfg(target_os = "android")]
+const ATTACH_WAIT_BUDGET_MS: u128 = 200;
 
 #[cfg(target_os = "android")]
 #[link(name = "EGL")]
@@ -126,6 +136,8 @@ extern "C" {
     fn ANativeWindow_fromSurface(env: *mut jni::sys::JNIEnv, surface: jobject) -> *mut ANativeWindow;
     fn ANativeWindow_acquire(window: *mut ANativeWindow);
     fn ANativeWindow_release(window: *mut ANativeWindow);
+    fn ANativeWindow_getWidth(window: *mut ANativeWindow) -> i32;
+    fn ANativeWindow_getHeight(window: *mut ANativeWindow) -> i32;
     fn ANativeWindow_setBuffersGeometry(
         window: *mut ANativeWindow,
         width: i32,
@@ -319,12 +331,21 @@ unsafe fn mpv_handle() -> Result<*mut c_void, String> {
     }
 }
 
+#[cfg(unix)]
 extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
 }
+#[cfg(unix)]
 const RTLD_LAZY: c_int = 0x0001;
 
+/// Resolves a symbol out of libavcodec/libavutil for the JNI bridge.
+///
+/// Only the Android `init` path calls this, but `dlopen`/`dlsym` live in `libdl`, which does not
+/// exist in the MSVC import libraries - leaving it unguarded made `cargo test` fail to link on a
+/// Windows host and took the whole host test suite with it. Non-unix hosts get a null stub, which
+/// the caller already handles as "ffmpeg JNI hooks unavailable".
+#[cfg(unix)]
 fn resolve_avcodec_symbol(name: &str) -> *mut c_void {
     const CANDIDATES: [&str; 2] = ["libavcodec.so", "libavutil.so"];
     let Ok(cname) = CString::new(name) else { return std::ptr::null_mut() };
@@ -342,6 +363,11 @@ fn resolve_avcodec_symbol(name: &str) -> *mut c_void {
         }
         p
     }
+}
+
+#[cfg(not(unix))]
+fn resolve_avcodec_symbol(_name: &str) -> *mut c_void {
+    std::ptr::null_mut()
 }
 
 // ---------- 原生渲染命令与常驻线程 ----------
@@ -404,6 +430,15 @@ static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 // 判定逻辑见 logic::RenderWatchdog（宿主机可单测），此处只保留跨会话的降级闩锁
 static G_DEGRADE: Mutex<DegradeState> = Mutex::new(DegradeState::new());
 const MPV_EVENT_WATCHDOG_FALLBACK: jint = 1001;
+
+// ---------- 防御层 3：GL 上下文丢失重建 (Context Recovery) ----------
+// 判定逻辑同样在 logic::ContextRecovery（宿主机可单测）
+#[cfg(target_os = "android")]
+static G_RECOVERY: Mutex<ContextRecovery> = Mutex::new(ContextRecovery::with_defaults());
+/// Set once the rebuild budget is gone. Every later frame would fail the same swap, so the render
+/// thread stops touching GL instead of retrying and logging at frame rate.
+#[cfg(target_os = "android")]
+static G_RENDER_DEAD: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "android")]
 unsafe fn probe_graphics_environment(display: EGLDisplay, config: EGLConfig, ctx: EGLContext) {
@@ -517,11 +552,60 @@ unsafe fn trigger_hwdec_fallback(api: &MpvApi) {
     }
 
     if should_notify {
-        if let Some(VmPtr(vm_ptr)) = G_VM.get() {
-            if let Ok(vm) = JavaVM::from_raw(vm_ptr.cast()) {
-                if let Ok(mut env) = vm.attach_current_thread() {
-                    call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
-                }
+        notify_fallback_event();
+    }
+}
+
+/// Runs one mpv command and returns its status code, or `None` when mpv could not be reached at all.
+fn run_mpv_command(args: &[&str]) -> Option<c_int> {
+    with_api(|api| {
+        let handle = unsafe { mpv_handle() }.ok()?;
+        let owned: Vec<CString> = args.iter().map(|a| CString::new(*a).unwrap_or_default()).collect();
+        let mut arg_ptrs: Vec<*mut c_char> = owned.iter().map(|c| c.as_ptr() as *mut c_char).collect();
+        arg_ptrs.push(std::ptr::null_mut());
+        Some(unsafe { (api.mpv_command)(handle, arg_ptrs.as_mut_ptr()) })
+    })
+    .ok()
+    .flatten()
+}
+
+/// Re-issues `video-reload` so a decoder change takes effect on the running file.
+///
+/// Returns false when the command was rejected; the caller logs that itself.
+#[allow(dead_code)]
+fn reload_video() -> bool {
+    run_mpv_command(&["video-reload"]) == Some(MPV_ERROR_SUCCESS)
+}
+
+/// Makes mpv rebuild its video output against whatever render context is current now.
+///
+/// `video-reload` is the obvious call here and it does not work: freeing the render context makes
+/// mpv tear video output down ("Video: no video"), after which that command returns
+/// MPV_ERROR_COMMAND because there is no video output left to reload. Re-selecting the video track
+/// is what actually re-creates it - verified on device, video out comes back as
+/// `VO: [libmpv] ... mediacodec` and frame presentation resumes. The explicit track selection is
+/// lost (mpv falls back to its default video track), which is acceptable for a path that only runs
+/// after the driver dropped the GL context.
+#[allow(dead_code)]
+fn rearm_video_output() -> bool {
+    run_mpv_command(&["set", "vid", "no"]);
+    let restored = run_mpv_command(&["set", "vid", "auto"]);
+    if restored != Some(MPV_ERROR_SUCCESS) {
+        nlog(&format!("EGL: 重新启用视频轨失败 rc={restored:?}"));
+    }
+    restored == Some(MPV_ERROR_SUCCESS)
+}
+
+/// Tells the UI that the pipeline degraded.
+///
+/// The JavaVM attach is cached per thread by the JNI layer, so this is cheap, but it still means a
+/// JNI call from the render thread - the only one on the steady path, and it fires once per session.
+#[allow(dead_code)]
+fn notify_fallback_event() {
+    if let Some(VmPtr(vm_ptr)) = G_VM.get() {
+        if let Ok(vm) = unsafe { JavaVM::from_raw(vm_ptr.cast()) } {
+            if let Ok(mut env) = vm.attach_current_thread() {
+                call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
             }
         }
     }
@@ -675,12 +759,19 @@ struct SurfaceSlot {
     config: EGLConfig,
     window: *mut ANativeWindow,
     surface: EGLSurface,
+    visual_id: EGLint,
 }
 
 #[cfg(target_os = "android")]
 impl SurfaceSlot {
     unsafe fn new(display: EGLDisplay, config: EGLConfig) -> Self {
-        Self { display, config, window: std::ptr::null_mut(), surface: EGL_NO_SURFACE }
+        Self {
+            display,
+            config,
+            window: std::ptr::null_mut(),
+            surface: EGL_NO_SURFACE,
+            visual_id: 0,
+        }
     }
 
     fn surface(&self) -> EGLSurface {
@@ -706,20 +797,75 @@ impl SurfaceSlot {
             return Ok(());
         }
         self.window = window;
+        self.visual_id = visual_id;
 
         ANativeWindow_setBuffersGeometry(window, 0, 0, visual_id);
 
-        let surface = eglCreateWindowSurface(self.display, self.config, window, std::ptr::null());
+        match self.rebuild_surface(ctx) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                self.detach();
+                Err(err)
+            }
+        }
+    }
+
+    /// Recreates the window surface when the native window was resized underneath it.
+    ///
+    /// Rotation, split screen and PiP resize the window without destroying it, and an existing
+    /// EGL surface keeps presenting buffers of the old size: `eglQuerySurface` still reports the
+    /// previous geometry, `setBuffersGeometry` does not resize the surface either, so every later
+    /// frame lands in a corner of the new window at the wrong scale. A new EGL surface created from
+    /// the same window picks the new size up. Returns true when the surface was rebuilt.
+    unsafe fn sync_geometry(&mut self, ctx: EGLContext) -> bool {
+        if self.window.is_null() || !self.is_ready() {
+            return false;
+        }
+        let win_w = ANativeWindow_getWidth(self.window);
+        let win_h = ANativeWindow_getHeight(self.window);
+        let mut surf_w: EGLint = 0;
+        let mut surf_h: EGLint = 0;
+        eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut surf_w);
+        eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut surf_h);
+        if win_w <= 0 || win_h <= 0 || (win_w == surf_w && win_h == surf_h) {
+            return false;
+        }
+        nlog(&format!(
+            "EGL: 窗口尺寸 {win_w}x{win_h} 与 surface {surf_w}x{surf_h} 不一致，重建 surface"
+        ));
+        ANativeWindow_setBuffersGeometry(self.window, 0, 0, self.visual_id);
+        self.drop_surface();
+        self.rebuild_surface(ctx).is_ok()
+    }
+
+    /// Destroys the window surface but keeps the `ANativeWindow` reference.
+    ///
+    /// Context recovery needs exactly this split: the window survives a driver reset, the EGL
+    /// surface does not, and releasing the window here would force a re-attach from Java.
+    unsafe fn drop_surface(&mut self) {
+        if self.is_ready() {
+            eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if eglDestroySurface(self.display, self.surface) != EGL_TRUE {
+                egl_failure("eglDestroySurface");
+            }
+            self.surface = EGL_NO_SURFACE;
+        }
+    }
+
+    /// Creates a window surface from the retained window and makes it current.
+    unsafe fn rebuild_surface(&mut self, ctx: EGLContext) -> Result<(), EGLint> {
+        if self.window.is_null() {
+            return Err(EGL_BAD_SURFACE);
+        }
+        let surface = eglCreateWindowSurface(self.display, self.config, self.window, std::ptr::null());
         if surface == EGL_NO_SURFACE {
-            let err = egl_failure("eglCreateWindowSurface");
-            self.detach();
-            return Err(err);
+            return Err(egl_failure("eglCreateWindowSurface"));
         }
         self.surface = surface;
 
         if eglMakeCurrent(self.display, surface, surface, ctx) != EGL_TRUE {
             let err = egl_failure("eglMakeCurrent");
-            self.detach();
+            self.drop_surface();
             return Err(err);
         }
 
@@ -733,16 +879,52 @@ impl SurfaceSlot {
 
     /// Unbinds and destroys the surface, then releases the window reference.
     unsafe fn detach(&mut self) {
-        if self.is_ready() {
-            eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-            if eglDestroySurface(self.display, self.surface) != EGL_TRUE {
-                egl_failure("eglDestroySurface");
-            }
-            self.surface = EGL_NO_SURFACE;
-        }
+        self.drop_surface();
         if !self.window.is_null() {
             ANativeWindow_release(self.window);
             self.window = std::ptr::null_mut();
+        }
+    }
+}
+
+/// The long-lived EGL objects owned by the render thread.
+///
+/// Display and config outlive a context, so a lost context costs one `eglCreateContext` instead of a
+/// full EGL teardown, and the window reference taken in attach survives the rebuild untouched.
+#[cfg(target_os = "android")]
+struct EglCore {
+    display: EGLDisplay,
+    config: EGLConfig,
+    context: EGLContext,
+    visual_id: EGLint,
+}
+
+#[cfg(target_os = "android")]
+impl EglCore {
+    /// Replaces a dead context with a fresh one on the same display and config.
+    unsafe fn recreate_context(&mut self) -> bool {
+        if self.context != EGL_NO_CONTEXT {
+            // Expected to fail on a lost context; the handle is unusable either way.
+            eglDestroyContext(self.display, self.context);
+            self.context = EGL_NO_CONTEXT;
+        }
+        let attribs = [EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE];
+        self.context = eglCreateContext(self.display, self.config, EGL_NO_CONTEXT, attribs.as_ptr());
+        if self.context == EGL_NO_CONTEXT {
+            egl_failure("eglCreateContext(recovery)");
+            return false;
+        }
+        nlog("EGL: 上下文重建成功");
+        true
+    }
+
+    unsafe fn destroy(&mut self) {
+        if self.context != EGL_NO_CONTEXT && eglDestroyContext(self.display, self.context) != EGL_TRUE {
+            egl_failure("eglDestroyContext");
+        }
+        self.context = EGL_NO_CONTEXT;
+        if eglTerminate(self.display) != EGL_TRUE {
+            egl_failure("eglTerminate");
         }
     }
 }
@@ -854,6 +1036,10 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
         nlog("EGL: 常驻 EGLContext 创建成功");
         probe_graphics_environment(display, config, egl_context);
 
+        // Display, config, context and visual id travel together so the recovery path can rebuild a
+        // context without redoing the whole EGL handshake.
+        let mut core = EglCore { display, config, context: egl_context, visual_id };
+
         // Owns the window + surface pair; teardown order is enforced in one place.
         let mut slot = SurfaceSlot::new(display, config);
         let mut mpv_render_ctx: *mut c_void = std::ptr::null_mut();
@@ -866,7 +1052,10 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
             match cmd {
                 RenderCommand::AttachSurface(NativeWindowPtr(window), ack) => {
                     nlog("EGL: 收到 AttachSurface 命令");
-                    match slot.attach(window, egl_context, visual_id) {
+                    // Must run before attach: attach makes `core.context` current, and a dead or
+                    // missing context would make it fail, leaving the new video black.
+                    let pipeline_ok = revive_dead_pipeline(&mut core, &mut mpv_render_ctx);
+                    match slot.attach(window, core.context, core.visual_id) {
                         Ok(()) => {
                             // Establish the render context BEFORE acknowledging the caller.
                             //
@@ -877,7 +1066,6 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                             // acknowledgement is what unblocks the load, so it has to come after.
                             if slot.is_ready() {
                                 ensure_render_context(&mut mpv_render_ctx);
-                                draw_frame_native(display, slot.surface(), mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                             }
                             nlog(&format!(
                                 "EGL: attach 完成 ready={} ctx_null={}",
@@ -885,10 +1073,20 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                                 mpv_render_ctx.is_null()
                             ));
                             let _ = ack.send(());
+
+                            // First paint is the expensive part (hwdec init, video-out setup) and the
+                            // calling load only needs the render context to exist, so painting runs
+                            // after the acknowledgement instead of inside surfaceCreated's wait.
+                            if slot.is_ready() {
+                                draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                            }
                         }
-                        Err(_) => {
+                        Err(err) => {
                             // The caller is blocked on this acknowledgement; release it even when
                             // the attach failed, or surfaceCreated never returns.
+                            nlog(&format!(
+                                "EGL: attach 失败 (error=0x{err:X}) pipeline_ok={pipeline_ok}"
+                            ));
                             let _ = ack.send(());
                         }
                     }
@@ -903,15 +1101,19 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     nlog("EGL: Surface 已解绑 (EGLContext 与 render context 常驻)");
                 }
                 RenderCommand::Redraw => {
+                    // The only path that repaints while playback is paused, so it is worth a log:
+                    // without it a stale buffer looks like a rendering bug with no trace.
+                    nlog("EGL: 收到 Redraw 命令");
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
-                        draw_frame_native(display, slot.surface(), mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                        slot.sync_geometry(core.context);
+                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                     }
                 }
                 RenderCommand::NotifyFrame => {
                     G_FRAME_GATE.release();
                     if slot.is_ready() {
                         ensure_render_context(&mut mpv_render_ctx);
-                        draw_frame_native(display, slot.surface(), mpv_render_ctx, false, &mut watchdog, &mut last_frame_at);
+                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, false, &mut watchdog, &mut last_frame_at);
                     }
                 }
                 RenderCommand::DestroyContext(ack) => {
@@ -936,12 +1138,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     }
                     // Tear the surface down while the context is still current.
                     slot.detach();
-                    if egl_context != EGL_NO_CONTEXT && eglDestroyContext(display, egl_context) != EGL_TRUE {
-                        egl_failure("eglDestroyContext");
-                    }
-                    if eglTerminate(display) != EGL_TRUE {
-                        egl_failure("eglTerminate");
-                    }
+                    core.destroy();
                     // Release ownership last: anything still holding the id would otherwise look
                     // like a live render thread.
                     if let Ok(mut affinity) = G_AFFINITY.lock() {
@@ -960,6 +1157,19 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
     }
 }
 
+/// What one attempt at presenting a frame achieved.
+#[cfg(target_os = "android")]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum DrawOutcome {
+    /// The frame was swapped to the window.
+    Presented,
+    /// Nothing to present, or a swap failure the driver recovered from on its own.
+    Skipped,
+    /// The driver dropped the EGL context; every later call on it is void, so the pipeline has to
+    /// be rebuilt rather than retried.
+    ContextLost,
+}
+
 // 原生帧绘制（在渲染线程内部执行，0 JNI 开销）
 #[cfg(target_os = "android")]
 unsafe fn draw_frame_native(
@@ -969,12 +1179,12 @@ unsafe fn draw_frame_native(
     force: bool,
     watchdog: &mut RenderWatchdog,
     last_frame_at: &mut Option<Instant>,
-) {
+) -> DrawOutcome {
     if ctx.is_null() || surface == EGL_NO_SURFACE {
-        return;
+        return DrawOutcome::Skipped;
     }
     assert_render_thread("draw_frame_native");
-    let _ = with_api(|api| {
+    with_api(|api| {
         if !force {
             let flags = (api.mpv_render_context_update)(ctx);
             if flags & MPV_RENDER_UPDATE_FRAME == 0 {
@@ -988,7 +1198,7 @@ unsafe fn draw_frame_native(
                         starved
                     ));
                 }
-                return;
+                return DrawOutcome::Skipped;
             }
         }
 
@@ -997,7 +1207,7 @@ unsafe fn draw_frame_native(
         eglQuerySurface(display, surface, EGL_WIDTH, &mut w);
         eglQuerySurface(display, surface, EGL_HEIGHT, &mut h);
         if w <= 0 || h <= 0 {
-            return;
+            return DrawOutcome::Skipped;
         }
 
         let fbo = MpvOpenGLFbo {
@@ -1039,10 +1249,13 @@ unsafe fn draw_frame_native(
         if swap_rc != EGL_TRUE {
             let err = eglGetError();
             nlog(&format!("WATCHDOG: eglSwapBuffers 失败 rc={swap_rc} error=0x{err:X}"));
-            if err == EGL_CONTEXT_LOST {
-                trigger_hwdec_fallback(api);
-            }
-            return;
+            // A lost context is not a decoding problem, so switching the decoder cannot help; the
+            // caller has to rebuild the pipeline instead.
+            return if err == EGL_CONTEXT_LOST {
+                DrawOutcome::ContextLost
+            } else {
+                DrawOutcome::Skipped
+            };
         }
 
         // Verdicts and thresholds live in logic::RenderWatchdog so they can be tested on the host.
@@ -1053,7 +1266,169 @@ unsafe fn draw_frame_native(
             ));
             trigger_hwdec_fallback(api);
         }
-    });
+        DrawOutcome::Presented
+    })
+    .unwrap_or(DrawOutcome::Skipped)
+}
+
+/// Forgets fence handles whose context is gone.
+///
+/// The sync objects die together with the EGL context, so handing their dangling handles to
+/// `glDeleteSync` would be a use-after-free on the driver side. Dropping them without a delete is
+/// the only correct option, and it also keeps [`drain_active_fences`] from firing on a dead context.
+#[cfg(target_os = "android")]
+unsafe fn forget_active_fences() {
+    if let Ok(mut fences) = ACTIVE_FENCES.lock() {
+        if !fences.is_empty() {
+            nlog(&format!("EGL: 上下文已丢失，丢弃 {} 个 fence 句柄", fences.len()));
+            fences.clear();
+        }
+    }
+}
+
+/// Gives a dead pipeline one more chance when a new surface arrives.
+///
+/// The EGL context belongs to the render thread, not to the surface, so a spent budget would keep
+/// every later video black until the process restarts - and `EGL_CONTEXT_LOST` is usually the system
+/// reclaiming GPU resources while the app sat in the background, which a fresh context fixes. The
+/// attach of a new surface is the only meaningful retry point, because it is the only moment a fresh
+/// context can be paired with a surface again; nothing else in the loop can trigger it.
+///
+/// The rebuild budget is reset together with the context: those two attempts belong to the context
+/// that died, and a user reopening the player has started a new session. A driver that keeps dropping
+/// contexts therefore costs a bounded number of attempts per entry, never a loop.
+#[cfg(target_os = "android")]
+unsafe fn revive_dead_pipeline(core: &mut EglCore, mpv_render_ctx: &mut *mut c_void) -> bool {
+    // Fast path: a live context is the normal case, so this must cost one atomic load.
+    if !G_RENDER_DEAD.load(Ordering::Acquire) && core.context != EGL_NO_CONTEXT {
+        return true;
+    }
+    nlog("EGL: 新 surface 到达，尝试为已停用的管线重建上下文");
+
+    // mpv's render context is bound to the dead context; release it before that context goes away.
+    if !mpv_render_ctx.is_null() {
+        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(*mpv_render_ctx));
+        *mpv_render_ctx = std::ptr::null_mut();
+    }
+    forget_active_fences();
+
+    if !core.recreate_context() {
+        // Stays dead: the flag is left set so the loop keeps skipping GL instead of retrying.
+        return false;
+    }
+    if let Ok(mut recovery) = G_RECOVERY.lock() {
+        *recovery = ContextRecovery::with_defaults();
+    }
+    G_RENDER_DEAD.store(false, Ordering::Release);
+
+    // The video output gave up on this file when it found no render context, so it has to be
+    // re-armed against the fresh one; `video-reload` cannot do that (see `rearm_video_output`).
+    rearm_video_output();
+    nlog("EGL: 管线已恢复，渲染重新启用");
+    true
+}
+
+/// Rebuilds the EGL pipeline after the driver dropped the context.
+///
+/// Runs on the render thread with the old context already unusable. Returns true when a frame can be
+/// drawn again. Steps are ordered so that mpv never holds a render context bound to a destroyed GL
+/// context: release mpv's context first, then the surface, then the context itself, and only then
+/// build the replacements in the opposite order.
+#[cfg(target_os = "android")]
+unsafe fn recover_gl_context(
+    core: &mut EglCore,
+    slot: &mut SurfaceSlot,
+    mpv_render_ctx: &mut *mut c_void,
+) -> bool {
+    let verdict = match G_RECOVERY.lock() {
+        Ok(mut recovery) => recovery.on_context_lost(),
+        Err(_) => RecoveryVerdict::Exhausted,
+    };
+    if verdict == RecoveryVerdict::Exhausted {
+        // Latched once: without the flag every subsequent frame would relog this and re-enter mpv.
+        if !G_RENDER_DEAD.swap(true, Ordering::AcqRel) {
+            nlog("EGL: 重建预算已用尽，停止重建（驱动持续丢失上下文），渲染已停用");
+        }
+        return false;
+    }
+
+    // mpv owns GL objects created in the lost context; it must be told before that context goes
+    // away. Best effort: the objects are already invalid, only the bookkeeping matters.
+    if !mpv_render_ctx.is_null() {
+        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(*mpv_render_ctx));
+        *mpv_render_ctx = std::ptr::null_mut();
+    }
+    forget_active_fences();
+
+    slot.drop_surface();
+    if !core.recreate_context() {
+        return false;
+    }
+    if let Err(err) = slot.rebuild_surface(core.context) {
+        nlog(&format!("EGL: 重建窗口 surface 失败 (error=0x{err:X})"));
+        return false;
+    }
+
+    ensure_render_context(mpv_render_ctx);
+    if mpv_render_ctx.is_null() {
+        nlog("EGL: 重建后 mpv_render_context 创建失败");
+        return false;
+    }
+
+    // vo_libmpv only initialises video out while a render context exists (see the attach path), and
+    // freeing the context tore the current one down, so video must be re-armed against the new one.
+    rearm_video_output();
+    nlog("EGL: 上下文管线已重建，恢复渲染");
+    true
+}
+
+/// Draws a frame and, when the driver reports the context is gone, rebuilds the pipeline and draws
+/// once more.
+///
+/// The retry is what keeps a driver reset invisible: without it the surface keeps a dead context
+/// current and every following frame fails silently, which is a black screen until the app restarts.
+#[cfg(target_os = "android")]
+unsafe fn draw_and_recover(
+    core: &mut EglCore,
+    slot: &mut SurfaceSlot,
+    mpv_render_ctx: &mut *mut c_void,
+    force: bool,
+    watchdog: &mut RenderWatchdog,
+    last_frame_at: &mut Option<Instant>,
+) {
+    if !slot.is_ready() || mpv_render_ctx.is_null() {
+        return;
+    }
+    // The context is gone for good; drawing would call GL on a dead context once per frame.
+    if G_RENDER_DEAD.load(Ordering::Acquire) {
+        return;
+    }
+    let outcome = draw_frame_native(
+        core.display,
+        slot.surface(),
+        *mpv_render_ctx,
+        force,
+        watchdog,
+        last_frame_at,
+    );
+    if outcome != DrawOutcome::ContextLost {
+        return;
+    }
+
+    nlog("EGL: eglSwapBuffers 报告上下文丢失，开始重建管线");
+    if recover_gl_context(core, slot, mpv_render_ctx) {
+        // The rebuild itself takes longer than a frame, so the fresh watchdog must not count it as
+        // evidence that the GPU is slow.
+        *watchdog = RenderWatchdog::with_defaults();
+        draw_frame_native(
+            core.display,
+            slot.surface(),
+            *mpv_render_ctx,
+            true,
+            watchdog,
+            last_frame_at,
+        );
+    }
 }
 
 unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
@@ -1462,17 +1837,30 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_attachSurface(
         }
         ANativeWindow_acquire(win);
 
+        // This runs on the UI thread and blocks until the render thread has the surface current and
+        // a render context built, so the wait is bounded by mpv's first-paint cost. Anything above
+        // the budget is an ANR risk worth a log line rather than a silent stall.
+        let attach_started = Instant::now();
+
         match render_sender() {
             Some(sender) => {
                 let outcome = request_ack(
                     &sender,
                     |ack| RenderCommand::AttachSurface(NativeWindowPtr(win), ack),
-                    std::time::Duration::from_millis(1000),
+                    std::time::Duration::from_millis(ATTACH_ACK_TIMEOUT_MS),
                 );
                 if outcome == AckOutcome::Disconnected {
                     // Render thread already exited: hand the reference back instead of leaking it.
                     nlog("attachSurface: 渲染线程已退出，归还窗口引用");
                     ANativeWindow_release(win);
+                } else {
+                    let waited = attach_started.elapsed();
+                    if waited.as_millis() > ATTACH_WAIT_BUDGET_MS {
+                        nlog(&format!(
+                            "attachSurface: 主线程阻塞 {}ms（超出 {ATTACH_WAIT_BUDGET_MS}ms 预算，outcome={outcome:?}）",
+                            waited.as_millis()
+                        ));
+                    }
                 }
             }
             None => {

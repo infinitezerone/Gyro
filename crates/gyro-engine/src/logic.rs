@@ -212,6 +212,67 @@ impl DegradeState {
     }
 }
 
+/// What the caller should do after the driver dropped the GL context.
+// Host builds never reach the Android render loop, so this whole area looks unused to them.
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum RecoveryVerdict {
+    /// A rebuild is still allowed; the caller should rebuild the pipeline and draw again.
+    Rebuild,
+    /// The budget is spent. The pipeline stays dead instead of strobing the screen.
+    Exhausted,
+}
+
+/// Books how many times the GL pipeline may be rebuilt after the driver dropped the context.
+///
+/// `EGL_CONTEXT_LOST` is not a slow frame, so no decoder setting can recover from it: the context is
+/// gone and every later GL call on it is void. The only cure is to build a new context and hand it
+/// to mpv again, which is worth doing because the usual cause - the system reclaiming GPU resources
+/// while the app sits in the background - leaves the process perfectly healthy otherwise.
+///
+/// It is not worth doing forever. A driver that loses the context two times running is broken, and
+/// each further attempt costs another visible black frame, so the budget is finite and the verdict
+/// terminal, matching how [`DegradeState`] latches rather than retrying on every failure.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct ContextRecovery {
+    budget: u32,
+    used: u32,
+}
+
+#[allow(dead_code)]
+impl ContextRecovery {
+    pub const fn new(budget: u32) -> Self {
+        Self { budget, used: 0 }
+    }
+
+    /// Two rebuilds: one for a genuine driver reset plus one retry, few enough that a permanently
+    /// broken GPU does not flash the screen once per second.
+    pub const fn with_defaults() -> Self {
+        Self::new(2)
+    }
+
+    /// Counts one context loss and answers whether a rebuild is still allowed.
+    pub fn on_context_lost(&mut self) -> RecoveryVerdict {
+        if self.used >= self.budget {
+            return RecoveryVerdict::Exhausted;
+        }
+        self.used += 1;
+        RecoveryVerdict::Rebuild
+    }
+
+    #[allow(dead_code)]
+    pub fn rebuilds_used(&self) -> u32 {
+        self.used
+    }
+}
+
+impl Default for ContextRecovery {
+    fn default() -> Self {
+        Self::with_defaults()
+    }
+}
+
 /// Result of queueing a render command and waiting for its acknowledgement.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AckOutcome {
@@ -558,6 +619,41 @@ mod tests {
         assert!(!state.confirm(false));
         assert!(!state.is_applied());
         assert!(!state.begin(true));
+    }
+
+    // ---------- ContextRecovery ----------
+
+    #[test]
+    fn recovery_allows_the_configured_number_of_rebuilds() {
+        let mut recovery = ContextRecovery::new(2);
+        assert_eq!(recovery.on_context_lost(), RecoveryVerdict::Rebuild);
+        assert_eq!(recovery.on_context_lost(), RecoveryVerdict::Rebuild);
+    }
+
+    #[test]
+    fn recovery_exhausts_and_stays_exhausted() {
+        let mut recovery = ContextRecovery::new(1);
+        assert_eq!(recovery.on_context_lost(), RecoveryVerdict::Rebuild);
+        // Terminal: a driver that keeps dropping the context must not rebuild forever.
+        assert_eq!(recovery.on_context_lost(), RecoveryVerdict::Exhausted);
+        assert_eq!(recovery.on_context_lost(), RecoveryVerdict::Exhausted);
+    }
+
+    #[test]
+    fn recovery_with_zero_budget_never_rebuilds() {
+        let mut recovery = ContextRecovery::new(0);
+        assert_eq!(recovery.on_context_lost(), RecoveryVerdict::Exhausted);
+    }
+
+    #[test]
+    fn recovery_counts_only_successful_grants() {
+        let mut recovery = ContextRecovery::new(1);
+        assert_eq!(recovery.rebuilds_used(), 0);
+        recovery.on_context_lost();
+        assert_eq!(recovery.rebuilds_used(), 1);
+        // A refused loss must not be booked, or the budget would drain without a rebuild happening.
+        recovery.on_context_lost();
+        assert_eq!(recovery.rebuilds_used(), 1);
     }
 
     // ---------- request_ack ----------
