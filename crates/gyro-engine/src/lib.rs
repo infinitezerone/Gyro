@@ -298,6 +298,16 @@ fn with_api<T>(f: impl FnOnce(&MpvApi) -> T) -> Result<T, String> {
     Ok(f(cached_api()?))
 }
 
+/// Runs an mpv call whose result cannot be acted on, but whose failure must not vanish.
+///
+/// The only way these fail is a missing symbol in libmpv, which used to surface as a silently
+/// dead code path: the pipeline kept running with no render context and no explanation.
+fn with_api_logged(what: &str, f: impl FnOnce(&MpvApi)) {
+    if let Err(err) = with_api(f) {
+        nlog(&format!("mpv: {what} 无法执行 ({err})"));
+    }
+}
+
 unsafe fn mpv_handle() -> Result<*mut c_void, String> {
     let p = G_MPVP.load(Ordering::Acquire);
     if p.is_null() {
@@ -633,6 +643,145 @@ unsafe extern "C" fn gl_proc_address(_ctx: *mut c_void, name: *const c_char) -> 
     }
 }
 
+// ---------- EGL 资源所有权 ----------
+
+/// Logs the current EGL error next to the operation that failed.
+///
+/// Android-only: EGL is linked there, while the host build only exercises the pure logic.
+///
+/// Every failure path here used to log a bare string, which made "surface creation failed"
+/// indistinguishable from "context lost" in a bug report.
+#[cfg(target_os = "android")]
+fn egl_failure(what: &str) -> EGLint {
+    let err = unsafe { eglGetError() };
+    nlog(&format!("EGL: {what} 失败 (error=0x{err:X})"));
+    err
+}
+
+/// Owns the EGL window surface together with the native window it was created from.
+///
+/// Teardown order is fixed and was previously duplicated in three places: unbind the context,
+/// destroy the surface, then drop the native window reference. It lives here once, and `Drop`
+/// releases the window reference even on the paths that never produced a surface.
+#[cfg(target_os = "android")]
+struct SurfaceSlot {
+    display: EGLDisplay,
+    config: EGLConfig,
+    window: *mut ANativeWindow,
+    surface: EGLSurface,
+}
+
+#[cfg(target_os = "android")]
+impl SurfaceSlot {
+    unsafe fn new(display: EGLDisplay, config: EGLConfig) -> Self {
+        Self { display, config, window: std::ptr::null_mut(), surface: EGL_NO_SURFACE }
+    }
+
+    fn surface(&self) -> EGLSurface {
+        self.surface
+    }
+
+    fn is_ready(&self) -> bool {
+        !self.surface.is_null() && self.surface != EGL_NO_SURFACE
+    }
+
+    /// Binds a new native window and makes its surface current.
+    ///
+    /// Any previous surface is torn down first. On failure the slot is left empty and the window
+    /// reference released, so a broken attach can neither leak nor leave a half-bound state.
+    unsafe fn attach(
+        &mut self,
+        window: *mut ANativeWindow,
+        ctx: EGLContext,
+        visual_id: EGLint,
+    ) -> Result<(), EGLint> {
+        self.detach();
+        if window.is_null() {
+            return Ok(());
+        }
+        self.window = window;
+
+        ANativeWindow_setBuffersGeometry(window, 0, 0, visual_id);
+
+        let surface = eglCreateWindowSurface(self.display, self.config, window, std::ptr::null());
+        if surface == EGL_NO_SURFACE {
+            let err = egl_failure("eglCreateWindowSurface");
+            self.detach();
+            return Err(err);
+        }
+        self.surface = surface;
+
+        if eglMakeCurrent(self.display, surface, surface, ctx) != EGL_TRUE {
+            let err = egl_failure("eglMakeCurrent");
+            self.detach();
+            return Err(err);
+        }
+
+        // Without vsync the render thread free-spins and tears.
+        if eglSwapInterval(self.display, 1) != EGL_TRUE {
+            // Not fatal: drivers that reject a non-zero interval still present in FIFO order.
+            egl_failure("eglSwapInterval");
+        }
+        Ok(())
+    }
+
+    /// Unbinds and destroys the surface, then releases the window reference.
+    unsafe fn detach(&mut self) {
+        if self.is_ready() {
+            eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if eglDestroySurface(self.display, self.surface) != EGL_TRUE {
+                egl_failure("eglDestroySurface");
+            }
+            self.surface = EGL_NO_SURFACE;
+        }
+        if !self.window.is_null() {
+            ANativeWindow_release(self.window);
+            self.window = std::ptr::null_mut();
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for SurfaceSlot {
+    fn drop(&mut self) {
+        unsafe { self.detach() };
+    }
+}
+
+/// Creates mpv's render context on first use and hands it the GL context.
+///
+/// Two call sites (first attach, deferred frame) shared a 30 line parameter table that had already
+/// drifted apart in wording; the table now lives once.
+unsafe fn ensure_render_context(slot: &mut *mut c_void) {
+    if !slot.is_null() {
+        return;
+    }
+    let Ok(handle) = mpv_handle() else { return };
+    with_api_logged("mpv_render_context_create", |api| {
+        let init_params = MpvOpenGLInitParams {
+            get_proc_address: gl_proc_address,
+            get_proc_address_ctx: std::ptr::null_mut(),
+        };
+        let api_type = CString::new("opengl").unwrap_or_default();
+        let mut params = [
+            MpvRenderParam { param_type: MPV_RENDER_PARAM_API_TYPE, data: api_type.as_ptr() as *mut c_void },
+            MpvRenderParam { param_type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: &init_params as *const _ as *mut c_void },
+            MpvRenderParam { param_type: 0, data: std::ptr::null_mut() },
+        ];
+        let rc = (api.mpv_render_context_create)(slot, handle, params.as_mut_ptr());
+        if rc != MPV_ERROR_SUCCESS {
+            nlog(&format!("EGL: mpv_render_context_create 失败 rc={rc}"));
+            return;
+        }
+        (api.mpv_render_context_set_update_callback)(
+            *slot,
+            Some(mpv_update_callback),
+            std::ptr::null_mut(),
+        );
+        nlog("EGL: mpv_render_context 已挂载到渲染线程");
+    });
+}
+
 // 渲染线程主循环（纯原生 EGL 闭环）
 fn native_render_loop(receiver: Receiver<RenderCommand>) {
     nlog("native_render_loop: 渲染线程已就绪");
@@ -655,7 +804,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
         let mut major = 0;
         let mut minor = 0;
         if eglInitialize(display, &mut major, &mut minor) != EGL_TRUE {
-            nlog("EGL: eglInitialize 失败");
+            egl_failure("eglInitialize");
             return;
         }
 
@@ -674,12 +823,17 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
         let mut config: EGLConfig = std::ptr::null_mut();
         let mut num_config = 0;
         if eglChooseConfig(display, attribs.as_ptr(), &mut config, 1, &mut num_config) != EGL_TRUE || num_config == 0 {
-            nlog("EGL: eglChooseConfig 失败");
+            egl_failure("eglChooseConfig");
             return;
         }
 
         let mut visual_id = 0;
-        eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &mut visual_id);
+        if eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &mut visual_id) != EGL_TRUE {
+            // A zero visual id is accepted by ANativeWindow_setBuffersGeometry, so this degrades
+            // rather than aborts; the log still records that the driver refused to report it.
+            egl_failure("eglGetConfigAttrib(EGL_NATIVE_VISUAL_ID)");
+            visual_id = 0;
+        }
 
         let ctx_attribs = [
             EGL_CONTEXT_CLIENT_VERSION, 3,
@@ -687,15 +841,15 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
         ];
         let egl_context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
         if egl_context == EGL_NO_CONTEXT {
-            nlog("EGL: eglCreateContext 失败");
+            egl_failure("eglCreateContext");
             return;
         }
 
         nlog("EGL: 常驻 EGLContext 创建成功");
         probe_graphics_environment(display, config, egl_context);
 
-        let mut current_window: *mut ANativeWindow = std::ptr::null_mut();
-        let mut current_surface: EGLSurface = EGL_NO_SURFACE;
+        // Owns the window + surface pair; teardown order is enforced in one place.
+        let mut slot = SurfaceSlot::new(display, config);
         let mut mpv_render_ctx: *mut c_void = std::ptr::null_mut();
 
         // Render-thread-owned state: both types are plain data, so no locking is involved.
@@ -706,124 +860,44 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
             match cmd {
                 RenderCommand::AttachSurface(NativeWindowPtr(window), ack) => {
                     nlog("EGL: 收到 AttachSurface 命令");
-                    if !current_surface.is_null() && current_surface != EGL_NO_SURFACE {
-                        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                        eglDestroySurface(display, current_surface);
-                        current_surface = EGL_NO_SURFACE;
-                    }
-                    if !current_window.is_null() {
-                        ANativeWindow_release(current_window);
-                        current_window = std::ptr::null_mut();
-                    }
-
-                    if !window.is_null() {
-                        current_window = window;
-                        ANativeWindow_setBuffersGeometry(window, 0, 0, visual_id);
-
-                        current_surface = eglCreateWindowSurface(display, config, window, std::ptr::null());
-                        if current_surface == EGL_NO_SURFACE {
-                            nlog("EGL: eglCreateWindowSurface 失败");
+                    match slot.attach(window, egl_context, visual_id) {
+                        Ok(()) => {
+                            // Wake the UI thread before the first frame is decoded and drawn,
+                            // otherwise its surface-ready callback lands after a dropped frame.
                             let _ = ack.send(());
-                            continue;
-                        }
-
-                        if eglMakeCurrent(display, current_surface, current_surface, egl_context) != EGL_TRUE {
-                            nlog("EGL: eglMakeCurrent 失败");
-                            let _ = ack.send(());
-                            continue;
-                        }
-
-                        // 开启垂直同步，防止画面撕裂与过度消耗
-                        eglSwapInterval(display, 1);
-                        // Surface 和 EGL 上下文已就绪，立即唤醒 UI 线程避免等待首帧解码/绘制引起界面掉帧
-                        let _ = ack.send(());
-
-                        if mpv_render_ctx.is_null() {
-                            if let Ok(handle) = mpv_handle() {
-                                let _ = with_api(|api| {
-                                    let init_params = MpvOpenGLInitParams {
-                                        get_proc_address: gl_proc_address,
-                                        get_proc_address_ctx: std::ptr::null_mut(),
-                                    };
-                                    let api_type = CString::new("opengl").unwrap_or_default();
-                                    let mut params = [
-                                        MpvRenderParam { param_type: MPV_RENDER_PARAM_API_TYPE, data: api_type.as_ptr() as *mut c_void },
-                                        MpvRenderParam { param_type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: &init_params as *const _ as *mut c_void },
-                                        MpvRenderParam { param_type: 0, data: std::ptr::null_mut() },
-                                    ];
-                                    let rc = (api.mpv_render_context_create)(&mut mpv_render_ctx, handle, params.as_mut_ptr());
-                                    if rc == 0 {
-                                        (api.mpv_render_context_set_update_callback)(
-                                             mpv_render_ctx,
-                                             Some(mpv_update_callback),
-                                             std::ptr::null_mut(),
-                                        );
-                                        nlog("EGL: mpv_render_context 首次挂载就绪");
-                                    } else {
-                                        nlog(&format!("EGL: mpv_render_context_create 失败 rc={rc}"));
-                                    }
-                                });
+                            if slot.is_ready() {
+                                ensure_render_context(&mut mpv_render_ctx);
+                                draw_frame_native(display, slot.surface(), mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                             }
                         }
-
-                        draw_frame_native(display, current_surface, mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
-                    } else {
-                        let _ = ack.send(());
+                        Err(_) => {
+                            // The caller is blocked on this acknowledgement; release it even when
+                            // the attach failed, or surfaceCreated never returns.
+                            let _ = ack.send(());
+                        }
                     }
                 }
                 RenderCommand::DetachSurface(ack) => {
                     nlog("EGL: 收到 DetachSurface 命令 (保持 EGLContext 常驻)");
-                    if !current_surface.is_null() && current_surface != EGL_NO_SURFACE {
-                        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                        eglDestroySurface(display, current_surface);
-                        current_surface = EGL_NO_SURFACE;
-                    }
-                    if !current_window.is_null() {
-                        ANativeWindow_release(current_window);
-                        current_window = std::ptr::null_mut();
-                    }
+                    slot.detach();
                     let _ = ack.send(());
                 }
                 RenderCommand::Redraw => {
-                    if current_surface != EGL_NO_SURFACE && !current_surface.is_null() && !mpv_render_ctx.is_null() {
-                        draw_frame_native(display, current_surface, mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                    if slot.is_ready() && !mpv_render_ctx.is_null() {
+                        draw_frame_native(display, slot.surface(), mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                     }
                 }
                 RenderCommand::NotifyFrame => {
                     G_FRAME_GATE.release();
-                    if current_surface != EGL_NO_SURFACE && !current_surface.is_null() {
-                        if mpv_render_ctx.is_null() {
-                            if let Ok(handle) = mpv_handle() {
-                                let _ = with_api(|api| {
-                                    let init_params = MpvOpenGLInitParams {
-                                        get_proc_address: gl_proc_address,
-                                        get_proc_address_ctx: std::ptr::null_mut(),
-                                    };
-                                    let api_type = CString::new("opengl").unwrap_or_default();
-                                    let mut params = [
-                                        MpvRenderParam { param_type: MPV_RENDER_PARAM_API_TYPE, data: api_type.as_ptr() as *mut c_void },
-                                        MpvRenderParam { param_type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: &init_params as *const _ as *mut c_void },
-                                        MpvRenderParam { param_type: 0, data: std::ptr::null_mut() },
-                                    ];
-                                    let rc = (api.mpv_render_context_create)(&mut mpv_render_ctx, handle, params.as_mut_ptr());
-                                    if rc == 0 {
-                                        (api.mpv_render_context_set_update_callback)(
-                                            mpv_render_ctx,
-                                            Some(mpv_update_callback),
-                                            std::ptr::null_mut(),
-                                        );
-                                        nlog("EGL: mpv_render_context 延迟挂载成功");
-                                    }
-                                });
-                            }
-                        }
-                        draw_frame_native(display, current_surface, mpv_render_ctx, false, &mut watchdog, &mut last_frame_at);
+                    if slot.is_ready() {
+                        ensure_render_context(&mut mpv_render_ctx);
+                        draw_frame_native(display, slot.surface(), mpv_render_ctx, false, &mut watchdog, &mut last_frame_at);
                     }
                 }
                 RenderCommand::DestroyContext(ack) => {
                     nlog("EGL: 收到 DestroyContext 请求，开始销毁 mpv_render_context");
                     if !mpv_render_ctx.is_null() {
-                        let _ = with_api(|api| (api.mpv_render_context_free)(mpv_render_ctx));
+                        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(mpv_render_ctx));
                         mpv_render_ctx = std::ptr::null_mut();
                         nlog("EGL: mpv_render_context 已在渲染线程安全释放");
                     }
@@ -836,20 +910,18 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                 RenderCommand::Shutdown => {
                     nlog("EGL: 渲染线程正在退出并清理资源");
                     if !mpv_render_ctx.is_null() {
-                        let _ = with_api(|api| (api.mpv_render_context_free)(mpv_render_ctx));
-                        mpv_render_ctx = std::ptr::null_mut();
+                        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(mpv_render_ctx));
+                        // No assignment: the loop breaks right after, so a nulled local would never
+                        // be read. The render context is owned by the thread that is exiting.
                     }
-                    if !current_surface.is_null() && current_surface != EGL_NO_SURFACE {
-                        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                        eglDestroySurface(display, current_surface);
+                    // Tear the surface down while the context is still current.
+                    slot.detach();
+                    if egl_context != EGL_NO_CONTEXT && eglDestroyContext(display, egl_context) != EGL_TRUE {
+                        egl_failure("eglDestroyContext");
                     }
-                    if !current_window.is_null() {
-                        ANativeWindow_release(current_window);
+                    if eglTerminate(display) != EGL_TRUE {
+                        egl_failure("eglTerminate");
                     }
-                    if egl_context != EGL_NO_CONTEXT {
-                        eglDestroyContext(display, egl_context);
-                    }
-                    eglTerminate(display);
                     // Release ownership last: anything still holding the id would otherwise look
                     // like a live render thread.
                     if let Ok(mut affinity) = G_AFFINITY.lock() {
