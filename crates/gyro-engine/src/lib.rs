@@ -419,21 +419,59 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, config: EGLConfig, ctx
 #[cfg(not(target_os = "android"))]
 unsafe fn probe_graphics_environment(_display: EGLDisplay, _config: EGLConfig, _ctx: EGLContext) {}
 
+/// Degrades hardware decoding to the copy path once the render watchdog decides the GPU is stuck.
+///
+/// `hwdec` is runtime-changeable, but `mpv_set_option_string` is only valid before
+/// `mpv_initialize` returns; afterwards the property API is the supported entry point. The return
+/// code is checked and the fallback event is only emitted when the change actually applied, so the
+/// UI can never announce a degradation that did not happen. `video-reload` is issued because a
+/// decoder change only takes effect when the video stream is reinitialised; without it the switch
+/// would silently wait for the next file to be opened.
 unsafe fn trigger_hwdec_fallback(api: &MpvApi) {
+    // Single attempt per process: retrying on every following slow frame cannot help and would
+    // flood the log while the user is already looking at a frozen picture.
     if G_WATCHDOG_FALLBACK_TRIGGERED.swap(true, Ordering::SeqCst) {
         return;
     }
-    if let Ok(handle) = mpv_handle() {
-        let opt_name = CString::new("hwdec").unwrap();
-        let opt_val = CString::new("mediacodec-copy").unwrap();
-        (api.mpv_set_option_string)(handle, opt_name.as_ptr(), opt_val.as_ptr());
-        nlog("WATCHDOG: 已平滑降级为 hwdec=mediacodec-copy 安全模式");
 
-        if let Some(VmPtr(vm_ptr)) = G_VM.get() {
-            if let Ok(vm) = JavaVM::from_raw(vm_ptr.cast()) {
-                if let Ok(mut env) = vm.attach_current_thread() {
-                    call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
-                }
+    let Ok(handle) = mpv_handle() else {
+        // Nothing was attempted, so keep the latch open for a later frame.
+        G_WATCHDOG_FALLBACK_TRIGGERED.store(false, Ordering::Release);
+        return;
+    };
+
+    let name = CString::new("hwdec").unwrap_or_default();
+    let value = CString::new("mediacodec-copy").unwrap_or_default();
+    let mut value_ptr: *const c_char = value.as_ptr();
+    let rc = (api.mpv_set_property)(
+        handle,
+        name.as_ptr(),
+        MPV_FORMAT_STRING,
+        std::ptr::from_mut(&mut value_ptr).cast::<c_void>(),
+    );
+    if rc != MPV_ERROR_SUCCESS {
+        nlog(&format!(
+            "WATCHDOG: hwdec degrade rejected rc={rc}, keeping the current decoder and reporting nothing"
+        ));
+        return;
+    }
+
+    let args = vec![CString::new("video-reload").unwrap_or_default()];
+    let mut arg_ptrs: Vec<*mut c_char> = args.iter().map(|a| a.as_ptr() as *mut c_char).collect();
+    arg_ptrs.push(std::ptr::null_mut());
+    let reload_rc = (api.mpv_command)(handle, arg_ptrs.as_mut_ptr());
+    if reload_rc == MPV_ERROR_SUCCESS {
+        nlog("WATCHDOG: hwdec degraded to mediacodec-copy, video stream reloaded");
+    } else {
+        nlog(&format!(
+            "WATCHDOG: hwdec set but video-reload failed rc={reload_rc}, takes effect on next file"
+        ));
+    }
+
+    if let Some(VmPtr(vm_ptr)) = G_VM.get() {
+        if let Ok(vm) = JavaVM::from_raw(vm_ptr.cast()) {
+            if let Ok(mut env) = vm.attach_current_thread() {
+                call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
             }
         }
     }
@@ -629,6 +667,8 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
 
                         // 开启垂直同步，防止画面撕裂与过度消耗
                         eglSwapInterval(display, 1);
+                        // Surface 和 EGL 上下文已就绪，立即唤醒 UI 线程避免等待首帧解码/绘制引起界面掉帧
+                        let _ = ack.send(());
 
                         if mpv_render_ctx.is_null() {
                             if let Ok(handle) = mpv_handle() {
@@ -659,8 +699,9 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         }
 
                         draw_frame_native(display, current_surface, mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                    } else {
+                        let _ = ack.send(());
                     }
-                    let _ = ack.send(());
                 }
                 RenderCommand::DetachSurface(ack) => {
                     nlog("EGL: 收到 DetachSurface 命令 (保持 EGLContext 常驻)");
