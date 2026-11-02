@@ -2,7 +2,7 @@
 
 mod logic;
 
-use logic::FrameCoalescer;
+use logic::{AckOutcome, DegradeState, FrameCoalescer, request_ack};
 // Render timing only exists in the Android render loop.
 #[cfg(target_os = "android")]
 use logic::{RenderWatchdog, WatchdogVerdict};
@@ -359,7 +359,7 @@ static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 
 // ---------- 防御层 2：运行时帧看门狗 (Dynamic Render Watchdog) ----------
 // 判定逻辑见 logic::RenderWatchdog（宿主机可单测），此处只保留跨会话的降级闩锁
-static G_WATCHDOG_FALLBACK_TRIGGERED: AtomicBool = AtomicBool::new(false);
+static G_DEGRADE: Mutex<DegradeState> = Mutex::new(DegradeState::new());
 const MPV_EVENT_WATCHDOG_FALLBACK: jint = 1001;
 
 #[cfg(target_os = "android")]
@@ -428,17 +428,16 @@ unsafe fn probe_graphics_environment(_display: EGLDisplay, _config: EGLConfig, _
 /// decoder change only takes effect when the video stream is reinitialised; without it the switch
 /// would silently wait for the next file to be opened.
 unsafe fn trigger_hwdec_fallback(api: &MpvApi) {
-    // Single attempt per process: retrying on every following slow frame cannot help and would
-    // flood the log while the user is already looking at a frozen picture.
-    if G_WATCHDOG_FALLBACK_TRIGGERED.swap(true, Ordering::SeqCst) {
+    let handle = mpv_handle().ok();
+    // Whether this attempt is allowed at all is decided (and tested) in logic::DegradeState.
+    let may_attempt = match G_DEGRADE.lock() {
+        Ok(mut state) => state.begin(handle.is_some()),
+        Err(_) => false,
+    };
+    if !may_attempt {
         return;
     }
-
-    let Ok(handle) = mpv_handle() else {
-        // Nothing was attempted, so keep the latch open for a later frame.
-        G_WATCHDOG_FALLBACK_TRIGGERED.store(false, Ordering::Release);
-        return;
-    };
+    let Some(handle) = handle else { return };
 
     let name = CString::new("hwdec").unwrap_or_default();
     let value = CString::new("mediacodec-copy").unwrap_or_default();
@@ -449,7 +448,13 @@ unsafe fn trigger_hwdec_fallback(api: &MpvApi) {
         MPV_FORMAT_STRING,
         std::ptr::from_mut(&mut value_ptr).cast::<c_void>(),
     );
-    if rc != MPV_ERROR_SUCCESS {
+    let applied = rc == MPV_ERROR_SUCCESS;
+
+    let should_notify = match G_DEGRADE.lock() {
+        Ok(mut state) => state.confirm(applied),
+        Err(_) => false,
+    };
+    if !applied {
         nlog(&format!(
             "WATCHDOG: hwdec degrade rejected rc={rc}, keeping the current decoder and reporting nothing"
         ));
@@ -468,10 +473,12 @@ unsafe fn trigger_hwdec_fallback(api: &MpvApi) {
         ));
     }
 
-    if let Some(VmPtr(vm_ptr)) = G_VM.get() {
-        if let Ok(vm) = JavaVM::from_raw(vm_ptr.cast()) {
-            if let Ok(mut env) = vm.attach_current_thread() {
-                call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
+    if should_notify {
+        if let Some(VmPtr(vm_ptr)) = G_VM.get() {
+            if let Ok(vm) = JavaVM::from_raw(vm_ptr.cast()) {
+                if let Ok(mut env) = vm.attach_current_thread() {
+                    call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
+                }
             }
         }
     }
@@ -1056,10 +1063,15 @@ unsafe fn safe_terminate_mpv(api: &MpvApi, handle: *mut c_void) {
     //    silently swallowed: proceeding to mpv_terminate_destroy while the render thread might still
     //    be inside mpv_render_context_render is the classic use-after-free shape.
     if let Some(sender) = render_sender() {
-        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
-        let _ = sender.send(RenderCommand::DestroyContext(ack_tx));
-        if ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_err() {
-            nlog("safe_terminate_mpv: 渲染线程未在 2s 内确认释放 render context，可能仍在渲染");
+        let outcome = request_ack(
+            &sender,
+            RenderCommand::DestroyContext,
+            std::time::Duration::from_secs(2),
+        );
+        if outcome != AckOutcome::Acknowledged {
+            nlog(&format!(
+                "safe_terminate_mpv: 渲染线程未在 2s 内确认释放 render context ({outcome:?})，可能仍在渲染"
+            ));
         }
     }
 
@@ -1298,16 +1310,15 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_attachSurface(
 
         match render_sender() {
             Some(sender) => {
-                let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
-                match sender.send(RenderCommand::AttachSurface(NativeWindowPtr(win), ack_tx)) {
-                    Ok(()) => {
-                        let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(1000));
-                    }
-                    Err(_) => {
-                        // Render thread already exited: hand the reference back instead of leaking it.
-                        nlog("attachSurface: 渲染线程已退出，归还窗口引用");
-                        ANativeWindow_release(win);
-                    }
+                let outcome = request_ack(
+                    &sender,
+                    |ack| RenderCommand::AttachSurface(NativeWindowPtr(win), ack),
+                    std::time::Duration::from_millis(1000),
+                );
+                if outcome == AckOutcome::Disconnected {
+                    // Render thread already exited: hand the reference back instead of leaking it.
+                    nlog("attachSurface: 渲染线程已退出，归还窗口引用");
+                    ANativeWindow_release(win);
                 }
             }
             None => {
@@ -1326,9 +1337,11 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_detachSurface(
     // Strict surfaceDestroyed contract: the EGL surface must be gone before this returns, but the
     // wait happens outside the global lock so the frame notification path stays responsive.
     if let Some(sender) = render_sender() {
-        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
-        let _ = sender.send(RenderCommand::DetachSurface(ack_tx));
-        let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
+        let _ = request_ack(
+            &sender,
+            RenderCommand::DetachSurface,
+            std::time::Duration::from_millis(500),
+        );
     }
 }
 

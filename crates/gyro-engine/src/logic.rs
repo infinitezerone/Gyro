@@ -166,6 +166,85 @@ impl Default for RenderWatchdog {
     }
 }
 
+/// Bookkeeping for the hardware-decoder degradation the watchdog asks for.
+///
+/// The pipeline is allowed exactly one write of `hwdec`. Two failures must not be conflated:
+///
+/// * No mpv handle yet means nothing was attempted, so the latch stays open and a later frame can
+///   try again.
+/// * A write that mpv rejected means the pipeline is stuck with the decoder it has, and retrying on
+///   every following slow frame cannot change that. The latch closes so the log does not flood while
+///   the user is already looking at a frozen picture.
+///
+/// In both failure cases the UI must not be told the pipeline degraded, which is what the notify
+/// answer distinguishes.
+#[derive(Debug, Default)]
+pub struct DegradeState {
+    attempted: bool,
+    applied: bool,
+}
+
+impl DegradeState {
+    pub const fn new() -> Self {
+        Self { attempted: false, applied: false }
+    }
+
+    /// Decides whether the caller should write `hwdec` now.
+    pub fn begin(&mut self, has_handle: bool) -> bool {
+        if self.attempted || !has_handle {
+            return false;
+        }
+        self.attempted = true;
+        true
+    }
+
+    /// Records the write result. Returns true when the caller should emit the fallback event,
+    /// which is exactly when the decoder actually changed.
+    pub fn confirm(&mut self, accepted: bool) -> bool {
+        if accepted {
+            self.applied = true;
+        }
+        accepted
+    }
+
+    pub fn is_applied(&self) -> bool {
+        self.applied
+    }
+}
+
+/// Result of queueing a render command and waiting for its acknowledgement.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum AckOutcome {
+    /// The render thread processed the command.
+    Acknowledged,
+    /// The command was queued but the wait expired, so the render thread may still be inside it.
+    TimedOut,
+    /// The render thread is gone; nothing was queued.
+    Disconnected,
+}
+
+/// Queues a command and waits for its acknowledgement.
+///
+/// The caller passes an already-cloned [`std::sync::mpsc::Sender`] so that no outer lock is held
+/// while waiting: every one of these waits can last hundreds of milliseconds, and the frame
+/// notification path needs the same slot. Holding a lock across the wait stalls frame production
+/// exactly when the pipeline is already in trouble.
+pub fn request_ack<C>(
+    sender: &std::sync::mpsc::Sender<C>,
+    build: impl FnOnce(std::sync::mpsc::SyncSender<()>) -> C,
+    timeout: std::time::Duration,
+) -> AckOutcome {
+    let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+    if sender.send(build(ack_tx)).is_err() {
+        return AckOutcome::Disconnected;
+    }
+    match ack_rx.recv_timeout(timeout) {
+        Ok(()) => AckOutcome::Acknowledged,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => AckOutcome::TimedOut,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => AckOutcome::Disconnected,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,5 +397,121 @@ mod tests {
             assert_ne!(WatchdogVerdict::Trip, w.on_frame(16, 16));
         }
         assert!(!w.is_tripped());
+    }
+
+    // ---------- DegradeState ----------
+
+    #[test]
+    fn degrade_without_a_handle_does_not_consume_the_single_attempt() {
+        let mut state = DegradeState::new();
+        assert!(!state.begin(false));
+        // The latch is still open, so the next frame with a live handle can still degrade.
+        assert!(state.begin(true));
+    }
+
+    #[test]
+    fn degrade_attempts_only_once() {
+        let mut state = DegradeState::new();
+        assert!(state.begin(true));
+        assert!(!state.begin(true));
+        assert!(!state.begin(true));
+    }
+
+    #[test]
+    fn degrade_reports_only_when_the_write_was_accepted() {
+        let mut state = DegradeState::new();
+        assert!(state.begin(true));
+        assert!(state.confirm(true));
+        assert!(state.is_applied());
+    }
+
+    #[test]
+    fn degrade_stays_silent_when_mpv_rejects_the_write() {
+        let mut state = DegradeState::new();
+        assert!(state.begin(true));
+        // A rejected write must not be announced as a degradation, and must not be retried.
+        assert!(!state.confirm(false));
+        assert!(!state.is_applied());
+        assert!(!state.begin(true));
+    }
+
+    // ---------- request_ack ----------
+
+    fn spawn_render_thread(
+        delay: std::time::Duration,
+    ) -> (
+        std::sync::mpsc::Sender<(u8, std::sync::mpsc::SyncSender<()>)>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let (tx, rx) = std::sync::mpsc::channel::<(u8, std::sync::mpsc::SyncSender<()>)>();
+        let handle = std::thread::spawn(move || {
+            while let Ok((_, ack)) = rx.recv() {
+                std::thread::sleep(delay);
+                let _ = ack.send(());
+            }
+        });
+        (tx, handle)
+    }
+
+    #[test]
+    fn ack_completes_when_the_render_thread_confirms() {
+        let (tx, _thread) = spawn_render_thread(std::time::Duration::from_millis(5));
+        let outcome = request_ack(&tx, |ack| (0u8, ack), std::time::Duration::from_millis(500));
+        assert_eq!(AckOutcome::Acknowledged, outcome);
+    }
+
+    #[test]
+    fn ack_reports_a_dead_render_thread() {
+        // Receiver dropped: the render thread is gone, so nothing is queued at all.
+        let (tx, rx) = std::sync::mpsc::channel::<(u8, std::sync::mpsc::SyncSender<()>)>();
+        drop(rx);
+        let outcome = request_ack(&tx, |ack| (0u8, ack), std::time::Duration::from_millis(50));
+        assert_eq!(AckOutcome::Disconnected, outcome);
+    }
+
+    #[test]
+    fn ack_reports_a_timeout_instead_of_blocking_forever() {
+        // Render thread stuck inside a swap: it never acknowledges.
+        let (tx, rx) = std::sync::mpsc::channel::<(u8, std::sync::mpsc::SyncSender<()>)>();
+        let outcome = request_ack(&tx, |ack| (0u8, ack), std::time::Duration::from_millis(30));
+        assert_eq!(AckOutcome::TimedOut, outcome);
+        drop(rx);
+    }
+
+    #[test]
+    fn waiting_for_ack_does_not_hold_the_slot_lock() {
+        // Regression guard for the stalling bug: the frame notification path needs the same slot
+        // that render commands are cloned from, so the wait must happen unlocked.
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        type Slot = Arc<Mutex<Option<std::sync::mpsc::Sender<(u8, std::sync::mpsc::SyncSender<()>)>>>>;
+
+        let (tx, thread) = spawn_render_thread(Duration::from_millis(200));
+        let slot: Slot = Arc::new(Mutex::new(Some(tx)));
+
+        let caller_slot = Arc::clone(&slot);
+        let caller = std::thread::spawn(move || {
+            let sender = caller_slot.lock().expect("slot").as_ref().cloned().expect("sender");
+            request_ack(&sender, |ack| (0u8, ack), Duration::from_millis(2000))
+        });
+
+        // Let the caller get past the clone and into the wait.
+        std::thread::sleep(Duration::from_millis(50));
+
+        let started = Instant::now();
+        {
+            let guard = slot.lock().expect("slot");
+            let (dead_ack, _keep) = std::sync::mpsc::sync_channel(1);
+            let _ = guard.as_ref().expect("sender").send((1u8, dead_ack));
+        }
+        let blocked_for = started.elapsed();
+        assert!(
+            blocked_for < Duration::from_millis(100),
+            "frame notification waited {blocked_for:?} on the slot lock"
+        );
+
+        assert_eq!(AckOutcome::Acknowledged, caller.join().expect("caller"));
+        drop(thread);
     }
 }
