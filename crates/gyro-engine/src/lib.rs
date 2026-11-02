@@ -144,7 +144,9 @@ fn nlog(msg: &str) {
     #[cfg(target_os = "android")]
     {
         if let (Ok(text), Ok(tag)) = (CString::new(msg), CString::new("Gyro/Engine")) {
-            unsafe { __android_log_write(3, tag.as_ptr(), text.as_ptr()) };
+            // Priority 4 (INFO), not 3 (DEBUG): user builds filter DEBUG from third-party apps,
+            // which silently swallowed every diagnostic this engine emits.
+            unsafe { __android_log_write(4, tag.as_ptr(), text.as_ptr()) };
         }
     }
     #[cfg(not(target_os = "android"))]
