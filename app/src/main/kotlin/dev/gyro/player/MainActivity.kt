@@ -4,12 +4,22 @@ import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
@@ -20,7 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import androidx.navigationevent.NavigationEvent
 import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.feature.home.HomeScreen
@@ -34,6 +46,12 @@ import dev.gyro.feature.settings.folders.FolderManagementViewModel
 import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
 import kotlinx.coroutines.flow.MutableStateFlow
+
+// Material 3 navigation motion specs: spatial springs carry the slide, effects springs carry
+// alpha. Deterministic stiffness keeps the parallax free of sub-pixel spring tail oscillation.
+private val navSpatialSpec = spring<IntOffset>(dampingRatio = 0.8f, stiffness = 380f)
+private val navSpatialFloatSpec = spring<Float>(dampingRatio = 0.8f, stiffness = 380f)
+private val navEffectsSpec = spring<Float>(dampingRatio = 1.0f, stiffness = 1600f)
 
 class MainActivity : ComponentActivity() {
 
@@ -91,7 +109,7 @@ class MainActivity : ComponentActivity() {
 
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = Color.Black
+                color = GyroColors.Background
             ) {
                 NavDisplay(
                     backStack = backStack,
@@ -100,12 +118,70 @@ class MainActivity : ComponentActivity() {
                             val popped = backStack.removeLast()
                             if (popped is Screen.Player) {
                                 playerEngine.pause()
-                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                }
                                 incomingIntentUri.value = null
                             }
                         } else {
                             finish()
                         }
+                    },
+                    // Material 3 "Forward and Backward" navigation transitions (same family as
+                    // BgmPlus): the incoming screen pushes in from the right edge with the outgoing
+                    // one retreating to a quarter-width parallax, and popping plays the exact
+                    // reverse. No scene-type branching: Nav3 hands these lambdas an internal
+                    // scene wrapper, so every key/type comparison against Screen never matched.
+                    transitionSpec = {
+                        slideInHorizontally(
+                            initialOffsetX = { fullWidth -> fullWidth },
+                            animationSpec = navSpatialSpec,
+                        ) togetherWith
+                            slideOutHorizontally(
+                                targetOffsetX = { fullWidth -> -fullWidth / 4 },
+                                animationSpec = navSpatialSpec,
+                            ) +
+                            fadeOut(
+                                targetAlpha = 0.0f,
+                                animationSpec = navEffectsSpec,
+                            )
+                    },
+                    popTransitionSpec = {
+                        slideInHorizontally(
+                            initialOffsetX = { fullWidth -> -fullWidth / 4 },
+                            animationSpec = navSpatialSpec,
+                        ) +
+                            fadeIn(
+                                initialAlpha = 0.0f,
+                                animationSpec = navEffectsSpec,
+                            ) togetherWith
+                            slideOutHorizontally(
+                                targetOffsetX = { fullWidth -> fullWidth },
+                                animationSpec = navSpatialSpec,
+                            )
+                    },
+                    predictivePopTransitionSpec = { swipeEdge ->
+                        val isFromRight = swipeEdge == NavigationEvent.EDGE_RIGHT
+                        slideInHorizontally(
+                            initialOffsetX = { fullWidth -> if (isFromRight) fullWidth / 4 else -fullWidth / 4 },
+                            animationSpec = navSpatialSpec,
+                        ) +
+                            scaleIn(
+                                initialScale = 0.96f,
+                                animationSpec = navSpatialFloatSpec,
+                            ) +
+                            fadeIn(animationSpec = navEffectsSpec) togetherWith
+                            slideOutHorizontally(
+                                targetOffsetX = { fullWidth -> if (isFromRight) -fullWidth else fullWidth },
+                                animationSpec = navSpatialSpec,
+                            ) +
+                            scaleOut(
+                                targetScale = 0.90f,
+                                animationSpec = navSpatialFloatSpec,
+                            ) +
+                            fadeOut(
+                                animationSpec = navEffectsSpec,
+                            )
                     },
                     entryProvider = entryProvider {
                         entry<Screen.Home> {
@@ -138,7 +214,9 @@ class MainActivity : ComponentActivity() {
                                 playlistManager = playlistManager,
                                 onBack = {
                                     playerEngine.pause()
-                                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                    if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                    }
                                     incomingIntentUri.value = null
                                     backStack.removeLast()
                                 },
