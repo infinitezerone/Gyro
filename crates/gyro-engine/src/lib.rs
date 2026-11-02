@@ -348,7 +348,7 @@ fn resolve_avcodec_symbol(name: &str) -> *mut c_void {
 
 enum RenderCommand {
     AttachSurface(NativeWindowPtr, std::sync::mpsc::SyncSender<()>),
-    DetachSurface(std::sync::mpsc::SyncSender<()>),
+    DetachSurface,
     Redraw,
     NotifyFrame,
     DestroyContext(std::sync::mpsc::SyncSender<()>),
@@ -893,10 +893,14 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         }
                     }
                 }
-                RenderCommand::DetachSurface(ack) => {
-                    nlog("EGL: 收到 DetachSurface 命令 (保持 EGLContext 常驻)");
+                RenderCommand::DetachSurface => {
+                    // The caller does not wait for this. It used to, and that put a blocking wait on
+                    // the UI thread inside surfaceDestroyed, for a guarantee this side already has:
+                    // the window reference taken in attachSurface keeps the buffer queue alive past
+                    // the callback returning. Ordering is still safe because attach and detach
+                    // travel the same channel, so a later attach cannot overtake this.
                     slot.detach();
-                    let _ = ack.send(());
+                    nlog("EGL: Surface 已解绑 (EGLContext 与 render context 常驻)");
                 }
                 RenderCommand::Redraw => {
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
@@ -1484,14 +1488,16 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_detachSurface(
     _env: JNIEnv,
     _class: JClass,
 ) {
-    // Strict surfaceDestroyed contract: the EGL surface must be gone before this returns, but the
-    // wait happens outside the global lock so the frame notification path stays responsive.
+    // Enqueue and return: surfaceDestroyed runs on the UI thread and has no reason to block.
+    //
+    // The strict reading of the framework contract is that the surface must not be touched after
+    // this returns, which is why it used to wait. That reading is unnecessary here: attachSurface
+    // takes its own ANativeWindow reference, and only the render thread releases it, so the buffer
+    // queue outlives the Java Surface object.
     if let Some(sender) = render_sender() {
-        let _ = request_ack(
-            &sender,
-            RenderCommand::DetachSurface,
-            std::time::Duration::from_millis(500),
-        );
+        if sender.send(RenderCommand::DetachSurface).is_err() {
+            nlog("detachSurface: 渲染线程已退出，无需解绑");
+        }
     }
 }
 
