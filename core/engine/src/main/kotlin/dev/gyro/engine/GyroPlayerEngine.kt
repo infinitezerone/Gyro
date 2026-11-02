@@ -99,6 +99,16 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _mediaTitle = MutableStateFlow("")
     val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
 
+    /**
+     * Title supplied by the caller (content resolver display name, or derived from the URI).
+     *
+     * mpv reports `media-title` from whatever it was handed, and for `fdclose://` loads that is the
+     * bare descriptor number, so the player HUD, notification and media session would all show
+     * "153" instead of the file name. While this is non-blank it wins over mpv's own metadata.
+     */
+    @Volatile
+    private var requestedTitle: String = ""
+
     private val _hwdecCurrent = MutableStateFlow("")
     val hwdecCurrent: StateFlow<String> = _hwdecCurrent.asStateFlow()
 
@@ -175,9 +185,11 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     fileLoaded = true
                     val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
-                    val title = bridge.getPropertyString("media-title")
-                    if (!title.isNullOrBlank()) {
-                        _mediaTitle.value = title
+                    if (requestedTitle.isBlank()) {
+                        val title = bridge.getPropertyString("media-title")
+                        if (!title.isNullOrBlank()) {
+                            _mediaTitle.value = title
+                        }
                     }
                     _playbackState.value = PlaybackState.READY
                     refreshTracks()
@@ -314,7 +326,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
         override fun onPropertyString(name: String, value: String) {
             when (name) {
                 "hwdec-current" -> _hwdecCurrent.value = value
-                "media-title" -> if (value.isNotBlank()) _mediaTitle.value = value
+                "media-title" -> if (value.isNotBlank() && requestedTitle.isBlank()) {
+                    _mediaTitle.value = value
+                }
             }
         }
     }
@@ -477,7 +491,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
             }
             Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
             withContext(Dispatchers.Main) {
-                load(targetPath, startPositionMs)
+                load(targetPath, startPositionMs, displayName)
             }
         }
     }
@@ -488,21 +502,30 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private var pendingLoadUrl: String? = null
     @Volatile
     private var pendingLoadStartMs: Long = 0L
+    @Volatile
+    private var pendingLoadTitle: String? = null
 
-    fun load(url: String, startPositionMs: Long = 0L) {
+    fun load(url: String, startPositionMs: Long = 0L, displayTitle: String? = null) {
         Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
         resetSoftwareGain()
         ensureInitialized()
-        if (_mediaTitle.value.isBlank()) {
-            val candidate = url.substringAfterLast('/').substringAfterLast('\\')
-            if (candidate.isNotBlank() && !candidate.startsWith("fdclose://")) {
-                _mediaTitle.value = candidate
-            }
+
+        requestedTitle = displayTitle?.trim().orEmpty()
+        val resolvedTitle = requestedTitle.ifBlank {
+            url.substringAfterLast('/').substringAfterLast('\\')
+                .takeIf { candidate -> candidate.isNotBlank() && !candidate.startsWith("fdclose://") }
+                .orEmpty()
         }
+        _mediaTitle.value = resolvedTitle
+        // Keep mpv's own metadata in step: media-title feeds the notification and media session, so
+        // a mismatch leaks the descriptor number outside the player screen.
+        bridge.setPropertyString("force-media-title", resolvedTitle)
+
         if (!isSurfaceAttached) {
             Log.i(TAG, "load: SurfaceView 尚未挂载，先进入等待队列: $url")
             pendingLoadUrl = url
             pendingLoadStartMs = startPositionMs
+            pendingLoadTitle = displayTitle
             _playbackState.value = PlaybackState.BUFFERING
             return
         }
@@ -679,7 +702,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
         bridge.attachSurface(surface)
         pendingLoadUrl?.let { url ->
             Log.i(TAG, "attachSurface: Surface 已就绪，触发排队的待播视频: $url")
-            load(url, pendingLoadStartMs)
+            val title = pendingLoadTitle
+            pendingLoadTitle = null
+            load(url, pendingLoadStartMs, title)
         }
     }
 
