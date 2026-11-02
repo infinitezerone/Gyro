@@ -78,6 +78,18 @@ class GyroPlayerEngine @JvmOverloads constructor(
     )
 
     // Playback Flow states
+    /**
+     * Bumped on every playback request. The player screen composes through Nav3, which can reuse
+     * a popped entry's composition when the same route re-enters, so `remember` state survives;
+     * anything the screen must reset per-entry (like the controls visibility) keys off this.
+     */
+    private val _screenEntryEpoch = MutableStateFlow(0)
+    val screenEntryEpoch: StateFlow<Int> = _screenEntryEpoch.asStateFlow()
+
+    fun notifyScreenEntry() {
+        _screenEntryEpoch.value += 1
+    }
+
     private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
@@ -531,9 +543,21 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
         pendingLoadUrl = null
         fileLoaded = false
-        pendingSeekMs = if (startPositionMs > 0L) startPositionMs else -1L
+        pendingSeekMs = -1L
         _playbackState.value = PlaybackState.BUFFERING
-        bridge.command(arrayOf("loadfile", url, "replace"))
+        // Resume positions ride the loadfile itself. Passing start= makes mpv decode its first
+        // picture at the target timestamp; the old two-step (load from zero, then seek on
+        // FILE_LOADED) painted frame zero for a beat before jumping, which flashed the wrong
+        // scene on every resume.
+        val startSeconds = startPositionMs / 1000.0
+        val loadArgs = if (startPositionMs > 0L) {
+            // libmpv's loadfile is <url> <flags> <index> <options>: the integer index must be
+            // filled in before the options, or the whole command is rejected (rc=-4).
+            arrayOf("loadfile", url, "replace", "0", "start=+${"%.3f".format(startSeconds)}")
+        } else {
+            arrayOf("loadfile", url, "replace")
+        }
+        bridge.command(loadArgs)
         play()
     }
 

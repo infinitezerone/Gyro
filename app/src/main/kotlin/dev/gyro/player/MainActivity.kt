@@ -11,7 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -47,11 +49,11 @@ import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 
-// Material 3 navigation motion specs: spatial springs carry the slide, effects springs carry
-// alpha. Deterministic stiffness keeps the parallax free of sub-pixel spring tail oscillation.
-private val navSpatialSpec = spring<IntOffset>(dampingRatio = 0.8f, stiffness = 380f)
-private val navSpatialFloatSpec = spring<Float>(dampingRatio = 0.8f, stiffness = 380f)
-private val navEffectsSpec = spring<Float>(dampingRatio = 1.0f, stiffness = 1600f)
+// Material 3 navigation motion specs: fixed-duration tweens instead of springs — a spring
+// settles asymptotically, so its tail keeps the screen sub-pixel drifting after it looks done.
+private val navSpatialSpec = tween<IntOffset>(300, easing = FastOutSlowInEasing)
+private val navSpatialFloatSpec = tween<Float>(300, easing = FastOutSlowInEasing)
+private val navEffectsSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
 
 class MainActivity : ComponentActivity() {
 
@@ -190,6 +192,7 @@ class MainActivity : ComponentActivity() {
                                 onPlayVideo = { item, currentList ->
                                     val idx = currentList.indexOfFirst { it.uri == item.uri }
                                     playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
+                                    playerEngine.notifyScreenEntry()
                                     backStack.add(Screen.Player(item.uri))
                                     val startPos = if (settings.autoResume) {
                                         val progress = historyRepository.getProgress(item.uri)

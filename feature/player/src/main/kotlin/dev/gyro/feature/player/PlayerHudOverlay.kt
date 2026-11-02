@@ -3,6 +3,7 @@ package dev.gyro.feature.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -213,13 +214,9 @@ fun BoxScope.PlayerHudOverlay(
         // 4. Top-Center Feedback / Resume Notice Pill
         AnimatedVisibility(
             visible = hudState is GestureHudState.Notice,
-            enter = fadeIn(animationSpec = tween(150)) + slideInVertically(animationSpec = tween(150)) { -it / 2 },
-            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { -it / 2 },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .displayCutoutPadding()
-                .statusBarsPadding()
-                .padding(top = 16.dp)
+            enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.92f, animationSpec = tween(150)),
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier.align(Alignment.Center)
         ) {
             val noticeState = hudState as? GestureHudState.Notice
             if (noticeState != null) {

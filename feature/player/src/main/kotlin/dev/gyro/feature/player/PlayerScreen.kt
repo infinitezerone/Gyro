@@ -248,9 +248,14 @@ fun PlayerScreen(
     }
 
     // 3. UI Interactive States
-    // Opening a video should show the picture, not a wall of controls. Starting hidden also keeps
-    // the first composition cheap: the overlay's contents are not composed until the viewer taps.
-    var showControls by remember { mutableStateOf(false) }
+    var showControls by remember { mutableStateOf(true) }
+    // Nav3 reuses a popped entry's composition when the same route re-enters, so `remember` state
+    // survives the round trip: without this keyed reset, re-entering a video whose controls were
+    // auto-hidden on the way out comes back with them still hidden.
+    val screenEntryEpoch by engine.screenEntryEpoch.collectAsState()
+    LaunchedEffect(screenEntryEpoch) {
+        showControls = true
+    }
     var isLocked by remember { mutableStateOf(false) }
     var activeSheetTab by remember { mutableStateOf<PlayerSheetTab?>(null) }
     var gestureHudState by remember { mutableStateOf<GestureHudState>(GestureHudState.Idle) }
@@ -418,15 +423,22 @@ fun PlayerScreen(
         if (hasShownResumeNotice || playbackState != PlaybackState.READY) return@LaunchedEffect
         // time-pos ticks at video frame rate, so it cannot be an effect key: doing so relaunched
         // this effect on every frame and recomposed the whole screen with it. The clock is read
-        // through a snapshot flow instead, which waits for the first position past the threshold.
-        val resumedAtMs = snapshotFlow { engine.timePosMs.value }.first { it > 2000L }
-        hasShownResumeNotice = true
-        gestureHudState = GestureHudState.Notice(
-            context.getString(R.string.player_resumed_notice, formatTime(resumedAtMs))
-        )
-        delay(2500L)
-        if (gestureHudState is GestureHudState.Notice) {
-            gestureHudState = GestureHudState.Idle
+        // through a snapshot flow instead.
+        //
+        // The trigger is the FIRST decoded position, not a threshold: a resume load (start=+X)
+        // decodes its first picture at the target timestamp, so a first frame past two minutes
+        // means a resume happened. Waiting for "position > 2s" instead would also fire on
+        // from-scratch playback the moment it reached two seconds.
+        val firstFrameAtMs = snapshotFlow { engine.timePosMs.value }.first { it > 0L }
+        if (firstFrameAtMs > 2000L) {
+            hasShownResumeNotice = true
+            gestureHudState = GestureHudState.Notice(
+                context.getString(R.string.player_resumed_notice, formatTime(firstFrameAtMs))
+            )
+            delay(2500L)
+            if (gestureHudState is GestureHudState.Notice) {
+                gestureHudState = GestureHudState.Idle
+            }
         }
     }
 
