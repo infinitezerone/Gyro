@@ -1,11 +1,14 @@
 package dev.gyro.feature.player
 
 import android.content.Context
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.model.PlayerGestureConfig
 
@@ -38,7 +41,7 @@ sealed class GestureHudState {
  * 6. Double-tap when zoomed: Resets zoom to 1.0x
  * 7. Long-press: 2.0x temporary fast-forward
  * 8. Single-finger drag when zoomed: Pans the zoomed video content smoothly
- * 9. System edge gesture exclusion (24dp)
+ * 9. Edge dead zone derived from the platform system gesture insets
  * 10. Touch lock support
  * 11. Custom MX Player configurations (sensitivity, swapping sides, disabling individual gestures)
  */
@@ -65,7 +68,16 @@ fun Modifier.playerGestures(
     config: PlayerGestureConfig = PlayerGestureConfig()
 ): Modifier {
     val density = LocalDensity.current
-    val edgeThresholdPx = with(density) { 24.dp.toPx() }
+    val layoutDirection = LocalLayoutDirection.current
+    val systemGestureInsets = WindowInsets.systemGestures
+    val edgeThresholdPx = edgeDeadZonePx(
+        basePx = with(density) { BASE_EDGE_DEAD_ZONE.toPx() },
+        systemGestureInsetPx = maxOf(
+            systemGestureInsets.getLeft(density, layoutDirection),
+            systemGestureInsets.getRight(density, layoutDirection)
+        ).toFloat(),
+        maxPx = with(density) { MAX_EDGE_DEAD_ZONE.toPx() }
+    )
 
     val effectiveConfig = remember(config, isLocked, edgeThresholdPx) {
         config.copy(
@@ -113,4 +125,30 @@ fun Modifier.playerGestures(
     }
 
     return this.playerGestures(effectiveConfig, callbacks)
+}
+
+/** Minimum edge dead zone, kept for 3-button navigation where the platform reports no gesture inset. */
+private val BASE_EDGE_DEAD_ZONE = 24.dp
+
+/**
+ * Ceiling for the dead zone. Vendors occasionally report inflated gesture insets; without a ceiling
+ * a single bad report would swallow the swipe area on both sides and make brightness/volume feel
+ * broken, which is a worse failure than the occasional diagonal back gesture.
+ */
+private val MAX_EDGE_DEAD_ZONE = 48.dp
+
+/**
+ * Picks the edge dead zone used to refuse drag gestures.
+ *
+ * Gesture navigation reserves roughly 16 to 40dp per edge depending on vendor and 3-button
+ * navigation reserves nothing, so the platform inset is authoritative whenever it is wider than the
+ * base. Only drags are refused: taps and double-taps still reach the edge, because the system back
+ * gesture needs horizontal movement to take over and a tap never provides it.
+ */
+internal fun edgeDeadZonePx(basePx: Float, systemGestureInsetPx: Float, maxPx: Float): Float {
+    val safeBase = if (basePx.isNaN() || basePx < 0f) 0f else basePx
+    val safeInset = if (systemGestureInsetPx.isNaN() || systemGestureInsetPx < 0f) 0f else systemGestureInsetPx
+    val safeMax = if (maxPx.isNaN() || maxPx <= 0f) safeBase else maxPx
+    val ceiling = maxOf(safeMax, safeBase)
+    return maxOf(safeBase, safeInset).coerceAtMost(ceiling)
 }
