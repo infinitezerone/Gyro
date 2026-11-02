@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.home
+package dev.gyro.feature.home
 
 import dev.gyro.core.designsystem.R
 
@@ -275,7 +275,7 @@ fun HomeContent(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
-                uiState.isLoading -> {
+                uiState.isLoading && uiState.rawVideos.isEmpty() -> {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center),
                         color = GyroColors.Primary

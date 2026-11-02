@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.home
+package dev.gyro.feature.home
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -76,8 +76,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     fun onPermissionResult(granted: Boolean) {
+        val wasGranted = _hasPermission.value
         _hasPermission.value = granted
-        if (granted) {
+        if (granted && !wasGranted) {
             refreshVideos()
         }
     }
