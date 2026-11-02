@@ -18,11 +18,18 @@ if [ -n "$OFFENDING_FILES" ]; then
     exit 1
 fi
 
-# 2. Validate commit message convention and English-only constraint
+# 2. Validate commit message convention and English-only constraint.
+# Only the commits being pushed are checked: a fixed HEAD~10..HEAD window re-validates
+# history that is already on the remote, so an unrelated old message can block a push.
+RANGE="origin/master..HEAD"
+if ! git rev-parse --verify origin/master >/dev/null 2>&1; then
+    RANGE="HEAD~1..HEAD"
+fi
+
 if command -v python >/dev/null 2>&1; then
-    python scripts/validate_commits.py "HEAD~10..HEAD" || exit 1
+    python scripts/validate_commits.py "$RANGE" || exit 1
 elif command -v python3 >/dev/null 2>&1; then
-    python3 scripts/validate_commits.py "HEAD~10..HEAD" || exit 1
+    python3 scripts/validate_commits.py "$RANGE" || exit 1
 fi
 
 echo "✅ Pre-push verification passed."

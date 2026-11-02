@@ -9,16 +9,40 @@ if echo "$FIRST_LINE" | grep -qE "^Merge branch|Initial commit"; then
     exit 0
 fi
 
-# 2. Enforce English-only (Pure ASCII)
-if grep -P -n "[\x80-\xFF]" "$COMMIT_MSG_FILE" >/dev/null 2>&1; then
-    echo "========================================================================"
-    echo "❌ COMMIT REJECTED: NON-ENGLISH / NON-ASCII CHARACTERS DETECTED"
-    echo "------------------------------------------------------------------------"
-    echo "All commit messages in the Gyro project MUST be written in English only."
-    echo "Non-ASCII line(s) found in commit message:"
-    grep -P -n "[\x80-\xFF]" "$COMMIT_MSG_FILE"
-    echo "========================================================================"
-    exit 1
+# 2. Enforce English text and English punctuation. The character rule lives in
+#    scripts/validate_commits.py so this hook and the pre-push validator cannot
+#    drift apart: ASCII is fine, accented Latin letters are fine, and everything
+#    else above ASCII is refused (CJK, other scripts, typographic punctuation,
+#    symbols and emoji).
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+PYTHON_BIN=""
+for candidate in python python3 py; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -n "$PYTHON_BIN" ] && [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/scripts/validate_commits.py" ]; then
+    if ! "$PYTHON_BIN" "$REPO_ROOT/scripts/validate_commits.py" --scan-file "$COMMIT_MSG_FILE"; then
+        echo "========================================================================"
+        echo "❌ COMMIT REJECTED: NON-ENGLISH CHARACTERS DETECTED"
+        echo "========================================================================"
+        exit 1
+    fi
+else
+    # No Python: fall back to refusing every non-ASCII byte. Stricter than the rule
+    # (an accented letter would be refused too) but it never lets CJK through.
+    if LC_ALL=C grep -P -n '[\x80-\xFF]' "$COMMIT_MSG_FILE" >/dev/null 2>&1; then
+        echo "========================================================================"
+        echo "❌ COMMIT REJECTED: NON-ASCII CHARACTERS DETECTED"
+        echo "------------------------------------------------------------------------"
+        echo "Python is unavailable, so this hook cannot tell letters from punctuation."
+        echo "Offending line(s):"
+        LC_ALL=C grep -P -n '[\x80-\xFF]' "$COMMIT_MSG_FILE"
+        echo "========================================================================"
+        exit 1
+    fi
 fi
 
 # 3. Enforce Conventional Commits Format: <type>(<scope>): <subject>
@@ -45,7 +69,7 @@ if ! echo "$FIRST_LINE" | grep -P -q "$PATTERN"; then
     echo "  build    (Gradle / Cargo / NDK build scripts)"
     echo ""
     echo "Rules:"
-    echo "  - Must be in English (ASCII only)"
+    echo "  - English text and English punctuation only"
     echo "  - Do not end subject with a period ('.')"
     echo "  - Example: feat(ui): add real-time power and performance hud"
     echo "  - Example: fix(engine): eliminate sync_file fd leak in fence wrapper"

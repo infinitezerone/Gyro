@@ -1,0 +1,6 @@
+# Git hooks are executed through their shebang, so they must keep LF endings
+# everywhere. core.autocrlf converts text files to CRLF on checkout, which turns
+# "#!/usr/bin/env bash" into an invalid interpreter path on unix and makes the
+# hooks fail silently.
+.githooks/* text eol=lf
+scripts/*.py text eol=lf
