@@ -11,6 +11,7 @@ import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.MediaInfo
+import dev.gyro.engine.audio.GyroAudioFocusManager
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
@@ -51,6 +52,23 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     private val appContext = runCatching { context.applicationContext }.getOrNull() ?: context
     private val isInitialized = AtomicBoolean(false)
+
+    /**
+     * Audio focus lives here rather than in the ViewModel or the service so that the same state
+     * machine covers foreground playback, background audio and media-button resumes.
+     */
+    private val audioFocusManager = GyroAudioFocusManager(
+        context = appContext,
+        listener = object : GyroAudioFocusManager.Listener {
+            override fun onPlayRequested() {
+                bridge.setPropertyBoolean("pause", false)
+            }
+
+            override fun onPauseRequested() {
+                bridge.setPropertyBoolean("pause", true)
+            }
+        }
+    )
 
     // Playback Flow states
     private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
@@ -480,11 +498,22 @@ class GyroPlayerEngine @JvmOverloads constructor(
         play()
     }
 
+    /**
+     * Starts or resumes playback, gated on audio focus.
+     *
+     * When the system defers the grant (mid-call, assistant active) this returns without touching
+     * mpv; [GyroAudioFocusManager] starts playback as soon as the grant lands.
+     */
     fun play() {
+        if (!audioFocusManager.requestPlay()) {
+            Log.i(TAG, "play(): playback suppressed until audio focus is granted")
+            return
+        }
         bridge.setPropertyBoolean("pause", false)
     }
 
     fun pause() {
+        audioFocusManager.notifyUserPaused()
         bridge.setPropertyBoolean("pause", true)
     }
 
@@ -908,6 +937,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun release() {
+        audioFocusManager.abandon()
         resetSoftwareGain()
         isInitialized.set(false)
         bridge.eventListener = null
