@@ -54,9 +54,11 @@ fun PlayerBottomBar(
     isVisible: Boolean,
     isLandscape: Boolean,
     isPlaying: Boolean,
-    timePosMs: Long,
-    durationMs: Long,
-    bufferedPosMs: Long,
+    // Deferred reads: see PlayerControlsOverlay. The playback clock ticks at video frame rate, so
+    // consuming it as a value would invalidate the whole player screen instead of just this bar.
+    timePosMs: () -> Long,
+    durationMs: () -> Long,
+    bufferedPosMs: () -> Long,
     speed: Float,
     resizeMode: ResizeMode,
     scrubState: PlayerScrubState,
@@ -84,10 +86,11 @@ fun PlayerBottomBar(
             .padding(bottom = 6.dp)
     ) {
         val isScreenScrubOnly = !isVisible && scrubState.isActive
+        val totalMs = durationMs()
         val displayPos = if (scrubState.isActive) {
-            (scrubState.fraction * durationMs.coerceAtLeast(1L)).toLong()
+            (scrubState.fraction * totalMs.coerceAtLeast(1L)).toLong()
         } else {
-            timePosMs
+            timePosMs()
         }
 
         val aspectLabel = when (resizeMode) {
@@ -102,9 +105,9 @@ fun PlayerBottomBar(
             // A. 拖拽屏幕 Seek 时：两侧留出安全间距的进度条与时间反馈
             Column(modifier = Modifier.fillMaxWidth()) {
                 PlayerScrubBar(
-                    timePosMs = timePosMs,
-                    durationMs = durationMs,
-                    bufferedPosMs = bufferedPosMs,
+                    timePosMs = timePosMs(),
+                    durationMs = totalMs,
+                    bufferedPosMs = bufferedPosMs(),
                     scrubState = scrubState,
                     onSeekToFraction = onSeekToFraction,
                     chapters = chapters,
@@ -127,7 +130,7 @@ fun PlayerBottomBar(
                         )
                     )
                     Text(
-                        text = formatTime(durationMs),
+                        text = formatTime(totalMs),
                         style = TextStyle(
                             fontSize = 13.sp,
                             color = Color.White.copy(alpha = 0.7f),
@@ -141,9 +144,9 @@ fun PlayerBottomBar(
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Row 1: 两侧保留 16dp 舒适呼吸间距与防误触缓冲的进度条
                 PlayerScrubBar(
-                    timePosMs = timePosMs,
-                    durationMs = durationMs,
-                    bufferedPosMs = bufferedPosMs,
+                    timePosMs = timePosMs(),
+                    durationMs = totalMs,
+                    bufferedPosMs = bufferedPosMs(),
                     scrubState = scrubState,
                     onSeekToFraction = onSeekToFraction,
                     chapters = chapters,
@@ -207,7 +210,7 @@ fun PlayerBottomBar(
 
                     // 紧跟播放键的当前时间 / 总时长
                     Text(
-                        text = "${formatTime(displayPos)} / ${formatTime(durationMs)}",
+                        text = "${formatTime(displayPos)} / ${formatTime(totalMs)}",
                         style = TextStyle(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,

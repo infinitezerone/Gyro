@@ -43,13 +43,17 @@ fun BoxScope.PlayerControlsOverlay(
     title: String,
     mediaSubtitle: String? = null,
     isPlaying: Boolean,
-    timePosMs: Long,
-    durationMs: Long,
-    bufferedPosMs: Long,
-    hwdec: String,
-    fps: Double,
-    droppedFrames: Long,
-    powerMetrics: PowerMetrics,
+    /**
+     * Playback clock, passed as a lambda rather than a value.
+     *
+     * `time-pos` updates on every decoded frame, so receiving it as a value would recompose this
+     * whole overlay (and the caller) at video frame rate even while the controls are hidden and
+     * nothing is on screen. Deferring the read keeps the invalidation inside the bottom bar, which
+     * only composes while it is visible.
+     */
+    timePosMs: () -> Long,
+    durationMs: () -> Long,
+    bufferedPosMs: () -> Long,
     resizeMode: ResizeMode,
     speed: Float,
     scrubState: PlayerScrubState,

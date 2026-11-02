@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,9 +73,12 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.ui.GyroPlayerSurface
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
@@ -168,12 +172,14 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-load companion subtitles when opening media
+    // Auto-load companion subtitles asynchronously on IO dispatcher to prevent UI thread drops
     LaunchedEffect(activeUri) {
         activeUri?.let { uri ->
             if (settings.subAutoLoad) {
-                val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri)
-                subs.forEach { path -> engine.addSubtitle(path) }
+                withContext(Dispatchers.IO) {
+                    val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri)
+                    subs.forEach { path -> engine.addSubtitle(path) }
+                }
             }
         }
     }
@@ -380,6 +386,16 @@ fun PlayerScreen(
         }
     }
 
+    // 退出播放器界面时平滑恢复系统栏状态，避免返回 HomeScreen 时状态栏撕裂跳变
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.window?.let { window ->
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
     // Save on disposal (when leaving player screen or switching videos)
     DisposableEffect(activeUri, historyRepository) {
         onDispose {
@@ -396,16 +412,19 @@ fun PlayerScreen(
 
     // Show brief top notice if auto-resumed at a position > 2s
     var hasShownResumeNotice by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(timePosMs, activeUri) {
-        if (!hasShownResumeNotice && timePosMs > 2000L && playbackState == PlaybackState.READY) {
-            hasShownResumeNotice = true
-            gestureHudState = GestureHudState.Notice(
-                context.getString(R.string.player_resumed_notice, formatTime(timePosMs))
-            )
-            delay(2500L)
-            if (gestureHudState is GestureHudState.Notice) {
-                gestureHudState = GestureHudState.Idle
-            }
+    LaunchedEffect(playbackState, activeUri) {
+        if (hasShownResumeNotice || playbackState != PlaybackState.READY) return@LaunchedEffect
+        // time-pos ticks at video frame rate, so it cannot be an effect key: doing so relaunched
+        // this effect on every frame and recomposed the whole screen with it. The clock is read
+        // through a snapshot flow instead, which waits for the first position past the threshold.
+        val resumedAtMs = snapshotFlow { engine.timePosMs.value }.first { it > 2000L }
+        hasShownResumeNotice = true
+        gestureHudState = GestureHudState.Notice(
+            context.getString(R.string.player_resumed_notice, formatTime(resumedAtMs))
+        )
+        delay(2500L)
+        if (gestureHudState is GestureHudState.Notice) {
+            gestureHudState = GestureHudState.Idle
         }
     }
 
@@ -581,13 +600,9 @@ fun PlayerScreen(
                 title = mediaTitle.ifBlank { "Gyro Player" },
                 mediaSubtitle = mediaSubtitle,
                 isPlaying = isPlaying,
-                timePosMs = timePosMs,
-                durationMs = durationMs,
-                bufferedPosMs = bufferedPosMs,
-                hwdec = hwdecCurrent.ifBlank { "mediacodec" },
-                fps = fps,
-                droppedFrames = droppedFrames,
-                powerMetrics = powerMetrics,
+                timePosMs = { timePosMs },
+                durationMs = { durationMs },
+                bufferedPosMs = { bufferedPosMs },
                 resizeMode = resizeMode,
                 speed = speed,
                 scrubState = scrubState,
