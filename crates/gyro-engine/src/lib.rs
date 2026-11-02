@@ -1,14 +1,22 @@
 //! Gyro Engine: libmpv 核心 JNI 桥与完全下沉的纯原生 EGL 渲染管线
 
+mod logic;
+
+use logic::FrameCoalescer;
+// Render timing only exists in the Android render loop.
+#[cfg(target_os = "android")]
+use logic::{RenderWatchdog, WatchdogVerdict};
 use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::{jboolean, jdouble, jint, jlong, jobject, JNI_VERSION_1_6};
 use jni::{JNIEnv, JavaVM};
 use libloading::{Library, Symbol};
 use std::ffi::{c_char, c_double, c_int, c_void, CStr, CString};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
+// Only the Android render loop measures frame timing.
+#[cfg(target_os = "android")]
 use std::time::Instant;
 
 // ---------- NDK 原生绑定 (EGL / Android Native Window) ----------
@@ -105,6 +113,7 @@ extern "C" {
     fn eglQueryString(dpy: EGLDisplay, name: EGLint) -> *const c_char;
     fn eglGetError() -> EGLint;
     fn eglSwapBuffers(dpy: EGLDisplay, surface: EGLSurface) -> EGLint;
+    fn eglSwapInterval(dpy: EGLDisplay, interval: EGLint) -> EGLint;
     fn eglDestroySurface(dpy: EGLDisplay, surface: EGLSurface) -> EGLint;
     fn eglDestroyContext(dpy: EGLDisplay, ctx: EGLContext) -> EGLint;
     fn eglTerminate(dpy: EGLDisplay) -> EGLint;
@@ -327,7 +336,8 @@ fn resolve_avcodec_symbol(name: &str) -> *mut c_void {
 
 enum RenderCommand {
     AttachSurface(NativeWindowPtr, std::sync::mpsc::SyncSender<()>),
-    DetachSurface,
+    DetachSurface(std::sync::mpsc::SyncSender<()>),
+    Redraw,
     NotifyFrame,
     DestroyContext(std::sync::mpsc::SyncSender<()>),
     Shutdown,
@@ -339,6 +349,8 @@ struct RenderThreadHandle {
 }
 
 static RENDER_THREAD: OnceLock<Mutex<Option<RenderThreadHandle>>> = OnceLock::new();
+/// Collapses mpv's per-frame update notifications into one queued render command.
+static G_FRAME_GATE: FrameCoalescer = FrameCoalescer::new();
 
 // ---------- 防御层 1：冷启动离屏环境探针 (Static Env Probe) ----------
 static G_ZERO_COPY_SAFE: AtomicBool = AtomicBool::new(true);
@@ -346,7 +358,7 @@ static G_GPU_RENDERER: OnceLock<String> = OnceLock::new();
 static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 
 // ---------- 防御层 2：运行时帧看门狗 (Dynamic Render Watchdog) ----------
-static G_CONSECUTIVE_SLOW_FRAMES: AtomicU32 = AtomicU32::new(0);
+// 判定逻辑见 logic::RenderWatchdog（宿主机可单测），此处只保留跨会话的降级闩锁
 static G_WATCHDOG_FALLBACK_TRIGGERED: AtomicBool = AtomicBool::new(false);
 const MPV_EVENT_WATCHDOG_FALLBACK: jint = 1001;
 
@@ -465,15 +477,24 @@ unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c
 
 unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
     if !sync.is_null() {
-        if let Ok(mut lock) = ACTIVE_FENCES.lock() {
+        let was_tracked = if let Ok(mut lock) = ACTIVE_FENCES.lock() {
             if let Some(pos) = lock.iter().position(|s| s.0 == sync) {
                 lock.remove(pos);
+                true
+            } else {
+                false
             }
-        }
-        let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
-        if !del_fn.is_null() {
-            let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
-            del(sync);
+        } else {
+            false
+        };
+        // 只有当前栅栏仍在 ACTIVE_FENCES 中时，才真正下发 del 调用；
+        // 若已被滑动窗口自动回收，说明底层的 glDeleteSync 已经被调用过，避免二次释放（Double Free）！
+        if was_tracked {
+            let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
+            if !del_fn.is_null() {
+                let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
+                del(sync);
+            }
         }
     }
 }
@@ -571,6 +592,10 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
         let mut current_surface: EGLSurface = EGL_NO_SURFACE;
         let mut mpv_render_ctx: *mut c_void = std::ptr::null_mut();
 
+        // Render-thread-owned state: both types are plain data, so no locking is involved.
+        let mut watchdog = RenderWatchdog::with_defaults();
+        let mut last_frame_at: Option<Instant> = None;
+
         while let Ok(cmd) = receiver.recv() {
             match cmd {
                 RenderCommand::AttachSurface(NativeWindowPtr(window), ack) => {
@@ -602,6 +627,9 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                             continue;
                         }
 
+                        // 开启垂直同步，防止画面撕裂与过度消耗
+                        eglSwapInterval(display, 1);
+
                         if mpv_render_ctx.is_null() {
                             if let Ok(handle) = mpv_handle() {
                                 let _ = with_api(|api| {
@@ -618,9 +646,9 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                                     let rc = (api.mpv_render_context_create)(&mut mpv_render_ctx, handle, params.as_mut_ptr());
                                     if rc == 0 {
                                         (api.mpv_render_context_set_update_callback)(
-                                            mpv_render_ctx,
-                                            Some(mpv_update_callback),
-                                            std::ptr::null_mut(),
+                                             mpv_render_ctx,
+                                             Some(mpv_update_callback),
+                                             std::ptr::null_mut(),
                                         );
                                         nlog("EGL: mpv_render_context 首次挂载就绪");
                                     } else {
@@ -630,11 +658,11 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                             }
                         }
 
-                        draw_frame_native(display, current_surface, mpv_render_ctx, true);
+                        draw_frame_native(display, current_surface, mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                     }
                     let _ = ack.send(());
                 }
-                RenderCommand::DetachSurface => {
+                RenderCommand::DetachSurface(ack) => {
                     nlog("EGL: 收到 DetachSurface 命令 (保持 EGLContext 常驻)");
                     if !current_surface.is_null() && current_surface != EGL_NO_SURFACE {
                         eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -645,8 +673,15 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         ANativeWindow_release(current_window);
                         current_window = std::ptr::null_mut();
                     }
+                    let _ = ack.send(());
+                }
+                RenderCommand::Redraw => {
+                    if current_surface != EGL_NO_SURFACE && !current_surface.is_null() && !mpv_render_ctx.is_null() {
+                        draw_frame_native(display, current_surface, mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                    }
                 }
                 RenderCommand::NotifyFrame => {
+                    G_FRAME_GATE.release();
                     if current_surface != EGL_NO_SURFACE && !current_surface.is_null() {
                         if mpv_render_ctx.is_null() {
                             if let Ok(handle) = mpv_handle() {
@@ -673,7 +708,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                                 });
                             }
                         }
-                        draw_frame_native(display, current_surface, mpv_render_ctx, false);
+                        draw_frame_native(display, current_surface, mpv_render_ctx, false, &mut watchdog, &mut last_frame_at);
                     }
                 }
                 RenderCommand::DestroyContext(ack) => {
@@ -722,6 +757,8 @@ unsafe fn draw_frame_native(
     surface: EGLSurface,
     ctx: *mut c_void,
     force: bool,
+    watchdog: &mut RenderWatchdog,
+    last_frame_at: &mut Option<Instant>,
 ) {
     if ctx.is_null() || surface == EGL_NO_SURFACE {
         return;
@@ -755,6 +792,14 @@ unsafe fn draw_frame_native(
             MpvRenderParam { param_type: 0, data: std::ptr::null_mut() },
         ];
 
+        // A frame that follows a long silence is a resume, a seek or the first frame of a load, so
+        // its cost must not be judged as steady-state playback.
+        let now = Instant::now();
+        let gap_ms = last_frame_at
+            .map(|prev| now.duration_since(prev).as_millis())
+            .unwrap_or(u128::MAX);
+        *last_frame_at = Some(now);
+
         let render_start = Instant::now();
         (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
         (api.mpv_render_context_report_swap)(ctx);
@@ -770,29 +815,38 @@ unsafe fn draw_frame_native(
             return;
         }
 
-        // 连续 3 帧耗时异常严重超时（> 80ms，即帧率跌破 12fps 或 GPU 假死）
-        if elapsed.as_millis() > 80 {
-            let slow_count = G_CONSECUTIVE_SLOW_FRAMES.fetch_add(1, Ordering::SeqCst) + 1;
-            if slow_count >= 3 && !G_WATCHDOG_FALLBACK_TRIGGERED.load(Ordering::Acquire) {
-                nlog(&format!(
-                    "WATCHDOG: 连续 {slow_count} 帧渲染耗时异常（当前 {}ms），触发自动安全熔断降级",
-                    elapsed.as_millis()
-                ));
-                trigger_hwdec_fallback(api);
-            }
-        } else {
-            G_CONSECUTIVE_SLOW_FRAMES.store(0, Ordering::Release);
+        // Verdicts and thresholds live in logic::RenderWatchdog so they can be tested on the host.
+        if let WatchdogVerdict::Trip = watchdog.on_frame(elapsed.as_millis(), gap_ms) {
+            nlog(&format!(
+                "WATCHDOG: consecutive slow frames ({}ms), degrading hardware decoding",
+                elapsed.as_millis()
+            ));
+            trigger_hwdec_fallback(api);
         }
     });
 }
 
 unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
-    if let Some(lock) = RENDER_THREAD.get() {
+    if !G_FRAME_GATE.try_acquire() {
+        return;
+    }
+    let delivered = if let Some(lock) = RENDER_THREAD.get() {
         if let Ok(guard) = lock.lock() {
             if let Some(ref handle) = *guard {
-                let _ = handle.sender.send(RenderCommand::NotifyFrame);
+                handle.sender.send(RenderCommand::NotifyFrame).is_ok()
+            } else {
+                false
             }
+        } else {
+            false
         }
+    } else {
+        false
+    };
+    // Hand the slot back whenever the notification could not be queued: holding it would close the
+    // gate forever and the next playback session would render one frame and then freeze.
+    if !delivered {
+        G_FRAME_GATE.release();
     }
 }
 
@@ -927,6 +981,19 @@ unsafe fn safe_terminate_mpv(api: &MpvApi, handle: *mut c_void) {
         }
     }
 
+    // 释放未决的栅栏句柄，避免悬空
+    if let Ok(mut f_lock) = ACTIVE_FENCES.lock() {
+        let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
+        if !del_fn.is_null() {
+            let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
+            for sync in f_lock.drain(..) {
+                del(sync.0);
+            }
+        } else {
+            f_lock.clear();
+        }
+    }
+
     // 3. 安全销毁 mpv 句柄
     (api.mpv_terminate_destroy)(handle);
     nlog("safe_terminate_mpv: mpv_terminate_destroy 顺利完成");
@@ -1026,6 +1093,9 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_create(
 ) {
     cache_class(&mut env);
     ensure_render_thread();
+    // A slot left over from a previous session must not survive into the new one, otherwise the
+    // update callback would never queue another frame and the next playback would freeze.
+    G_FRAME_GATE.release();
 
     let global_ctx_raw = if !appctx.is_null() {
         if G_APP_CTX.get().is_none() {
@@ -1170,7 +1240,24 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_detachSurface(
     if let Some(lock) = RENDER_THREAD.get() {
         if let Ok(guard) = lock.lock() {
             if let Some(ref handle) = *guard {
-                let _ = handle.sender.send(RenderCommand::DetachSurface);
+                let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(1);
+                let _ = handle.sender.send(RenderCommand::DetachSurface(ack_tx));
+                // 严格遵循 Android surfaceDestroyed 协议：必须同步等待渲染线程销毁当前 EGLSurface
+                let _ = ack_rx.recv_timeout(std::time::Duration::from_millis(500));
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_gyro_engine_GyroNative_redraw(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    if let Some(lock) = RENDER_THREAD.get() {
+        if let Ok(guard) = lock.lock() {
+            if let Some(ref handle) = *guard {
+                let _ = handle.sender.send(RenderCommand::Redraw);
             }
         }
     }
