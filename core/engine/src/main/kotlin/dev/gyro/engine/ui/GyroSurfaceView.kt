@@ -51,9 +51,11 @@ class GyroSurfaceView @JvmOverloads constructor(
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d(TAG, "surfaceChanged: width=$width, height=$height")
         // Rotation, split screen and PiP only resize the window; it survives, so no attach happens.
-        // While video is running the next frame reads the new size from eglQuerySurface and repaints
-        // itself. A paused player produces no frames at all, so it is the only case that needs to be
-        // told to repaint.
+        // The EGL surface does not follow the window on its own - `eglQuerySurface` keeps reporting
+        // the geometry it was created with - so the native side has to be told every time, playing
+        // or not. It compares the reported window size against its surface and rebuilds only on a
+        // real change, then repaints immediately so the resized window never waits for the next
+        // vsync'd frame.
         val target = engine
         // A live surface with the native side unbound is the frozen-picture case: `surfaceDestroyed`
         // ran, no `surfaceCreated` followed because the view was reused, and drawing silently stops
@@ -63,7 +65,6 @@ class GyroSurfaceView @JvmOverloads constructor(
             target.attachSurface(holder.surface)
             return
         }
-        if (target != null && target.isPlaying.value) return
         if (target != null) {
             target.redraw()
         } else {

@@ -985,8 +985,14 @@ unsafe fn choose_egl_config(display: EGLDisplay, prefer_10bit: bool) -> Option<C
 /// ES 3 is what mpv's `vo_gpu` needs, so it is tried first. The 2.x attempt is not a working
 /// fallback; it exists so the failure is attributable ("this driver has no ES 3") instead of
 /// surfacing later as an `mpv_render_context_create` error over a black screen.
+///
+/// The version that landed is returned with the handle: it decides whether the ES 3 entry points
+/// used after binding a surface (`glDrawBuffers`, `glReadBuffer`) may be called at all.
 #[cfg(target_os = "android")]
-unsafe fn create_egl_context(display: EGLDisplay, config: EGLConfig) -> Option<EGLContext> {
+unsafe fn create_egl_context(
+    display: EGLDisplay,
+    config: EGLConfig,
+) -> Option<(EGLContext, i32)> {
     for &version in CONTEXT_CLIENT_VERSIONS.iter() {
         let attributes = [EGL_CONTEXT_CLIENT_VERSION, version, EGL_NONE];
         let context = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes.as_ptr());
@@ -995,7 +1001,7 @@ unsafe fn create_egl_context(display: EGLDisplay, config: EGLConfig) -> Option<E
             if version < 3 {
                 nlog("EGL: 驱动不支持 GLES 3，已回退到 2.x；vo_gpu 需要 GLES 3，视频输出预计会失败");
             }
-            return Some(context);
+            return Some((context, version));
         }
         let err = eglGetError();
         nlog(&format!(
@@ -1004,6 +1010,44 @@ unsafe fn create_egl_context(display: EGLDisplay, config: EGLConfig) -> Option<E
         ));
     }
     None
+}
+
+/// Restores the default framebuffer's draw and read target after a window surface became current.
+///
+/// EGL resets `GL_DRAW_BUFFER` and `GL_READ_BUFFER` to `GL_NONE` when a context is made current
+/// without a surface, and making a window surface current again does not restore them: colour
+/// output is disabled, every draw goes nowhere and the window stays black while audio keeps
+/// playing. That is exactly the transition this pipeline makes on `detachSurface` followed by
+/// `attachSurface`. media3 restores the same state in `GlUtil.focusRenderTarget` for framebuffer 0
+/// (androidx/media#2982), and the entry points only exist on GLES 3 - an ES 2 context cannot have
+/// lost the state this way, so the call is skipped there.
+#[cfg(target_os = "android")]
+unsafe fn bind_default_framebuffer(context_major: i32) {
+    const GL_FRAMEBUFFER: u32 = 0x8D40;
+    const GL_BACK: u32 = 0x0405;
+
+    // Binding 0 first is mandatory: `GL_BACK` is only legal for the default framebuffer, and mpv
+    // may have left one of its own FBOs bound.
+    let bind_framebuffer = eglGetProcAddress(b"glBindFramebuffer\0".as_ptr().cast());
+    if !bind_framebuffer.is_null() {
+        let bind: unsafe extern "C" fn(u32, u32) = std::mem::transmute(bind_framebuffer);
+        bind(GL_FRAMEBUFFER, 0);
+    }
+    if context_major < 3 {
+        return;
+    }
+
+    let draw_buffers = eglGetProcAddress(b"glDrawBuffers\0".as_ptr().cast());
+    if !draw_buffers.is_null() {
+        let set_draw_buffers: unsafe extern "C" fn(i32, *const u32) = std::mem::transmute(draw_buffers);
+        let back = [GL_BACK];
+        set_draw_buffers(1, back.as_ptr());
+    }
+    let read_buffer = eglGetProcAddress(b"glReadBuffer\0".as_ptr().cast());
+    if !read_buffer.is_null() {
+        let set_read_buffer: unsafe extern "C" fn(u32) = std::mem::transmute(read_buffer);
+        set_read_buffer(GL_BACK);
+    }
 }
 
 /// Owns the EGL window surface together with the native window it was created from.
@@ -1048,6 +1092,7 @@ impl SurfaceSlot {
         &mut self,
         window: *mut ANativeWindow,
         ctx: EGLContext,
+        context_major: i32,
         visual_id: EGLint,
     ) -> Result<(), EGLint> {
         self.detach();
@@ -1059,7 +1104,7 @@ impl SurfaceSlot {
 
         ANativeWindow_setBuffersGeometry(window, 0, 0, visual_id);
 
-        match self.rebuild_surface(ctx) {
+        match self.rebuild_surface(ctx, context_major) {
             Ok(()) => Ok(()),
             Err(err) => {
                 self.detach();
@@ -1072,10 +1117,15 @@ impl SurfaceSlot {
     ///
     /// Rotation, split screen and PiP resize the window without destroying it, and an existing
     /// EGL surface keeps presenting buffers of the old size: `eglQuerySurface` still reports the
-    /// previous geometry, `setBuffersGeometry` does not resize the surface either, so every later
-    /// frame lands in a corner of the new window at the wrong scale. A new EGL surface created from
-    /// the same window picks the new size up. Returns true when the surface was rebuilt.
-    unsafe fn sync_geometry(&mut self, ctx: EGLContext) -> bool {
+    /// previous geometry, `setBuffersGeometry` does not resize the surface either. A new EGL
+    /// surface created from the same window picks the new size up, so the frame is rendered at the
+    /// size it is actually shown at instead of being rendered huge and scaled down by the
+    /// compositor. Returns true when the surface was rebuilt.
+    ///
+    /// This is the same push the caller makes in media3 (`setOutputSurfaceInfo` → compare
+    /// `SurfaceInfo.width/height` → rebuild the output EGLSurface): the resize is reported from
+    /// outside, never polled, and only acted on when the size actually differs.
+    unsafe fn sync_geometry(&mut self, ctx: EGLContext, context_major: i32) -> bool {
         if self.window.is_null() || !self.is_ready() {
             return false;
         }
@@ -1093,7 +1143,26 @@ impl SurfaceSlot {
         ));
         ANativeWindow_setBuffersGeometry(self.window, 0, 0, self.visual_id);
         self.drop_surface();
-        self.rebuild_surface(ctx).is_ok()
+        let mut rebuilt = self.rebuild_surface(ctx, context_major).is_ok();
+        if !rebuilt {
+            // The old surface is already gone at this point, so a failure here means no picture at
+            // all until the next attach. One immediate retry costs nothing and covers the transient
+            // EGL_BAD_ALLOC a resize can provoke while the compositor is still releasing the
+            // previous buffer.
+            nlog("EGL: 尺寸变化后重建 surface 失败，立即重试一次");
+            rebuilt = self.rebuild_surface(ctx, context_major).is_ok();
+        }
+        if rebuilt {
+            // Read back rather than trusting the request: this is the geometry mpv asks for on
+            // every frame, so it is also the answer to "what size is the picture actually rendered
+            // at", and a driver that ignores the resize shows up here instead of as a blurry PiP.
+            let mut new_w: EGLint = 0;
+            let mut new_h: EGLint = 0;
+            eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut new_w);
+            eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut new_h);
+            nlog(&format!("EGL: surface 已按 {new_w}x{new_h} 重建"));
+        }
+        rebuilt
     }
 
     /// Destroys the window surface but keeps the `ANativeWindow` reference.
@@ -1116,7 +1185,7 @@ impl SurfaceSlot {
     }
 
     /// Creates a window surface from the retained window and makes it current.
-    unsafe fn rebuild_surface(&mut self, ctx: EGLContext) -> Result<(), EGLint> {
+    unsafe fn rebuild_surface(&mut self, ctx: EGLContext, context_major: i32) -> Result<(), EGLint> {
         if self.window.is_null() {
             return Err(EGL_BAD_SURFACE);
         }
@@ -1146,6 +1215,7 @@ impl SurfaceSlot {
             self.drop_surface();
             return Err(err);
         }
+        bind_default_framebuffer(context_major);
 
         // Without vsync the render thread free-spins and tears.
         if eglSwapInterval(self.display, 1) != EGL_TRUE {
@@ -1174,6 +1244,8 @@ struct EglCore {
     display: EGLDisplay,
     config: EGLConfig,
     context: EGLContext,
+    /// GLES major version of `context`; decides whether the ES 3 entry points may be called.
+    context_major: i32,
     visual_id: EGLint,
 }
 
@@ -1190,10 +1262,11 @@ impl EglCore {
             eglDestroyContext(self.display, self.context);
             self.context = EGL_NO_CONTEXT;
         }
-        let Some(context) = create_egl_context(self.display, self.config) else {
+        let Some((context, major)) = create_egl_context(self.display, self.config) else {
             return false;
         };
         self.context = context;
+        self.context_major = major;
         nlog("EGL: 上下文重建成功");
         true
     }
@@ -1291,7 +1364,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
             nlog("EGL: 无可用 EGLConfig，渲染线程退出（画面将全黑）");
             return;
         };
-        let Some(egl_context) = create_egl_context(display, chosen.config) else {
+        let Some((egl_context, context_major)) = create_egl_context(display, chosen.config) else {
             nlog("EGL: 无法创建 GL 上下文，渲染线程退出（画面将全黑）");
             return;
         };
@@ -1305,6 +1378,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
             display,
             config: chosen.config,
             context: egl_context,
+            context_major,
             visual_id: chosen.visual_id,
         };
 
@@ -1323,7 +1397,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     // Must run before attach: attach makes `core.context` current, and a dead or
                     // missing context would make it fail, leaving the new video black.
                     let pipeline_ok = revive_dead_pipeline(&mut core, &mut mpv_render_ctx);
-                    match slot.attach(window, core.context, core.visual_id) {
+                    match slot.attach(window, core.context, core.context_major, core.visual_id) {
                         Ok(()) => {
                             // Establish the render context BEFORE acknowledging the caller.
                             //
@@ -1373,7 +1447,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     // without it a stale buffer looks like a rendering bug with no trace.
                     nlog("EGL: 收到 Redraw 命令");
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
-                        slot.sync_geometry(core.context);
+                        slot.sync_geometry(core.context, core.context_major);
                         draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
                     }
                 }
@@ -1639,7 +1713,7 @@ unsafe fn recover_gl_context(
     if !core.recreate_context() {
         return false;
     }
-    if let Err(err) = slot.rebuild_surface(core.context) {
+    if let Err(err) = slot.rebuild_surface(core.context, core.context_major) {
         nlog(&format!("EGL: 重建窗口 surface 失败 (error=0x{err:X})"));
         return false;
     }
