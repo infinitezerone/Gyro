@@ -1075,15 +1075,24 @@ impl SurfaceSlot {
         (self.surface_w, self.surface_h)
     }
 
-    /// Re-reads the surface size from the driver. Only called when the surface is created, so the
-    /// frame loop never pays for it.
-    unsafe fn refresh_size(&mut self) {
+    /// Asks the driver what size the surface is right now.
+    ///
+    /// Only the surface-creation and resize paths call this; the frame loop reads the cache. A
+    /// resize is a discrete event, so one query there costs nothing, and it is the only way to tell
+    /// "the driver already followed the window" from "the surface is stale and has to be rebuilt".
+    unsafe fn query_surface_size(&self) -> (EGLint, EGLint) {
         let mut width: EGLint = 0;
         let mut height: EGLint = 0;
         if self.is_ready() {
             eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut width);
             eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut height);
         }
+        (width, height)
+    }
+
+    /// Caches the size the driver reports. Called when the surface is created.
+    unsafe fn refresh_size(&mut self) {
+        let (width, height) = self.query_surface_size();
         self.surface_w = width;
         self.surface_h = height;
     }
@@ -1138,9 +1147,23 @@ impl SurfaceSlot {
         if win_w <= 0 || win_h <= 0 || (win_w == self.surface_w && win_h == self.surface_h) {
             return false;
         }
+
+        // One query per resize decides the expensive question: most drivers resize the swap chain
+        // with the window, and then tearing the surface down would blank the layer for a frame and
+        // make every step of a PiP drag flash. Only a surface that still reports the old geometry
+        // needs the rebuild.
+        let (surface_w, surface_h) = self.query_surface_size();
+        if surface_w == win_w && surface_h == win_h {
+            self.surface_w = surface_w;
+            self.surface_h = surface_h;
+            nlog(&format!(
+                "EGL: 窗口尺寸变为 {win_w}x{win_h}，surface 已自行跟随，无需重建"
+            ));
+            return false;
+        }
+
         nlog(&format!(
-            "EGL: 窗口尺寸 {win_w}x{win_h} 与 surface {}x{} 不一致，重建 surface",
-            self.surface_w, self.surface_h
+            "EGL: 窗口尺寸 {win_w}x{win_h} 与 surface {surface_w}x{surface_h} 不一致，重建 surface"
         ));
         ANativeWindow_setBuffersGeometry(self.window, 0, 0, self.visual_id);
         self.drop_surface();
