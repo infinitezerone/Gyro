@@ -13,6 +13,12 @@ The codebase is structured into modular layers:
 - `:feature:player`: Video playback surface (`GyroSurfaceView`), gesture recognition (`PlayerGestureNode`, `PlayerGestureDetector`), controls overlay (`PlayerControlsOverlay`, `PlayerScrubBar`, `PlayerTrackSelectionSheet`, `PlayerHudOverlay`).
 - `:app`: Application entry point, `MainActivity`, `PlaybackService` foreground media service with `MediaSessionCompat`.
 
+Native Engine Build:
+- `crates/gyro-engine` is compiled by `:core:engine:cargoNdkBuild` (cargo-ndk) into `core/engine/build/rustJniLibs/<abi>/libgyro_engine.so`, which is registered as the module's generated jniLibs source.
+- No `.so` is tracked in git: `core/engine/src/main/jniLibs/` is ignored, so the Rust source is the only truth and a stale binary cannot ship.
+- ABIs come from `gyro.nativeAbis` in `gradle.properties`; that single value drives both the cargo-ndk targets and the `abiFilters` in `:app`.
+- Prerequisites: Rust (the android targets in `rust-toolchain.toml` are installed by rustup on demand), `cargo-ndk`, and an Android NDK. The task skips itself when the crate, `Cargo.lock`, and the toolchain file are unchanged.
+
 Data Flow:
 - User Preferences & Configurations: `SettingsRepository` & `MpvConfigRepository` (persisted in internal files & prefs) -> `UserSettings` / `MpvConfig` -> injected into `GyroPlayerEngine` and observed by Feature ViewModels.
 - Playback & Audio Pipeline: `GyroPlayerEngine` coordinates mpv native core via `MpvNativeBridge`, driving audio filters (`alimiter`, `dynaudnorm`, stereo downmix), shader hotplugging (`glsl-shaders`), and chapter tracking.

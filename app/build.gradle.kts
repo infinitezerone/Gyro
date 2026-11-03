@@ -4,6 +4,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Must match the ABIs :core:engine compiles the Rust engine for, see gyro.nativeAbis.
+val nativeAbis: List<String> = providers.gradleProperty("gyro.nativeAbis")
+    .map { abis -> abis.split(",").map(String::trim).filter(String::isNotEmpty) }
+    .get()
+
 android {
     namespace = "dev.gyro.player"
 
@@ -14,7 +19,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            abiFilters += nativeAbis
         }
     }
 

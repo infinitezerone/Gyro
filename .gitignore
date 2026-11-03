@@ -13,6 +13,11 @@ captures/
 target/
 **/target/
 
+# The native engine is compiled by :core:engine:cargoNdkBuild into build/rustJniLibs,
+# so a prebuilt library must never enter the repository again.
+*.so
+core/engine/src/main/jniLibs/
+
 # Local diagnostic / test dumps
 *.png
 mpv_comments.*
