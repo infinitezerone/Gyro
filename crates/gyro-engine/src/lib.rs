@@ -144,14 +144,6 @@ extern "C" {
     fn ANativeWindow_fromSurface(env: *mut jni::sys::JNIEnv, surface: jobject) -> *mut ANativeWindow;
     fn ANativeWindow_acquire(window: *mut ANativeWindow);
     fn ANativeWindow_release(window: *mut ANativeWindow);
-    fn ANativeWindow_getWidth(window: *mut ANativeWindow) -> i32;
-    fn ANativeWindow_getHeight(window: *mut ANativeWindow) -> i32;
-    fn ANativeWindow_setBuffersGeometry(
-        window: *mut ANativeWindow,
-        width: i32,
-        height: i32,
-        format: i32,
-    ) -> i32;
 }
 
 #[cfg(target_os = "android")]
@@ -401,6 +393,8 @@ static G_FRAME_GATE: FrameCoalescer = FrameCoalescer::new();
 static G_FRAMES_DRAWN: AtomicU64 = AtomicU64::new(0);
 /// Frames skipped because mpv had nothing new, used to spot a stalled producer.
 static G_FRAMES_STARVED: AtomicU64 = AtomicU64::new(0);
+/// Timestamp of the last presented frame, for the gap diagnostic.
+static G_LAST_DRAW_MS: AtomicU64 = AtomicU64::new(0);
 /// Set by the render thread when video output has to be re-armed; the event thread does the work.
 static G_REARM_VIDEO: AtomicBool = AtomicBool::new(false);
 
@@ -1041,11 +1035,6 @@ struct SurfaceSlot {
     window: *mut ANativeWindow,
     surface: EGLSurface,
     visual_id: EGLint,
-    /// Size the current surface reports, cached when it is created. Asking the driver for it on
-    /// every frame is two calls for a value that only changes on a resize, which the Java layer
-    /// already reports through `surfaceChanged`.
-    surface_w: EGLint,
-    surface_h: EGLint,
 }
 
 #[cfg(target_os = "android")]
@@ -1057,8 +1046,6 @@ impl SurfaceSlot {
             window: std::ptr::null_mut(),
             surface: EGL_NO_SURFACE,
             visual_id: 0,
-            surface_w: 0,
-            surface_h: 0,
         }
     }
 
@@ -1068,33 +1055,6 @@ impl SurfaceSlot {
 
     fn is_ready(&self) -> bool {
         !self.surface.is_null() && self.surface != EGL_NO_SURFACE
-    }
-
-    /// Pixel size the frame should be rendered at, or `(0, 0)` when nothing is bound.
-    fn size(&self) -> (EGLint, EGLint) {
-        (self.surface_w, self.surface_h)
-    }
-
-    /// Asks the driver what size the surface is right now.
-    ///
-    /// Only the surface-creation and resize paths call this; the frame loop reads the cache. A
-    /// resize is a discrete event, so one query there costs nothing, and it is the only way to tell
-    /// "the driver already followed the window" from "the surface is stale and has to be rebuilt".
-    unsafe fn query_surface_size(&self) -> (EGLint, EGLint) {
-        let mut width: EGLint = 0;
-        let mut height: EGLint = 0;
-        if self.is_ready() {
-            eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut width);
-            eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut height);
-        }
-        (width, height)
-    }
-
-    /// Caches the size the driver reports. Called when the surface is created.
-    unsafe fn refresh_size(&mut self) {
-        let (width, height) = self.query_surface_size();
-        self.surface_w = width;
-        self.surface_h = height;
     }
 
     /// Binds a new native window and makes its surface current.
@@ -1115,7 +1075,10 @@ impl SurfaceSlot {
         self.window = window;
         self.visual_id = visual_id;
 
-        ANativeWindow_setBuffersGeometry(window, 0, 0, visual_id);
+        // The buffer size belongs to the Java layer: it pins it with SurfaceHolder.setFixedSize so a
+        // PiP transition moves the window without re-rendering at a new size. Calling
+        // ANativeWindow_setBuffersGeometry(0, 0, ...) here would undo that pin - 0 means "follow the
+        // window" - and reintroduce the late re-layout this design exists to avoid.
 
         match self.rebuild_surface(ctx, context_major) {
             Ok(()) => Ok(()),
@@ -1124,67 +1087,6 @@ impl SurfaceSlot {
                 Err(err)
             }
         }
-    }
-
-    /// Recreates the window surface when the native window was resized underneath it.
-    ///
-    /// Rotation, split screen and PiP resize the window without destroying it, and an existing
-    /// EGL surface keeps presenting buffers of the old size: `eglQuerySurface` still reports the
-    /// previous geometry, `setBuffersGeometry` does not resize the surface either. A new EGL
-    /// surface created from the same window picks the new size up, so the frame is rendered at the
-    /// size it is actually shown at instead of being rendered huge and scaled down by the
-    /// compositor. Returns true when the surface was rebuilt.
-    ///
-    /// This is the same push the caller makes in media3 (`setOutputSurfaceInfo` → compare
-    /// `SurfaceInfo.width/height` → rebuild the output EGLSurface): the resize is reported from
-    /// outside, never polled, and only acted on when the size actually differs.
-    unsafe fn sync_geometry(&mut self, ctx: EGLContext, context_major: i32) -> bool {
-        if self.window.is_null() || !self.is_ready() {
-            return false;
-        }
-        let win_w = ANativeWindow_getWidth(self.window);
-        let win_h = ANativeWindow_getHeight(self.window);
-        if win_w <= 0 || win_h <= 0 || (win_w == self.surface_w && win_h == self.surface_h) {
-            return false;
-        }
-
-        // One query per resize decides the expensive question: most drivers resize the swap chain
-        // with the window, and then tearing the surface down would blank the layer for a frame and
-        // make every step of a PiP drag flash. Only a surface that still reports the old geometry
-        // needs the rebuild.
-        let (surface_w, surface_h) = self.query_surface_size();
-        if surface_w == win_w && surface_h == win_h {
-            self.surface_w = surface_w;
-            self.surface_h = surface_h;
-            nlog(&format!(
-                "EGL: 窗口尺寸变为 {win_w}x{win_h}，surface 已自行跟随，无需重建"
-            ));
-            return false;
-        }
-
-        nlog(&format!(
-            "EGL: 窗口尺寸 {win_w}x{win_h} 与 surface {surface_w}x{surface_h} 不一致，重建 surface"
-        ));
-        ANativeWindow_setBuffersGeometry(self.window, 0, 0, self.visual_id);
-        self.drop_surface();
-        let mut rebuilt = self.rebuild_surface(ctx, context_major).is_ok();
-        if !rebuilt {
-            // The old surface is already gone at this point, so a failure here means no picture at
-            // all until the next attach. One immediate retry costs nothing and covers the transient
-            // EGL_BAD_ALLOC a resize can provoke while the compositor is still releasing the
-            // previous buffer.
-            nlog("EGL: 尺寸变化后重建 surface 失败，立即重试一次");
-            rebuilt = self.rebuild_surface(ctx, context_major).is_ok();
-        }
-        if rebuilt {
-            // Read back rather than trusting the request: this is the geometry mpv is told to
-            // render at, so it is also the answer to "what size is the picture actually rendered
-            // at", and a driver that ignores the resize shows up here instead of as a blurry PiP.
-            self.refresh_size();
-            let (width, height) = self.size();
-            nlog(&format!("EGL: surface 已按 {width}x{height} 重建"));
-        }
-        rebuilt
     }
 
     /// Destroys the window surface but keeps the `ANativeWindow` reference.
@@ -1203,8 +1105,6 @@ impl SurfaceSlot {
                 egl_failure("eglDestroySurface");
             }
             self.surface = EGL_NO_SURFACE;
-            self.surface_w = 0;
-            self.surface_h = 0;
         }
     }
 
@@ -1240,7 +1140,6 @@ impl SurfaceSlot {
             return Err(err);
         }
         bind_default_framebuffer(context_major);
-        self.refresh_size();
 
         // Without vsync the render thread free-spins and tears.
         if eglSwapInterval(self.display, 1) != EGL_TRUE {
@@ -1471,7 +1370,6 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     // without it a stale buffer looks like a rendering bug with no trace.
                     nlog("EGL: 收到 Redraw 命令");
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
-                        slot.sync_geometry(core.context, core.context_major);
                         draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);
                     }
                 }
@@ -1561,7 +1459,6 @@ unsafe fn draw_frame_native(
     display: EGLDisplay,
     surface: EGLSurface,
     ctx: *mut c_void,
-    size: (EGLint, EGLint),
     force: bool,
 ) -> DrawOutcome {
     if ctx.is_null() || surface == EGL_NO_SURFACE {
@@ -1586,9 +1483,15 @@ unsafe fn draw_frame_native(
             }
         }
 
-        // Cached when the surface was created: the driver was asked once per resize instead of
-        // twice per frame.
-        let (w, h) = size;
+        // Read from EGL every frame, deliberately not from a cache: `surfaceChanged` is a UI-thread
+        // callback and it lands tens of milliseconds late while a PiP transition has the main thread
+        // busy, so a cached size renders into a buffer that already changed - the picture is scaled
+        // wrong for a few frames at each end of the transition. Two driver calls are the price of
+        // following reality instead.
+        let mut w: EGLint = 0;
+        let mut h: EGLint = 0;
+        eglQuerySurface(display, surface, EGL_WIDTH, &mut w);
+        eglQuerySurface(display, surface, EGL_HEIGHT, &mut h);
         if w <= 0 || h <= 0 {
             return DrawOutcome::Skipped;
         }
@@ -1608,7 +1511,18 @@ unsafe fn draw_frame_native(
 
         let render_start = Instant::now();
         let render_rc = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
+        let render_ms = render_start.elapsed().as_millis();
+        let swap_start = Instant::now();
         let swap_rc = eglSwapBuffers(display, surface);
+        let swap_ms = swap_start.elapsed().as_millis();
+        // A blocking swap means the layer is not being consumed - a transition holding the buffer
+        // queue, or the shell freezing the window. Without this line a stall looks like a renderer
+        // bug with no trace.
+        if render_ms > 150 || swap_ms > 150 {
+            nlog(&format!(
+                "RENDER: SLOW render={render_ms}ms swap={swap_ms}ms buf={w}x{h}"
+            ));
+        }
         // Only a frame that actually reached the window is a flip. mpv's `flip_page` blocks on this
         // count for vsync pacing (`vo_libmpv` waits while `expected_flip_count > flip_count`), so
         // reporting before the swap both defeats that wait and, when the swap fails, books a present
@@ -1632,6 +1546,16 @@ unsafe fn draw_frame_native(
             } else {
                 DrawOutcome::Skipped
             };
+        }
+
+        // A gap between two presented frames is the picture standing still, which is exactly what a
+        // transition stalled by the compositor looks like. 24fps means one frame every 42ms, so
+        // anything past 100ms is worth a line.
+        let now_ms = monotonic_ms() as u64;
+        let previous_ms = G_LAST_DRAW_MS.swap(now_ms, Ordering::Relaxed);
+        let gap_ms = if previous_ms == 0 { 0 } else { now_ms.saturating_sub(previous_ms) as u128 };
+        if gap_ms > 100 {
+            nlog(&format!("RENDER: GAP {gap_ms}ms buf={w}x{h}"));
         }
 
         // Counted here, not before the swap: a frame that failed to reach the window is not a
@@ -1781,20 +1705,14 @@ unsafe fn draw_and_recover(
     if G_RENDER_DEAD.load(Ordering::Acquire) {
         return;
     }
-    let outcome = draw_frame_native(
-        core.display,
-        slot.surface(),
-        *mpv_render_ctx,
-        slot.size(),
-        force,
-    );
+    let outcome = draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, force);
     if outcome != DrawOutcome::ContextLost {
         return;
     }
 
     nlog("EGL: eglSwapBuffers 报告上下文丢失，开始重建管线");
     if recover_gl_context(core, slot, mpv_render_ctx) {
-        draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, slot.size(), true);
+        draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, true);
     }
 }
 

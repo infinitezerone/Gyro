@@ -69,6 +69,7 @@ import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
@@ -237,6 +238,12 @@ fun PlayerScreen(
             delay(PIP_EXIT_SETTLE_MS)
             pipSettling.value = false
         }
+    }
+
+    // Hold the buffer size steady while the window animates into or out of PiP. Re-locking it there
+    // is a needless re-layout of the picture, and it lands after the window animation has moved on.
+    LaunchedEffect(isInPipMode, pipSettling.value) {
+        GyroSurfaceView.pipTransitionActive = pipSettling.value || isInPipMode
     }
 
     val isPipLayout = isPipWindow || isInPipMode
