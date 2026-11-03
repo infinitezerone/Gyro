@@ -1,6 +1,8 @@
 package dev.gyro.engine
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.view.Display
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
@@ -472,10 +474,19 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
                 bridge.setOptionString("hwdec", hwdecConfig)
                 bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
-                // A frame that cannot make its deadline is dropped instead of shown late, which is
-                // what every other player does. It is also what makes mpv's frame counters move:
-                // without it mpv shows each frame whenever it is ready and reports no loss at all.
-                bridge.setOptionString("framedrop", "decoder+vo")
+                // mpv paces frames against the display only when it knows how fast that is: with
+                // `video-sync=audio` it then decides when a frame is due instead of showing whatever
+                // the decoder just produced. Without the value a 93fps file lands on whichever vsync
+                // happens to be next, which is what reads as judder. mpv-android sets the same option
+                // from Display.mode.refreshRate.
+                displayRefreshRate()?.let { rate ->
+                    bridge.setOptionString("display-fps-override", rate.toString())
+                }
+                // `vo` only, which is mpv's recommended mode and what mpv-android runs: the video
+                // output drops the frame at the last moment, when it is known the display cannot
+                // show it. Adding `decoder` lets the decoder guess instead, and mpv documents that
+                // as "not recommended ... can produce unwatchable choppy output".
+                bridge.setOptionString("framedrop", "vo")
 
                 val subAuto = if (userSettings?.subAutoLoad != false) "all" else "no"
                 bridge.setOptionString("sub-auto", subAuto)
@@ -555,6 +566,14 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 isInitialized.set(false)
             }
         }
+    }
+
+    /** Refresh rate of the display the player is on, or null when it cannot be read. */
+    private fun displayRefreshRate(): Float? {
+        val manager = appContext.getSystemService(DisplayManager::class.java) ?: return null
+        val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
+        val rate = display.mode?.refreshRate ?: return null
+        return rate.takeIf { it in 20f..240f }
     }
 
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {

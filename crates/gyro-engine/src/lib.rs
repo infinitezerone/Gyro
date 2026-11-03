@@ -193,6 +193,7 @@ const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
 const MPV_RENDER_PARAM_OPENGL_FBO: c_int = 3;
 const MPV_RENDER_PARAM_FLIP_Y: c_int = 4;
 const MPV_RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
+const MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME: c_int = 12;
 
 /// `mpv_render_frame_info.flags` bit: the queued "frame" is a redraw, not a new picture.
 ///
@@ -1572,9 +1573,16 @@ unsafe fn draw_frame_native(
             internal_format: 0,
         };
         let flip: c_int = 1;
+        // Let mpv hold the render call until the frame's target display time instead of drawing
+        // whatever the decoder just produced. Without it frames land on whichever vsync happens to
+        // be next, so a 75 or 93fps file on a 60Hz display alternates between one and two vsyncs of
+        // hold - judder, not dropped frames. `display-fps-override` gives mpv the other half of what
+        // this needs. mpv-android gets the same behaviour from vo_gpu's own swapchain.
+        let block_for_target: c_int = 1;
         let mut params = [
             MpvRenderParam { param_type: MPV_RENDER_PARAM_OPENGL_FBO, data: &fbo as *const _ as *mut c_void },
             MpvRenderParam { param_type: MPV_RENDER_PARAM_FLIP_Y, data: &flip as *const _ as *mut c_void },
+            MpvRenderParam { param_type: MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, data: &block_for_target as *const _ as *mut c_void },
             MpvRenderParam { param_type: 0, data: std::ptr::null_mut() },
         ];
 
