@@ -1,8 +1,6 @@
 package dev.gyro.engine
 
 import android.content.Context
-import android.hardware.display.DisplayManager
-import android.view.Display
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
@@ -474,14 +472,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
                 bridge.setOptionString("hwdec", hwdecConfig)
                 bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
-                // mpv paces frames against the display only when it knows how fast that is: with
-                // `video-sync=audio` it then decides when a frame is due instead of showing whatever
-                // the decoder just produced. Without the value a 93fps file lands on whichever vsync
-                // happens to be next, which is what reads as judder. mpv-android sets the same option
-                // from Display.mode.refreshRate.
-                displayRefreshRate()?.let { rate ->
-                    bridge.setOptionString("display-fps-override", rate.toString())
-                }
+                // mpv paces frames against the display only when it knows how fast that is. The value
+                // comes from measured vsync callbacks rather than Display.mode.refreshRate, which
+                // reports 120 on this device while the compositor runs the window at 90; see
+                // `onDisplayRefreshRateMeasured`.
                 // `vo` only, which is mpv's recommended mode and what mpv-android runs: the video
                 // output drops the frame at the last moment, when it is known the display cannot
                 // show it. Adding `decoder` lets the decoder guess instead, and mpv documents that
@@ -568,12 +562,25 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
     }
 
-    /** Refresh rate of the display the player is on, or null when it cannot be read. */
-    private fun displayRefreshRate(): Float? {
-        val manager = appContext.getSystemService(DisplayManager::class.java) ?: return null
-        val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
-        val rate = display.mode?.refreshRate ?: return null
-        return rate.takeIf { it in 20f..240f }
+    @Volatile
+    private var measuredDisplayFps = 0f
+
+    /**
+     * Applies the refresh rate measured from the compositor's own vsync.
+     *
+     * the platform's own numbers are not usable here: `Display.mode.refreshRate` and
+     * `Display.refreshRate` both report 120 on a device whose compositor actually runs this window at 90.
+     * Handing 120 to mpv makes it schedule every frame for a grid the panel never produces, and the
+     * surplus is dropped unevenly - judder on any source faster than 60fps.
+     */
+    fun onDisplayRefreshRateMeasured(fps: Float) {
+        if (fps < 20f || fps > 240f) return
+        if (kotlin.math.abs(fps - measuredDisplayFps) < 0.5f) return
+        measuredDisplayFps = fps
+        Log.i(TAG, "display-fps -> $fps")
+        if (isInitialized.get()) {
+            bridge.setPropertyDouble("display-fps", fps.toDouble())
+        }
     }
 
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {

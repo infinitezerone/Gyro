@@ -1,6 +1,7 @@
 package dev.gyro.engine.ui
 
 import android.content.Context
+import android.view.Choreographer
 import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
@@ -26,6 +27,9 @@ private const val ASPECT_EPSILON = 0.01
 
 /** A PiP transition can resize the window several frames in a row; re-lock once it settles. */
 private const val RELOCK_DEBOUNCE_MS = 80L
+
+/** Frames sampled by [GyroSurfaceView.measureDisplayRate]; ~440ms at 90Hz. */
+private const val MEASURED_FRAMES = 40
 
 /**
  * High-performance, zero-overhead SurfaceView for Gyro MPV player.
@@ -154,6 +158,45 @@ class GyroSurfaceView @JvmOverloads constructor(
      * which is what reads as smearing in motion. Same call media3's `MediaCodecVideoRenderer` makes
      * on API 30+.
      */
+    /**
+     * Measures the rate the compositor actually runs at and hands it to the engine.
+     *
+     * `Display.mode.refreshRate` reports 120 on this device while SurfaceFlinger composites this
+     * window at 60, so the platform value cannot be trusted: mpv would schedule every frame for a
+     * 120Hz grid the panel never produces. Choreographer callbacks follow the real vsync, so twenty
+     * consecutive ones give the number mpv actually needs.
+     */
+    fun measureDisplayRate(onMeasured: (Float) -> Unit) {
+        val choreographer = Choreographer.getInstance()
+        val intervals = LongArray(MEASURED_FRAMES - 1)
+        var previous = 0L
+        var frames = 0
+        val callback = object : Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                if (previous != 0L) {
+                    // The median, not the mean: a frame lost to a transition or a GC pause would
+                    // otherwise drag the average down and hand mpv the wrong rate - the exact bug
+                    // this measurement exists to fix.
+                    intervals[frames] = frameTimeNanos - previous
+                    frames++
+                }
+                previous = frameTimeNanos
+                if (frames < intervals.size) {
+                    choreographer.postFrameCallback(this)
+                    return
+                }
+                intervals.sort()
+                val median = intervals[intervals.size / 2]
+                if (median <= 0L) return
+                val fps = 1_000_000_000.0 / median
+                Log.i(TAG, "measured display rate: %.2f fps (median interval %dns)".format(fps, median))
+                onMeasured(fps.toFloat())
+            }
+        }
+        choreographer.postFrameCallback(callback)
+    }
+
+
     fun applyContentFrameRate(fps: Float) {
         contentFrameRate = fps
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
@@ -187,6 +230,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         // A fresh surface starts at the platform default rate; re-apply the content rate that
         // was published before it existed.
         applyContentFrameRate(contentFrameRate)
+        engine?.let { target -> measureDisplayRate { fps -> target.onDisplayRefreshRateMeasured(fps) } }
         if (engine != null) {
             engine?.attachSurface(surface)
         } else {

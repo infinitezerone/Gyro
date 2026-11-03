@@ -648,6 +648,32 @@ fn throttle_allows(name: &str) -> bool {
     }
 }
 
+/// `eglPresentationTimeANDROID` from libEGL, resolved lazily.
+///
+/// Part of `EGL_ANDROID_presentation_time`, which is optional; a device without it keeps the old
+/// behaviour instead of failing to load.
+#[cfg(target_os = "android")]
+type EglPresentationTime = unsafe extern "C" fn(EGLDisplay, EGLSurface, i64) -> EGLint;
+
+#[cfg(target_os = "android")]
+static EGL_PRESENTATION_TIME: OnceLock<Option<EglPresentationTime>> = OnceLock::new();
+
+#[cfg(target_os = "android")]
+fn egl_presentation_time() -> Option<EglPresentationTime> {
+    *EGL_PRESENTATION_TIME.get_or_init(|| unsafe {
+        let symbol = dlsym(
+            std::ptr::null_mut(),
+            b"eglPresentationTimeANDROID ".as_ptr().cast(),
+        );
+        if symbol.is_null() {
+            nlog("EGL: 无 eglPresentationTimeANDROID，帧时间戳交给合成器的能力不可用");
+            None
+        } else {
+            Some(std::mem::transmute::<*mut c_void, EglPresentationTime>(symbol))
+        }
+    })
+}
+
 /// Tells the UI that the first frame of the current file reached the window.
 ///
 /// Called from the render thread right after a successful swap, at most once per `loadfile`, so the
@@ -1538,19 +1564,17 @@ unsafe fn draw_frame_native(
         // requests it receives (the title OSD, the video reconfig) by re-rendering that frame, and
         // the swap succeeds without a single new pixel. render.h exposes exactly this distinction,
         // so ask for it while a cover is waiting and never release the cover on a redraw.
-        let mut is_redraw = false;
-        if G_AWAITING_FIRST_FRAME.load(Ordering::Acquire) {
-            let mut info = MpvRenderFrameInfo { flags: 0, target_time: 0 };
+        let mut info = MpvRenderFrameInfo { flags: 0, target_time: 0 };
+        let have_info = {
             let param = MpvRenderParam {
                 param_type: MPV_RENDER_PARAM_NEXT_FRAME_INFO,
                 data: &mut info as *mut MpvRenderFrameInfo as *mut c_void,
             };
-            if (api.mpv_render_context_get_info)(ctx, param) == MPV_ERROR_SUCCESS {
-                is_redraw = info.flags & MPV_RENDER_FRAME_INFO_REDRAW != 0;
-                if is_redraw {
-                    nlog("RENDER: 换片中的重绘帧（内容仍是上一部），继续等待首帧");
-                }
-            }
+            (api.mpv_render_context_get_info)(ctx, param) == MPV_ERROR_SUCCESS
+        };
+        let is_redraw = have_info && info.flags & MPV_RENDER_FRAME_INFO_REDRAW != 0;
+        if is_redraw && G_AWAITING_FIRST_FRAME.load(Ordering::Acquire) {
+            nlog("RENDER: 换片中的重绘帧（内容仍是上一部），继续等待首帧");
         }
 
         // Read from EGL every frame, deliberately not from a cache: `surfaceChanged` is a UI-thread
@@ -1589,6 +1613,17 @@ unsafe fn draw_frame_native(
         let render_start = Instant::now();
         let render_rc = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
         let render_ms = render_start.elapsed().as_millis();
+        // eglSwapBuffers does not wait for vsync on Android - it only blocks when the buffer queue
+        // is full - so a frame submitted between two vsyncs is picked up by whichever refresh the
+        // compositor happens to run next. That random phase is what makes a 60fps presentation of a
+        // 75 or 93fps source look uneven. `eglPresentationTimeANDROID` carries mpv's own target
+        // display time into the compositor, which schedules the frame instead of showing whatever
+        // arrived last.
+        if have_info && info.target_time > 0 {
+            if let Some(set_presentation_time) = egl_presentation_time() {
+                set_presentation_time(display, surface, info.target_time.saturating_mul(1_000));
+            }
+        }
         let swap_start = Instant::now();
         let swap_rc = eglSwapBuffers(display, surface);
         let swap_ms = swap_start.elapsed().as_millis();
