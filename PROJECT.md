@@ -111,3 +111,39 @@ Data Flow:
   - Settings UI: `feature/settings/src/main/kotlin/dev/gyro/feature/settings/`
   - Player UI & Gestures: `feature/player/src/main/kotlin/dev/gyro/feature/player/`
   - Service & App Entry: `app/src/main/kotlin/dev/gyro/player/`
+
+## Known Issues / TODO
+
+### High-frame-rate sources judder (93fps clip on a 60Hz panel)
+
+Status: open. Everything below is measured on PLK110 (Adreno 840, Android 17), not inferred.
+
+What the app does now (committed):
+- reports the content rate with `Surface.setFrameRate`, so SurfaceFlinger knows what the file runs at;
+- sets `display-fps-override` from `Display.mode.refreshRate`, so mpv can schedule against the display;
+- passes `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME`, so `mpv_render_context_render` waits for the frame's
+  target display time instead of returning as soon as the frame is decoded;
+- runs `framedrop=vo` (mpv's recommended mode) rather than `decoder+vo`.
+
+What was measured:
+- this app renders its whole window at 60Hz (library screen and player alike), and mpv-android
+  (`is.xyz.mpv`) measured the same rate while playing the same file - the display rate is a device
+  policy, not something the player picks;
+- before the three changes a 75fps clip presented at 60.2fps with the surplus dropped by lateness;
+- after them it presents ~75fps, but the frames still land unevenly and the judder remains;
+- `video-sync=display-resample` (tried, then reverted) makes mpv schedule on the vsync grid: presented
+  60.3fps for the same 93fps source and `vo-delayed-frame-count` started moving, i.e. display-sync
+  really engaged, with ~36 video-output skips per second (93 - 60). Not enough user-visible evidence
+  to keep it: it changes the playback model (audio is resampled) and floods the frame-health log
+  every 5s.
+
+Next steps, in order of cost:
+1. A/B `video-sync=display-resample` properly, including 24fps and 60fps content, and raise the
+   frame-health threshold so expected skips stop being reported as loss.
+2. Verify with a CFR 90fps sample rather than a screen recording whose container says 93fps but whose
+   real cadence may be 60 (VFR), which would make the whole comparison invalid.
+3. If the platform really caps this app at 60Hz, check whether ColorOS's per-app high-refresh list can
+   raise it; nothing in the player can exceed the compositor's rate.
+4. Last resort: `vo=gpu` with `gpu-context=android`, which is what mpv-android uses. It owns the
+   swapchain and the presentation timestamps, but it gives up the current render-API path
+   (custom EGL lifecycle, fence recovery, zero-copy probe) - a rewrite, not a patch.
