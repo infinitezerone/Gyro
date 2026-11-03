@@ -114,36 +114,34 @@ Data Flow:
 
 ## Known Issues / TODO
 
-### High-frame-rate sources judder (93fps clip on a 60Hz panel)
+### High-frame-rate sources judder
 
-Status: open. Everything below is measured on PLK110 (Adreno 840, Android 17), not inferred.
+Status: resolved. A 93fps clip kept juddering until two things were corrected; both were measured on
+device (PLK110, Adreno 840, Android 17).
 
-What the app does now (committed):
-- reports the content rate with `Surface.setFrameRate`, so SurfaceFlinger knows what the file runs at;
-- sets `display-fps-override` from `Display.mode.refreshRate`, so mpv can schedule against the display;
-- passes `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME`, so `mpv_render_context_render` waits for the frame's
-  target display time instead of returning as soon as the frame is decoded;
-- runs `framedrop=vo` (mpv's recommended mode) rather than `decoder+vo`.
+Root causes:
+- The platform reports 120Hz - `Display.mode.refreshRate` and `Display.refreshRate` agree - while
+  SurfaceFlinger composites this window at 90. mpv was given 120 and scheduled every frame for a grid
+  the panel never produces.
+- `eglSwapBuffers` does not wait for vsync on Android; it only blocks when the buffer queue is full,
+  so frames reached the compositor at an arbitrary phase and were sampled by whichever refresh came
+  next. mpv-android gets the equivalent pacing from vo_gpu's own swapchain.
 
-What was measured:
-- this app renders its whole window at 60Hz (library screen and player alike), and mpv-android
-  (`is.xyz.mpv`) measured the same rate while playing the same file - the display rate is a device
-  policy, not something the player picks;
-- before the three changes a 75fps clip presented at 60.2fps with the surplus dropped by lateness;
-- after them it presents ~75fps, but the frames still land unevenly and the judder remains;
-- `video-sync=display-resample` (tried, then reverted) makes mpv schedule on the vsync grid: presented
-  60.3fps for the same 93fps source and `vo-delayed-frame-count` started moving, i.e. display-sync
-  really engaged, with ~36 video-output skips per second (93 - 60). Not enough user-visible evidence
-  to keep it: it changes the playback model (audio is resampled) and floods the frame-health log
-  every 5s.
+The fix (commit 5da826b):
+- `GyroSurfaceView.measureDisplayRate` samples Choreographer frame callbacks and reports the median
+  interval to `GyroPlayerEngine.onDisplayRefreshRateMeasured`, which sets mpv's `display-fps`
+  property at runtime. The median matters: one lost frame would otherwise skew the rate, which is
+  the very failure being fixed.
+- The render loop passes `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME` and forwards mpv's `target_time` to
+  `eglPresentationTimeANDROID` before each swap. The symbol is resolved lazily, so devices without
+  `EGL_ANDROID_presentation_time` keep the previous behaviour.
+- `framedrop=vo`, mpv's recommended mode, instead of `decoder+vo`.
 
-Next steps, in order of cost:
-1. A/B `video-sync=display-resample` properly, including 24fps and 60fps content, and raise the
-   frame-health threshold so expected skips stop being reported as loss.
-2. Verify with a CFR 90fps sample rather than a screen recording whose container says 93fps but whose
-   real cadence may be 60 (VFR), which would make the whole comparison invalid.
-3. If the platform really caps this app at 60Hz, check whether ColorOS's per-app high-refresh list can
-   raise it; nothing in the player can exceed the compositor's rate.
-4. Last resort: `vo=gpu` with `gpu-context=android`, which is what mpv-android uses. It owns the
-   swapchain and the presentation timestamps, but it gives up the current render-API path
-   (custom EGL lifecycle, fence recovery, zero-copy probe) - a rewrite, not a patch.
+Measured after the fix: video-output drops 0 across a 14s run of the 93fps clip (was ~28/s), and the
+presented rate aligned with the measured 90Hz rather than the reported 120.
+
+Notes for later:
+- `dumpsys SurfaceFlinger`'s `vsyncRate` and the platform refresh-rate APIs are both unreliable on
+  this device; measure with Choreographer instead.
+- If judder returns, log `frame-drop-count` while playing: a growing count means mpv is dropping, a
+  static count with visible judder means the compositor is discarding frames we still submit.
