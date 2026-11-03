@@ -290,10 +290,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 MpvNativeBridge.Event.PLAYBACK_RESTART -> {
                     _playbackState.value = PlaybackState.READY
                 }
-                MpvNativeBridge.Event.WATCHDOG_FALLBACK -> {
-                    _hwdecCurrent.value = "mediacodec-copy (fallback)"
-                    Log.w(TAG, "Watchdog triggered: GPU hang/timeout detected, safely fell back to mediacodec-copy")
-                }
             }
         }
 
@@ -440,6 +436,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
                 bridge.setOptionString("hwdec", hwdecConfig)
                 bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
+                // A frame that cannot make its deadline is dropped instead of shown late, which is
+                // what every other player does. It is also what makes mpv's frame counters move:
+                // without it mpv shows each frame whenever it is ready and reports no loss at all.
+                bridge.setOptionString("framedrop", "decoder+vo")
 
                 val subAuto = if (userSettings?.subAutoLoad != false) "all" else "no"
                 bridge.setOptionString("sub-auto", subAuto)

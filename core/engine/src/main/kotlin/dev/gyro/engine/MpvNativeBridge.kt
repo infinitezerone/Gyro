@@ -158,6 +158,5 @@ interface MpvNativeBridge {
         const val TRACKS_CHANGED: Int = 10
         const val PLAYBACK_RESTART: Int = 21
         const val PROPERTY_CHANGE: Int = 22
-        const val WATCHDOG_FALLBACK: Int = 1001
     }
 }

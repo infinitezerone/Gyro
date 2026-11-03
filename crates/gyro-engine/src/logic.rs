@@ -52,163 +52,180 @@ impl Default for FrameCoalescer {
     }
 }
 
-/// Outcome of evaluating a single rendered frame.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum WatchdogVerdict {
-    /// Fast frame, or a frame exempted because the pipeline had just resumed.
-    Healthy,
-    /// Slow frame, but the run is not long enough to conclude the GPU is unhealthy.
-    Slow,
-    /// Enough consecutive slow frames were observed; the caller should degrade hardware decoding.
-    Trip,
-    /// The fallback already fired; the verdict is terminal for this session.
-    AlreadyTripped,
+// ---------- Frame health ----------
+
+/// An mpv counter that describes frames which did not reach the screen on time.
+///
+/// mpv already does the deadline arithmetic for the whole pipeline, so these are its verdicts
+/// rather than a guess made from how long one draw call took. They only move while mpv is allowed
+/// to act on lateness, which is why the engine runs with `framedrop=vo`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameCounter {
+    /// Frames delayed by external circumstances in display-sync mode.
+    Late,
+    /// Frames dropped by the video output.
+    Dropped,
+    /// Frames dropped by the decoder because video fell too far behind audio.
+    DecoderDropped,
 }
 
-/// Decides when abnormally slow frames mean "the GPU is stuck" rather than "this frame was just
-/// expensive".
+impl FrameCounter {
+    pub const ALL: [FrameCounter; 3] = [
+        FrameCounter::Late,
+        FrameCounter::Dropped,
+        FrameCounter::DecoderDropped,
+    ];
+
+    /// The property name mpv publishes this counter under.
+    pub const fn property(self) -> &'static str {
+        match self {
+            FrameCounter::Late => "vo-delayed-frame-count",
+            FrameCounter::Dropped => "frame-drop-count",
+            FrameCounter::DecoderDropped => "decoder-frame-drop-count",
+        }
+    }
+
+    pub fn from_property(name: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|counter| counter.property() == name)
+    }
+}
+
+/// Frames lost inside one monitoring window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameHealthReport {
+    pub window_ms: u128,
+    /// Delayed frames, only produced in display-sync mode.
+    pub late_frames: i64,
+    /// Frames the decoder dropped because video had fallen too far behind audio.
+    pub dropped_frames: i64,
+    /// Frames the video output skipped because the display cannot show them all (a 75fps source on
+    /// a 60Hz panel skips one frame in five and is perfectly healthy).
+    pub skipped_frames: i64,
+}
+
+/// Watches mpv's frame counters and reports when frames start missing their deadline.
 ///
-/// Two exemptions keep a working device from being degraded:
-///
-/// * A frame that arrives after a long silence is the first frame of a load, a resume or a seek.
-///   Its cost says nothing about steady-state health, so it starts a warm-up window instead of
-///   counting towards a trip.
-/// * A single fast frame clears the run, so isolated stalls never accumulate.
-///
-/// The fallback is deliberately terminal: once the pipeline degrades to a copy path it stays there,
-/// because silently flapping between paths is worse than staying on the safe one.
+/// A single late frame is normal - a seek, a heavy shader pass, a scheduler hiccup - so the monitor
+/// only speaks about sustained loss: it accumulates over a fixed window and reports at most once per
+/// window that crosses the threshold. Nothing is changed behind the user's back; in this pipeline
+/// the report is diagnostics, not a trigger.
 #[derive(Debug)]
-pub struct RenderWatchdog {
-    slow_frame_ms: u128,
-    trip_after: u32,
-    warmup_frames: u32,
-    idle_gap_ms: u128,
-    slow_run: u32,
-    warmup_left: u32,
-    tripped: bool,
+pub struct FrameHealthMonitor {
+    window_ms: u128,
+    report_after: i64,
+    window_started_at_ms: Option<u128>,
+    baseline_late: i64,
+    baseline_dropped: i64,
+    baseline_skipped: i64,
+    late: i64,
+    vo_dropped: i64,
+    decoder_dropped: i64,
 }
 
-impl RenderWatchdog {
-    pub const fn new(
-        slow_frame_ms: u128,
-        trip_after: u32,
-        warmup_frames: u32,
-        idle_gap_ms: u128,
-    ) -> Self {
+impl FrameHealthMonitor {
+    pub const fn new(window_ms: u128, report_after: i64) -> Self {
         Self {
-            slow_frame_ms,
-            // A zero threshold would trip on the first slow frame and then stay tripped forever,
-            // so it is clamped rather than treated as "disabled".
-            trip_after: if trip_after == 0 { 1 } else { trip_after },
-            warmup_frames,
-            idle_gap_ms,
-            slow_run: 0,
-            warmup_left: 0,
-            tripped: false,
+            window_ms,
+            // A zero threshold would report every window, including the ones with no loss at all.
+            report_after: if report_after < 1 { 1 } else { report_after },
+            window_started_at_ms: None,
+            baseline_late: 0,
+            baseline_dropped: 0,
+            baseline_skipped: 0,
+            late: 0,
+            vo_dropped: 0,
+            decoder_dropped: 0,
         }
     }
 
-    /// 80ms is roughly 12fps: slow enough to be visibly broken, fast enough to catch a stalled GPU
-    /// long before a user gives up. 30 warm-up frames cover decode + first paint of a 4K load.
+    /// Five seconds is long enough that a bad patch has to be sustained and short enough that the
+    /// log still points at when it happened; ten frames is under a tenth of a 24fps window.
     pub const fn with_defaults() -> Self {
-        Self::new(80, 3, 30, 500)
+        Self::new(5_000, 10)
     }
 
-    /// Evaluates one frame.
-    ///
-    /// * `elapsed_ms` is render + swap time for this frame.
-    /// * `gap_ms` is the distance to the previous frame; a large gap means the pipeline had stopped
-    ///   producing frames, so this one is a resume frame rather than a steady-state sample.
-    pub fn on_frame(&mut self, elapsed_ms: u128, gap_ms: u128) -> WatchdogVerdict {
-        if self.tripped {
-            return WatchdogVerdict::AlreadyTripped;
+    pub fn late_frames(&self) -> i64 {
+        self.late
+    }
+
+    /// Frames the decoder gave up on: video had fallen too far behind audio.
+    pub fn dropped_frames(&self) -> i64 {
+        self.decoder_dropped
+    }
+
+    /// Frames the video output skipped because the display cannot show them all.
+    pub fn skipped_frames(&self) -> i64 {
+        self.vo_dropped
+    }
+
+    /// Feeds one counter sample. Returns a report when a window just closed above the threshold.
+    pub fn on_counter(
+        &mut self,
+        counter: FrameCounter,
+        total: i64,
+        now_ms: u128,
+    ) -> Option<FrameHealthReport> {
+        let previous = match counter {
+            FrameCounter::Late => self.late,
+            FrameCounter::Dropped => self.vo_dropped,
+            FrameCounter::DecoderDropped => self.decoder_dropped,
+        };
+        if total < previous {
+            // The counters restart with a new file. Keeping the old window would report a negative
+            // delta now and then a phantom burst on the first sample of the next file.
+            self.late = 0;
+            self.vo_dropped = 0;
+            self.decoder_dropped = 0;
+            self.window_started_at_ms = None;
+            return None;
+        }
+        match counter {
+            FrameCounter::Late => self.late = total,
+            FrameCounter::Dropped => self.vo_dropped = total,
+            FrameCounter::DecoderDropped => self.decoder_dropped = total,
         }
 
-        if gap_ms >= self.idle_gap_ms {
-            self.slow_run = 0;
-            self.warmup_left = self.warmup_frames;
-            return WatchdogVerdict::Healthy;
-        }
-
-        if self.warmup_left > 0 {
-            self.warmup_left -= 1;
-            return WatchdogVerdict::Healthy;
-        }
-
-        if elapsed_ms > self.slow_frame_ms {
-            self.slow_run += 1;
-            if self.slow_run >= self.trip_after {
-                self.tripped = true;
-                return WatchdogVerdict::Trip;
+        let started = match self.window_started_at_ms {
+            Some(started) => started,
+            None => {
+                self.window_started_at_ms = Some(now_ms);
+                self.baseline_late = self.late;
+                self.baseline_dropped = self.decoder_dropped;
+                self.baseline_skipped = self.vo_dropped;
+                return None;
             }
-            return WatchdogVerdict::Slow;
+        };
+        let window_ms = now_ms.saturating_sub(started);
+        if window_ms < self.window_ms {
+            return None;
         }
 
-        self.slow_run = 0;
-        WatchdogVerdict::Healthy
-    }
-
-    /// Diagnostics hooks for tests and future HUD wiring; not on the hot path.
-    #[allow(dead_code)]
-    pub fn is_tripped(&self) -> bool {
-        self.tripped
-    }
-
-    #[allow(dead_code)]
-    pub fn warmup_frames_left(&self) -> u32 {
-        self.warmup_left
+        let late = self.late - self.baseline_late;
+        let dropped = self.decoder_dropped - self.baseline_dropped;
+        let skipped = self.vo_dropped - self.baseline_skipped;
+        self.window_started_at_ms = Some(now_ms);
+        self.baseline_late = self.late;
+        self.baseline_dropped = self.decoder_dropped;
+        self.baseline_skipped = self.vo_dropped;
+        // Only loss the pipeline could not avoid counts: a late frame and a frame the decoder had to
+        // give up on both mean video is falling behind. A VO skip means the source has more frames
+        // than the panel can show, which is not a fault.
+        if late + dropped >= self.report_after {
+            Some(FrameHealthReport {
+                window_ms,
+                late_frames: late,
+                dropped_frames: dropped,
+                skipped_frames: skipped,
+            })
+        } else {
+            None
+        }
     }
 }
 
-impl Default for RenderWatchdog {
+impl Default for FrameHealthMonitor {
     fn default() -> Self {
         Self::with_defaults()
-    }
-}
-
-/// Bookkeeping for the hardware-decoder degradation the watchdog asks for.
-///
-/// The pipeline is allowed exactly one write of `hwdec`. Two failures must not be conflated:
-///
-/// * No mpv handle yet means nothing was attempted, so the latch stays open and a later frame can
-///   try again.
-/// * A write that mpv rejected means the pipeline is stuck with the decoder it has, and retrying on
-///   every following slow frame cannot change that. The latch closes so the log does not flood while
-///   the user is already looking at a frozen picture.
-///
-/// In both failure cases the UI must not be told the pipeline degraded, which is what the notify
-/// answer distinguishes.
-#[derive(Debug, Default)]
-pub struct DegradeState {
-    attempted: bool,
-    applied: bool,
-}
-
-impl DegradeState {
-    pub const fn new() -> Self {
-        Self { attempted: false, applied: false }
-    }
-
-    /// Decides whether the caller should write `hwdec` now.
-    pub fn begin(&mut self, has_handle: bool) -> bool {
-        if self.attempted || !has_handle {
-            return false;
-        }
-        self.attempted = true;
-        true
-    }
-
-    /// Records the write result. Returns true when the caller should emit the fallback event,
-    /// which is exactly when the decoder actually changed.
-    pub fn confirm(&mut self, accepted: bool) -> bool {
-        if accepted {
-            self.applied = true;
-        }
-        accepted
-    }
-
-    pub fn is_applied(&self) -> bool {
-        self.applied
     }
 }
 
@@ -232,7 +249,7 @@ pub enum RecoveryVerdict {
 ///
 /// It is not worth doing forever. A driver that loses the context two times running is broken, and
 /// each further attempt costs another visible black frame, so the budget is finite and the verdict
-/// terminal, matching how [`DegradeState`] latches rather than retrying on every failure.
+/// terminal: the pipeline stops rebuilding instead of retrying on every failed swap.
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ContextRecovery {
@@ -573,100 +590,90 @@ mod tests {
         assert_eq!(1, winners.load(Ordering::SeqCst));
     }
 
-    // ---------- RenderWatchdog ----------
-
-    fn watchdog() -> RenderWatchdog {
-        RenderWatchdog::new(80, 3, 2, 500)
-    }
-
-    /// Past the warm-up window, keeping the gap small so frames count as steady state.
-    fn settle(w: &mut RenderWatchdog) {
-        w.on_frame(10, 16);
-        w.on_frame(10, 16);
-        w.on_frame(10, 16);
-    }
+    // ---------- Frame health ----------
 
     #[test]
-    fn watchdog_trips_after_configured_consecutive_slow_frames() {
-        let mut w = watchdog();
-        settle(&mut w);
-        assert_eq!(WatchdogVerdict::Slow, w.on_frame(120, 16));
-        assert_eq!(WatchdogVerdict::Slow, w.on_frame(120, 16));
-        assert_eq!(WatchdogVerdict::Trip, w.on_frame(120, 16));
-        assert!(w.is_tripped());
-    }
-
-    #[test]
-    fn watchdog_fast_frame_breaks_the_slow_run() {
-        let mut w = watchdog();
-        settle(&mut w);
-        assert_eq!(WatchdogVerdict::Slow, w.on_frame(120, 16));
-        assert_eq!(WatchdogVerdict::Healthy, w.on_frame(10, 16));
-        assert_eq!(WatchdogVerdict::Slow, w.on_frame(120, 16));
-        assert_eq!(WatchdogVerdict::Slow, w.on_frame(120, 16));
-        assert_eq!(WatchdogVerdict::Trip, w.on_frame(120, 16));
-    }
-
-    #[test]
-    fn watchdog_ignores_frames_right_after_a_long_gap() {
-        let mut w = watchdog();
-        settle(&mut w);
-        // A 4K file start: the gap opens a warm-up window, and the following frames are exempt
-        // because decode and first paint are still ramping up.
-        assert_eq!(WatchdogVerdict::Healthy, w.on_frame(400, 2000));
-        assert_eq!(2, w.warmup_frames_left());
-        assert_eq!(WatchdogVerdict::Healthy, w.on_frame(400, 16));
-        assert_eq!(WatchdogVerdict::Healthy, w.on_frame(400, 16));
-        assert_eq!(0, w.warmup_frames_left());
-        // Warm-up exhausted: only now does a slow frame count towards a trip.
-        assert_eq!(WatchdogVerdict::Slow, w.on_frame(400, 16));
-    }
-
-    #[test]
-    fn watchdog_resets_on_every_resume_not_just_the_first() {
-        let mut w = watchdog();
-        settle(&mut w);
-        w.on_frame(10, 2000);
-        assert_eq!(2, w.warmup_frames_left());
-        // Seek during playback also counts as a resume.
-        settle(&mut w);
-        assert_eq!(WatchdogVerdict::Healthy, w.on_frame(400, 900));
-        assert_eq!(2, w.warmup_frames_left());
-    }
-
-    #[test]
-    fn watchdog_verdict_is_terminal_after_trip() {
-        let mut w = watchdog();
-        settle(&mut w);
-        w.on_frame(120, 16);
-        w.on_frame(120, 16);
-        assert_eq!(WatchdogVerdict::Trip, w.on_frame(120, 16));
-        assert_eq!(WatchdogVerdict::AlreadyTripped, w.on_frame(10, 16));
-        assert_eq!(WatchdogVerdict::AlreadyTripped, w.on_frame(400, 5000));
-    }
-
-    #[test]
-    fn watchdog_default_thresholds_describe_a_12fps_floor() {
-        let w = RenderWatchdog::with_defaults();
-        assert!(!w.is_tripped());
-        assert_eq!(0, w.warmup_frames_left());
-    }
-
-    #[test]
-    fn watchdog_tolerates_zero_trip_threshold() {
-        // Defensive: a zero threshold would otherwise trip on the first slow frame forever.
-        let mut w = RenderWatchdog::new(80, 0, 0, 500);
-        assert_eq!(WatchdogVerdict::Trip, w.on_frame(120, 16));
-    }
-
-    #[test]
-    fn watchdog_does_not_trip_on_steady_playback() {
-        let mut w = watchdog();
-        settle(&mut w);
-        for _ in 0..1000 {
-            assert_ne!(WatchdogVerdict::Trip, w.on_frame(16, 16));
+    fn frame_counter_property_names_round_trip() {
+        for counter in FrameCounter::ALL {
+            assert_eq!(
+                Some(counter),
+                FrameCounter::from_property(counter.property()),
+                "{} must be recognised by the name it publishes",
+                counter.property()
+            );
         }
-        assert!(!w.is_tripped());
+        assert_eq!(None, FrameCounter::from_property("time-pos"));
+    }
+
+    #[test]
+    fn frame_health_reports_sustained_loss() {
+        let mut monitor = FrameHealthMonitor::new(1_000, 5);
+        assert_eq!(None, monitor.on_counter(FrameCounter::Late, 0, 0), "the first sample only opens the window");
+        assert_eq!(None, monitor.on_counter(FrameCounter::Late, 3, 500));
+        let report = monitor
+            .on_counter(FrameCounter::Late, 6, 1_000)
+            .expect("six late frames in one window is a report");
+        assert_eq!(6, report.late_frames);
+        assert_eq!(1_000, report.window_ms);
+    }
+
+    #[test]
+    fn frame_health_stays_quiet_below_the_threshold() {
+        let mut monitor = FrameHealthMonitor::new(1_000, 5);
+        monitor.on_counter(FrameCounter::Late, 0, 0);
+        assert_eq!(None, monitor.on_counter(FrameCounter::Late, 4, 1_000), "four is under the threshold");
+        assert_eq!(4, monitor.late_frames(), "the counter is still tracked even when nothing is reported");
+    }
+
+    #[test]
+    fn frame_health_counts_drops_from_both_sources_together() {
+        let mut monitor = FrameHealthMonitor::new(1_000, 3);
+        monitor.on_counter(FrameCounter::Dropped, 0, 0);
+        monitor.on_counter(FrameCounter::DecoderDropped, 0, 100);
+        let report = monitor
+            .on_counter(FrameCounter::DecoderDropped, 3, 1_000)
+            .expect("decoder drops are drops");
+        assert_eq!(3, report.dropped_frames);
+        assert_eq!(0, report.late_frames);
+        assert_eq!(0, report.skipped_frames);
+    }
+
+    #[test]
+    fn frame_health_ignores_frames_the_display_could_not_show() {
+        // A 75fps source on a 60Hz panel skips one frame in five: an expected cadence, not a fault,
+        // so the monitor must stay quiet about it.
+        let mut monitor = FrameHealthMonitor::new(1_000, 5);
+        monitor.on_counter(FrameCounter::Dropped, 0, 0);
+        assert_eq!(None, monitor.on_counter(FrameCounter::Dropped, 40, 1_000));
+        assert_eq!(40, monitor.skipped_frames());
+        assert_eq!(0, monitor.dropped_frames());
+    }
+
+    #[test]
+    fn frame_health_starts_a_fresh_window_after_a_report() {
+        let mut monitor = FrameHealthMonitor::new(1_000, 5);
+        monitor.on_counter(FrameCounter::Late, 0, 0);
+        assert!(monitor.on_counter(FrameCounter::Late, 8, 1_000).is_some());
+        assert_eq!(
+            None,
+            monitor.on_counter(FrameCounter::Late, 9, 2_000),
+            "one more late frame in the next window is not a new event"
+        );
+        assert_eq!(9, monitor.late_frames());
+    }
+
+    #[test]
+    fn frame_health_treats_a_counter_restart_as_a_new_baseline() {
+        let mut monitor = FrameHealthMonitor::new(1_000, 5);
+        monitor.on_counter(FrameCounter::Late, 0, 0);
+        monitor.on_counter(FrameCounter::Late, 40, 2_000);
+        assert_eq!(None, monitor.on_counter(FrameCounter::Late, 0, 2_100), "a new file resets the count");
+        assert_eq!(0, monitor.late_frames());
+        assert_eq!(None, monitor.on_counter(FrameCounter::Late, 0, 2_200), "the window restarts at the reset");
+        let report = monitor
+            .on_counter(FrameCounter::Late, 6, 3_200)
+            .expect("loss after the restart is reported normally");
+        assert_eq!(6, report.late_frames);
     }
 
     // ---------- ThreadAffinity ----------
@@ -726,42 +733,6 @@ mod tests {
         assert!(affinity.claim(2));
         assert_eq!(AffinityVerdict::Owner, affinity.check(2));
         assert_eq!(AffinityVerdict::Violation, affinity.check(1));
-    }
-
-    // ---------- DegradeState ----------
-
-    #[test]
-    fn degrade_without_a_handle_does_not_consume_the_single_attempt() {
-        let mut state = DegradeState::new();
-        assert!(!state.begin(false));
-        // The latch is still open, so the next frame with a live handle can still degrade.
-        assert!(state.begin(true));
-    }
-
-    #[test]
-    fn degrade_attempts_only_once() {
-        let mut state = DegradeState::new();
-        assert!(state.begin(true));
-        assert!(!state.begin(true));
-        assert!(!state.begin(true));
-    }
-
-    #[test]
-    fn degrade_reports_only_when_the_write_was_accepted() {
-        let mut state = DegradeState::new();
-        assert!(state.begin(true));
-        assert!(state.confirm(true));
-        assert!(state.is_applied());
-    }
-
-    #[test]
-    fn degrade_stays_silent_when_mpv_rejects_the_write() {
-        let mut state = DegradeState::new();
-        assert!(state.begin(true));
-        // A rejected write must not be announced as a degradation, and must not be retried.
-        assert!(!state.confirm(false));
-        assert!(!state.is_applied());
-        assert!(!state.begin(true));
     }
 
     // ---------- ContextRecovery ----------

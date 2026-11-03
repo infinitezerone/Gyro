@@ -2,7 +2,7 @@
 
 mod logic;
 
-use logic::{AckOutcome, AffinityVerdict, DegradeState, FrameCoalescer, ThreadAffinity, request_ack};
+use logic::{AckOutcome, AffinityVerdict, FrameCoalescer, ThreadAffinity, request_ack};
 // Only the Android render loop reacts to a lost context.
 #[cfg(target_os = "android")]
 use logic::{ContextRecovery, RecoveryVerdict};
@@ -13,9 +13,8 @@ use logic::{
     CONTEXT_CLIENT_VERSIONS, EGL_BAD_ALLOC, EGL_BAD_SURFACE, EGL_CONTEXT_LOST, EglConfigRequest,
     egl_config_attempts, egl_error_name,
 };
-// Render timing only exists in the Android render loop.
-#[cfg(target_os = "android")]
-use logic::{RenderWatchdog, WatchdogVerdict};
+// Frame-loss counters are mpv's own verdicts, sampled on the event thread on every platform.
+use logic::{FrameCounter, FrameHealthMonitor};
 use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::{jboolean, jdouble, jint, jlong, jobject, JNI_VERSION_1_6};
 use jni::{JNIEnv, JavaVM};
@@ -25,8 +24,6 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
-// Only the Android render loop measures frame timing.
-#[cfg(target_os = "android")]
 use std::time::Instant;
 
 // ---------- NDK 原生绑定 (EGL / Android Native Window) ----------
@@ -437,10 +434,11 @@ static G_ZERO_COPY_SAFE: AtomicBool = AtomicBool::new(true);
 static G_GPU_RENDERER: OnceLock<String> = OnceLock::new();
 static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 
-// ---------- 防御层 2：运行时帧看门狗 (Dynamic Render Watchdog) ----------
-// 判定逻辑见 logic::RenderWatchdog（宿主机可单测），此处只保留跨会话的降级闩锁
-static G_DEGRADE: Mutex<DegradeState> = Mutex::new(DegradeState::new());
-const MPV_EVENT_WATCHDOG_FALLBACK: jint = 1001;
+// ---------- 帧健康监测 (Frame Health) ----------
+// 判定逻辑见 logic::FrameHealthMonitor（宿主机可单测）；这里只负责把 mpv 的计数器喂给它。
+static G_FRAME_HEALTH: Mutex<FrameHealthMonitor> = Mutex::new(FrameHealthMonitor::with_defaults());
+/// Monotonic base for the monitor's windows; the first sample starts the clock.
+static G_HEALTH_CLOCK: OnceLock<Instant> = OnceLock::new();
 
 // ---------- 防御层 3：GL 上下文丢失重建 (Context Recovery) ----------
 // 判定逻辑同样在 logic::ContextRecovery（宿主机可单测）
@@ -596,65 +594,6 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLContext) {
 #[cfg(not(target_os = "android"))]
 unsafe fn probe_graphics_environment(_display: EGLDisplay, _ctx: EGLContext) {}
 
-/// Degrades hardware decoding to the copy path once the render watchdog decides the GPU is stuck.
-///
-/// `hwdec` is runtime-changeable, but `mpv_set_option_string` is only valid before
-/// `mpv_initialize` returns; afterwards the property API is the supported entry point. The return
-/// code is checked and the fallback event is only emitted when the change actually applied, so the
-/// UI can never announce a degradation that did not happen. `video-reload` is issued because a
-/// decoder change only takes effect when the video stream is reinitialised; without it the switch
-/// would silently wait for the next file to be opened.
-unsafe fn trigger_hwdec_fallback(api: &MpvApi) {
-    let handle = mpv_handle().ok();
-    // Whether this attempt is allowed at all is decided (and tested) in logic::DegradeState.
-    let may_attempt = match G_DEGRADE.lock() {
-        Ok(mut state) => state.begin(handle.is_some()),
-        Err(_) => false,
-    };
-    if !may_attempt {
-        return;
-    }
-    let Some(handle) = handle else { return };
-
-    let name = CString::new("hwdec").unwrap_or_default();
-    let value = CString::new("mediacodec-copy").unwrap_or_default();
-    let mut value_ptr: *const c_char = value.as_ptr();
-    let rc = (api.mpv_set_property)(
-        handle,
-        name.as_ptr(),
-        MPV_FORMAT_STRING,
-        std::ptr::from_mut(&mut value_ptr).cast::<c_void>(),
-    );
-    let applied = rc == MPV_ERROR_SUCCESS;
-
-    let should_notify = match G_DEGRADE.lock() {
-        Ok(mut state) => state.confirm(applied),
-        Err(_) => false,
-    };
-    if !applied {
-        nlog(&format!(
-            "WATCHDOG: hwdec degrade rejected rc={rc}, keeping the current decoder and reporting nothing"
-        ));
-        return;
-    }
-
-    let args = vec![CString::new("video-reload").unwrap_or_default()];
-    let mut arg_ptrs: Vec<*mut c_char> = args.iter().map(|a| a.as_ptr() as *mut c_char).collect();
-    arg_ptrs.push(std::ptr::null_mut());
-    let reload_rc = (api.mpv_command)(handle, arg_ptrs.as_mut_ptr());
-    if reload_rc == MPV_ERROR_SUCCESS {
-        nlog("WATCHDOG: hwdec degraded to mediacodec-copy, video stream reloaded");
-    } else {
-        nlog(&format!(
-            "WATCHDOG: hwdec set but video-reload failed rc={reload_rc}, takes effect on next file"
-        ));
-    }
-
-    if should_notify {
-        notify_fallback_event();
-    }
-}
-
 /// Runs one mpv command and returns its status code, or `None` when mpv could not be reached at all.
 fn run_mpv_command(args: &[&str]) -> Option<c_int> {
     with_api(|api| {
@@ -668,12 +607,25 @@ fn run_mpv_command(args: &[&str]) -> Option<c_int> {
     .flatten()
 }
 
-/// Re-issues `video-reload` so a decoder change takes effect on the running file.
+/// Feeds one of mpv's frame counters into the monitor and logs a sustained loss.
 ///
-/// Returns false when the command was rejected; the caller logs that itself.
-#[allow(dead_code)]
-fn reload_video() -> bool {
-    run_mpv_command(&["video-reload"]) == Some(MPV_ERROR_SUCCESS)
+/// mpv does the deadline arithmetic itself, so this never guesses from how long one draw call took.
+/// These properties are diagnostics with no Java consumer: they are answered here and never cross
+/// the JNI boundary.
+fn record_frame_counter(counter: FrameCounter, total: i64) {
+    let now_ms = G_HEALTH_CLOCK.get_or_init(Instant::now).elapsed().as_millis();
+    let Ok(mut monitor) = G_FRAME_HEALTH.lock() else { return };
+    let Some(report) = monitor.on_counter(counter, total, now_ms) else { return };
+    nlog(&format!(
+        "HEALTH: 过去 {}s 迟到 {} 帧、解码器丢弃 {} 帧（跟不上音画同步）；显示跳过 {} 帧。累计 迟到={} 解码丢帧={} 显示跳过={}",
+        report.window_ms / 1000,
+        report.late_frames,
+        report.dropped_frames,
+        report.skipped_frames,
+        monitor.late_frames(),
+        monitor.dropped_frames(),
+        monitor.skipped_frames()
+    ));
 }
 
 /// Makes mpv rebuild its video output against whatever render context is current now.
@@ -693,21 +645,6 @@ fn rearm_video_output() -> bool {
         nlog(&format!("EGL: 重新启用视频轨失败 rc={restored:?}"));
     }
     restored == Some(MPV_ERROR_SUCCESS)
-}
-
-/// Tells the UI that the pipeline degraded.
-///
-/// The JavaVM attach is cached per thread by the JNI layer, so this is cheap, but it still means a
-/// JNI call from the render thread - the only one on the steady path, and it fires once per session.
-#[allow(dead_code)]
-fn notify_fallback_event() {
-    if let Some(VmPtr(vm_ptr)) = G_VM.get() {
-        if let Ok(vm) = unsafe { JavaVM::from_raw(vm_ptr.cast()) } {
-            if let Ok(mut env) = vm.attach_current_thread() {
-                call_static(&mut env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_WATCHDOG_FALLBACK)]);
-            }
-        }
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1386,9 +1323,6 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
         let mut slot = SurfaceSlot::new(display, chosen.config);
         let mut mpv_render_ctx: *mut c_void = std::ptr::null_mut();
 
-        // Render-thread-owned state: both types are plain data, so no locking is involved.
-        let mut watchdog = RenderWatchdog::with_defaults();
-        let mut last_frame_at: Option<Instant> = None;
 
         while let Ok(cmd) = receiver.recv() {
             match cmd {
@@ -1420,7 +1354,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                             // calling load only needs the render context to exist, so painting runs
                             // after the acknowledgement instead of inside surfaceCreated's wait.
                             if slot.is_ready() {
-                                draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                                draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);
                             }
                         }
                         Err(err) => {
@@ -1448,14 +1382,14 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     nlog("EGL: 收到 Redraw 命令");
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
                         slot.sync_geometry(core.context, core.context_major);
-                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true, &mut watchdog, &mut last_frame_at);
+                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);
                     }
                 }
                 RenderCommand::NotifyFrame => {
                     G_FRAME_GATE.release();
                     if slot.is_ready() {
                         ensure_render_context(&mut mpv_render_ctx);
-                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, false, &mut watchdog, &mut last_frame_at);
+                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, false);
                     }
                 }
                 RenderCommand::DestroyContext(ack) => {
@@ -1519,8 +1453,6 @@ unsafe fn draw_frame_native(
     surface: EGLSurface,
     ctx: *mut c_void,
     force: bool,
-    watchdog: &mut RenderWatchdog,
-    last_frame_at: &mut Option<Instant>,
 ) -> DrawOutcome {
     if ctx.is_null() || surface == EGL_NO_SURFACE {
         return DrawOutcome::Skipped;
@@ -1565,14 +1497,6 @@ unsafe fn draw_frame_native(
             MpvRenderParam { param_type: 0, data: std::ptr::null_mut() },
         ];
 
-        // A frame that follows a long silence is a resume, a seek or the first frame of a load, so
-        // its cost must not be judged as steady-state playback.
-        let now = Instant::now();
-        let gap_ms = last_frame_at
-            .map(|prev| now.duration_since(prev).as_millis())
-            .unwrap_or(u128::MAX);
-        *last_frame_at = Some(now);
-
         let render_start = Instant::now();
         (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
         let swap_rc = eglSwapBuffers(display, surface);
@@ -1607,14 +1531,6 @@ unsafe fn draw_frame_native(
             };
         }
 
-        // Verdicts and thresholds live in logic::RenderWatchdog so they can be tested on the host.
-        if let WatchdogVerdict::Trip = watchdog.on_frame(elapsed.as_millis(), gap_ms) {
-            nlog(&format!(
-                "WATCHDOG: consecutive slow frames ({}ms), degrading hardware decoding",
-                elapsed.as_millis()
-            ));
-            trigger_hwdec_fallback(api);
-        }
         DrawOutcome::Presented
     })
     .unwrap_or(DrawOutcome::Skipped)
@@ -1742,8 +1658,6 @@ unsafe fn draw_and_recover(
     slot: &mut SurfaceSlot,
     mpv_render_ctx: &mut *mut c_void,
     force: bool,
-    watchdog: &mut RenderWatchdog,
-    last_frame_at: &mut Option<Instant>,
 ) {
     if !slot.is_ready() || mpv_render_ctx.is_null() {
         return;
@@ -1757,8 +1671,6 @@ unsafe fn draw_and_recover(
         slot.surface(),
         *mpv_render_ctx,
         force,
-        watchdog,
-        last_frame_at,
     );
     if outcome != DrawOutcome::ContextLost {
         return;
@@ -1766,17 +1678,7 @@ unsafe fn draw_and_recover(
 
     nlog("EGL: eglSwapBuffers 报告上下文丢失，开始重建管线");
     if recover_gl_context(core, slot, mpv_render_ctx) {
-        // The rebuild itself takes longer than a frame, so the fresh watchdog must not count it as
-        // evidence that the GPU is slow.
-        *watchdog = RenderWatchdog::with_defaults();
-        draw_frame_native(
-            core.display,
-            slot.surface(),
-            *mpv_render_ctx,
-            true,
-            watchdog,
-            last_frame_at,
-        );
+        draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, true);
     }
 }
 
@@ -1882,6 +1784,15 @@ struct MpvEventLogMessage {
 }
 
 fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_void) {
+    // The frame counters are consumed here; Java has no use for them.
+    if let Some(counter) = FrameCounter::from_property(name) {
+        if format == MPV_FORMAT_INT64 && !data.is_null() {
+            let total = unsafe { *(data as *const i64) };
+            record_frame_counter(counter, total);
+        }
+        return;
+    }
+
     let Ok(jname) = env.new_string(name) else { return };
     if data.is_null() {
         call_static(env, "onPropertyNone", "(Ljava/lang/String;)V", &[JValue::Object(&jname)]);
@@ -2124,6 +2035,16 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_init(
         }
         let log_level = CString::new("info").unwrap_or_default();
         (api.mpv_request_log_messages)(handle, log_level.as_ptr());
+        // Subscribe to mpv's own frame-loss counters. They are handled natively, see
+        // `dispatch_property`, and they are the only honest signal this pipeline has for "frames
+        // stopped keeping up": a render-duration threshold cannot tell a slow GPU from a frame that
+        // simply arrived early relative to its deadline.
+        for counter in FrameCounter::ALL {
+            if let Ok(name) = CString::new(counter.property()) {
+                (api.mpv_observe_property)(handle, 0, name.as_ptr(), MPV_FORMAT_INT64);
+            }
+        }
+        nlog("init: 已订阅 mpv 帧丢失计数");
         G_EVENT_THREAD_EXIT.store(false, Ordering::Release);
         if let Ok(jh) = std::thread::Builder::new()
             .name("gyro-event".into())
