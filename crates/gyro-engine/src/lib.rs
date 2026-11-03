@@ -401,9 +401,13 @@ static G_FRAME_GATE: FrameCoalescer = FrameCoalescer::new();
 static G_FRAMES_DRAWN: AtomicU64 = AtomicU64::new(0);
 /// Frames skipped because mpv had nothing new, used to spot a stalled producer.
 static G_FRAMES_STARVED: AtomicU64 = AtomicU64::new(0);
+/// Set by the render thread when video output has to be re-armed; the event thread does the work.
+static G_REARM_VIDEO: AtomicBool = AtomicBool::new(false);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
 static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
+/// Mirror of the owning thread id, for the hot-path check in [`assert_render_thread`].
+static G_AFFINITY_OWNER: AtomicU64 = AtomicU64::new(0);
 static NEXT_LOGICAL_TID: AtomicU64 = AtomicU64::new(1);
 
 /// Lazily assigned per-thread id. `0` is reserved for "unowned".
@@ -419,11 +423,10 @@ fn logical_thread_id() -> u64 {
 #[inline]
 unsafe fn assert_render_thread(what: &str) {
     let tid = logical_thread_id();
-    let verdict = match G_AFFINITY.lock() {
-        Ok(affinity) => affinity.check(tid),
-        Err(_) => return,
-    };
-    if verdict == AffinityVerdict::Violation {
+    // The owner is mirrored into an atomic so this costs one relaxed load: it runs on every fence
+    // and every frame, and taking the affinity mutex there was the hot path this was meant to avoid.
+    let owner = G_AFFINITY_OWNER.load(Ordering::Relaxed);
+    if ThreadAffinity::verdict(owner, tid) == AffinityVerdict::Violation {
         nlog(&format!("FATAL: {what} 在非渲染线程被调用 (tid={tid})"));
         debug_assert!(false, "{what} called off the render thread");
     }
@@ -645,6 +648,20 @@ fn rearm_video_output() -> bool {
         nlog(&format!("EGL: 重新启用视频轨失败 rc={restored:?}"));
     }
     restored == Some(MPV_ERROR_SUCCESS)
+}
+
+/// Asks the event thread to re-arm video output instead of doing it on the render thread.
+///
+/// Re-selecting the video track is an ordinary libmpv call, and the render API allows only
+/// `mpv_render_*` (plus the calls it explicitly marks safe) on the render thread. Breaking that
+/// does not fail loudly: libmpv turns it into the "mpv_render_context_render() not being called or
+/// stuck" timeouts and degraded playback. So the render thread raises a flag and wakes the pump;
+/// `mpv_wakeup` is documented as safe from any thread.
+fn request_video_rearm() {
+    G_REARM_VIDEO.store(true, Ordering::Release);
+    if let Ok(handle) = unsafe { mpv_handle() } {
+        let _ = with_api(|api| unsafe { (api.mpv_wakeup)(handle) });
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1278,7 +1295,9 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
     unsafe {
         let owner_tid = logical_thread_id();
         if let Ok(mut affinity) = G_AFFINITY.lock() {
-            if !affinity.claim(owner_tid) {
+            if affinity.claim(owner_tid) {
+                G_AFFINITY_OWNER.store(owner_tid, Ordering::Release);
+            } else {
                 nlog("EGL: 上下文已归其他线程所有，当前渲染线程的声明被拒绝");
             }
         }
@@ -1395,23 +1414,16 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                 RenderCommand::DestroyContext(ack) => {
                     nlog("EGL: 收到 DestroyContext 请求，开始销毁 mpv_render_context");
                     if !mpv_render_ctx.is_null() {
-                        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(mpv_render_ctx));
-                        mpv_render_ctx = std::ptr::null_mut();
+                        free_render_context(core.display, core.context, &mut mpv_render_ctx);
                         nlog("EGL: mpv_render_context 已在渲染线程安全释放");
                     }
-                    // Fence objects belong to the GL context that is current on this thread only.
-                    // mpv releases the ones it still tracks, so anything left is a leak; deleting it
-                    // from the caller thread would be a GL call without a current context.
-                    drain_active_fences();
                     let _ = ack.send(());
                 }
                 RenderCommand::Shutdown => {
                     nlog("EGL: 渲染线程正在退出并清理资源");
-                    if !mpv_render_ctx.is_null() {
-                        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(mpv_render_ctx));
-                        // No assignment: the loop breaks right after, so a nulled local would never
-                        // be read. The render context is owned by the thread that is exiting.
-                    }
+                    // `mpv_render_context_free` is GL work: it must run while the context is
+                    // current, which `free_render_context` arranges with a headless target.
+                    free_render_context(core.display, core.context, &mut mpv_render_ctx);
                     // Tear the surface down while the context is still current.
                     slot.detach();
                     core.destroy();
@@ -1420,6 +1432,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     if let Ok(mut affinity) = G_AFFINITY.lock() {
                         affinity.release(owner_tid);
                     }
+                    G_AFFINITY_OWNER.store(0, Ordering::Release);
                     break;
                 }
             }
@@ -1444,6 +1457,31 @@ enum DrawOutcome {
     /// The driver dropped the EGL context; every later call on it is void, so the pipeline has to
     /// be rebuilt rather than retried.
     ContextLost,
+}
+
+/// Releases mpv's render state and the fences it left behind, with a context current.
+///
+/// The render API requires the GL context to be current "for all functions", and tearing the
+/// surface down unbinds it. Freeing the render context and deleting leftover fences are GL work, so
+/// they still need a target even though nothing is drawn into it - media3 keeps a 1x1 placeholder
+/// surface current for the same reason (`GlUtil.createFocusedPlaceholderEglSurface`). When no
+/// headless target can be bound at all the cleanup still runs: the alternative is leaking the
+/// context, and a driver that cannot bind a pbuffer has bigger problems.
+#[cfg(target_os = "android")]
+unsafe fn free_render_context(display: EGLDisplay, ctx: EGLContext, render_ctx: &mut *mut c_void) {
+    if render_ctx.is_null() {
+        return;
+    }
+    let headless = bind_probe_target(display, ctx);
+    if headless.is_none() {
+        nlog("EGL: 无法绑定无窗口上下文，仍尝试释放 render context");
+    }
+    with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(*render_ctx));
+    *render_ctx = std::ptr::null_mut();
+    drain_active_fences();
+    if let Some(target) = headless {
+        target.release(display);
+    }
 }
 
 // 原生帧绘制（在渲染线程内部执行，0 JNI 开销）
@@ -1498,14 +1536,17 @@ unsafe fn draw_frame_native(
         ];
 
         let render_start = Instant::now();
-        (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
+        let render_rc = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
         let swap_rc = eglSwapBuffers(display, surface);
         // Only a frame that actually reached the window is a flip. mpv's `flip_page` blocks on this
         // count for vsync pacing (`vo_libmpv` waits while `expected_flip_count > flip_count`), so
         // reporting before the swap both defeats that wait and, when the swap fails, books a present
         // that never happened. `mpv_render_context_report_swap` is documented as "the frame was
         // flipped".
-        if swap_rc == EGL_TRUE {
+        // A failed render leaves the framebuffer untouched, so the swap presents the previous
+        // frame; counting it as a flip would tell mpv that a frame it never drew reached the
+        // screen.
+        if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
         }
         let elapsed = render_start.elapsed();
@@ -1588,7 +1629,7 @@ unsafe fn revive_dead_pipeline(core: &mut EglCore, mpv_render_ctx: &mut *mut c_v
 
     // The video output gave up on this file when it found no render context, so it has to be
     // re-armed against the fresh one; `video-reload` cannot do that (see `rearm_video_output`).
-    rearm_video_output();
+    request_video_rearm();
     nlog("EGL: 管线已恢复，渲染重新启用");
     true
 }
@@ -1642,7 +1683,7 @@ unsafe fn recover_gl_context(
 
     // vo_libmpv only initialises video out while a render context exists (see the attach path), and
     // freeing the context tore the current one down, so video must be re-armed against the new one.
-    rearm_video_output();
+    request_video_rearm();
     nlog("EGL: 上下文管线已重建，恢复渲染");
     true
 }
@@ -1900,6 +1941,11 @@ fn event_thread() {
 
         let event = unsafe { wait_event(handle, 0.5) };
         if G_EVENT_THREAD_EXIT.load(Ordering::Acquire) { break; }
+        // A recovery on the render thread cannot touch libmpv itself; it wakes the pump instead.
+        if G_REARM_VIDEO.swap(false, Ordering::AcqRel) {
+            nlog("event_thread: 渲染线程请求重新启用视频输出");
+            rearm_video_output();
+        }
         if event.is_null() { continue; }
 
         unsafe {

@@ -374,18 +374,25 @@ impl ThreadAffinity {
         }
     }
 
-    pub fn check(&self, tid: u64) -> AffinityVerdict {
-        if self.owner == 0 {
+    /// The verdict for `caller` given the owning thread id.
+    ///
+    /// Split out from [`Self::check`] so the caller can keep the owner in an atomic and decide
+    /// without taking the lock that guards the state machine: the check runs on every frame and on
+    /// every fence mpv creates.
+    pub fn verdict(owner: u64, caller: u64) -> AffinityVerdict {
+        if owner == 0 {
             AffinityVerdict::Unowned
-        } else if self.owner == tid {
+        } else if owner == caller {
             AffinityVerdict::Owner
         } else {
             AffinityVerdict::Violation
         }
     }
 
-    pub fn is_owner(&self, tid: u64) -> bool {
-        self.owner != 0 && self.owner == tid
+    /// Convenience wrapper for tests and for callers that already hold the state.
+    #[allow(dead_code)]
+    pub fn check(&self, tid: u64) -> AffinityVerdict {
+        Self::verdict(self.owner, tid)
     }
 }
 
@@ -685,8 +692,9 @@ mod tests {
         assert!(affinity.claim(1));
         assert_eq!(AffinityVerdict::Owner, affinity.check(1));
         assert_eq!(AffinityVerdict::Violation, affinity.check(2));
-        assert!(affinity.is_owner(1));
-        assert!(!affinity.is_owner(2));
+        assert_eq!(AffinityVerdict::Owner, ThreadAffinity::verdict(1, 1));
+        assert_eq!(AffinityVerdict::Violation, ThreadAffinity::verdict(1, 2));
+        assert_eq!(AffinityVerdict::Unowned, ThreadAffinity::verdict(0, 2));
     }
 
     #[test]
