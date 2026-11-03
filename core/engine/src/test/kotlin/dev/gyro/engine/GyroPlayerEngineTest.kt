@@ -144,6 +144,53 @@ class GyroPlayerEngineTest {
     }
 
     @Test
+    fun testSeekTo_publishesTheTargetPositionImmediately() {
+        fakeBridge.emitFileLoaded()
+
+        engine.seekTo(5000L)
+
+        assertEquals(5000L, engine.timePosMs.value)
+        assertTrue(fakeBridge.hasCommand("seek", "5.0", "absolute"))
+    }
+
+    @Test
+    fun testSeekTo_ignoresStaleTimePosReportsUntilTheSeekLands() {
+        fakeBridge.emitFileLoaded()
+
+        engine.seekTo(5000L)
+        // mpv keeps reporting the old spot until the seek completes; publishing those makes every
+        // position consumer jump back for a beat.
+        fakeBridge.emitPropertyDouble("time-pos", 2.0)
+        assertEquals(5000L, engine.timePosMs.value)
+
+        // A report at the target: the seek landed.
+        fakeBridge.emitPropertyDouble("time-pos", 5.1)
+        assertEquals(5100L, engine.timePosMs.value)
+    }
+
+    @Test
+    fun testSeekRelative_targetsTheDisplayedPosition() {
+        fakeBridge.emitFileLoaded()
+        engine.seekTo(5000L)
+
+        engine.seekRelative(-3000L)
+
+        assertEquals(2000L, engine.timePosMs.value)
+    }
+
+    @Test
+    fun testLoad_clearsAnyPendingSeek() {
+        fakeBridge.emitFileLoaded()
+        engine.seekTo(5000L)
+        assertEquals(5000L, engine.timePosMs.value)
+
+        engine.load("file:///tmp/next.mp4")
+        fakeBridge.emitPropertyDouble("time-pos", 2.0)
+
+        assertEquals(2000L, engine.timePosMs.value)
+    }
+
+    @Test
     fun testRedraw_onlyDispatchesWhenSurfaceAttached() {
         assertEquals(0, fakeBridge.redrawCount)
         // 未 attach surface 时调用 redraw 不触发

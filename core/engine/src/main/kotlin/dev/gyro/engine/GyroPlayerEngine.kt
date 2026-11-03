@@ -2,6 +2,7 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Surface
@@ -38,6 +39,12 @@ class GyroPlayerEngine @JvmOverloads constructor(
 ) {
     companion object {
         private const val TAG = "GyroPlayerEngine"
+
+        /** mpv may land on a neighbouring keyframe, so "arrived" is not required to be exact. */
+        private const val SEEK_SETTLE_TOLERANCE_MS = 1500L
+
+        /** A seek that reports nothing within this window stops filtering reported positions. */
+        private const val SEEK_SETTLE_TIMEOUT_MS = 2500L
 
         /** Protected keys that user mpv.conf MUST NOT override to avoid crashing native pipeline */
         val PROTECTED_OPTION_KEYS: Set<String> = setOf(
@@ -98,6 +105,33 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     private val _timePosMs = MutableStateFlow(0L)
     val timePosMs: StateFlow<Long> = _timePosMs.asStateFlow()
+
+    /**
+     * Target of an in-flight seek, or null. While set, reported `time-pos` values that are not at
+     * the target are pre-seek leftovers: mpv keeps reporting the old spot until the seek lands, and
+     * publishing them makes every position consumer jump back for a beat. Positions at the target
+     * (or after the settle timeout) are accepted and the pending state clears.
+     */
+    private var pendingSeekTargetMs: Long? = null
+    private var pendingSeekIssuedElapsedMs = 0L
+
+    private fun beginPendingSeek(targetMs: Long) {
+        pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
+        pendingSeekIssuedElapsedMs = SystemClock.elapsedRealtime()
+        // The seeked position is the truth from the moment the user asks for it.
+        _timePosMs.value = pendingSeekTargetMs!!
+    }
+
+    /** Returns true when a reported position may be published. */
+    private fun acceptReportedPosition(positionMs: Long): Boolean {
+        val target = pendingSeekTargetMs ?: return true
+        val reached = kotlin.math.abs(positionMs - target) <= SEEK_SETTLE_TOLERANCE_MS
+        val stale = SystemClock.elapsedRealtime() - pendingSeekIssuedElapsedMs >= SEEK_SETTLE_TIMEOUT_MS
+        if (reached || stale) {
+            pendingSeekTargetMs = null
+        }
+        return pendingSeekTargetMs == null
+    }
 
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
@@ -306,7 +340,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
         override fun onPropertyDouble(name: String, value: Double) {
             when (name) {
                 "time-pos" -> {
-                    _timePosMs.value = (value * 1000.0).toLong().coerceAtLeast(0L)
+                    val positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+                    if (acceptReportedPosition(positionMs)) {
+                        _timePosMs.value = positionMs
+                    }
                 }
                 "duration" -> {
                     _durationMs.value = (value * 1000.0).toLong().coerceAtLeast(0L)
@@ -544,6 +581,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
         Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
         resetSoftwareGain()
         ensureInitialized()
+        // A new file invalidates any in-flight seek of the previous one.
+        pendingSeekTargetMs = null
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {
@@ -616,12 +655,17 @@ class GyroPlayerEngine @JvmOverloads constructor(
             pendingSeekMs = positionMs
             return
         }
+        beginPendingSeek(positionMs)
         val seconds = positionMs / 1000.0
         bridge.command(arrayOf("seek", "$seconds", "absolute"))
     }
 
     fun seekRelative(offsetMs: Long) {
         if (!fileLoaded) return
+        // Chained relative seeks build on the position currently displayed (which during a pending
+        // seek is the previous target), not on mpv's lagging report.
+        val targetMs = (_timePosMs.value + offsetMs).coerceAtLeast(0L)
+        beginPendingSeek(targetMs)
         val seconds = offsetMs / 1000.0
         bridge.command(arrayOf("seek", "$seconds", "relative"))
     }
@@ -954,6 +998,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
             return
         }
 
+        beginPendingSeek(chapterList[index].timeMs)
         bridge.setPropertyLong("chapter", index.toLong())
         _currentChapter.value = index
         Log.i(TAG, "seekToChapter: jumped to chapter $index (${chapterList[index].title})")
