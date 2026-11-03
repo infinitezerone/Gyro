@@ -175,22 +175,44 @@ const MPV_FORMAT_DOUBLE: c_int = 5;
 
 const MPV_EVENT_SHUTDOWN: c_int = 1;
 const MPV_EVENT_LOG_MESSAGE: c_int = 2;
+const MPV_EVENT_START_FILE: c_int = 6;
 const MPV_EVENT_FILE_LOADED: c_int = 8;
 const MPV_EVENT_END_FILE: c_int = 7;
 const MPV_EVENT_PLAYBACK_RESTART: c_int = 21;
 const MPV_EVENT_PROPERTY_CHANGE: c_int = 22;
+
+/// Java-side event id for "the first frame of the current file is on screen".
+///
+/// mpv's own ids stop well below 1000, so the app-defined range is free above it; the Kotlin side
+/// declares the same constant.
+const JAVA_EVENT_FIRST_FRAME: jint = 1002;
 
 const MPV_ERROR_SUCCESS: c_int = 0;
 const MPV_RENDER_PARAM_API_TYPE: c_int = 1;
 const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
 const MPV_RENDER_PARAM_OPENGL_FBO: c_int = 3;
 const MPV_RENDER_PARAM_FLIP_Y: c_int = 4;
+const MPV_RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
+
+/// `mpv_render_frame_info.flags` bit: the queued "frame" is a redraw, not a new picture.
+///
+/// render.h: "If set, the frame is not an actual new video frame, but a redraw request. For example
+/// if the video is paused, and an option that affects video rendering was changed (or any other
+/// reason)". Loading a file is such a reason: mpv redraws the previous file's last frame.
+const MPV_RENDER_FRAME_INFO_REDRAW: u64 = 1 << 1;
 const MPV_RENDER_UPDATE_FRAME: u64 = 1;
 
 #[repr(C)]
 struct MpvRenderParam {
     param_type: c_int,
     data: *mut c_void,
+}
+
+/// Layout of `mpv_render_frame_info` (render.h): `flags`, then the target display time.
+#[repr(C)]
+struct MpvRenderFrameInfo {
+    flags: u64,
+    target_time: i64,
 }
 
 #[repr(C)]
@@ -234,6 +256,7 @@ struct MpvApi {
     mpv_render_context_render: unsafe extern "C" fn(*mut c_void, *mut MpvRenderParam) -> c_int,
     mpv_render_context_report_swap: unsafe extern "C" fn(*mut c_void),
     mpv_render_context_update: unsafe extern "C" fn(*mut c_void) -> u64,
+    mpv_render_context_get_info: unsafe extern "C" fn(*mut c_void, MpvRenderParam) -> c_int,
     mpv_render_context_set_update_callback:
         unsafe extern "C" fn(*mut c_void, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void),
     mpv_render_context_free: unsafe extern "C" fn(*mut c_void),
@@ -300,6 +323,7 @@ fn cached_api() -> Result<&'static MpvApi, String> {
         mpv_render_context_render: sym!(lib, mpv_render_context_render, unsafe extern "C" fn(*mut c_void, *mut MpvRenderParam) -> c_int),
         mpv_render_context_report_swap: sym!(lib, mpv_render_context_report_swap, unsafe extern "C" fn(*mut c_void)),
         mpv_render_context_update: sym!(lib, mpv_render_context_update, unsafe extern "C" fn(*mut c_void) -> u64),
+        mpv_render_context_get_info: sym!(lib, mpv_render_context_get_info, unsafe extern "C" fn(*mut c_void, MpvRenderParam) -> c_int),
         mpv_render_context_set_update_callback: sym!(lib, mpv_render_context_set_update_callback, unsafe extern "C" fn(*mut c_void, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void)),
         mpv_render_context_free: sym!(lib, mpv_render_context_free, unsafe extern "C" fn(*mut c_void)),
         mpv_free: sym!(lib, mpv_free, unsafe extern "C" fn(*mut c_void)),
@@ -397,6 +421,13 @@ static G_FRAMES_STARVED: AtomicU64 = AtomicU64::new(0);
 static G_LAST_DRAW_MS: AtomicU64 = AtomicU64::new(0);
 /// Set by the render thread when video output has to be re-armed; the event thread does the work.
 static G_REARM_VIDEO: AtomicBool = AtomicBool::new(false);
+/// Set when a new file starts, cleared by the first frame that actually reaches the window.
+///
+/// The surface keeps the previous file's last buffer until mpv queues a new one, so this is the
+/// only moment the UI can tell "the picture on screen belongs to this file".
+static G_AWAITING_FIRST_FRAME: AtomicBool = AtomicBool::new(false);
+/// When `start-file` arrived, used only to report how long the switch hid the picture.
+static G_LOAD_STARTED_MS: AtomicU64 = AtomicU64::new(0);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
 static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
@@ -614,6 +645,25 @@ fn throttle_allows(name: &str) -> bool {
         Ok(mut throttle) => throttle.should_emit(now_ms),
         Err(_) => true,
     }
+}
+
+/// Tells the UI that the first frame of the current file reached the window.
+///
+/// Called from the render thread right after a successful swap, at most once per `loadfile`, so the
+/// cost of attaching the thread is invisible next to the swap that just happened. This is the signal
+/// that lets the UI drop the cover which hides the previous video's last frame.
+fn signal_first_frame() {
+    if !G_AWAITING_FIRST_FRAME.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    let waited_ms =
+        (monotonic_ms() as u64).saturating_sub(G_LOAD_STARTED_MS.load(Ordering::Relaxed));
+    nlog(&format!("RENDER: 首帧已上屏（start-file 之后 {waited_ms}ms）"));
+
+    let Some(VmPtr(vm_ptr)) = G_VM.get() else { return };
+    let Ok(vm) = (unsafe { JavaVM::from_raw(vm_ptr.cast()) }) else { return };
+    let Ok(mut guard) = vm.attach_current_thread() else { return };
+    call_static(&mut guard, "onEvent", "(I)V", &[JValue::Int(JAVA_EVENT_FIRST_FRAME)]);
 }
 
 /// Runs one mpv command and returns its status code, or `None` when mpv could not be reached at all.
@@ -1483,6 +1533,25 @@ unsafe fn draw_frame_native(
             }
         }
 
+        // A swap can carry the previous file's last frame: after `loadfile`, mpv answers the redraw
+        // requests it receives (the title OSD, the video reconfig) by re-rendering that frame, and
+        // the swap succeeds without a single new pixel. render.h exposes exactly this distinction,
+        // so ask for it while a cover is waiting and never release the cover on a redraw.
+        let mut is_redraw = false;
+        if G_AWAITING_FIRST_FRAME.load(Ordering::Acquire) {
+            let mut info = MpvRenderFrameInfo { flags: 0, target_time: 0 };
+            let param = MpvRenderParam {
+                param_type: MPV_RENDER_PARAM_NEXT_FRAME_INFO,
+                data: &mut info as *mut MpvRenderFrameInfo as *mut c_void,
+            };
+            if (api.mpv_render_context_get_info)(ctx, param) == MPV_ERROR_SUCCESS {
+                is_redraw = info.flags & MPV_RENDER_FRAME_INFO_REDRAW != 0;
+                if is_redraw {
+                    nlog("RENDER: 换片中的重绘帧（内容仍是上一部），继续等待首帧");
+                }
+            }
+        }
+
         // Read from EGL every frame, deliberately not from a cache: `surfaceChanged` is a UI-thread
         // callback and it lands tens of milliseconds late while a PiP transition has the main thread
         // busy, so a cached size renders into a buffer that already changed - the picture is scaled
@@ -1533,6 +1602,13 @@ unsafe fn draw_frame_native(
         // screen.
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
+            // The UI covers the surface while a file is being opened, because the window keeps
+            // showing the previous video until this exact moment. Telling it here - after the swap,
+            // and only for a frame that is not a redraw - keeps the cover up until there is
+            // actually a new picture behind it.
+            if !is_redraw {
+                signal_first_frame();
+            }
         }
         let elapsed = render_start.elapsed();
 
@@ -1973,6 +2049,13 @@ fn event_thread() {
                     HANDLE_VALID.store(false, Ordering::Release);
                     call_static(env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_SHUTDOWN)]);
                     break;
+                }
+                MPV_EVENT_START_FILE => {
+                    // A new file has been accepted. Until a frame from it reaches the window the
+                    // surface still shows the previous video's last buffer, so record when the wait
+                    // began; `signal_first_frame` reports the other end of it.
+                    G_LOAD_STARTED_MS.store(monotonic_ms() as u64, Ordering::Relaxed);
+                    G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
                 }
                 MPV_EVENT_FILE_LOADED => {
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");

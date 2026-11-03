@@ -1,19 +1,24 @@
 package dev.gyro.engine.ui
 
 import android.content.Context
+import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.gyro.engine.GyroNative
 import dev.gyro.engine.GyroPlayerEngine
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.abs
 
 /** A buffer only counts as a different aspect when it is off by more than integer rounding in a 16:9 box. */
@@ -69,6 +74,9 @@ class GyroSurfaceView @JvmOverloads constructor(
             lockBufferSize(holder, pendingWidth, pendingHeight)
         }
     }
+
+    /** Frame rate of the content on screen, 0 when the system should pick. */
+    private var contentFrameRate = 0f
 
     /** Surface whose window the engine currently holds, for the ownership check in `surfaceDestroyed`. */
     private var attachedSurface: Surface? = null
@@ -138,6 +146,31 @@ class GyroSurfaceView @JvmOverloads constructor(
         return w.toLong() * h > lockedWidth.toLong() * lockedHeight
     }
 
+    /**
+     * Tells the platform how fast the video runs, so it can composite at a matching rate.
+     *
+     * Without this the surface is composited at the default rate and high-frame-rate content is
+     * decimated with an irregular cadence - measured 60.2fps out of a 75fps file on a 90Hz panel,
+     * which is what reads as smearing in motion. Same call media3's `MediaCodecVideoRenderer` makes
+     * on API 30+.
+     */
+    fun applyContentFrameRate(fps: Float) {
+        contentFrameRate = fps
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val surface = attachedSurface ?: holder.surface ?: return
+        if (!surface.isValid) return
+        val requested = if (fps > 1f && fps < 1000f) fps else 0f
+        runCatching {
+            // DEFAULT, not FIXED_SOURCE: the latter asks for a mode that is an exact multiple of
+            // the content rate, and no panel mode is an exact multiple of 75 or 93, so the platform
+            // gives up and composites at 60 - a third of every high-frame-rate file is dropped with
+            // an uneven cadence. DEFAULT lets it pick the closest mode (90 on this panel).
+            surface.setFrameRate(requested, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+            Log.i(TAG, "setFrameRate: $requested")
+        }.onFailure { Log.w(TAG, "setFrameRate($requested) failed: ${it.message}") }
+    }
+
+
     private fun lockBufferSize(holder: SurfaceHolder, w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
         lockedWidth = w
@@ -151,6 +184,9 @@ class GyroSurfaceView @JvmOverloads constructor(
     private fun attach(surface: Surface?) {
         if (surface == null || !surface.isValid) return
         attachedSurface = surface
+        // A fresh surface starts at the platform default rate; re-apply the content rate that
+        // was published before it existed.
+        applyContentFrameRate(contentFrameRate)
         if (engine != null) {
             engine?.attachSurface(surface)
         } else {
@@ -222,6 +258,9 @@ fun GyroPlayerSurface(
             surfaceView.engine?.detachSurface() ?: GyroNative.detachSurface()
         }
     }
+
+    val frameRate by (engine?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
+    LaunchedEffect(frameRate) { surfaceView.applyContentFrameRate(frameRate) }
 
     AndroidView(
         factory = { surfaceView },

@@ -169,6 +169,26 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _hwdecCurrent = MutableStateFlow("")
     val hwdecCurrent: StateFlow<String> = _hwdecCurrent.asStateFlow()
 
+    /**
+     * True once the first frame of the current file has been presented.
+     *
+     * The window keeps showing the previous file's last buffer until then - the surface owns
+     * that buffer, mpv cannot take it back - so the player puts a cover over the surface while
+     * this is false and fades it out here.
+     */
+    private val _firstFrameRendered = MutableStateFlow(false)
+    val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
+
+    /**
+     * Frame rate of the current file, 0 when unknown.
+     *
+     * The player hands this to the platform via `Surface.setFrameRate`. Without it the system
+     * composites the surface at its default rate, so a 75 or 90fps file is decimated to 60 with an
+     * irregular cadence - which reads as smearing, not as dropped frames.
+     */
+    private val _videoFrameRate = MutableStateFlow(0f)
+    val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
+
     private val _speed = MutableStateFlow(1.0f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
 
@@ -238,6 +258,12 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val nativeListener = object : MpvNativeBridge.EventListener {
         override fun onEvent(eventId: Int) {
             when (eventId) {
+                MpvNativeBridge.Event.FIRST_FRAME -> {
+                    _firstFrameRendered.value = true
+                    // The reported position is the cheapest proof that the frame behind the cover is
+                    // the new file: a redraw of the previous file still reports that file's position.
+                    Log.i(TAG, "First frame presented at ${_timePosMs.value}ms, releasing the cover")
+                }
                 MpvNativeBridge.Event.FILE_LOADED -> {
                     fileLoaded = true
                     val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
@@ -258,7 +284,17 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     // build, so the dimensions stayed at zero and every consumer silently fell back
                     // to track-list data or to 16:9.
                     publishVideoDimensions()
+                    bridge.getDouble("container-fps")?.let { fps ->
+                        // Guard against the placeholder values mpv reports for some streams.
+                        if (fps > 1.0 && fps < 1000.0) _videoFrameRate.value = fps.toFloat()
+                    }
                     refreshTracks()
+                    // An audio-only file never presents a frame, so waiting for the first-frame
+                    // signal would hold the cover until the UI timeout. There is no picture to hold
+                    // back in that case.
+                    if (bridge.getPropertyString("video") == "no") {
+                        _firstFrameRendered.value = true
+                    }
                     refreshChapters()
                     Log.i(TAG, "File loaded, active hwdec=$hwdec")
 
@@ -587,6 +623,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
         ensureInitialized()
         // A new file invalidates any in-flight seek of the previous one.
         pendingSeekTargetMs = null
+        // Until mpv presents a frame from the new file the surface still holds the old one.
+        _firstFrameRendered.value = false
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {

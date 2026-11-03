@@ -110,5 +110,12 @@ internal object GyroNative {
         const val TRACKS_CHANGED: Int = 10
         const val PLAYBACK_RESTART: Int = 21
         const val PROPERTY_CHANGE: Int = 22
+
+        /**
+         * Emitted from the render thread once the first frame of a newly loaded file has
+         * been presented. The surface keeps the previous file's last buffer until then, so
+         * this is what lets the UI drop the cover over it.
+         */
+        const val FIRST_FRAME: Int = 1002
     }
 }

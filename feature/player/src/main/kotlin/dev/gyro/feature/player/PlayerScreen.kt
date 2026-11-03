@@ -12,6 +12,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -533,6 +535,31 @@ fun PlayerScreen(
         Modifier
     }
 
+    // The surface keeps the last buffer that was queued to it, so a freshly loaded file shows the
+    // previous video until mpv presents its first frame - 290ms for a local 1080p file, seconds for
+    // a remote one. Cover it while that is true. The surface is composited behind the window, so
+    // an ordinary Composable sits on top of it; this is the same role as ExoPlayer's shutter.
+    val firstFrameRendered by engine.firstFrameRendered.collectAsState()
+    // A signal that never arrives must not leave a permanent black screen: the timeout covers a
+    // slow open and recovers on its own if the native side ever stops reporting.
+    var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
+    LaunchedEffect(activeUri, firstFrameRendered) {
+        if (firstFrameRendered) {
+            shutterTimedOut = false
+            return@LaunchedEffect
+        }
+        delay(4_000L)
+        if (!engine.firstFrameRendered.value) shutterTimedOut = true
+    }
+    val shutterTarget = if (
+        !isPipLayout && playbackState != PlaybackState.IDLE && !firstFrameRendered && !shutterTimedOut
+    ) 1f else 0f
+    val shutterAlpha by animateFloatAsState(
+        targetValue = shutterTarget,
+        animationSpec = tween(durationMillis = 160),
+        label = "shutter",
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -555,6 +582,15 @@ fun PlayerScreen(
                 },
             engine = engine
         )
+
+        // A2. Shutter over the file-switch window.
+        if (shutterAlpha > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = shutterAlpha))
+            )
+        }
 
         // B. Gesture Interaction Layer (Under HUD and Controls Overlay)
         Box(
