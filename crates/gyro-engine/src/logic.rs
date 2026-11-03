@@ -396,6 +396,48 @@ impl ThreadAffinity {
     }
 }
 
+/// Lets at most one sample through per interval.
+///
+/// mpv publishes `time-pos` once per produced frame, so at 60fps the progress value crosses JNI and
+/// recomposes the UI sixty times a second to move a bar nobody can see move that fast. The sample
+/// that does get through is always the newest one, so the only cost is up to `interval_ms` of
+/// staleness - below the point where a scrub bar reads as laggy.
+#[derive(Debug)]
+pub struct SampleThrottle {
+    interval_ms: u128,
+    last_emit_ms: Option<u128>,
+}
+
+impl SampleThrottle {
+    pub const fn new(interval_ms: u128) -> Self {
+        Self { interval_ms, last_emit_ms: None }
+    }
+
+    /// 100ms is ten updates a second: faster than the eye needs for a progress bar, slower than the
+    /// frame rate by an order of magnitude.
+    pub const fn with_defaults() -> Self {
+        Self::new(100)
+    }
+
+    /// Returns true when the sample may be forwarded to the UI.
+    pub fn should_emit(&mut self, now_ms: u128) -> bool {
+        match self.last_emit_ms {
+            // A clock that went backwards means the baseline was lost; emit rather than stay silent.
+            Some(last) if now_ms >= last && now_ms - last < self.interval_ms => false,
+            _ => {
+                self.last_emit_ms = Some(now_ms);
+                true
+            }
+        }
+    }
+}
+
+impl Default for SampleThrottle {
+    fn default() -> Self {
+        Self::with_defaults()
+    }
+}
+
 // ---------- EGL bootstrap ----------
 
 /// EGL error codes this pipeline names in its logs.
@@ -856,6 +898,47 @@ mod tests {
 
         assert_eq!(AckOutcome::Acknowledged, caller.join().expect("caller"));
         drop(thread);
+    }
+
+    // ---------- SampleThrottle ----------
+
+    #[test]
+    fn throttle_lets_the_first_sample_through() {
+        let mut throttle = SampleThrottle::new(100);
+        assert!(throttle.should_emit(0));
+    }
+
+    #[test]
+    fn throttle_drops_samples_inside_the_interval() {
+        let mut throttle = SampleThrottle::new(100);
+        assert!(throttle.should_emit(0));
+        assert!(!throttle.should_emit(1));
+        assert!(!throttle.should_emit(99));
+    }
+
+    #[test]
+    fn throttle_reopens_after_the_interval() {
+        let mut throttle = SampleThrottle::new(100);
+        assert!(throttle.should_emit(0));
+        assert!(throttle.should_emit(100));
+        assert!(!throttle.should_emit(150));
+        assert!(throttle.should_emit(200));
+    }
+
+    #[test]
+    fn throttle_emits_when_the_clock_goes_backwards() {
+        let mut throttle = SampleThrottle::new(100);
+        assert!(throttle.should_emit(1_000));
+        assert!(!throttle.should_emit(1_050));
+        assert!(throttle.should_emit(10), "a rewound clock must not silence the value forever");
+    }
+
+    #[test]
+    fn throttle_default_matches_the_progress_bar_budget() {
+        let mut throttle = SampleThrottle::with_defaults();
+        assert!(throttle.should_emit(0));
+        assert!(!throttle.should_emit(60), "sixty times a second is what this exists to stop");
+        assert!(throttle.should_emit(100));
     }
 
     // ---------- EGL bootstrap ----------

@@ -2,7 +2,7 @@
 
 mod logic;
 
-use logic::{AckOutcome, AffinityVerdict, FrameCoalescer, ThreadAffinity, request_ack};
+use logic::{AckOutcome, AffinityVerdict, FrameCoalescer, SampleThrottle, ThreadAffinity, request_ack};
 // Only the Android render loop reacts to a lost context.
 #[cfg(target_os = "android")]
 use logic::{ContextRecovery, RecoveryVerdict};
@@ -440,8 +440,11 @@ static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 // ---------- 帧健康监测 (Frame Health) ----------
 // 判定逻辑见 logic::FrameHealthMonitor（宿主机可单测）；这里只负责把 mpv 的计数器喂给它。
 static G_FRAME_HEALTH: Mutex<FrameHealthMonitor> = Mutex::new(FrameHealthMonitor::with_defaults());
-/// Monotonic base for the monitor's windows; the first sample starts the clock.
-static G_HEALTH_CLOCK: OnceLock<Instant> = OnceLock::new();
+/// Monotonic base for every interval in here; the first user starts the clock.
+static G_MONOTONIC_BASE: OnceLock<Instant> = OnceLock::new();
+/// Progress values mpv republishes once per produced frame; see [`logic::SampleThrottle`].
+static G_TIME_POS_THROTTLE: Mutex<SampleThrottle> = Mutex::new(SampleThrottle::with_defaults());
+static G_CACHE_TIME_THROTTLE: Mutex<SampleThrottle> = Mutex::new(SampleThrottle::with_defaults());
 
 // ---------- 防御层 3：GL 上下文丢失重建 (Context Recovery) ----------
 // 判定逻辑同样在 logic::ContextRecovery（宿主机可单测）
@@ -597,6 +600,28 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLContext) {
 #[cfg(not(target_os = "android"))]
 unsafe fn probe_graphics_environment(_display: EGLDisplay, _ctx: EGLContext) {}
 
+fn monotonic_ms() -> u128 {
+    G_MONOTONIC_BASE.get_or_init(Instant::now).elapsed().as_millis()
+}
+
+/// Progress-like properties that mpv republishes on every produced frame.
+fn is_throttled_property(name: &str) -> bool {
+    matches!(name, "time-pos" | "demuxer-cache-time")
+}
+
+/// Returns true when this sample is the one that goes to the UI.
+fn throttle_allows(name: &str) -> bool {
+    let throttle = match name {
+        "time-pos" => &G_TIME_POS_THROTTLE,
+        _ => &G_CACHE_TIME_THROTTLE,
+    };
+    let now_ms = monotonic_ms();
+    match throttle.lock() {
+        Ok(mut throttle) => throttle.should_emit(now_ms),
+        Err(_) => true,
+    }
+}
+
 /// Runs one mpv command and returns its status code, or `None` when mpv could not be reached at all.
 fn run_mpv_command(args: &[&str]) -> Option<c_int> {
     with_api(|api| {
@@ -616,7 +641,7 @@ fn run_mpv_command(args: &[&str]) -> Option<c_int> {
 /// These properties are diagnostics with no Java consumer: they are answered here and never cross
 /// the JNI boundary.
 fn record_frame_counter(counter: FrameCounter, total: i64) {
-    let now_ms = G_HEALTH_CLOCK.get_or_init(Instant::now).elapsed().as_millis();
+    let now_ms = monotonic_ms();
     let Ok(mut monitor) = G_FRAME_HEALTH.lock() else { return };
     let Some(report) = monitor.on_counter(counter, total, now_ms) else { return };
     nlog(&format!(
@@ -1016,6 +1041,11 @@ struct SurfaceSlot {
     window: *mut ANativeWindow,
     surface: EGLSurface,
     visual_id: EGLint,
+    /// Size the current surface reports, cached when it is created. Asking the driver for it on
+    /// every frame is two calls for a value that only changes on a resize, which the Java layer
+    /// already reports through `surfaceChanged`.
+    surface_w: EGLint,
+    surface_h: EGLint,
 }
 
 #[cfg(target_os = "android")]
@@ -1027,6 +1057,8 @@ impl SurfaceSlot {
             window: std::ptr::null_mut(),
             surface: EGL_NO_SURFACE,
             visual_id: 0,
+            surface_w: 0,
+            surface_h: 0,
         }
     }
 
@@ -1036,6 +1068,24 @@ impl SurfaceSlot {
 
     fn is_ready(&self) -> bool {
         !self.surface.is_null() && self.surface != EGL_NO_SURFACE
+    }
+
+    /// Pixel size the frame should be rendered at, or `(0, 0)` when nothing is bound.
+    fn size(&self) -> (EGLint, EGLint) {
+        (self.surface_w, self.surface_h)
+    }
+
+    /// Re-reads the surface size from the driver. Only called when the surface is created, so the
+    /// frame loop never pays for it.
+    unsafe fn refresh_size(&mut self) {
+        let mut width: EGLint = 0;
+        let mut height: EGLint = 0;
+        if self.is_ready() {
+            eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut width);
+            eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut height);
+        }
+        self.surface_w = width;
+        self.surface_h = height;
     }
 
     /// Binds a new native window and makes its surface current.
@@ -1085,15 +1135,12 @@ impl SurfaceSlot {
         }
         let win_w = ANativeWindow_getWidth(self.window);
         let win_h = ANativeWindow_getHeight(self.window);
-        let mut surf_w: EGLint = 0;
-        let mut surf_h: EGLint = 0;
-        eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut surf_w);
-        eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut surf_h);
-        if win_w <= 0 || win_h <= 0 || (win_w == surf_w && win_h == surf_h) {
+        if win_w <= 0 || win_h <= 0 || (win_w == self.surface_w && win_h == self.surface_h) {
             return false;
         }
         nlog(&format!(
-            "EGL: 窗口尺寸 {win_w}x{win_h} 与 surface {surf_w}x{surf_h} 不一致，重建 surface"
+            "EGL: 窗口尺寸 {win_w}x{win_h} 与 surface {}x{} 不一致，重建 surface",
+            self.surface_w, self.surface_h
         ));
         ANativeWindow_setBuffersGeometry(self.window, 0, 0, self.visual_id);
         self.drop_surface();
@@ -1107,14 +1154,12 @@ impl SurfaceSlot {
             rebuilt = self.rebuild_surface(ctx, context_major).is_ok();
         }
         if rebuilt {
-            // Read back rather than trusting the request: this is the geometry mpv asks for on
-            // every frame, so it is also the answer to "what size is the picture actually rendered
+            // Read back rather than trusting the request: this is the geometry mpv is told to
+            // render at, so it is also the answer to "what size is the picture actually rendered
             // at", and a driver that ignores the resize shows up here instead of as a blurry PiP.
-            let mut new_w: EGLint = 0;
-            let mut new_h: EGLint = 0;
-            eglQuerySurface(self.display, self.surface, EGL_WIDTH, &mut new_w);
-            eglQuerySurface(self.display, self.surface, EGL_HEIGHT, &mut new_h);
-            nlog(&format!("EGL: surface 已按 {new_w}x{new_h} 重建"));
+            self.refresh_size();
+            let (width, height) = self.size();
+            nlog(&format!("EGL: surface 已按 {width}x{height} 重建"));
         }
         rebuilt
     }
@@ -1135,6 +1180,8 @@ impl SurfaceSlot {
                 egl_failure("eglDestroySurface");
             }
             self.surface = EGL_NO_SURFACE;
+            self.surface_w = 0;
+            self.surface_h = 0;
         }
     }
 
@@ -1170,6 +1217,7 @@ impl SurfaceSlot {
             return Err(err);
         }
         bind_default_framebuffer(context_major);
+        self.refresh_size();
 
         // Without vsync the render thread free-spins and tears.
         if eglSwapInterval(self.display, 1) != EGL_TRUE {
@@ -1490,6 +1538,7 @@ unsafe fn draw_frame_native(
     display: EGLDisplay,
     surface: EGLSurface,
     ctx: *mut c_void,
+    size: (EGLint, EGLint),
     force: bool,
 ) -> DrawOutcome {
     if ctx.is_null() || surface == EGL_NO_SURFACE {
@@ -1514,10 +1563,9 @@ unsafe fn draw_frame_native(
             }
         }
 
-        let mut w: EGLint = 0;
-        let mut h: EGLint = 0;
-        eglQuerySurface(display, surface, EGL_WIDTH, &mut w);
-        eglQuerySurface(display, surface, EGL_HEIGHT, &mut h);
+        // Cached when the surface was created: the driver was asked once per resize instead of
+        // twice per frame.
+        let (w, h) = size;
         if w <= 0 || h <= 0 {
             return DrawOutcome::Skipped;
         }
@@ -1550,6 +1598,21 @@ unsafe fn draw_frame_native(
             (api.mpv_render_context_report_swap)(ctx);
         }
         let elapsed = render_start.elapsed();
+
+        if swap_rc != EGL_TRUE {
+            let err = eglGetError();
+            nlog(&format!("RENDER: eglSwapBuffers 失败 rc={swap_rc} error={}(0x{err:X})", egl_error_name(err)));
+            // A lost context is not a decoding problem, so switching the decoder cannot help; the
+            // caller has to rebuild the pipeline instead.
+            return if err == EGL_CONTEXT_LOST {
+                DrawOutcome::ContextLost
+            } else {
+                DrawOutcome::Skipped
+            };
+        }
+
+        // Counted here, not before the swap: a frame that failed to reach the window is not a
+        // presented frame, and counting it made the log claim a frame rate the screen never saw.
         let presented = G_FRAMES_DRAWN.fetch_add(1, Ordering::Relaxed) + 1;
         if presented <= 3 || presented % 300 == 0 {
             nlog(&format!(
@@ -1558,18 +1621,6 @@ unsafe fn draw_frame_native(
                 elapsed.as_millis(),
                 G_FRAMES_STARVED.load(Ordering::Relaxed)
             ));
-        }
-
-        if swap_rc != EGL_TRUE {
-            let err = eglGetError();
-            nlog(&format!("WATCHDOG: eglSwapBuffers 失败 rc={swap_rc} error=0x{err:X}"));
-            // A lost context is not a decoding problem, so switching the decoder cannot help; the
-            // caller has to rebuild the pipeline instead.
-            return if err == EGL_CONTEXT_LOST {
-                DrawOutcome::ContextLost
-            } else {
-                DrawOutcome::Skipped
-            };
         }
 
         DrawOutcome::Presented
@@ -1711,6 +1762,7 @@ unsafe fn draw_and_recover(
         core.display,
         slot.surface(),
         *mpv_render_ctx,
+        slot.size(),
         force,
     );
     if outcome != DrawOutcome::ContextLost {
@@ -1719,7 +1771,7 @@ unsafe fn draw_and_recover(
 
     nlog("EGL: eglSwapBuffers 报告上下文丢失，开始重建管线");
     if recover_gl_context(core, slot, mpv_render_ctx) {
-        draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, true);
+        draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, slot.size(), true);
     }
 }
 
@@ -1825,12 +1877,16 @@ struct MpvEventLogMessage {
 }
 
 fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_void) {
-    // The frame counters are consumed here; Java has no use for them.
+    // The frame counters feed the native monitor, but `frame-drop-count` also feeds a UI counter,
+    // so they still fall through to Java rather than being answered here.
     if let Some(counter) = FrameCounter::from_property(name) {
         if format == MPV_FORMAT_INT64 && !data.is_null() {
-            let total = unsafe { *(data as *const i64) };
-            record_frame_counter(counter, total);
+            record_frame_counter(counter, unsafe { *(data as *const i64) });
         }
+    }
+    // The progress properties arrive once per frame. Ten updates a second is more than a scrub bar
+    // needs and an order of magnitude less JNI and recomposition than every produced frame.
+    if is_throttled_property(name) && !throttle_allows(name) {
         return;
     }
 
