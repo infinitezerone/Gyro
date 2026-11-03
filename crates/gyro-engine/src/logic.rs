@@ -372,6 +372,149 @@ impl ThreadAffinity {
     }
 }
 
+// ---------- EGL bootstrap ----------
+
+/// EGL error codes this pipeline names in its logs.
+///
+/// The numeric values live here rather than next to the FFI declarations so the table that turns
+/// them into names can be exercised on the host, and so `lib.rs` has exactly one source for the two
+/// codes it branches on.
+pub const EGL_SUCCESS: i32 = 0x3000;
+pub const EGL_NOT_INITIALIZED: i32 = 0x3001;
+pub const EGL_BAD_ALLOC: i32 = 0x3003;
+pub const EGL_BAD_ATTRIBUTE: i32 = 0x3004;
+pub const EGL_BAD_CONFIG: i32 = 0x3005;
+pub const EGL_BAD_CONTEXT: i32 = 0x3006;
+pub const EGL_BAD_DISPLAY: i32 = 0x3008;
+pub const EGL_BAD_MATCH: i32 = 0x3009;
+pub const EGL_BAD_NATIVE_WINDOW: i32 = 0x300B;
+pub const EGL_BAD_PARAMETER: i32 = 0x300C;
+pub const EGL_BAD_SURFACE: i32 = 0x300D;
+pub const EGL_CONTEXT_LOST: i32 = 0x300E;
+
+/// Turns an `eglGetError` code into the name the Khronos spec uses.
+///
+/// A bare hex code made "surface creation failed" indistinguishable from "the context is gone" in
+/// bug reports, which are two very different recoveries.
+pub fn egl_error_name(code: i32) -> &'static str {
+    match code {
+        EGL_SUCCESS => "EGL_SUCCESS",
+        EGL_NOT_INITIALIZED => "EGL_NOT_INITIALIZED",
+        EGL_BAD_ALLOC => "EGL_BAD_ALLOC",
+        EGL_BAD_ATTRIBUTE => "EGL_BAD_ATTRIBUTE",
+        EGL_BAD_CONFIG => "EGL_BAD_CONFIG",
+        EGL_BAD_CONTEXT => "EGL_BAD_CONTEXT",
+        EGL_BAD_DISPLAY => "EGL_BAD_DISPLAY",
+        EGL_BAD_MATCH => "EGL_BAD_MATCH",
+        EGL_BAD_NATIVE_WINDOW => "EGL_BAD_NATIVE_WINDOW",
+        EGL_BAD_PARAMETER => "EGL_BAD_PARAMETER",
+        EGL_BAD_SURFACE => "EGL_BAD_SURFACE",
+        EGL_CONTEXT_LOST => "EGL_CONTEXT_LOST",
+        _ => "EGL_UNKNOWN",
+    }
+}
+
+/// Client versions tried for the render context, best first.
+///
+/// The context is what mpv's `vo_gpu` actually needs: `--gpu-api=opengl` requires GLES 3.0. The 2.x
+/// attempt only exists so the failure is reported as "this driver cannot do ES 3" instead of an
+/// unexplained black screen, and so the GL string probe still has a context to query.
+pub const CONTEXT_CLIENT_VERSIONS: [i32; 2] = [3, 2];
+
+/// One candidate `EGLConfig`, in the order the render thread tries them.
+///
+/// The order is the point. `EGL_RENDERABLE_TYPE` is what decides whether a driver returns any
+/// configuration at all, and several Mali/Adreno generations advertise only ES 2 renderability even
+/// though they create ES 3 contexts happily. media3 asks for `EGL_OPENGL_ES2_BIT` in the config and
+/// passes `EGL_CONTEXT_CLIENT_VERSION = 3` at context creation for exactly that reason
+/// (`GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888`), so the first attempt mirrors it and the stricter
+/// ES 3 request is only the fallback.
+///
+/// `require_window` is the other half of the same lesson: the previous single request demanded
+/// `EGL_WINDOW_BIT | EGL_PBUFFER_BIT`, a combination some drivers do not list, and
+/// `eglChooseConfig` then returned zero configs and the whole render thread gave up. media3 does not
+/// constrain the surface type at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EglConfigRequest {
+    pub require_es3: bool,
+    pub require_window: bool,
+    pub red_bits: u32,
+    pub green_bits: u32,
+    pub blue_bits: u32,
+    pub alpha_bits: u32,
+    pub depth_bits: u32,
+    pub stencil_bits: u32,
+    /// Recorded in the log line that reports which tier won, so a device-specific bug report says
+    /// what the driver actually accepted.
+    pub name: &'static str,
+}
+
+const fn rgba8888(require_es3: bool, require_window: bool, name: &'static str) -> EglConfigRequest {
+    EglConfigRequest {
+        require_es3,
+        require_window,
+        red_bits: 8,
+        green_bits: 8,
+        blue_bits: 8,
+        alpha_bits: 8,
+        depth_bits: 0,
+        stencil_bits: 0,
+        name,
+    }
+}
+
+const fn rgba1010102(require_es3: bool, require_window: bool, name: &'static str) -> EglConfigRequest {
+    EglConfigRequest {
+        require_es3,
+        require_window,
+        red_bits: 10,
+        green_bits: 10,
+        blue_bits: 10,
+        alpha_bits: 2,
+        depth_bits: 0,
+        stencil_bits: 0,
+        name,
+    }
+}
+
+static CONFIG_ATTEMPTS_8BIT: [EglConfigRequest; 4] = [
+    rgba8888(false, false, "rgba8888/es2"),
+    rgba8888(false, true, "rgba8888/es2/window"),
+    rgba8888(true, false, "rgba8888/es3"),
+    rgba8888(true, true, "rgba8888/es3/window"),
+];
+
+static CONFIG_ATTEMPTS_10BIT: [EglConfigRequest; 8] = [
+    rgba1010102(false, false, "rgba1010102/es2"),
+    rgba1010102(false, true, "rgba1010102/es2/window"),
+    rgba1010102(true, false, "rgba1010102/es3"),
+    rgba1010102(true, true, "rgba1010102/es3/window"),
+    rgba8888(false, false, "rgba8888/es2"),
+    rgba8888(false, true, "rgba8888/es2/window"),
+    rgba8888(true, false, "rgba8888/es3"),
+    rgba8888(true, true, "rgba8888/es3/window"),
+];
+
+/// Candidate configurations for the window surface, in fallback order.
+///
+/// Within one colour depth the order is ES 2 before ES 3 (see [`EglConfigRequest`]), and no
+/// surface-type constraint before an explicit `EGL_WINDOW_BIT`. The unconstrained request already
+/// yields window-capable configs on a compliant driver, because `EGL_SURFACE_TYPE` defaults to
+/// `EGL_WINDOW_BIT`; the explicit tier covers a driver that ignores that default and would
+/// otherwise hand back a config `eglCreateWindowSurface` rejects.
+///
+/// `prefer_10bit` is off until the HDR output path exists: a `RGBA1010102` window only pays off
+/// together with `EGL_GL_COLORSPACE_BT2020_PQ` / `_HLG` window attributes, which is what media3
+/// passes in `GlUtil.createEglSurface` for HDR content. Asking for 10 bits without them merely
+/// triples the scanout bandwidth and leaves SDR content on a wider buffer for no visible gain.
+pub fn egl_config_attempts(prefer_10bit: bool) -> &'static [EglConfigRequest] {
+    if prefer_10bit {
+        &CONFIG_ATTEMPTS_10BIT
+    } else {
+        &CONFIG_ATTEMPTS_8BIT
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,5 +877,99 @@ mod tests {
 
         assert_eq!(AckOutcome::Acknowledged, caller.join().expect("caller"));
         drop(thread);
+    }
+
+    // ---------- EGL bootstrap ----------
+
+    #[test]
+    fn config_attempts_ask_for_es2_renderability_without_a_surface_constraint_first() {
+        // The exact request media3 sends, and the one that keeps `eglChooseConfig` from returning
+        // nothing on drivers that do not list ES 3 or the window+pbuffer combination.
+        let first = egl_config_attempts(false)[0];
+        assert!(!first.require_es3, "first tier must not demand ES 3 renderability");
+        assert!(!first.require_window, "first tier must not constrain the surface type");
+    }
+
+    #[test]
+    fn config_attempts_fall_back_to_the_stricter_requests() {
+        let attempts = egl_config_attempts(false);
+        assert!(attempts.len() >= 3, "a single tier leaves no room to recover");
+        assert!(
+            attempts.iter().any(|request| request.require_es3),
+            "the ES 3 request is the fallback for drivers that only advertise it"
+        );
+        assert!(
+            attempts.iter().any(|request| request.require_window),
+            "the explicit window request is the fallback for drivers that need it"
+        );
+    }
+
+    #[test]
+    fn es2_attempts_all_come_before_the_es3_attempts() {
+        let attempts = egl_config_attempts(false);
+        let first_es3 = attempts
+            .iter()
+            .position(|request| request.require_es3)
+            .expect("the ES 3 request has to exist as a fallback");
+        assert!(
+            attempts[..first_es3].iter().all(|request| !request.require_es3),
+            "an ES 3 request ahead of the ES 2 ones defeats the compatibility it exists for"
+        );
+    }
+
+    #[test]
+    fn config_attempts_never_request_depth_or_stencil() {
+        for request in egl_config_attempts(false).iter().chain(egl_config_attempts(true)) {
+            assert_eq!(0, request.depth_bits, "{} wants a depth buffer", request.name);
+            assert_eq!(0, request.stencil_bits, "{} wants a stencil buffer", request.name);
+        }
+    }
+
+    #[test]
+    fn ten_bit_attempts_lead_and_still_end_with_the_eight_bit_fallbacks() {
+        let attempts = egl_config_attempts(true);
+        assert_eq!(10, attempts[0].red_bits);
+        assert_eq!(2, attempts[0].alpha_bits, "RGBA1010102 spends 2 bits on alpha");
+        assert!(
+            attempts.iter().any(|request| request.red_bits == 8),
+            "a device without a 10-bit window must still reach a usable config"
+        );
+        assert!(
+            egl_config_attempts(false)
+                .iter()
+                .all(|request| attempts.contains(request)),
+            "every 8-bit tier has to survive the 10-bit preference"
+        );
+    }
+
+    #[test]
+    fn config_attempts_are_distinguishable_in_the_log() {
+        for attempts in [egl_config_attempts(false), egl_config_attempts(true)] {
+            let mut names: Vec<&str> = attempts.iter().map(|request| request.name).collect();
+            let total = names.len();
+            names.sort_unstable();
+            names.dedup();
+            assert_eq!(total, names.len(), "tier names must be unique to identify a device");
+        }
+    }
+
+    #[test]
+    fn context_versions_try_es3_before_es2() {
+        assert_eq!(3, CONTEXT_CLIENT_VERSIONS[0], "mpv vo_gpu needs GLES 3");
+        assert_eq!(2, CONTEXT_CLIENT_VERSIONS[1]);
+    }
+
+    #[test]
+    fn error_names_cover_the_codes_the_pipeline_branches_on() {
+        assert_eq!("EGL_BAD_SURFACE", egl_error_name(EGL_BAD_SURFACE));
+        assert_eq!("EGL_CONTEXT_LOST", egl_error_name(EGL_CONTEXT_LOST));
+        assert_eq!("EGL_BAD_ALLOC", egl_error_name(EGL_BAD_ALLOC));
+        assert_eq!("EGL_SUCCESS", egl_error_name(EGL_SUCCESS));
+    }
+
+    #[test]
+    fn error_names_do_not_panic_on_vendor_codes() {
+        assert_eq!("EGL_UNKNOWN", egl_error_name(0x3FFF));
+        assert_eq!("EGL_UNKNOWN", egl_error_name(-1));
     }
 }

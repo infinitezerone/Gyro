@@ -6,6 +6,13 @@ use logic::{AckOutcome, AffinityVerdict, DegradeState, FrameCoalescer, ThreadAff
 // Only the Android render loop reacts to a lost context.
 #[cfg(target_os = "android")]
 use logic::{ContextRecovery, RecoveryVerdict};
+// The EGL bootstrap exists only in the Android render thread; the tables it walks are pure and
+// host-tested in `logic`.
+#[cfg(target_os = "android")]
+use logic::{
+    CONTEXT_CLIENT_VERSIONS, EGL_BAD_ALLOC, EGL_BAD_SURFACE, EGL_CONTEXT_LOST, EglConfigRequest,
+    egl_config_attempts, egl_error_name,
+};
 // Render timing only exists in the Android render loop.
 #[cfg(target_os = "android")]
 use logic::{RenderWatchdog, WatchdogVerdict};
@@ -45,6 +52,7 @@ const EGL_TRUE: EGLint = 1;
 const EGL_WIDTH: EGLint = 0x3057;
 const EGL_HEIGHT: EGLint = 0x3056;
 const EGL_RENDERABLE_TYPE: EGLint = 0x3040;
+const EGL_OPENGL_ES2_BIT: EGLint = 0x00000004;
 const EGL_OPENGL_ES3_BIT: EGLint = 0x00000040;
 const EGL_SURFACE_TYPE: EGLint = 0x3033;
 const EGL_WINDOW_BIT: EGLint = 0x0004;
@@ -59,8 +67,10 @@ const EGL_NONE: EGLint = 0x3038;
 const EGL_CONTEXT_CLIENT_VERSION: EGLint = 0x3098;
 const EGL_NATIVE_VISUAL_ID: EGLint = 0x302E;
 const EGL_EXTENSIONS: EGLint = 0x3055;
-const EGL_BAD_SURFACE: EGLint = 0x300D;
-const EGL_CONTEXT_LOST: EGLint = 0x300E;
+const EGL_CONFIG_CAVEAT: EGLint = 0x3027;
+const EGL_CONFIG_ID: EGLint = 0x3028;
+const EGL_SLOW_CONFIG: EGLint = 0x3050;
+const EGL_NON_CONFORMANT_CONFIG: EGLint = 0x3051;
 
 const GL_VENDOR: u32 = 0x1F00;
 const GL_RENDERER: u32 = 0x1F01;
@@ -126,6 +136,7 @@ extern "C" {
     fn eglSwapInterval(dpy: EGLDisplay, interval: EGLint) -> EGLint;
     fn eglDestroySurface(dpy: EGLDisplay, surface: EGLSurface) -> EGLint;
     fn eglDestroyContext(dpy: EGLDisplay, ctx: EGLContext) -> EGLint;
+    fn eglReleaseThread() -> EGLint;
     fn eglTerminate(dpy: EGLDisplay) -> EGLint;
     fn eglGetProcAddress(procname: *const c_char) -> *mut c_void;
 }
@@ -440,8 +451,100 @@ static G_RECOVERY: Mutex<ContextRecovery> = Mutex::new(ContextRecovery::with_def
 #[cfg(target_os = "android")]
 static G_RENDER_DEAD: AtomicBool = AtomicBool::new(false);
 
+/// Where the GL strings are read from, and what has to be torn down afterwards.
 #[cfg(target_os = "android")]
-unsafe fn probe_graphics_environment(display: EGLDisplay, config: EGLConfig, ctx: EGLContext) {
+enum ProbeTarget {
+    /// `EGL_KHR_surfaceless_context` lets the context be current with no surface at all.
+    Surfaceless,
+    /// Placeholder pbuffer for drivers that refuse a surfaceless current context.
+    Pbuffer(EGLSurface),
+}
+
+#[cfg(target_os = "android")]
+impl ProbeTarget {
+    unsafe fn release(self, display: EGLDisplay) {
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if let ProbeTarget::Pbuffer(surface) = self {
+            if eglDestroySurface(display, surface) != EGL_TRUE {
+                egl_failure("eglDestroySurface(probe)");
+            }
+        }
+    }
+}
+
+/// Makes the context current without a window, so GL can be queried before any surface exists.
+///
+/// media3 splits the same problem the same way (`GlUtil.isSurfacelessContextExtensionSupported`
+/// against `createFocusedPlaceholderEglSurface`). This used to go straight for a pbuffer created
+/// from the *window* config, which forced `EGL_PBUFFER_BIT` into that config and made
+/// `eglChooseConfig` come back empty on drivers that will not list the window+pbuffer combination.
+/// The pbuffer path now picks its own config, and only when surfaceless is unavailable.
+#[cfg(target_os = "android")]
+unsafe fn bind_probe_target(display: EGLDisplay, ctx: EGLContext) -> Option<ProbeTarget> {
+    let extensions = eglQueryString(display, EGL_EXTENSIONS);
+    let has_surfaceless = !extensions.is_null()
+        && CStr::from_ptr(extensions)
+            .to_string_lossy()
+            .contains("EGL_KHR_surfaceless_context");
+    if has_surfaceless {
+        if eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx) == EGL_TRUE {
+            return Some(ProbeTarget::Surfaceless);
+        }
+        // The extension is advertised but the driver refused: fall through to the pbuffer, which
+        // is the only remaining way to get a current context.
+        egl_failure("eglMakeCurrent(probe/surfaceless)");
+    }
+
+    let config_attribs = [
+        EGL_RENDERABLE_TYPE,
+        EGL_OPENGL_ES2_BIT,
+        EGL_SURFACE_TYPE,
+        EGL_PBUFFER_BIT,
+        EGL_RED_SIZE,
+        8,
+        EGL_GREEN_SIZE,
+        8,
+        EGL_BLUE_SIZE,
+        8,
+        EGL_ALPHA_SIZE,
+        8,
+        EGL_DEPTH_SIZE,
+        0,
+        EGL_STENCIL_SIZE,
+        0,
+        EGL_NONE,
+    ];
+    let mut config: EGLConfig = std::ptr::null_mut();
+    let mut matched: EGLint = 0;
+    if eglChooseConfig(display, config_attribs.as_ptr(), &mut config, 1, &mut matched) != EGL_TRUE
+        || matched < 1
+        || config.is_null()
+    {
+        egl_failure("eglChooseConfig(probe/pbuffer)");
+        return None;
+    }
+
+    let surface_attribs = [EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE];
+    let surface = eglCreatePbufferSurface(display, config, surface_attribs.as_ptr());
+    if surface == EGL_NO_SURFACE {
+        egl_failure("eglCreatePbufferSurface(probe)");
+        return None;
+    }
+    if eglMakeCurrent(display, surface, surface, ctx) != EGL_TRUE {
+        egl_failure("eglMakeCurrent(probe/pbuffer)");
+        eglDestroySurface(display, surface);
+        return None;
+    }
+    Some(ProbeTarget::Pbuffer(surface))
+}
+
+/// Reads the GPU identity and the extensions that decide whether zero-copy is safe.
+///
+/// Runs once, before any window surface exists. Every branch that cannot read GL leaves the verdict
+/// at "not safe", so an unverifiable driver keeps the copy path instead of promising a zero-copy
+/// pipeline it may not be able to honour.
+#[cfg(target_os = "android")]
+unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLContext) {
     let egl_ext_ptr = eglQueryString(display, EGL_EXTENSIONS);
     let egl_ext = if !egl_ext_ptr.is_null() {
         CStr::from_ptr(egl_ext_ptr).to_string_lossy().into_owned()
@@ -452,35 +555,31 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, config: EGLConfig, ctx
     let has_image_base = egl_ext.contains("EGL_KHR_image_base") || egl_ext.contains("EGL_KHR_image");
     let has_android_native = egl_ext.contains("EGL_ANDROID_image_native_buffer");
 
-    // 创建 16x16 离屏 Pbuffer Surface 探查 GLES 扩展
-    let pbuf_attribs = [EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE];
-    let pbuf = eglCreatePbufferSurface(display, config, pbuf_attribs.as_ptr());
     let mut renderer_str = String::from("unknown");
     let mut vendor_str = String::from("unknown");
     let mut has_oes_external = false;
 
-    if !pbuf.is_null() && pbuf != EGL_NO_SURFACE {
-        if eglMakeCurrent(display, pbuf, pbuf, ctx) == EGL_TRUE {
-            let p = eglGetProcAddress(b"glGetString\0".as_ptr().cast());
-            if !p.is_null() {
-                let gl_get_string: unsafe extern "C" fn(u32) -> *const c_char = std::mem::transmute(p);
-                let r_ptr = gl_get_string(GL_RENDERER);
-                if !r_ptr.is_null() {
-                    renderer_str = CStr::from_ptr(r_ptr).to_string_lossy().into_owned();
-                }
-                let v_ptr = gl_get_string(GL_VENDOR);
-                if !v_ptr.is_null() {
-                    vendor_str = CStr::from_ptr(v_ptr).to_string_lossy().into_owned();
-                }
-                let ext_ptr = gl_get_string(GL_EXTENSIONS);
-                if !ext_ptr.is_null() {
-                    let gl_ext = CStr::from_ptr(ext_ptr).to_string_lossy();
-                    has_oes_external = gl_ext.contains("GL_OES_EGL_image_external");
-                }
+    if let Some(target) = bind_probe_target(display, ctx) {
+        let proc = eglGetProcAddress(b"glGetString\0".as_ptr().cast());
+        if !proc.is_null() {
+            let gl_get_string: unsafe extern "C" fn(u32) -> *const c_char = std::mem::transmute(proc);
+            let r_ptr = gl_get_string(GL_RENDERER);
+            if !r_ptr.is_null() {
+                renderer_str = CStr::from_ptr(r_ptr).to_string_lossy().into_owned();
             }
-            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            let v_ptr = gl_get_string(GL_VENDOR);
+            if !v_ptr.is_null() {
+                vendor_str = CStr::from_ptr(v_ptr).to_string_lossy().into_owned();
+            }
+            let ext_ptr = gl_get_string(GL_EXTENSIONS);
+            if !ext_ptr.is_null() {
+                let gl_ext = CStr::from_ptr(ext_ptr).to_string_lossy();
+                has_oes_external = gl_ext.contains("GL_OES_EGL_image_external");
+            }
         }
-        eglDestroySurface(display, pbuf);
+        target.release(display);
+    } else {
+        nlog("PROBE: 无法绑定探测目标，GL 字符串与扩展均不可读");
     }
 
     let zero_copy_safe = (has_image_base || has_android_native) && has_oes_external;
@@ -495,7 +594,7 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, config: EGLConfig, ctx
 }
 
 #[cfg(not(target_os = "android"))]
-unsafe fn probe_graphics_environment(_display: EGLDisplay, _config: EGLConfig, _ctx: EGLContext) {}
+unsafe fn probe_graphics_environment(_display: EGLDisplay, _ctx: EGLContext) {}
 
 /// Degrades hardware decoding to the copy path once the render watchdog decides the GPU is stuck.
 ///
@@ -744,8 +843,167 @@ unsafe extern "C" fn gl_proc_address(_ctx: *mut c_void, name: *const c_char) -> 
 #[cfg(target_os = "android")]
 fn egl_failure(what: &str) -> EGLint {
     let err = unsafe { eglGetError() };
-    nlog(&format!("EGL: {what} 失败 (error=0x{err:X})"));
+    nlog(&format!(
+        "EGL: {what} 失败 (error={} / 0x{err:X})",
+        egl_error_name(err)
+    ));
     err
+}
+
+/// Fills `out` with the `EGLConfig` attribute list for one candidate.
+///
+/// Only the attributes the request actually constrains are emitted: every extra attribute is one
+/// more way for `eglChooseConfig` to match nothing on a driver that is picky about the exact shape
+/// of the list.
+#[cfg(target_os = "android")]
+fn egl_config_attributes(request: &EglConfigRequest, out: &mut Vec<EGLint>) {
+    out.clear();
+    out.extend_from_slice(&[
+        EGL_RENDERABLE_TYPE,
+        if request.require_es3 {
+            EGL_OPENGL_ES3_BIT
+        } else {
+            EGL_OPENGL_ES2_BIT
+        },
+        EGL_RED_SIZE,
+        request.red_bits as EGLint,
+        EGL_GREEN_SIZE,
+        request.green_bits as EGLint,
+        EGL_BLUE_SIZE,
+        request.blue_bits as EGLint,
+        EGL_ALPHA_SIZE,
+        request.alpha_bits as EGLint,
+        EGL_DEPTH_SIZE,
+        request.depth_bits as EGLint,
+        EGL_STENCIL_SIZE,
+        request.stencil_bits as EGLint,
+    ]);
+    if request.require_window {
+        out.extend_from_slice(&[EGL_SURFACE_TYPE, EGL_WINDOW_BIT]);
+    }
+    out.push(EGL_NONE);
+}
+
+/// Reads one attribute of a config the driver just returned.
+///
+/// A driver that refuses `eglGetConfigAttrib` costs a log line, not the pipeline: every value here
+/// is diagnostic, and `visual_id` has a documented fallback (0 means "let the window keep its
+/// format", which `ANativeWindow_setBuffersGeometry` accepts).
+#[cfg(target_os = "android")]
+unsafe fn config_attrib(
+    display: EGLDisplay,
+    config: EGLConfig,
+    attribute: EGLint,
+    default: EGLint,
+) -> EGLint {
+    let mut value: EGLint = default;
+    if eglGetConfigAttrib(display, config, attribute, &mut value) != EGL_TRUE {
+        egl_failure(&format!("eglGetConfigAttrib(0x{attribute:X})"));
+        return default;
+    }
+    value
+}
+
+/// The configuration the window surface is created from.
+#[cfg(target_os = "android")]
+struct ChosenConfig {
+    config: EGLConfig,
+    visual_id: EGLint,
+}
+
+/// Walks the candidate list and returns the first configuration the driver accepts.
+///
+/// Two failures mean "try the next tier" instead of "give up": `eglChooseConfig` returning
+/// `EGL_FALSE`, and — the one that used to take the render thread down silently — returning
+/// `EGL_TRUE` with zero matches, which is what a driver does when it cannot satisfy the request
+/// exactly. The accepted config is then logged with its channel sizes and caveat, because "the
+/// picture is black on this one phone" is otherwise unanswerable from a bug report.
+#[cfg(target_os = "android")]
+unsafe fn choose_egl_config(display: EGLDisplay, prefer_10bit: bool) -> Option<ChosenConfig> {
+    // Some drivers report more matches than were requested, so leave room for a few and keep the
+    // first; the count is only used to make the log say how large the field was.
+    let mut configs: [EGLConfig; 4] = [std::ptr::null_mut(); 4];
+    let mut attributes: Vec<EGLint> = Vec::with_capacity(16);
+    let attempts = egl_config_attempts(prefer_10bit);
+    for request in attempts {
+        egl_config_attributes(request, &mut attributes);
+        let mut matched: EGLint = 0;
+        let accepted = eglChooseConfig(
+            display,
+            attributes.as_ptr(),
+            configs.as_mut_ptr(),
+            configs.len() as EGLint,
+            &mut matched,
+        );
+        if accepted != EGL_TRUE {
+            let err = eglGetError();
+            nlog(&format!(
+                "EGL: eglChooseConfig 被拒绝 (tier={}, error={} / 0x{err:X})",
+                request.name,
+                egl_error_name(err)
+            ));
+            continue;
+        }
+        if matched < 1 || configs[0].is_null() {
+            nlog(&format!("EGL: 无匹配配置 (tier={})", request.name));
+            continue;
+        }
+
+        let config = configs[0];
+        let caveat = config_attrib(display, config, EGL_CONFIG_CAVEAT, 0);
+        if caveat == EGL_SLOW_CONFIG || caveat == EGL_NON_CONFORMANT_CONFIG {
+            // Usable, but worth recording: a slow config is often the first sign that the GPU is
+            // software-rendered or that the request fell back further than intended.
+            nlog(&format!(
+                "EGL: tier={} 带 CAVEAT=0x{caveat:X}（非最优或非规范配置）",
+                request.name
+            ));
+        }
+        let visual_id = config_attrib(display, config, EGL_NATIVE_VISUAL_ID, 0);
+        nlog(&format!(
+            "EGL: 选定配置 tier={} matched={matched} id={} visual_id=0x{visual_id:X} rgba={}{}{}{} depth={}",
+            request.name,
+            config_attrib(display, config, EGL_CONFIG_ID, 0),
+            config_attrib(display, config, EGL_RED_SIZE, 0),
+            config_attrib(display, config, EGL_GREEN_SIZE, 0),
+            config_attrib(display, config, EGL_BLUE_SIZE, 0),
+            config_attrib(display, config, EGL_ALPHA_SIZE, 0),
+            config_attrib(display, config, EGL_DEPTH_SIZE, 0),
+        ));
+        return Some(ChosenConfig { config, visual_id });
+    }
+
+    nlog(&format!(
+        "EGL: {} 个 EGLConfig 候选全部失败，当前驱动无法提供窗口配置",
+        attempts.len()
+    ));
+    None
+}
+
+/// Creates the GL context, negotiating the ES version.
+///
+/// ES 3 is what mpv's `vo_gpu` needs, so it is tried first. The 2.x attempt is not a working
+/// fallback; it exists so the failure is attributable ("this driver has no ES 3") instead of
+/// surfacing later as an `mpv_render_context_create` error over a black screen.
+#[cfg(target_os = "android")]
+unsafe fn create_egl_context(display: EGLDisplay, config: EGLConfig) -> Option<EGLContext> {
+    for &version in CONTEXT_CLIENT_VERSIONS.iter() {
+        let attributes = [EGL_CONTEXT_CLIENT_VERSION, version, EGL_NONE];
+        let context = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes.as_ptr());
+        if context != EGL_NO_CONTEXT {
+            nlog(&format!("EGL: GLES {version}.x 上下文创建成功"));
+            if version < 3 {
+                nlog("EGL: 驱动不支持 GLES 3，已回退到 2.x；vo_gpu 需要 GLES 3，视频输出预计会失败");
+            }
+            return Some(context);
+        }
+        let err = eglGetError();
+        nlog(&format!(
+            "EGL: GLES {version}.x 上下文创建失败 (error={} / 0x{err:X})",
+            egl_error_name(err)
+        ));
+    }
+    None
 }
 
 /// Owns the EGL window surface together with the native window it was created from.
@@ -842,6 +1100,11 @@ impl SurfaceSlot {
     ///
     /// Context recovery needs exactly this split: the window survives a driver reset, the EGL
     /// surface does not, and releasing the window here would force a re-attach from Java.
+    ///
+    /// The order is the one EGL requires and media3 follows in `GlUtil.destroyEglSurface` /
+    /// `destroyEglContext`: unbind first, then destroy the surface, and only then - in
+    /// `EglCore::destroy` - the context. Destroying a surface that is still current works on most
+    /// drivers and leaks on the ones it does not.
     unsafe fn drop_surface(&mut self) {
         if self.is_ready() {
             eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -857,9 +1120,24 @@ impl SurfaceSlot {
         if self.window.is_null() {
             return Err(EGL_BAD_SURFACE);
         }
-        let surface = eglCreateWindowSurface(self.display, self.config, self.window, std::ptr::null());
+        // An explicit EGL_NONE terminator rather than a null pointer: media3 always passes one
+        // (`EGL_WINDOW_SURFACE_ATTRIBUTES_NONE`) and vendors that inspect the list unconditionally
+        // are exactly the ones this pipeline tends to break on.
+        let surface_attribs = [EGL_NONE];
+        let surface = eglCreateWindowSurface(
+            self.display,
+            self.config,
+            self.window,
+            surface_attribs.as_ptr(),
+        );
         if surface == EGL_NO_SURFACE {
-            return Err(egl_failure("eglCreateWindowSurface"));
+            let err = egl_failure("eglCreateWindowSurface");
+            if err == EGL_BAD_ALLOC {
+                // The driver could not hand out a buffer; a later attach usually succeeds, so the
+                // failure is recorded as retryable instead of fatal.
+                nlog("EGL: 驱动暂时无法分配窗口缓冲 (EGL_BAD_ALLOC)，下一次 attach 可重试");
+            }
+            return Err(err);
         }
         self.surface = surface;
 
@@ -902,27 +1180,39 @@ struct EglCore {
 #[cfg(target_os = "android")]
 impl EglCore {
     /// Replaces a dead context with a fresh one on the same display and config.
+    ///
+    /// The version negotiation runs again rather than assuming ES 3: after a driver reset the
+    /// surviving config is the one that was already accepted, but nothing guarantees the context
+    /// that failed is the one that can be created again.
     unsafe fn recreate_context(&mut self) -> bool {
         if self.context != EGL_NO_CONTEXT {
             // Expected to fail on a lost context; the handle is unusable either way.
             eglDestroyContext(self.display, self.context);
             self.context = EGL_NO_CONTEXT;
         }
-        let attribs = [EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE];
-        self.context = eglCreateContext(self.display, self.config, EGL_NO_CONTEXT, attribs.as_ptr());
-        if self.context == EGL_NO_CONTEXT {
-            egl_failure("eglCreateContext(recovery)");
+        let Some(context) = create_egl_context(self.display, self.config) else {
             return false;
-        }
+        };
+        self.context = context;
         nlog("EGL: 上下文重建成功");
         true
     }
 
+    /// Releases the context and the display in the order EGL requires.
+    ///
+    /// `eglReleaseThread` sits between them for the reason media3 calls it in
+    /// `GlUtil.terminate()`: the display keeps the thread's current-context binding alive, so
+    /// terminating first leaves the driver holding state for a thread that is about to exit. The
+    /// surface is already gone by the time this runs - `SurfaceSlot::detach` unbinds and destroys
+    /// it first, which is the make-current-none → destroy-surface → destroy-context order.
     unsafe fn destroy(&mut self) {
         if self.context != EGL_NO_CONTEXT && eglDestroyContext(self.display, self.context) != EGL_TRUE {
             egl_failure("eglDestroyContext");
         }
         self.context = EGL_NO_CONTEXT;
+        if eglReleaseThread() != EGL_TRUE {
+            egl_failure("eglReleaseThread");
+        }
         if eglTerminate(self.display) != EGL_TRUE {
             egl_failure("eglTerminate");
         }
@@ -996,52 +1286,30 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
             return;
         }
 
-        let attribs = [
-            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-            EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
-            EGL_DEPTH_SIZE, 0,
-            EGL_STENCIL_SIZE, 0,
-            EGL_NONE,
-        ];
-
-        let mut config: EGLConfig = std::ptr::null_mut();
-        let mut num_config = 0;
-        if eglChooseConfig(display, attribs.as_ptr(), &mut config, 1, &mut num_config) != EGL_TRUE || num_config == 0 {
-            egl_failure("eglChooseConfig");
+        // 10-bit stays off until the HDR output path exists, see `logic::egl_config_attempts`.
+        let Some(chosen) = choose_egl_config(display, false) else {
+            nlog("EGL: 无可用 EGLConfig，渲染线程退出（画面将全黑）");
             return;
-        }
-
-        let mut visual_id = 0;
-        if eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &mut visual_id) != EGL_TRUE {
-            // A zero visual id is accepted by ANativeWindow_setBuffersGeometry, so this degrades
-            // rather than aborts; the log still records that the driver refused to report it.
-            egl_failure("eglGetConfigAttrib(EGL_NATIVE_VISUAL_ID)");
-            visual_id = 0;
-        }
-
-        let ctx_attribs = [
-            EGL_CONTEXT_CLIENT_VERSION, 3,
-            EGL_NONE,
-        ];
-        let egl_context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
-        if egl_context == EGL_NO_CONTEXT {
-            egl_failure("eglCreateContext");
+        };
+        let Some(egl_context) = create_egl_context(display, chosen.config) else {
+            nlog("EGL: 无法创建 GL 上下文，渲染线程退出（画面将全黑）");
             return;
-        }
+        };
 
         nlog("EGL: 常驻 EGLContext 创建成功");
-        probe_graphics_environment(display, config, egl_context);
+        probe_graphics_environment(display, egl_context);
 
         // Display, config, context and visual id travel together so the recovery path can rebuild a
         // context without redoing the whole EGL handshake.
-        let mut core = EglCore { display, config, context: egl_context, visual_id };
+        let mut core = EglCore {
+            display,
+            config: chosen.config,
+            context: egl_context,
+            visual_id: chosen.visual_id,
+        };
 
         // Owns the window + surface pair; teardown order is enforced in one place.
-        let mut slot = SurfaceSlot::new(display, config);
+        let mut slot = SurfaceSlot::new(display, chosen.config);
         let mut mpv_render_ctx: *mut c_void = std::ptr::null_mut();
 
         // Render-thread-owned state: both types are plain data, so no locking is involved.
@@ -1233,8 +1501,15 @@ unsafe fn draw_frame_native(
 
         let render_start = Instant::now();
         (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
-        (api.mpv_render_context_report_swap)(ctx);
         let swap_rc = eglSwapBuffers(display, surface);
+        // Only a frame that actually reached the window is a flip. mpv's `flip_page` blocks on this
+        // count for vsync pacing (`vo_libmpv` waits while `expected_flip_count > flip_count`), so
+        // reporting before the swap both defeats that wait and, when the swap fails, books a present
+        // that never happened. `mpv_render_context_report_swap` is documented as "the frame was
+        // flipped".
+        if swap_rc == EGL_TRUE {
+            (api.mpv_render_context_report_swap)(ctx);
+        }
         let elapsed = render_start.elapsed();
         let presented = G_FRAMES_DRAWN.fetch_add(1, Ordering::Relaxed) + 1;
         if presented <= 3 || presented % 300 == 0 {
