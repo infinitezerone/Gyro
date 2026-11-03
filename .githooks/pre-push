@@ -3,9 +3,12 @@
 
 echo "🔍 Running pre-push checks..."
 
-# 1. Check for illegally tracked large binary files or build artifacts
-FORBIDDEN_PATTERNS="\.apk$|\.dex$|\.hprof$|/target/|/build/"
-OFFENDING_FILES=$(git diff --name-only origin/master..HEAD 2>/dev/null | grep -E "$FORBIDDEN_PATTERNS" || true)
+# 1. Check for illegally tracked large binary files or build artifacts.
+# The native engine is compiled by :core:engine:cargoNdkBuild, so any committed .so is a stale copy
+# of crates/gyro-engine. --diff-filter=d keeps deletions out of the list, otherwise removing such a
+# file from the tree would trip this very check.
+FORBIDDEN_PATTERNS="\.apk$|\.dex$|\.hprof$|\.so$|/target/|/build/"
+OFFENDING_FILES=$(git diff --name-only --diff-filter=d origin/master..HEAD 2>/dev/null | grep -E "$FORBIDDEN_PATTERNS" || true)
 
 if [ -n "$OFFENDING_FILES" ]; then
     echo "========================================================================"
