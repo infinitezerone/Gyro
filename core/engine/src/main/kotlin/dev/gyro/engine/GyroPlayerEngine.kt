@@ -906,7 +906,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
         bridge.setPropertyDouble("video-pan-y", 0.0)
     }
 
+    private var attachedSurfaceRef: Surface? = null
+
     fun attachSurface(surface: Surface) {
+        attachedSurfaceRef = surface
         isSurfaceAttached = true
         bridge.attachSurface(surface)
         pendingLoadUrl?.let { url ->
@@ -917,9 +920,18 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
     }
 
-    fun detachSurface() {
+    fun detachSurface(surface: Surface? = null) {
         if (!isSurfaceAttached) return
+        // During an aspect-change rebuild two SurfaceView instances are alive for a few frames,
+        // and the OLD one's destroy callback can land after the NEW one has attached: measured on
+        // device, that teardown removed the fresh surface and the picture froze on it. Only the
+        // surface the engine actually holds may unbind it.
+        if (surface != null && attachedSurfaceRef !== surface) {
+            Log.i(TAG, "detachSurface ignored: engine holds a different surface")
+            return
+        }
         isSurfaceAttached = false
+        attachedSurfaceRef = null
         bridge.detachSurface()
     }
 

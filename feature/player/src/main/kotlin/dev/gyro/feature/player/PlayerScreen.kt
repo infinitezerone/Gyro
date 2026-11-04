@@ -42,6 +42,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -614,28 +615,31 @@ fun PlayerScreen(
             } ?: Modifier.fillMaxSize()
             ResizeMode.STRETCH -> Modifier.fillMaxSize()
         }
-        // The zoom model computes screen positions in fullscreen coordinates
-        // ((content - offset) * scale), but this graphicsLayer lives on the aspect-ratio
-        // container whose top-left is not the screen origin. Rewriting the translation into
-        // container-local terms - (origin - offset) * scale - origin - keeps the finger
-        // anchor exact wherever the container sits: identity stays identity, (c - 0)*1 - c = 0.
-        var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
-        GyroPlayerSurface(
-            modifier = videoContainerModifier
-                // The outer Box centers nothing by default (its other children rely on top-start),
-                // so the aspect-fitted container centers itself here; CROP's overflow is clipped
-                // symmetrically for the same reason.
-                .align(Alignment.Center)
-                .onGloballyPositioned { videoContainerOrigin = it.positionInParent() }
-                .graphicsLayer {
-                    scaleX = zoomState.scale
-                    scaleY = zoomState.scale
-                    translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
-                    translationY = (videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y
-                    transformOrigin = zoomState.transformOrigin
-                },
-            engine = engine
-        )
+        // The compositor eases a SurfaceView's geometry change over several frames with the x/y
+        // axes moving independently, which reads as the picture growing out of a corner on an
+        // aspect change. A fresh SurfaceView is born directly in the new geometry with no
+        // old-to-new path to animate, so an aspect change rebuilds it; same-aspect switches keep
+        // the existing view and its BufferQueue untouched. Stale-view teardown is safe since the
+        // engine only unbinds the surface it actually holds (see GyroPlayerEngine.detachSurface).
+        key(videoAspect) {
+            var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
+            GyroPlayerSurface(
+                modifier = videoContainerModifier
+                    // The outer Box centers nothing by default (its other children rely on top-start),
+                    // so the aspect-fitted container centers itself here; CROP's overflow is clipped
+                    // symmetrically for the same reason.
+                    .align(Alignment.Center)
+                    .onGloballyPositioned { videoContainerOrigin = it.positionInParent() }
+                    .graphicsLayer {
+                        scaleX = zoomState.scale
+                        scaleY = zoomState.scale
+                        translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
+                        translationY = (videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y
+                        transformOrigin = zoomState.transformOrigin
+                    },
+                engine = engine
+            )
+        }
 
         // A2. Shutter over the file-switch window.
         if (shutterAlpha > 0.01f) {

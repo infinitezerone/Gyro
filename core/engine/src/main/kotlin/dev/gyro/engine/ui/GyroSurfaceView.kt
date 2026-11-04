@@ -226,7 +226,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         attachedSurface = null
         Log.i(TAG, "surfaceDestroyed -> detachSurface")
         if (engine != null) {
-            engine?.detachSurface()
+            engine?.detachSurface(holder.surface)
         } else {
             GyroNative.detachSurface()
         }
