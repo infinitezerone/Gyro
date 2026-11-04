@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +54,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -240,12 +243,6 @@ fun PlayerScreen(
             delay(PIP_EXIT_SETTLE_MS)
             pipSettling.value = false
         }
-    }
-
-    // Hold the buffer size steady while the window animates into or out of PiP. Re-locking it there
-    // is a needless re-layout of the picture, and it lands after the window animation has moved on.
-    LaunchedEffect(isInPipMode, pipSettling.value) {
-        GyroSurfaceView.pipTransitionActive = pipSettling.value || isInPipMode
     }
 
     val isPipLayout = isPipWindow || isInPipMode
@@ -564,15 +561,41 @@ fun PlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            .clipToBounds()
             .onSizeChanged {
                 containerSize = it
                 if (!isPipLayout) fullscreenContainerSize = it
             }
     ) {
         // A. Direct Native EGL Video Surface with Hardware graphicsLayer Transform
+        // The buffer is pinned to the video's own aspect (see GyroSurfaceView), so the container
+        // must keep that same aspect or the compositor stretches the picture: FIT letterboxes the
+        // video inside the black Box above, CROP scales it past the edges for the parent to clip,
+        // STRETCH is the user's explicit distortion, and the fixed ratios are the user's override.
+        val videoCoverSize = remember(containerSize, videoAspect) {
+            if (containerSize == IntSize.Zero || videoAspect <= 0f) null
+            else if (containerSize.width.toFloat() / containerSize.height > videoAspect) {
+                IntSize(containerSize.width, (containerSize.width / videoAspect).toInt())
+            } else {
+                IntSize((containerSize.height * videoAspect).toInt(), containerSize.height)
+            }
+        }
+        val density = LocalDensity.current
+        val videoContainerModifier = when (resizeMode) {
+            ResizeMode.FIT -> if (videoAspect > 0f) Modifier.aspectRatio(videoAspect) else Modifier.fillMaxSize()
+            ResizeMode.ASPECT_16_9 -> Modifier.aspectRatio(16f / 9f)
+            ResizeMode.ASPECT_21_9 -> Modifier.aspectRatio(21f / 9f)
+            ResizeMode.CROP -> videoCoverSize?.let { sz ->
+                with(density) { Modifier.size(sz.width.toDp(), sz.height.toDp()) }
+            } ?: Modifier.fillMaxSize()
+            ResizeMode.STRETCH -> Modifier.fillMaxSize()
+        }
         GyroPlayerSurface(
-            modifier = Modifier
-                .fillMaxSize()
+            modifier = videoContainerModifier
+                // The outer Box centers nothing by default (its other children rely on top-start),
+                // so the aspect-fitted container centers itself here; CROP's overflow is clipped
+                // symmetrically for the same reason.
+                .align(Alignment.Center)
                 .graphicsLayer {
                     scaleX = zoomState.scale
                     scaleY = zoomState.scale

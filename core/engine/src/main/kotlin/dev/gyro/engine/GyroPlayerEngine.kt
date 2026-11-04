@@ -758,18 +758,20 @@ class GyroPlayerEngine @JvmOverloads constructor(
      * window before mpv has decoded a frame, where the display size is still unknown.
      */
     private fun publishVideoDimensions() {
-        val dw = bridge.getLong("dwidth")?.toInt() ?: 0
-        val dh = bridge.getLong("dheight")?.toInt() ?: 0
-        val hasDisplaySize = dw > 0 && dh > 0
-        val w = if (hasDisplaySize) dw else bridge.getLong("width")?.toInt() ?: 0
-        val h = if (hasDisplaySize) dh else bridge.getLong("height")?.toInt() ?: 0
-        if (w > 0 && h > 0) {
-            _videoDimensions.value = VideoDimensions(w, h)
-            // A quarter-turn swap is the only thing standing between the coded size and what the
-            // viewer sees; 180 turns leave the ratio alone.
-            val quarterTurn = (bridge.getLong("video-params/rotate") ?: 0L) % 180L != 0L
-            _videoAspect.value = if (quarterTurn) h.toFloat() / w else w.toFloat() / h
-        }
+        // mpv's property observers fire more than once per file: first with the coded shape
+        // (rotation not applied yet), then with the display shape once the VO is up. Publishing
+        // that first shape made the buffer and the layout container flash between two aspects on
+        // every opened file - the picture appeared at its raw size first and only then settled.
+        // The VO's own parameters exist exactly once rotation has been applied, so gate on them
+        // and publish once, in the final display orientation.
+        val dw = bridge.getLong("video-out-params/dw")?.toInt() ?: 0
+        val dh = bridge.getLong("video-out-params/dh")?.toInt() ?: 0
+        if (dw <= 0 || dh <= 0) return
+        val quarterTurn = (bridge.getLong("video-out-params/rotate") ?: 0L) % 180L != 0L
+        val w = if (quarterTurn) dh else dw
+        val h = if (quarterTurn) dw else dh
+        _videoDimensions.value = VideoDimensions(w, h)
+        _videoAspect.value = w.toFloat() / h
     }
 
     fun refreshTracks() {

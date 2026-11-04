@@ -19,14 +19,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.gyro.engine.GyroNative
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.model.VideoDimensions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.abs
+import kotlin.math.min
 
-/** A buffer only counts as a different aspect when it is off by more than integer rounding in a 16:9 box. */
+/** A stored buffer whose aspect has drifted from a newly reported one by more than this is re-locked. */
 private const val ASPECT_EPSILON = 0.01
-
-/** A PiP transition can resize the window several frames in a row; re-lock once it settles. */
-private const val RELOCK_DEBOUNCE_MS = 80L
 
 /** Frames sampled by [GyroSurfaceView.measureDisplayRate]; ~440ms at 90Hz. */
 private const val MEASURED_FRAMES = 40
@@ -41,11 +40,12 @@ private const val MEASURED_FRAMES = 40
  * - `surfaceCreated`: passes the native ANativeWindow to Rust.
  * - `surfaceDestroyed`: detaches surface without tearing down EGLContext.
  *
- * It also owns one policy that the renderer cannot: the buffer size. The buffer is pinned with
- * [SurfaceHolder.setFixedSize] and only re-locked when the aspect ratio changes or the view grows,
- * so a PiP transition moves the window without re-rendering at a new size. Letting the buffer follow
- * every window change puts the re-layout 40-70ms behind the window animation, which is the hop and
- * the black gap seen at both ends of a PiP transition.
+ * Buffer policy (the media3 shape): the buffer is locked to the VIDEO's own aspect via
+ * [lockBufferSizeToVideo] and never follows the window. Once locked, every visible resize -
+ * full screen, PiP, rotation - is a pure compositor transform of an untouched BufferQueue, so
+ * there is no buffer rebuild to flash and no aspect mismatch to stretch the picture with.
+ * Keeping the view's aspect equal to the buffer's aspect is the caller's job (see
+ * [GyroPlayerSurface] and its containers).
  */
 class GyroSurfaceView @JvmOverloads constructor(
     context: Context,
@@ -54,15 +54,6 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "GyroSurfaceView"
-
-        /**
-         * True while the activity is entering or leaving PiP.
-         *
-         * Relocking during the transition is a needless re-layout: the aspect does not change, and
-         * the re-layout is what lands late. Set from the PiP state the activity already tracks.
-         */
-        @Volatile
-        var pipTransitionActive: Boolean = false
     }
 
     var engine: GyroPlayerEngine? = null
@@ -70,14 +61,6 @@ class GyroSurfaceView @JvmOverloads constructor(
     /** Buffer size currently fixed on the holder; 0 until the first lock. */
     private var lockedWidth = 0
     private var lockedHeight = 0
-    private var pendingWidth = 0
-    private var pendingHeight = 0
-
-    private val relockRunnable = Runnable {
-        if (pendingWidth > 0 && pendingHeight > 0 && shouldRelock(pendingWidth, pendingHeight)) {
-            lockBufferSize(holder, pendingWidth, pendingHeight)
-        }
-    }
 
     /** Frame rate of the content on screen, 0 when the system should pick. */
     private var contentFrameRate = 0f
@@ -89,15 +72,34 @@ class GyroSurfaceView @JvmOverloads constructor(
         holder.addCallback(this)
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
+    /**
+     * Locks the buffer to the video's display size. Called whenever the engine reports new video
+     * dimensions - a new file, or a file whose display rotation flips the aspect.
+     *
+     * Same-aspect sizes skip the re-lock: an equally shaped buffer renders any resolution without
+     * distortion, and skipping keeps file-to-file switches on one BufferQueue.
+     */
+    fun lockBufferSizeToVideo(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        if (lockedWidth > 0) {
+            val lockedAspect = lockedWidth.toDouble() / lockedHeight
+            if (abs(width.toDouble() / height - lockedAspect) <= lockedAspect * ASPECT_EPSILON) return
+        }
         lockBufferSize(holder, width, height)
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
         Log.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
         attach(holder.surface)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
-        if (lockedWidth <= 0 || lockedHeight <= 0) lockBufferSize(holder, width, height)
+        if (lockedWidth <= 0 || lockedHeight <= 0) {
+            // No video dimensions have arrived yet: let the buffer follow the view so first paint
+            // has something to draw into. [lockBufferSizeToVideo] re-locks once mpv reports size.
+            lockBufferSize(holder, width, height)
+        }
 
         val target = engine
         // A live surface with the native side unbound is the frozen-picture case: `surfaceDestroyed`
@@ -117,47 +119,6 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        Log.d(TAG, "viewSize ${oldw}x$oldh -> ${w}x$h (locked ${lockedWidth}x$lockedHeight)")
-        if (!shouldRelock(w, h)) return
-        pendingWidth = w
-        pendingHeight = h
-        removeCallbacks(relockRunnable)
-        postDelayed(relockRunnable, RELOCK_DEBOUNCE_MS)
-    }
-
-    /**
-     * Whether a new view size justifies re-locking the buffer.
-     *
-     * - A different aspect ratio always does: `SurfaceView` maps a buffer onto the view with
-     *   independent x and y scaling, so a buffer of the wrong aspect is stretched, and no renderer
-     *   can correct that.
-     * - With the aspect unchanged only a larger area is worth more pixels. PiP only ever shrinks,
-     *   so it never re-locks, which is what keeps the transition on one buffer.
-     */
-    private fun shouldRelock(w: Int, h: Int): Boolean {
-        if (w <= 0 || h <= 0) return false
-        if (lockedWidth <= 0 || lockedHeight <= 0) return true
-        // An aspect change always wins, transition or not: this view fills the screen, so the PiP
-        // window (video aspect) really is a different shape from the portrait full-screen surface,
-        // and a buffer of the wrong shape is stretched by the compositor with no way back.
-        val lockedAspect = lockedWidth.toDouble() / lockedHeight
-        if (abs(w.toDouble() / h - lockedAspect) > lockedAspect * ASPECT_EPSILON) return true
-        // Same shape: growing back out of PiP is not a quality need, it is the re-layout that makes
-        // the exit hop, so it waits until the transition is over.
-        if (pipTransitionActive) return false
-        return w.toLong() * h > lockedWidth.toLong() * lockedHeight
-    }
-
-    /**
-     * Tells the platform how fast the video runs, so it can composite at a matching rate.
-     *
-     * Without this the surface is composited at the default rate and high-frame-rate content is
-     * decimated with an irregular cadence - measured 60.2fps out of a 75fps file on a 90Hz panel,
-     * which is what reads as smearing in motion. Same call media3's `MediaCodecVideoRenderer` makes
-     * on API 30+.
-     */
     /**
      * Measures the rate the compositor actually runs at and hands it to the engine.
      *
@@ -218,8 +179,6 @@ class GyroSurfaceView @JvmOverloads constructor(
         if (w <= 0 || h <= 0) return
         lockedWidth = w
         lockedHeight = h
-        pendingWidth = 0
-        pendingHeight = 0
         holder.setFixedSize(w, h)
         Log.i(TAG, "lockBufferSize: ${w}x$h")
     }
@@ -272,11 +231,6 @@ class GyroSurfaceView @JvmOverloads constructor(
             GyroNative.detachSurface()
         }
     }
-
-    override fun onDetachedFromWindow() {
-        removeCallbacks(relockRunnable)
-        super.onDetachedFromWindow()
-    }
 }
 
 /**
@@ -305,6 +259,22 @@ fun GyroPlayerSurface(
 
     val frameRate by (engine?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
     LaunchedEffect(frameRate) { surfaceView.applyContentFrameRate(frameRate) }
+
+    // Pin the buffer to the video's own display size the moment the engine knows it. From then on
+    // window resizes never touch the BufferQueue again; the layout layer keeps the view's aspect
+    // equal to this one. Long edges are clamped to the screen so a 4K file does not force the
+    // compositor to drag a buffer larger than anything it will ever show.
+    val videoDimensions by (engine?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
+    LaunchedEffect(videoDimensions.width, videoDimensions.height) {
+        if (videoDimensions.width <= 0 || videoDimensions.height <= 0) return@LaunchedEffect
+        val metrics = context.resources.displayMetrics
+        val maxDim = maxOf(metrics.widthPixels, metrics.heightPixels).toFloat()
+        val scale = min(1f, maxDim / maxOf(videoDimensions.width, videoDimensions.height))
+        surfaceView.lockBufferSizeToVideo(
+            (videoDimensions.width * scale).toInt().coerceAtLeast(1),
+            (videoDimensions.height * scale).toInt().coerceAtLeast(1)
+        )
+    }
 
     AndroidView(
         factory = { surfaceView },
