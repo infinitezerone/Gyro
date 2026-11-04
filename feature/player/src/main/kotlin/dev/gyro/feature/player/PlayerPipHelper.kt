@@ -32,8 +32,13 @@ import dev.gyro.engine.model.ResizeMode
 const val PIP_ACTION_TOGGLE = "dev.gyro.player.action.PIP_TOGGLE"
 private const val PIP_TOGGLE_REQUEST_CODE = 1001
 
-/** Exit settling debounce to prevent system PiP exit transition flicker */
-const val PIP_EXIT_SETTLE_MS = 300L
+/**
+ * Upper bound for a manual PiP request to reach the mode callback.
+ *
+ * The transition itself takes ~300ms; past this the request is treated as dropped, so a hint that
+ * nobody clears cannot leave the player without controls.
+ */
+const val PIP_ENTER_TIMEOUT_MS = 1_500L
 
 /**
  * Builds the interactive Play/Pause action for the system PiP window.

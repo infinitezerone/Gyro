@@ -236,25 +236,30 @@ fun PlayerScreen(
 
     val isInPipMode = rememberIsInPipMode()
     val isPipWindow = rememberIsPipWindow(componentActivity)
-    var pipEntering by remember { mutableStateOf(false) }
-    val pipSettling = remember { mutableStateOf(isInPipMode) }
 
-    // The home gesture enters PiP without any code path of ours; the mode callback only fires
-    // mid-animation. The leave hint arrives before the window starts shrinking, so the controls
-    // disappear together with the first animated frame instead of lingering inside the small one.
-    val userLeavingHint = rememberUserLeavingHint()
-    LaunchedEffect(userLeavingHint) {
-        if (userLeavingHint) pipEntering = true
-    }
+    // Chrome visibility is a *derived* value, never a latch that some later event has to remember to
+    // clear. Two signals feed it:
+    // - the platform leave hint, delivered before the window starts shrinking (home, recents, another
+    //   app). The PiP mode callback only arrives mid-animation, so `isPipLayout` alone cannot hide the
+    //   controls in time - controls that shrink with the window are the exact artifact this prevents.
+    //   The hint clears itself on ON_RESUME, so a trip to the background that never enters PiP (a
+    //   paused player, for one) cannot leave the player without chrome on the way back.
+    // - an explicit PiP request, the one path the hint does not cover: that transition starts while
+    //   the activity is still in the foreground. Cleared as soon as the mode change lands.
+    val leavingForeground = rememberUserLeavingHint()
+    var pipRequested by remember { mutableStateOf(false) }
+    val hideChrome = leavingForeground || pipRequested
 
     LaunchedEffect(isInPipMode) {
-        if (isInPipMode) {
-            pipSettling.value = true
-            pipEntering = false
-        } else if (pipSettling.value) {
-            delay(PIP_EXIT_SETTLE_MS)
-            pipSettling.value = false
-        }
+        // The request has served its purpose once the mode change lands in either direction; keeping
+        // it set would leave the controls hidden after the return to full screen.
+        pipRequested = false
+    }
+    // Safety net for a request the system drops without reporting a failure.
+    LaunchedEffect(pipRequested) {
+        if (!pipRequested) return@LaunchedEffect
+        delay(PIP_ENTER_TIMEOUT_MS)
+        pipRequested = false
     }
 
     val isPipLayout = isPipWindow || isInPipMode
@@ -487,7 +492,10 @@ fun PlayerScreen(
 
     var priorSpeedBeforeBoost by remember { mutableStateOf<Float?>(null) }
 
-    val gestureModifier = if (!isPipLayout && !pipEntering) {
+    // Input depends on the layout, not on the transition: a gesture layer switched off by a lifecycle
+    // hint is one more piece of state that can be left behind, and nothing can be tapped while the
+    // window is animating away anyway.
+    val gestureModifier = if (!isPipLayout) {
         Modifier.playerGestures(
             context = context,
             isLocked = isLocked,
@@ -636,10 +644,10 @@ fun PlayerScreen(
         //
         // The key is the file, not the aspect ratio. Keying on the aspect re-created the view once
         // per open: `videoAspect` goes 0 -> 1.78 when the first dimensions are published, which
-        // landed ~50ms after the first frame had already released the shutter, and the brand new
-        // surface then needed ~300ms to present its own first frame - a black screen in the open.
-        // An aspect that changes within one file (rotation metadata, a resize mode override) only
-        // resizes the existing view, which the compositor scales without a gap.
+        // landed ~50ms *after* the first frame had already released the shutter, and the brand new
+        // surface then needed ~300ms to present its own first frame - a black screen in the open,
+        // measured in the field. An aspect that changes within one file (rotation metadata, a resize
+        // mode override) only resizes the existing view, which the compositor scales without a gap.
         key(activeUri) {
             var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
             GyroPlayerSurface(
@@ -731,14 +739,14 @@ fun PlayerScreen(
         }
 
         // E. Clean Top Floating Capsule HUD (Volume/Brightness/Speed/Double-Tap)
-        if (!isPipLayout && !pipEntering) {
+        if (!isPipLayout && !hideChrome) {
             PlayerHudOverlay(
                 hudState = gestureHudState
             )
         }
 
         // F. Top & Bottom Streamline Controls Overlay (hidden in PiP)
-        if (!isPipLayout && !pipEntering) {
+        if (!isPipLayout && !hideChrome) {
             PlayerControlsOverlay(
                 isVisible = showControls,
                 isLocked = isLocked,
@@ -789,8 +797,8 @@ fun PlayerScreen(
                 },
                 onEnterPiP = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && componentActivity != null) {
-                        if (pipEntering) return@PlayerControlsOverlay
-                        pipEntering = true
+                        if (pipRequested) return@PlayerControlsOverlay
+                        pipRequested = true
                         showControls = false
                         scope.launch {
                             withFrameNanos { }
@@ -804,7 +812,7 @@ fun PlayerScreen(
                             )
                             val entered = componentActivity.enterPictureInPictureMode(params)
                             if (!entered) {
-                                pipEntering = false
+                                pipRequested = false
                                 showControls = true
                             }
                         }
@@ -827,7 +835,7 @@ fun PlayerScreen(
 
         // G. Modal Tabbed Settings & Calibrator Bottom Sheet
         activeSheetTab?.let { tab ->
-            if (!isPipLayout && !pipEntering) {
+            if (!isPipLayout && !hideChrome) {
                 val currentMediaInfo = remember(activeSheetTab, activeUri) {
                     engine.queryMediaInfo(
                         fallbackTitle = mediaTitle,
