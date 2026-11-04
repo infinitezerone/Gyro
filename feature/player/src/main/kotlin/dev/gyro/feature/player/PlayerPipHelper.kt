@@ -188,6 +188,37 @@ fun rememberIsPipWindow(activity: ComponentActivity?): Boolean {
 }
 
 /**
+ * True from the moment the system notifies this activity that the user is
+ * leaving it (home gesture, recents, or a manual PiP entry) - which happens
+ * before the PiP transition animation starts. The PiP mode callback only
+ * arrives mid-animation, so anything that must disappear before the window
+ * shrinks is keyed on this signal instead.
+ */
+@Composable
+fun rememberUserLeavingHint(): Boolean {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findComponentActivity() } ?: return false
+
+    var leaving by remember(activity) { mutableStateOf(false) }
+
+    DisposableEffect(activity) {
+        val hintListener = Runnable { leaving = true }
+        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            // Coming back to the front (from PiP or from another app) clears the flag.
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) leaving = false
+        }
+        activity.addOnUserLeaveHintListener(hintListener)
+        activity.lifecycle.addObserver(lifecycleObserver)
+        onDispose {
+            activity.removeOnUserLeaveHintListener(hintListener)
+            activity.lifecycle.removeObserver(lifecycleObserver)
+        }
+    }
+
+    return leaving
+}
+
+/**
  * Registers BroadcastReceiver for PIP_ACTION_TOGGLE to handle play/pause clicks.
  */
 @Composable

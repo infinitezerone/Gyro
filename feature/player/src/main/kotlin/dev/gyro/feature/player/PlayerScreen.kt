@@ -238,6 +238,14 @@ fun PlayerScreen(
     var pipEntering by remember { mutableStateOf(false) }
     val pipSettling = remember { mutableStateOf(isInPipMode) }
 
+    // The home gesture enters PiP without any code path of ours; the mode callback only fires
+    // mid-animation. The leave hint arrives before the window starts shrinking, so the controls
+    // disappear together with the first animated frame instead of lingering inside the small one.
+    val userLeavingHint = rememberUserLeavingHint()
+    LaunchedEffect(userLeavingHint) {
+        if (userLeavingHint) pipEntering = true
+    }
+
     LaunchedEffect(isInPipMode) {
         if (isInPipMode) {
             pipSettling.value = true
@@ -272,6 +280,14 @@ fun PlayerScreen(
     val screenEntryEpoch by engine.screenEntryEpoch.collectAsState()
     LaunchedEffect(screenEntryEpoch) {
         showControls = true
+    }
+    // Leaving PiP is not a user tap, so it must not summon the controls: the small window the user
+    // just left was control-free, and landing back in full screen with every bar suddenly visible
+    // reads as a glitch. Only an explicit tap brings them back from here.
+    var wasInPipLayout by remember { mutableStateOf(false) }
+    LaunchedEffect(isPipLayout) {
+        if (wasInPipLayout && !isPipLayout) showControls = false
+        wasInPipLayout = isPipLayout
     }
     var isLocked by remember { mutableStateOf(false) }
     var activeSheetTab by remember { mutableStateOf<PlayerSheetTab?>(null) }
