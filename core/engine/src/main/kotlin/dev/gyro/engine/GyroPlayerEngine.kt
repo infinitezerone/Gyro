@@ -180,6 +180,18 @@ class GyroPlayerEngine @JvmOverloads constructor(
     val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
     /**
+     * True once the video dimensions of the current file have been published, so the buffer lock
+     * and the layout container have - or are about to - take the new file's shape.
+     *
+     * The measured gap between the first presented frame and the dimension update is ~40ms, and
+     * releasing the cover inside that gap lets the surface geometry transition happen in the open:
+     * on an aspect change the picture visibly slides in from a corner. The cover stays down until
+     * the geometry matches the file it is about to reveal.
+     */
+    private val _geometryReady = MutableStateFlow(false)
+    val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
+
+    /**
      * Frame rate of the current file, 0 when unknown.
      *
      * The player hands this to the platform via `Surface.setFrameRate`. Without it the system
@@ -294,6 +306,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     // back in that case.
                     if (bridge.getPropertyString("video") == "no") {
                         _firstFrameRendered.value = true
+                        // No picture means no dimension update will ever come to arm the gate.
+                        _geometryReady.value = true
                     }
                     refreshChapters()
                     Log.i(TAG, "File loaded, active hwdec=$hwdec")
@@ -657,6 +671,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
         // progress bar) would show the old movie's time against the new one's picture.
         _timePosMs.value = startPositionMs.coerceAtLeast(0L)
         _durationMs.value = 0L
+        // The buffer and layout still carry the previous file's shape; the cover stays until the
+        // new file's dimensions have been published and the geometry has followed.
+        _geometryReady.value = false
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {
@@ -772,6 +789,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         val h = if (quarterTurn) dw else dh
         _videoDimensions.value = VideoDimensions(w, h)
         _videoAspect.value = w.toFloat() / h
+        _geometryReady.value = true
     }
 
     fun refreshTracks() {

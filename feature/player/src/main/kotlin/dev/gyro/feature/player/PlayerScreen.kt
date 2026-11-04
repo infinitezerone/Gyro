@@ -540,19 +540,24 @@ fun PlayerScreen(
     // a remote one. Cover it while that is true. The surface is composited behind the window, so
     // an ordinary Composable sits on top of it; this is the same role as ExoPlayer's shutter.
     val firstFrameRendered by engine.firstFrameRendered.collectAsState()
+    // Releasing the cover before the buffer and layout have taken the new file's shape lets the
+    // surface geometry transition play in the open - on an aspect change the picture visibly
+    // slides in from a corner. Both gates must be open.
+    val geometryReady by engine.geometryReady.collectAsState()
     // A signal that never arrives must not leave a permanent black screen: the timeout covers a
     // slow open and recovers on its own if the native side ever stops reporting.
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, firstFrameRendered) {
-        if (firstFrameRendered) {
+    LaunchedEffect(activeUri, firstFrameRendered, geometryReady) {
+        if (firstFrameRendered && geometryReady) {
             shutterTimedOut = false
             return@LaunchedEffect
         }
         delay(4_000L)
-        if (!engine.firstFrameRendered.value) shutterTimedOut = true
+        if (!engine.firstFrameRendered.value || !engine.geometryReady.value) shutterTimedOut = true
     }
     val shutterTarget = if (
-        !isPipLayout && playbackState != PlaybackState.IDLE && !firstFrameRendered && !shutterTimedOut
+        !isPipLayout && playbackState != PlaybackState.IDLE &&
+        !(firstFrameRendered && geometryReady) && !shutterTimedOut
     ) 1f else 0f
     val shutterAlpha by animateFloatAsState(
         targetValue = shutterTarget,

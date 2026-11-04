@@ -427,6 +427,14 @@ static G_REARM_VIDEO: AtomicBool = AtomicBool::new(false);
 /// The surface keeps the previous file's last buffer until mpv queues a new one, so this is the
 /// only moment the UI can tell "the picture on screen belongs to this file".
 static G_AWAITING_FIRST_FRAME: AtomicBool = AtomicBool::new(false);
+/// Set once the current file finished loading (`file-loaded`).
+///
+/// Between `start-file` and `file-loaded` mpv still renders the previous file's
+/// last frame - measured in the field: a swap 34ms into a new `loadfile` reported the
+/// OLD file's position, because only resizes and exposes set the REDRAW flag, plain
+/// renders of the vo's leftover frame do not. The cover may only be released for a
+/// frame that belongs to the loaded file, so this gate must be open first.
+static G_FILE_LOADED_REACHED: AtomicBool = AtomicBool::new(false);
 /// When `start-file` arrived, used only to report how long the switch hid the picture.
 static G_LOAD_STARTED_MS: AtomicU64 = AtomicU64::new(0);
 
@@ -680,6 +688,11 @@ fn egl_presentation_time() -> Option<EglPresentationTime> {
 /// cost of attaching the thread is invisible next to the swap that just happened. This is the signal
 /// that lets the UI drop the cover which hides the previous video's last frame.
 fn signal_first_frame() {
+    // A file that has not finished loading cannot own a rendered frame yet; keep the wait
+    // armed so the first genuine frame of the loaded file still releases the cover later.
+    if !G_FILE_LOADED_REACHED.load(Ordering::Acquire) {
+        return;
+    }
     if !G_AWAITING_FIRST_FRAME.swap(false, Ordering::AcqRel) {
         return;
     }
@@ -2096,11 +2109,14 @@ fn event_thread() {
                 MPV_EVENT_START_FILE => {
                     // A new file has been accepted. Until a frame from it reaches the window the
                     // surface still shows the previous video's last buffer, so record when the wait
-                    // began; `signal_first_frame` reports the other end of it.
+                    // began; `signal_first_frame` reports the other end of it. The load gate opens
+                    // only at `file-loaded`: frames swapped before that belong to the old file.
                     G_LOAD_STARTED_MS.store(monotonic_ms() as u64, Ordering::Relaxed);
+                    G_FILE_LOADED_REACHED.store(false, Ordering::Release);
                     G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
                 }
                 MPV_EVENT_FILE_LOADED => {
+                    G_FILE_LOADED_REACHED.store(true, Ordering::Release);
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
                     call_static(env, "onEvent", "(I)V", &[JValue::Int(event_id)]);
                 }
