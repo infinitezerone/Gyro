@@ -632,10 +632,15 @@ fun PlayerScreen(
         // The compositor eases a SurfaceView's geometry change over several frames with the x/y
         // axes moving independently, which reads as the picture growing out of a corner on an
         // aspect change. A fresh SurfaceView is born directly in the new geometry with no
-        // old-to-new path to animate, so an aspect change rebuilds it; same-aspect switches keep
-        // the existing view and its BufferQueue untouched. Stale-view teardown is safe since the
-        // engine only unbinds the surface it actually holds (see GyroPlayerEngine.detachSurface).
-        key(videoAspect) {
+        // old-to-new path to animate, so a *file switch* that changes the shape rebuilds it.
+        //
+        // The key is the file, not the aspect ratio. Keying on the aspect re-created the view once
+        // per open: `videoAspect` goes 0 -> 1.78 when the first dimensions are published, which
+        // landed ~50ms after the first frame had already released the shutter, and the brand new
+        // surface then needed ~300ms to present its own first frame - a black screen in the open.
+        // An aspect that changes within one file (rotation metadata, a resize mode override) only
+        // resizes the existing view, which the compositor scales without a gap.
+        key(activeUri) {
             var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
             GyroPlayerSurface(
                 modifier = videoContainerModifier
