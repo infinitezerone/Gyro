@@ -98,6 +98,14 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
                     playlistManager.setSingle(uri, uri.lastPathSegment ?: "Video")
+                    // Opening another video from outside while a player page is already on top
+                    // must replace it, not stack: every VIEW intent used to push one more player
+                    // entry, so the back gesture walked back through every video ever opened.
+                    val top = backStack.lastOrNull()
+                    if (top is Screen.Player) {
+                        if (top.uri == uri) return@LaunchedEffect
+                        backStack.removeAt(backStack.lastIndex)
+                    }
                     backStack.add(Screen.Player(uri))
                     val startPos = if (settings.autoResume) {
                         val progress = historyRepository.getProgress(uri)

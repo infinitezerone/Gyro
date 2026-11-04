@@ -58,12 +58,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
@@ -624,6 +624,11 @@ fun PlayerScreen(
             } ?: Modifier.fillMaxSize()
             ResizeMode.STRETCH -> Modifier.fillMaxSize()
         }
+        // The zoom model computes screen positions in fullscreen coordinates
+        // ((content - offset) * scale), but this graphicsLayer lives on the aspect-ratio
+        // container whose top-left is not the screen origin. Rewriting the translation into
+        // container-local terms - (origin - offset) * scale - origin - keeps the finger
+        // anchor exact wherever the container sits: identity stays identity, (c - 0)*1 - c = 0.
         // The compositor eases a SurfaceView's geometry change over several frames with the x/y
         // axes moving independently, which reads as the picture growing out of a corner on an
         // aspect change. A fresh SurfaceView is born directly in the new geometry with no
