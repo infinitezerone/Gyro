@@ -51,9 +51,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
@@ -590,17 +593,24 @@ fun PlayerScreen(
             } ?: Modifier.fillMaxSize()
             ResizeMode.STRETCH -> Modifier.fillMaxSize()
         }
+        // The zoom model computes screen positions in fullscreen coordinates
+        // ((content - offset) * scale), but this graphicsLayer lives on the aspect-ratio
+        // container whose top-left is not the screen origin. Rewriting the translation into
+        // container-local terms - (origin - offset) * scale - origin - keeps the finger
+        // anchor exact wherever the container sits: identity stays identity, (c - 0)*1 - c = 0.
+        var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
         GyroPlayerSurface(
             modifier = videoContainerModifier
                 // The outer Box centers nothing by default (its other children rely on top-start),
                 // so the aspect-fitted container centers itself here; CROP's overflow is clipped
                 // symmetrically for the same reason.
                 .align(Alignment.Center)
+                .onGloballyPositioned { videoContainerOrigin = it.positionInParent() }
                 .graphicsLayer {
                     scaleX = zoomState.scale
                     scaleY = zoomState.scale
-                    translationX = zoomState.translationX
-                    translationY = zoomState.translationY
+                    translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
+                    translationY = (videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y
                     transformOrigin = zoomState.transformOrigin
                 },
             engine = engine
