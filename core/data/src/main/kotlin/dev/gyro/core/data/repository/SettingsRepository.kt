@@ -2,6 +2,8 @@ package dev.gyro.core.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import dev.gyro.core.model.HWDEC_HARDWARE
+import dev.gyro.core.model.HWDEC_SOFTWARE
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -76,7 +78,12 @@ class SettingsRepository(
             autoResume = prefs.getBoolean(KEY_AUTO_RESUME, true),
             backgroundPlayMode = prefs.getString(KEY_BG_PLAY_MODE, "pip") ?: "pip",
             seekStepSeconds = seekStep,
-            defaultHwdec = prefs.getString(KEY_DEFAULT_HWDEC, "no") ?: "no",
+            // An absent key is a fresh install and gets the hardware default. A blank value is what
+            // the settings sheet stored for software before HWDEC_SOFTWARE existed, so it has to
+            // keep meaning software instead of silently upgrading the user to the decoder they
+            // turned off.
+            defaultHwdec = (prefs.getString(KEY_DEFAULT_HWDEC, HWDEC_HARDWARE) ?: HWDEC_HARDWARE)
+                .ifBlank { HWDEC_SOFTWARE },
             subAutoLoad = prefs.getBoolean(KEY_SUB_AUTO_LOAD, true),
             gesturesEnabled = prefs.getBoolean(KEY_GESTURES_ENABLED, true),
             gestureConfig = gestureConfig

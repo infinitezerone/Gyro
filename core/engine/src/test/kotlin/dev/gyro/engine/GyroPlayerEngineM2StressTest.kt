@@ -366,11 +366,12 @@ class GyroPlayerEngineM2StressTest {
     }
 
     @Test
-    fun testPriority_hwdecDefaultsToSoftwareWhenGuiBlank() {
+    fun testPriority_legacyBlankHwdecStaysSoftware() {
         val confFile = File(filesDir, "mpv.conf").apply {
             writeText("hwdec=no\n")
         }
         val mpvRepo = MpvConfigRepository(configFile = confFile)
+        // "" is what the settings sheet stored for software before it wrote "no".
         val prefs = FakeSharedPreferences(mapOf("default_hwdec" to ""))
         val settingsRepo = SettingsRepository(prefs)
 
@@ -382,9 +383,31 @@ class GyroPlayerEngineM2StressTest {
         )
         engine.ensureInitialized()
 
-        // A blank GUI setting means software decoding: MediaCodec capability probes cannot detect
-        // the devices where libmpv's wrapper wedges, so 'no' is the only safe default.
+        // The user chose software once; a default change must not quietly turn it back on.
         assertEquals("no", fakeBridge.options["hwdec"])
+    }
+
+    @Test
+    fun testPriority_hwdecDefaultsToHardwareWithCopyFallbackWhenUnset() {
+        val confFile = File(filesDir, "mpv.conf").apply {
+            writeText("hwdec=no\n")
+        }
+        val mpvRepo = MpvConfigRepository(configFile = confFile)
+        val prefs = FakeSharedPreferences()
+        val settingsRepo = SettingsRepository(prefs)
+
+        val engine = GyroPlayerEngine(
+            context = testContext,
+            bridge = fakeBridge,
+            mpvConfigRepository = mpvRepo,
+            settingsRepository = settingsRepo
+        )
+        engine.ensureInitialized()
+
+        // Hardware wins over mpv.conf, with the copy-back variant appended so a codec that refuses
+        // the surface still decodes, and with mpv's own software fallback armed for decode errors.
+        assertEquals("mediacodec,mediacodec-copy", fakeBridge.options["hwdec"])
+        assertEquals("3", fakeBridge.options["hwdec-software-fallback"])
     }
 
     @Test

@@ -1,5 +1,7 @@
 package dev.gyro.core.data.repository
 
+import dev.gyro.core.model.HWDEC_HARDWARE
+import dev.gyro.core.model.HWDEC_SOFTWARE
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import org.junit.Assert.assertEquals
@@ -20,7 +22,7 @@ class SettingsRepositoryTest {
         assertTrue(current.autoResume)
         assertEquals("pip", current.backgroundPlayMode)
         assertEquals(10, current.seekStepSeconds)
-        assertEquals("no", current.defaultHwdec)
+        assertEquals(HWDEC_HARDWARE, current.defaultHwdec)
         assertTrue(current.subAutoLoad)
         assertTrue(current.gesturesEnabled)
 
@@ -37,6 +39,16 @@ class SettingsRepositoryTest {
         assertFalse(gesture.swapVolumeAndBrightness)
         assertEquals(10, gesture.doubleTapSeekSeconds)
         assertEquals(2.0f, gesture.longPressSpeed, 0.001f)
+    }
+
+    @Test
+    fun testBlankStoredHwdecStaysSoftware() {
+        // The settings sheet stored "" for software before HWDEC_SOFTWARE existed. It must keep
+        // meaning software, not fall through to the hardware default.
+        val prefs = FakeSharedPreferences(mapOf("default_hwdec" to ""))
+        val repo = SettingsRepository(prefs)
+
+        assertEquals(HWDEC_SOFTWARE, repo.settings.value.defaultHwdec)
     }
 
     @Test

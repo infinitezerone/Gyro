@@ -11,6 +11,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
+import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.engine.audio.GyroAudioFocusManager
 import dev.gyro.engine.model.PlaybackState
@@ -475,18 +476,21 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // =================================================================
                 val userSettings = settingsRepository?.settings?.value
                 val userHwdec = userSettings?.defaultHwdec?.trim() ?: ""
-                // Software decoding is the default. libavcodec's MediaCodec wrapper waits for
-                // buffers inside a synchronous JNI call; a device that stops returning them stops
-                // the mpv core and deadlocks every caller of mpv_set_property. That failure is
-                // invisible to a one-shot decode probe - the emulator's codec decodes a 720p probe
-                // frame happily and still wedges under mpv - so no capability probe is trusted
-                // here. An explicit GUI choice still wins.
-                val hwdecConfig = when {
-                    userHwdec.isNotBlank() -> userHwdec
-                    else -> "no"
+                // Hardware is the default: software decoding caps a phone at 1080p H.264 and cannot
+                // play 4K HEVC at all. Failures go to mpv's own two fallbacks rather than to the
+                // default value: `mediacodec,mediacodec-copy` lets a codec that refuses the surface
+                // play through copy-back, and `hwdec-software-fallback` (set below) continues on
+                // libavcodec after N consecutive frames fail.
+                val requestedHwdec = userHwdec.ifBlank { HWDEC_HARDWARE }
+                val hwdecConfig = if (requestedHwdec == HWDEC_HARDWARE) {
+                    "$HWDEC_HARDWARE,mediacodec-copy"
+                } else {
+                    requestedHwdec
                 }
                 bridge.setOptionString("hwdec", hwdecConfig)
                 bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
+                // Set after mpv.conf so a user config cannot silently turn the fallback off.
+                bridge.setOptionString("hwdec-software-fallback", "3")
                 // mpv paces frames against the display only when it knows how fast that is. The value
                 // comes from measured vsync callbacks rather than Display.mode.refreshRate, which
                 // reports 120 on this device while the compositor runs the window at 90; see

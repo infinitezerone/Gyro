@@ -47,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.model.HWDEC_HARDWARE
+import dev.gyro.core.model.HWDEC_SOFTWARE
 import dev.gyro.core.model.UserSettings
 
 @Composable
@@ -279,7 +281,7 @@ fun SettingsContent(
 
     // 单选弹窗: 默认解码器
     if (showHwdecDialog) {
-        val hwdecModes = listOf("mediacodec", "mediacodec-copy", "")
+        val hwdecModes = listOf(HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE)
         val labels = listOf(
             stringResource(R.string.settings_hwdec_mediacodec),
             stringResource(R.string.settings_hwdec_copy),

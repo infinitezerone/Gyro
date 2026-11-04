@@ -94,8 +94,9 @@ class GyroPlayerEngineMpvConfInjectionTest {
         )
         engine.ensureInitialized()
 
-        // GUI explicit settings must overwrite user config values for conflicting keys
-        assertEquals("mediacodec", fakeBridge.options["hwdec"])
+        // GUI explicit settings must overwrite user config values for conflicting keys. The chosen
+        // hardware mode is expanded with the copy-back variant so an init failure is not fatal.
+        assertEquals("mediacodec,mediacodec-copy", fakeBridge.options["hwdec"])
         assertEquals("all", fakeBridge.options["sub-auto"])
     }
 
