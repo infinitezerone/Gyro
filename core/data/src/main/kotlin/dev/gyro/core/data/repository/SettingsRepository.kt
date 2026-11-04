@@ -76,7 +76,7 @@ class SettingsRepository(
             autoResume = prefs.getBoolean(KEY_AUTO_RESUME, true),
             backgroundPlayMode = prefs.getString(KEY_BG_PLAY_MODE, "pip") ?: "pip",
             seekStepSeconds = seekStep,
-            defaultHwdec = prefs.getString(KEY_DEFAULT_HWDEC, "mediacodec") ?: "mediacodec",
+            defaultHwdec = prefs.getString(KEY_DEFAULT_HWDEC, "no") ?: "no",
             subAutoLoad = prefs.getBoolean(KEY_SUB_AUTO_LOAD, true),
             gesturesEnabled = prefs.getBoolean(KEY_GESTURES_ENABLED, true),
             gestureConfig = gestureConfig

@@ -20,7 +20,7 @@ class SettingsRepositoryTest {
         assertTrue(current.autoResume)
         assertEquals("pip", current.backgroundPlayMode)
         assertEquals(10, current.seekStepSeconds)
-        assertEquals("mediacodec", current.defaultHwdec)
+        assertEquals("no", current.defaultHwdec)
         assertTrue(current.subAutoLoad)
         assertTrue(current.gesturesEnabled)
 

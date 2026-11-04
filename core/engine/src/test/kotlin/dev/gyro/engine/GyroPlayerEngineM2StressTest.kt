@@ -366,15 +366,13 @@ class GyroPlayerEngineM2StressTest {
     }
 
     @Test
-    fun testPriority_hwdecDefaultProbe_overridesMpvConfWhenGuiBlank() {
+    fun testPriority_hwdecDefaultsToSoftwareWhenGuiBlank() {
         val confFile = File(filesDir, "mpv.conf").apply {
             writeText("hwdec=no\n")
         }
         val mpvRepo = MpvConfigRepository(configFile = confFile)
         val prefs = FakeSharedPreferences(mapOf("default_hwdec" to ""))
         val settingsRepo = SettingsRepository(prefs)
-
-        fakeBridge.isZeroCopySafeResult = true
 
         val engine = GyroPlayerEngine(
             context = testContext,
@@ -384,8 +382,9 @@ class GyroPlayerEngineM2StressTest {
         )
         engine.ensureInitialized()
 
-        // When GUI setting is blank, safe probe default 'mediacodec,mediacodec-copy' must override mpv.conf 'no'
-        assertEquals("mediacodec,mediacodec-copy", fakeBridge.options["hwdec"])
+        // A blank GUI setting means software decoding: MediaCodec capability probes cannot detect
+        // the devices where libmpv's wrapper wedges, so 'no' is the only safe default.
+        assertEquals("no", fakeBridge.options["hwdec"])
     }
 
     @Test

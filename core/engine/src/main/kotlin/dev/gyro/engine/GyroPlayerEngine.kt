@@ -440,10 +440,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // Pre-extract built-in shaders to POSIX filesDir
                 shaderManager.extractBuiltInShaders()
 
-                // Query static environment probe
-                val isZeroCopySafe = bridge.isZeroCopySafe()
-                val gpuRenderer = bridge.getGpuRenderer()
-
                 // =================================================================
                 // 1. INJECT USER mpv.conf (Excluding Protected Engine Keys)
                 // =================================================================
@@ -465,10 +461,15 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // =================================================================
                 val userSettings = settingsRepository?.settings?.value
                 val userHwdec = userSettings?.defaultHwdec?.trim() ?: ""
+                // Software decoding is the default. libavcodec's MediaCodec wrapper waits for
+                // buffers inside a synchronous JNI call; a device that stops returning them stops
+                // the mpv core and deadlocks every caller of mpv_set_property. That failure is
+                // invisible to a one-shot decode probe - the emulator's codec decodes a 720p probe
+                // frame happily and still wedges under mpv - so no capability probe is trusted
+                // here. An explicit GUI choice still wins.
                 val hwdecConfig = when {
                     userHwdec.isNotBlank() -> userHwdec
-                    isZeroCopySafe -> "mediacodec,mediacodec-copy"
-                    else -> "mediacodec-copy"
+                    else -> "no"
                 }
                 bridge.setOptionString("hwdec", hwdecConfig)
                 bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
