@@ -315,6 +315,15 @@ fun PlayerScreen(
         zoomState.reset()
     }
 
+    // A file switch must start from the identity transform: a leftover pinch scale or pan from the
+    // previous movie re-anchors the new picture off-centre, and the settle-back animation then
+    // reads as the video growing out of a corner.
+    LaunchedEffect(activeUri) {
+        resetJob?.cancel()
+        resetJob = null
+        zoomState.reset()
+    }
+
     var lastInteractionTrigger by remember { mutableLongStateOf(0L) }
     fun resetControlsTimeout() {
         lastInteractionTrigger = SystemClock.uptimeMillis()
