@@ -652,6 +652,11 @@ class GyroPlayerEngine @JvmOverloads constructor(
         pendingSeekTargetMs = null
         // Until mpv presents a frame from the new file the surface still holds the old one.
         _firstFrameRendered.value = false
+        // The property watchers keep reporting the previous file's position and duration until the
+        // new file's first events arrive; anything reading them in that window (the controls, the
+        // progress bar) would show the old movie's time against the new one's picture.
+        _timePosMs.value = startPositionMs.coerceAtLeast(0L)
+        _durationMs.value = 0L
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {
