@@ -346,8 +346,17 @@ class GyroPlayerEngineTest {
         assertEquals(90.0f, dev.gyro.engine.ui.normalizeContentFps(87.3584f), 0.001f)
         assertEquals(23.976f, dev.gyro.engine.ui.normalizeContentFps(23.976f), 0.001f)
         assertEquals(59.94f, dev.gyro.engine.ui.normalizeContentFps(59.94f), 0.001f)
-        // Non-nominal rate returns 0f to prevent invalid display mode churning
-        assertEquals(0f, dev.gyro.engine.ui.normalizeContentFps(75.0699f), 0.001f)
+        assertEquals(75.0f, dev.gyro.engine.ui.normalizeContentFps(75.0699f), 0.001f)
+        assertEquals(0f, dev.gyro.engine.ui.normalizeContentFps(0.5f), 0.001f)
+        assertEquals(80.0f, dev.gyro.engine.ui.normalizeContentFps(80.0f), 0.001f)
+    }
+
+    @Test
+    fun testUpdateDisplayRefreshRate_setsPropertiesOnBridge() {
+        engine.updateDisplayRefreshRate(120.0f)
+        assertEquals(120.0f, engine.displayRefreshRate.value, 0.001f)
+        assertEquals(120.0, fakeBridge.properties["display-fps-override"] as Double, 0.001)
+        assertEquals(120.0, fakeBridge.properties["display-fps"] as Double, 0.001)
     }
 
     @Test

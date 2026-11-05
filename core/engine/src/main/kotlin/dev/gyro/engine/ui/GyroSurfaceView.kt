@@ -1,9 +1,11 @@
 package dev.gyro.engine.ui
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
+import android.view.Display
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -83,22 +85,22 @@ private fun resolvePhysicalDisplaySize(context: Context): Pair<Int, Int> {
 
 /**
  * Normalizes content frame rate to standard broadcast/digital video nominal rates
- * if it falls within a 3.5% tolerance window. Returns 0f if it does not match
- * any standard mode, avoiding invalid system mode switching.
+ * if it falls within a 3.5% tolerance window. Returns the nominal rate if matched,
+ * or the contentFps itself if > 1f, or 0f if non-positive.
  */
 internal fun normalizeContentFps(contentFps: Float): Float {
     if (contentFps <= 1f) return 0f
     val nominalRates = floatArrayOf(
         23.976f, 24.0f, 25.0f, 29.97f, 30.0f,
         48.0f, 50.0f, 59.94f, 60.0f,
-        72.0f, 90.0f, 120.0f, 144.0f
+        72.0f, 75.0f, 90.0f, 120.0f, 144.0f, 165.0f, 240.0f
     )
     for (nominal in nominalRates) {
         if (abs(contentFps - nominal) / nominal <= 0.035f) {
             return nominal
         }
     }
-    return 0f
+    return if (contentFps in 1.0f..1000.0f) contentFps else 0f
 }
 
 /**
@@ -148,6 +150,19 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     /** Surface whose window the engine currently holds, for the ownership check in `surfaceDestroyed`. */
     private var attachedSurface: Surface? = null
+
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            val myDisplay = display ?: return
+            if (displayId == myDisplay.displayId) {
+                val refreshRate = myDisplay.refreshRate
+                Log.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
+                engine?.updateDisplayRefreshRate(refreshRate)
+            }
+        }
+    }
 
     init {
         holder?.addCallback(this)
@@ -241,6 +256,10 @@ class GyroSurfaceView @JvmOverloads constructor(
     private fun attach(surface: Surface?) {
         if (surface == null || !surface.isValid) return
         attachedSurface = surface
+        val rate = display?.refreshRate
+        if (rate != null) {
+            engine?.updateDisplayRefreshRate(rate)
+        }
         // A fresh surface starts at the platform default rate; re-apply the content rate that
         // was published before it existed.
         applyContentFrameRate(contentFrameRate)
@@ -269,6 +288,12 @@ class GyroSurfaceView @JvmOverloads constructor(
      */
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+        dm?.registerDisplayListener(displayListener, handler)
+        val rate = display?.refreshRate ?: dm?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
+        if (rate != null) {
+            engine?.updateDisplayRefreshRate(rate)
+        }
         val surface = holder.surface
         if (surface != null && surface.isValid && attachedSurface !== surface) {
             Log.i(TAG, "onAttachedToWindow -> re-attach existing surface")
@@ -278,6 +303,8 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+        dm?.unregisterDisplayListener(displayListener)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {

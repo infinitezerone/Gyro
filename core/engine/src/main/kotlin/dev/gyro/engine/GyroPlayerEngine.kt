@@ -1,10 +1,12 @@
 package dev.gyro.engine
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
+import android.view.Display
 import android.view.Surface
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.SettingsRepository
@@ -204,6 +206,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
      */
     private val _videoFrameRate = MutableStateFlow(0f)
     val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
+
+    private val _displayRefreshRate = MutableStateFlow(0f)
+    val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
 
     private val _speed = MutableStateFlow(1.0f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
@@ -527,7 +532,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 bridge.setOptionString("ao", "audiotrack,opensles")
                 bridge.setOptionString("volume-max", "200.0")
                 if (!userOptions.containsKey("video-sync")) {
-                    bridge.setOptionString("video-sync", "display-resample")
+                    bridge.setOptionString("video-sync", "audio")
                 }
 
                 // Provide sensible defaults if not set in mpv.conf
@@ -552,6 +557,15 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // =================================================================
                 bridge.init()
                 bridge.eventListener = nativeListener
+
+                // Seed display refresh rate if available from the display subsystem
+                val initialDisplayFps = displayRefreshRate()
+                if (initialDisplayFps != null && initialDisplayFps in 20f..300f) {
+                    _displayRefreshRate.value = initialDisplayFps
+                    bridge.setPropertyDouble("display-fps-override", initialDisplayFps.toDouble())
+                    bridge.setPropertyDouble("display-fps", initialDisplayFps.toDouble())
+                    Log.i(TAG, "Initialized display-fps-override -> $initialDisplayFps")
+                }
 
                 // Restore active shader if previously configured
                 val currentShader = _shaderState.value
@@ -595,6 +609,30 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 Log.e(TAG, "Failed to initialize GyroPlayerEngine", t)
                 isInitialized.set(false)
             }
+        }
+    }
+
+    /** Refresh rate of the display the player is on, or null when it cannot be read. */
+    private fun displayRefreshRate(): Float? {
+        val manager = appContext.getSystemService(DisplayManager::class.java) ?: return null
+        val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
+        val rate = display.mode?.refreshRate ?: return null
+        return rate.takeIf { it in 20f..300f }
+    }
+
+    /**
+     * Updates mpv's display-fps and display-fps-override with the active hardware refresh rate.
+     * Essential for `video-sync=display-resample` under `vo=libmpv` to synchronize frame pacing
+     * with Android SurfaceFlinger VSync without buffer starvation or dropped frames.
+     */
+    fun updateDisplayRefreshRate(rate: Float) {
+        if (rate !in 20f..300f) return
+        if (kotlin.math.abs(_displayRefreshRate.value - rate) < 0.1f) return
+        _displayRefreshRate.value = rate
+        Log.i(TAG, "updateDisplayRefreshRate: $rate Hz")
+        if (isInitialized.get()) {
+            bridge.setPropertyDouble("display-fps-override", rate.toDouble())
+            bridge.setPropertyDouble("display-fps", rate.toDouble())
         }
     }
 
