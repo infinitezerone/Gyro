@@ -276,6 +276,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
     @Volatile
     private var fileLoaded: Boolean = false
 
+    @Volatile
+    private var isPendingLoad: Boolean = false
+
     private val nativeListener = object : MpvNativeBridge.EventListener {
         override fun onEvent(eventId: Int) {
             when (eventId) {
@@ -287,6 +290,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
                 MpvNativeBridge.Event.FILE_LOADED -> {
                     fileLoaded = true
+                    isPendingLoad = false
                     val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
                     if (requestedTitle.isBlank()) {
@@ -646,6 +650,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
         initialHeight: Int = 0
     ) {
         _currentUri.value = uri
+        fileLoaded = false
+        isPendingLoad = true
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
@@ -730,6 +736,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
         initialHeight: Int = 0
     ) {
         Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached, initialSize=${initialWidth}x$initialHeight")
+        fileLoaded = false
+        isPendingLoad = true
         resetSoftwareGain()
         ensureInitialized()
         // A new file invalidates any in-flight seek of the previous one.
@@ -854,6 +862,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
      * window before mpv has decoded a frame, where the display size is still unknown.
      */
     private fun publishVideoDimensions() {
+        if (isPendingLoad) return
         // mpv's property observers fire more than once per file: first with the coded shape
         // (rotation not applied yet), then with the display shape once the VO is up. Publishing
         // that first shape made the buffer and the layout container flash between two aspects on

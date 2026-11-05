@@ -1358,9 +1358,6 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                                 mpv_render_ctx.is_null()
                             ));
                             let _ = ack.send(());
-                            if slot.is_ready() {
-                                draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);
-                            }
                         }
                         Err(err) => {
                             nlog(&format!(

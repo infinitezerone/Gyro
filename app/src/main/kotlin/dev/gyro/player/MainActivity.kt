@@ -202,7 +202,6 @@ class MainActivity : ComponentActivity() {
                                     val idx = currentList.indexOfFirst { it.uri == item.uri }
                                     playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
                                     playerEngine.notifyScreenEntry()
-                                    backStack.add(Screen.Player(item.uri))
                                     val startPos = if (settings.autoResume) {
                                         val progress = historyRepository.getProgress(item.uri)
                                         if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
@@ -210,6 +209,7 @@ class MainActivity : ComponentActivity() {
                                         } else 0L
                                     } else 0L
                                     playerEngine.loadUri(item.uri, startPos, item.width, item.height)
+                                    backStack.add(Screen.Player(item.uri))
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
@@ -364,7 +364,11 @@ class MainActivity : ComponentActivity() {
             // Detach video surface for headless EGL_NO_SURFACE operation in background
             playerEngine.detachSurface()
             // Launch foreground service for background audio playback
-            PlaybackService.start(this)
+            runCatching {
+                PlaybackService.start(this)
+            }.onFailure { e ->
+                Log.w("MainActivity", "Failed to start PlaybackService from background", e)
+            }
         }
     }
 
