@@ -511,10 +511,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
                 // Set after mpv.conf so a user config cannot silently turn the fallback off.
                 bridge.setOptionString("hwdec-software-fallback", "3")
-                // mpv paces frames against the display only when it knows how fast that is. The value
-                // comes from measured vsync callbacks rather than Display.mode.refreshRate, which
-                // reports 120 on this device while the compositor runs the window at 90; see
-                // `onDisplayRefreshRateMeasured`.
                 // `vo` only, which is mpv's recommended mode and what mpv-android runs: the video
                 // output drops the frame at the last moment, when it is known the display cannot
                 // show it. Adding `decoder` lets the decoder guess instead, and mpv documents that
@@ -556,16 +552,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // =================================================================
                 bridge.init()
                 bridge.eventListener = nativeListener
-
-                // Apply the VSync rate measured by Choreographer if the surface attached before
-                // init(). Never fall back to Display.refreshRate here: on ColorOS it reports 120Hz
-                // while the compositor runs the window at 90Hz, which would make mpv pace against
-                // a 120Hz grid the window is not actually getting.
-                val initialDisplayFps = measuredDisplayFps
-                if (initialDisplayFps in 20f..240f) {
-                    bridge.setPropertyDouble("display-fps-override", initialDisplayFps.toDouble())
-                    bridge.setPropertyDouble("display-fps", initialDisplayFps.toDouble())
-                }
 
                 // Restore active shader if previously configured
                 val currentShader = _shaderState.value
@@ -609,28 +595,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 Log.e(TAG, "Failed to initialize GyroPlayerEngine", t)
                 isInitialized.set(false)
             }
-        }
-    }
-
-    @Volatile
-    private var measuredDisplayFps = 0f
-
-    /**
-     * Applies the refresh rate measured from the compositor's own vsync.
-     *
-     * the platform's own numbers are not usable here: `Display.mode.refreshRate` and
-     * `Display.refreshRate` both report 120 on a device whose compositor actually runs this window at 90.
-     * Handing 120 to mpv makes it schedule every frame for a grid the panel never produces, and the
-     * surplus is dropped unevenly - judder on any source faster than 60fps.
-     */
-    fun onDisplayRefreshRateMeasured(fps: Float) {
-        if (fps < 20f || fps > 240f) return
-        if (kotlin.math.abs(fps - measuredDisplayFps) < 0.5f) return
-        measuredDisplayFps = fps
-        Log.i(TAG, "display-fps-override -> $fps")
-        if (isInitialized.get()) {
-            bridge.setPropertyDouble("display-fps-override", fps.toDouble())
-            bridge.setPropertyDouble("display-fps", fps.toDouble())
         }
     }
 
