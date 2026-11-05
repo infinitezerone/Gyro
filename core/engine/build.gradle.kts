@@ -131,7 +131,6 @@ dependencies {
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
-    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
 
     testImplementation(project(":core:testing"))
     testImplementation(libs.kotlinx.coroutines.test)

@@ -168,20 +168,6 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private var hiddenApiExemptionsAdded = false
-
-private fun ensureHiddenApiExemptions() {
-    if (hiddenApiExemptionsAdded) return
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        runCatching {
-            org.lsposed.hiddenapibypass.HiddenApiBypass.addHiddenApiExemptions("L")
-            hiddenApiExemptionsAdded = true
-        }.onFailure {
-            Log.w("GyroSurfaceView", "HiddenApiBypass.addHiddenApiExemptions failed: ${it.message}")
-        }
-    }
-}
-
 /**
  * High-performance, zero-overhead SurfaceView for Gyro MPV player.
  *
@@ -307,132 +293,32 @@ class GyroSurfaceView @JvmOverloads constructor(
         contentFrameRate = fps
         val requested = if (fps > 1f && fps < 1000f) fps else 0f
         val normalized = normalizeContentFps(requested)
-        var preferredMode: DisplayModeCandidate? = null
 
-        // 1. Request preferred display mode on the hosting Activity Window so high-refresh panels
-        // (90Hz / 120Hz / 144Hz) do not throttle the window via dynamic frame-rate categories.
-        runCatching {
-            val activity = context.findActivity()
-            val window = activity?.window
-            val currentDisplay = display
-                ?: context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)
-            val activeMode = currentDisplay?.mode
-            val supported = currentDisplay?.supportedModes
-            if (activeMode != null && !supported.isNullOrEmpty() && normalized > 0f) {
-                val candidates = supported.map {
-                    DisplayModeCandidate(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate)
-                }
-                val selected = selectPreferredDisplayMode(
-                    modes = candidates,
-                    activeWidth = activeMode.physicalWidth,
-                    activeHeight = activeMode.physicalHeight,
-                    contentFps = normalized
-                )
-                preferredMode = selected
-                if (window != null && selected != null) {
-                    val attrs = window.attributes
-                    var changed = false
-                    if (attrs.preferredDisplayModeId != selected.modeId) {
-                        attrs.preferredDisplayModeId = selected.modeId
-                        changed = true
-                    }
-                    if (attrs.preferredRefreshRate != selected.refreshRate) {
-                        attrs.preferredRefreshRate = selected.refreshRate
-                        changed = true
-                    }
-                    runCatching {
-                        ensureHiddenApiExemptions()
-                        val minField = attrs.javaClass.getField("preferredMinDisplayRefreshRate")
-                        val maxField = attrs.javaClass.getField("preferredMaxDisplayRefreshRate")
-                        if (minField.getFloat(attrs) != selected.refreshRate) {
-                            minField.setFloat(attrs, selected.refreshRate)
-                            changed = true
-                        }
-                        if (maxField.getFloat(attrs) != selected.refreshRate) {
-                            maxField.setFloat(attrs, selected.refreshRate)
-                            changed = true
-                        }
-                    }.onFailure { Log.d(TAG, "preferredMin/MaxDisplayRefreshRate failed: ${it.message}") }
-                    if (Build.VERSION.SDK_INT >= 34) {
-                        runCatching {
-                            window.setFrameRatePowerSavingsBalanced(false)
-                        }
-                    }
-                    if (changed) {
-                        window.attributes = attrs
-                        Log.i(TAG, "Window preferred rate -> mode=${selected.modeId}, rate=${selected.refreshRate}Hz (contentFps=$requested, normalized=$normalized)")
-                    }
-                }
-            } else if (window != null && normalized <= 0f) {
-                val attrs = window.attributes
-                var changed = false
-                if (attrs.preferredDisplayModeId != 0) {
-                    attrs.preferredDisplayModeId = 0
-                    changed = true
-                }
-                if (attrs.preferredRefreshRate != 0f) {
-                    attrs.preferredRefreshRate = 0f
-                    changed = true
-                }
-                runCatching {
-                    ensureHiddenApiExemptions()
-                    val minField = attrs.javaClass.getField("preferredMinDisplayRefreshRate")
-                    val maxField = attrs.javaClass.getField("preferredMaxDisplayRefreshRate")
-                    if (minField.getFloat(attrs) != 0f) {
-                        minField.setFloat(attrs, 0f)
-                        changed = true
-                    }
-                    if (maxField.getFloat(attrs) != 0f) {
-                        maxField.setFloat(attrs, 0f)
-                        changed = true
-                    }
-                }
-                if (changed) {
-                    window.attributes = attrs
-                    Log.i(TAG, "Window preferred rate reset to 0 (default)")
-                }
-            }
-        }.onFailure { Log.w(TAG, "preferredDisplayModeId update failed: ${it.message}") }
-
-        // 2. Vote on the Surface itself (Android 11+).
+        // Vote on the Surface itself (Android 11+).
+        // Uses CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS so the display compositor adapts smoothly
+        // without disruptive hardware mode switches, flickering, or panel clock resyncs.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val surface = attachedSurface ?: holder.surface
             if (surface != null && surface.isValid) {
-                // For high-fps videos (>60.5fps, e.g. 75fps, 87fps, 90fps, 120fps), vote with the selected
-                // display mode's refresh rate (90Hz or 120Hz) as FIXED_SOURCE. This forces SurfaceFlinger
-                // and hardware touch/idle arbiters (e.g. OTI) to lock the active display mode to the
-                // video's target refresh rate instead of downclocking to 60Hz when touch stops.
-                val selected = preferredMode
-                val surfaceVoteFps = if (normalized > 60.5f && selected != null) {
-                    selected.refreshRate
-                } else {
-                    normalized
-                }
                 runCatching {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         surface.setFrameRate(
-                            surfaceVoteFps,
-                            Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                            Surface.CHANGE_FRAME_RATE_ALWAYS
+                            normalized,
+                            Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                            Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
                         )
                     } else {
                         surface.setFrameRate(
-                            surfaceVoteFps,
-                            Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+                            normalized,
+                            Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
                         )
                     }
-                    Log.i(TAG, "setFrameRate: vote=$surfaceVoteFps (content=$requested, normalized=$normalized, compat=FIXED_SOURCE)")
-                }.onFailure { Log.w(TAG, "setFrameRate($surfaceVoteFps) failed: ${it.message}") }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    runCatching {
-                        setRequestedFrameRate(surfaceVoteFps)
-                    }
-                }
+                    Log.i(TAG, "setFrameRate: vote=$normalized (compat=DEFAULT, SEAMLESS)")
+                }.onFailure { Log.w(TAG, "setFrameRate($normalized) failed: ${it.message}") }
             }
         }
 
-        // 3. Measure actual VSync cadence delivered by the compositor.
+        // Measure actual VSync cadence delivered by the compositor and notify mpv engine.
         measureDisplayRate { measuredFps -> engine?.onDisplayRefreshRateMeasured(measuredFps) }
     }
 
