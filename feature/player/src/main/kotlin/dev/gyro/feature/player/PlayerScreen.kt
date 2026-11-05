@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlin.math.abs
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -156,7 +157,7 @@ fun PlayerScreen(
     val hasPrevious = playlistManager?.hasPrevious ?: false
     val hasNext = playlistManager?.hasNext ?: false
 
-    fun openUri(uri: Uri) {
+    fun openUri(uri: Uri, initialWidth: Int = 0, initialHeight: Int = 0) {
         activeUri?.let { oldUri ->
             val curPos = engine.timePosMs.value
             val curDur = engine.durationMs.value
@@ -171,11 +172,11 @@ fun PlayerScreen(
             if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
         } else 0L
 
-        engine.loadUri(uri, startPos)
+        engine.loadUri(uri, startPos, initialWidth, initialHeight)
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        openUri(item.uri)
+        openUri(item.uri, item.width, item.height)
     }
 
     // Auto-advance to next video when current video completes
@@ -598,14 +599,29 @@ fun PlayerScreen(
     // slow open and recovers on its own if the native side ever stops reporting.
     var isShutterReady by remember(activeUri) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, firstFrameRendered, geometryReady) {
+    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
         if (firstFrameRendered && geometryReady) {
-            // Wait for one VSYNC frame after geometry & first frame are ready so Compose
-            // and SurfaceFlinger have committed the new layout bounds before revealing.
-            withFrameNanos { }
-            isShutterReady = true
-            shutterTimedOut = false
-            return@LaunchedEffect
+            val targetAspect = when (resizeMode) {
+                ResizeMode.FIT -> videoAspect
+                ResizeMode.ASPECT_16_9 -> 16f / 9f
+                ResizeMode.ASPECT_21_9 -> 21f / 9f
+                else -> 0f
+            }
+            val containerAspect = if (videoContainerSize.height > 0) {
+                videoContainerSize.width.toFloat() / videoContainerSize.height
+            } else 0f
+            val isLayoutSettled = targetAspect <= 0f ||
+                (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
+                    abs(containerAspect - targetAspect) <= targetAspect * 0.05f)
+
+            if (isLayoutSettled) {
+                // Wait for 2 VSYNC frames so Compose layout and SurfaceFlinger have committed the new bounds
+                withFrameNanos { }
+                withFrameNanos { }
+                isShutterReady = true
+                shutterTimedOut = false
+                return@LaunchedEffect
+            }
         }
         isShutterReady = false
         delay(4_000L)

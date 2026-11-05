@@ -209,7 +209,7 @@ class MainActivity : ComponentActivity() {
                                             progress.positionMs
                                         } else 0L
                                     } else 0L
-                                    playerEngine.loadUri(item.uri, startPos)
+                                    playerEngine.loadUri(item.uri, startPos, item.width, item.height)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)

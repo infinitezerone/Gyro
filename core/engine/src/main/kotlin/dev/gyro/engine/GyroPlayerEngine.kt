@@ -639,13 +639,24 @@ class GyroPlayerEngine @JvmOverloads constructor(
     @Volatile
     private var currentLoadJob: kotlinx.coroutines.Job? = null
 
-    fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
+    fun loadUri(
+        uri: Uri,
+        startPositionMs: Long = 0L,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
+    ) {
         _currentUri.value = uri
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
         _firstFrameRendered.value = false
-        _geometryReady.value = false
+        if (initialWidth > 0 && initialHeight > 0) {
+            _videoDimensions.value = VideoDimensions(initialWidth, initialHeight)
+            _videoAspect.value = initialWidth.toFloat() / initialHeight.toFloat()
+            _geometryReady.value = true
+        } else {
+            _geometryReady.value = false
+        }
         _playbackState.value = PlaybackState.BUFFERING
 
         val fastTitle = uri.lastPathSegment ?: ""
@@ -689,9 +700,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     uri.toString()
                 }
             }
-            Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
+            Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath (initialSize=${initialWidth}x$initialHeight)")
             withContext(Dispatchers.Main) {
-                load(targetPath, startPositionMs, displayName)
+                load(targetPath, startPositionMs, displayName, initialWidth, initialHeight)
             }
         }
     }
@@ -706,9 +717,19 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private var pendingLoadStartMs: Long = 0L
     @Volatile
     private var pendingLoadTitle: String? = null
+    @Volatile
+    private var pendingLoadWidth: Int = 0
+    @Volatile
+    private var pendingLoadHeight: Int = 0
 
-    fun load(url: String, startPositionMs: Long = 0L, displayTitle: String? = null) {
-        Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
+    fun load(
+        url: String,
+        startPositionMs: Long = 0L,
+        displayTitle: String? = null,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
+    ) {
+        Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached, initialSize=${initialWidth}x$initialHeight")
         resetSoftwareGain()
         ensureInitialized()
         // A new file invalidates any in-flight seek of the previous one.
@@ -720,9 +741,13 @@ class GyroPlayerEngine @JvmOverloads constructor(
         // progress bar) would show the old movie's time against the new one's picture.
         _timePosMs.value = startPositionMs.coerceAtLeast(0L)
         _durationMs.value = 0L
-        // The buffer and layout still carry the previous file's shape; the cover stays until the
-        // new file's dimensions have been published and the geometry has followed.
-        _geometryReady.value = false
+        if (initialWidth > 0 && initialHeight > 0) {
+            _videoDimensions.value = VideoDimensions(initialWidth, initialHeight)
+            _videoAspect.value = initialWidth.toFloat() / initialHeight.toFloat()
+            _geometryReady.value = true
+        } else {
+            _geometryReady.value = false
+        }
         _videoFrameRate.value = 0f
 
         requestedTitle = displayTitle?.trim().orEmpty()
@@ -737,14 +762,18 @@ class GyroPlayerEngine @JvmOverloads constructor(
         bridge.setPropertyString("force-media-title", resolvedTitle)
 
         if (!isSurfaceAttached) {
-            Log.i(TAG, "load: SurfaceView 尚未挂载，先进入等待队列: $url")
+            Log.i(TAG, "load: SurfaceView 尚未挂载，先进入等待队列: $url (initialSize=${initialWidth}x$initialHeight)")
             pendingLoadUrl = url
             pendingLoadStartMs = startPositionMs
             pendingLoadTitle = displayTitle
+            pendingLoadWidth = initialWidth
+            pendingLoadHeight = initialHeight
             _playbackState.value = PlaybackState.BUFFERING
             return
         }
         pendingLoadUrl = null
+        pendingLoadWidth = 0
+        pendingLoadHeight = 0
         fileLoaded = false
         pendingSeekMs = -1L
         _playbackState.value = PlaybackState.BUFFERING
@@ -972,8 +1001,12 @@ class GyroPlayerEngine @JvmOverloads constructor(
         pendingLoadUrl?.let { url ->
             Log.i(TAG, "attachSurface: Surface 已就绪，触发排队的待播视频: $url")
             val title = pendingLoadTitle
+            val w = pendingLoadWidth
+            val h = pendingLoadHeight
             pendingLoadTitle = null
-            load(url, pendingLoadStartMs, title)
+            pendingLoadWidth = 0
+            pendingLoadHeight = 0
+            load(url, pendingLoadStartMs, title, w, h)
         }
     }
 
