@@ -342,53 +342,12 @@ class GyroPlayerEngineTest {
     }
 
     @Test
-    fun testOnDisplayRefreshRateMeasured_setsDisplayFpsOverrideAndDeduplicates() {
-        engine.onDisplayRefreshRateMeasured(90.0f)
-        assertEquals(90.0, fakeBridge.properties["display-fps-override"] as Double, 0.01)
-        assertEquals(90.0, fakeBridge.properties["display-fps"] as Double, 0.01)
-
-        // Sub-0.5Hz jitter is ignored
-        engine.onDisplayRefreshRateMeasured(90.2f)
-        assertEquals(90.0, fakeBridge.properties["display-fps-override"] as Double, 0.01)
-
-        // Real mode switch (90Hz -> 120Hz) updates mpv
-        engine.onDisplayRefreshRateMeasured(120.0f)
-        assertEquals(120.0, fakeBridge.properties["display-fps-override"] as Double, 0.01)
-        assertEquals(120.0, fakeBridge.properties["display-fps"] as Double, 0.01)
-    }
-
-    @Test
-    fun testSelectPreferredDisplayMode_matchesMultiplesAndHighRefreshForNonDivisors() {
-        val modes = listOf(
-            dev.gyro.engine.ui.DisplayModeCandidate(1, 1272, 2772, 120.00001f),
-            dev.gyro.engine.ui.DisplayModeCandidate(2, 1272, 2772, 60.000004f),
-            dev.gyro.engine.ui.DisplayModeCandidate(3, 1272, 2772, 90.0f),
-            dev.gyro.engine.ui.DisplayModeCandidate(4, 1272, 2772, 144.00002f),
-            dev.gyro.engine.ui.DisplayModeCandidate(5, 1272, 2772, 165.0f)
-        )
-
-        // 24fps (5x = 120Hz) -> 120Hz (id=1)
-        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 23.976f)?.modeId)
-        // 30fps (4x = 120Hz) -> 120Hz (id=1)
-        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 30.0f)?.modeId)
-        // 60fps (2x = 120Hz) -> 120Hz (id=1)
-        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 60.0f)?.modeId)
-        // 90fps (1x = 90Hz) -> 90Hz (id=3)
-        assertEquals(3, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 90.0f)?.modeId)
-        // 87.36fps transient (within 3% of 90Hz) -> snaps to 90Hz (id=3), avoiding false 120Hz churn
-        assertEquals(3, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 87.3584f)?.modeId)
-        // 48fps (3x = 144Hz) -> 144Hz (id=4)
-        assertEquals(4, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 48.0f)?.modeId)
-        // 75.07fps (no integer multiple) -> 120Hz (id=1) for finest standard VSync granularity
-        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 75.0699f)?.modeId)
-    }
-
-    @Test
     fun testNormalizeContentFps_snapsTransientJitterToNominalRates() {
         assertEquals(90.0f, dev.gyro.engine.ui.normalizeContentFps(87.3584f), 0.001f)
         assertEquals(23.976f, dev.gyro.engine.ui.normalizeContentFps(23.976f), 0.001f)
         assertEquals(59.94f, dev.gyro.engine.ui.normalizeContentFps(59.94f), 0.001f)
-        assertEquals(75.0699f, dev.gyro.engine.ui.normalizeContentFps(75.0699f), 0.001f)
+        // Non-nominal rate returns 0f to prevent invalid display mode churning
+        assertEquals(0f, dev.gyro.engine.ui.normalizeContentFps(75.0699f), 0.001f)
     }
 
     @Test
@@ -397,10 +356,6 @@ class GyroPlayerEngineTest {
         assertEquals(0f, engine.videoFrameRate.value, 0.001f)
 
         fakeBridge.emitPropertyDouble("container-fps", 90.0)
-        assertEquals(90.0f, engine.videoFrameRate.value, 0.01f)
-
-        // Estimated fps jitter does not overwrite established container frame rate
-        fakeBridge.emitPropertyDouble("estimated-vf-fps", 87.3584)
         assertEquals(90.0f, engine.videoFrameRate.value, 0.01f)
     }
 }

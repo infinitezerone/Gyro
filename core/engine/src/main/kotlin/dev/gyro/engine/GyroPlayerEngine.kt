@@ -530,10 +530,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 bridge.setOptionString("keep-open", "yes")
                 bridge.setOptionString("ao", "audiotrack,opensles")
                 bridge.setOptionString("volume-max", "200.0")
-                // After a seek the AudioTrack buffer is drained and audiotrack underruns, which
-                // makes mpv freeze the picture until the audio refills - the visible stall right
-                // after the new position appears. Output silence through the gap instead.
-                bridge.setOptionString("audio-stream-silence", "yes")
+                if (!userOptions.containsKey("video-sync")) {
+                    bridge.setOptionString("video-sync", "display-resample")
+                }
 
                 // Provide sensible defaults if not set in mpv.conf
                 if (!userOptions.containsKey("demuxer-max-bytes")) {

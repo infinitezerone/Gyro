@@ -1837,7 +1837,7 @@ unsafe fn draw_frame_native(
         // be next, so a 75 or 93fps file on a 60Hz display alternates between one and two vsyncs of
         // hold - judder, not dropped frames. `display-fps-override` gives mpv the other half of what
         // this needs. mpv-android gets the same behaviour from vo_gpu's own swapchain.
-        let block_for_target: c_int = 1;
+        let block_for_target: c_int = 0;
         let mut params = [
             MpvRenderParam { param_type: MPV_RENDER_PARAM_OPENGL_FBO, data: &fbo as *const _ as *mut c_void },
             MpvRenderParam { param_type: MPV_RENDER_PARAM_FLIP_Y, data: &flip as *const _ as *mut c_void },
