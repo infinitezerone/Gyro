@@ -14,14 +14,30 @@ val nativeAbis: List<String> = providers.gradleProperty("gyro.nativeAbis")
 // generated jniLibs source below.
 val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs")
 
+fun resolveRustTool(toolName: String): String {
+    val cargoHome = System.getenv("CARGO_HOME")?.takeIf { it.isNotBlank() }
+        ?: "${System.getProperty("user.home")}/.cargo"
+    val candidate = file("$cargoHome/bin/$toolName")
+    return if (candidate.canExecute()) candidate.absolutePath else toolName
+}
+
+val cargoBin = resolveRustTool("cargo")
+val rustupBin = resolveRustTool("rustup")
+
 val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     group = "build"
     description = "Compiles the gyro-engine crate for ${nativeAbis.joinToString()} into jniLibs."
 
     workingDir(rootProject.projectDir)
+    // Ensure ~/.cargo/bin is on PATH for subcommands like cargo-ndk and rustc
+    val cargoBinDir = file("${System.getProperty("user.home")}/.cargo/bin").absolutePath
+    val currentPath = System.getenv("PATH") ?: "/usr/bin:/bin:/usr/sbin:/sbin"
+    if (!currentPath.split(File.pathSeparator).contains(cargoBinDir)) {
+        environment("PATH", "$cargoBinDir${File.pathSeparator}$currentPath")
+    }
     commandLine(
         buildList {
-            add("cargo")
+            add(cargoBin)
             add("ndk")
             nativeAbis.forEach { abi ->
                 add("-t")
@@ -38,7 +54,7 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
 
     // Screens out the common failure: a rustup target that was never installed for these ABIs.
     val installedTargets = providers.exec {
-        commandLine("rustup", "target", "list", "--installed")
+        commandLine(rustupBin, "target", "list", "--installed")
     }.standardOutput.asText.map { output -> output.lines().map(String::trim) }
     inputs.property("installedRustTargets", installedTargets)
     doFirst {
@@ -115,6 +131,7 @@ dependencies {
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
 
     testImplementation(project(":core:testing"))
     testImplementation(libs.kotlinx.coroutines.test)

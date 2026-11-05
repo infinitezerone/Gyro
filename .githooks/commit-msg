@@ -33,13 +33,13 @@ if [ -n "$PYTHON_BIN" ] && [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/scripts/valid
 else
     # No Python: fall back to refusing every non-ASCII byte. Stricter than the rule
     # (an accented letter would be refused too) but it never lets CJK through.
-    if LC_ALL=C grep -P -n '[\x80-\xFF]' "$COMMIT_MSG_FILE" >/dev/null 2>&1; then
+    if LC_ALL=C grep -n '[^[:print:][:space:]]' "$COMMIT_MSG_FILE" >/dev/null 2>&1; then
         echo "========================================================================"
         echo "❌ COMMIT REJECTED: NON-ASCII CHARACTERS DETECTED"
         echo "------------------------------------------------------------------------"
         echo "Python is unavailable, so this hook cannot tell letters from punctuation."
         echo "Offending line(s):"
-        LC_ALL=C grep -P -n '[\x80-\xFF]' "$COMMIT_MSG_FILE"
+        LC_ALL=C grep -n '[^[:print:][:space:]]' "$COMMIT_MSG_FILE"
         echo "========================================================================"
         exit 1
     fi
@@ -47,9 +47,9 @@ fi
 
 # 3. Enforce Conventional Commits Format: <type>(<scope>): <subject>
 # Allowed types: feat, fix, perf, refactor, test, build, ci, docs, chore, style, revert
-PATTERN='^(feat|fix|perf|refactor|test|build|ci|docs|chore|style|revert)(\([a-z0-9_\-]+\))?!?: [a-zA-Z0-9].*[^.]$'
+PATTERN='^(feat|fix|perf|refactor|test|build|ci|docs|chore|style|revert)(\([a-z0-9_-]+\))?!?: [a-zA-Z0-9].*[^.]$'
 
-if ! echo "$FIRST_LINE" | grep -P -q "$PATTERN"; then
+if ! echo "$FIRST_LINE" | grep -E -q "$PATTERN"; then
     echo "========================================================================"
     echo "❌ COMMIT REJECTED: INVALID CONVENTIONAL COMMIT FORMAT"
     echo "------------------------------------------------------------------------"

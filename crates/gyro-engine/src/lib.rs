@@ -2,7 +2,10 @@
 
 mod logic;
 
-use logic::{AckOutcome, AffinityVerdict, FrameCoalescer, SampleThrottle, ThreadAffinity, request_ack};
+#[cfg_attr(not(target_os = "android"), allow(unused_imports))]
+use logic::{
+    AckOutcome, AffinityVerdict, FrameCoalescer, SampleThrottle, ThreadAffinity, request_ack,
+};
 // Only the Android render loop reacts to a lost context.
 #[cfg(target_os = "android")]
 use logic::{ContextRecovery, RecoveryVerdict};
@@ -22,55 +25,91 @@ use libloading::{Library, Symbol};
 use std::ffi::{c_char, c_double, c_int, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 // ---------- NDK 原生绑定 (EGL / Android Native Window) ----------
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 type EGLDisplay = *mut c_void;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 type EGLConfig = *mut c_void;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 type EGLContext = *mut c_void;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 type EGLSurface = *mut c_void;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 type EGLint = i32;
 type ANativeWindow = c_void;
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 #[derive(Clone, Copy)]
 struct NativeWindowPtr(*mut ANativeWindow);
 unsafe impl Send for NativeWindowPtr {}
 unsafe impl Sync for NativeWindowPtr {}
 
+#[cfg(target_os = "android")]
 const EGL_NO_DISPLAY: EGLDisplay = std::ptr::null_mut();
+#[cfg(target_os = "android")]
 const EGL_NO_CONTEXT: EGLContext = std::ptr::null_mut();
+#[cfg(target_os = "android")]
 const EGL_NO_SURFACE: EGLSurface = std::ptr::null_mut();
+#[cfg(target_os = "android")]
 const EGL_DEFAULT_DISPLAY: *mut c_void = std::ptr::null_mut();
 
+#[cfg(target_os = "android")]
 const EGL_TRUE: EGLint = 1;
+#[cfg(target_os = "android")]
 const EGL_WIDTH: EGLint = 0x3057;
+#[cfg(target_os = "android")]
 const EGL_HEIGHT: EGLint = 0x3056;
+#[cfg(target_os = "android")]
 const EGL_RENDERABLE_TYPE: EGLint = 0x3040;
+#[cfg(target_os = "android")]
 const EGL_OPENGL_ES2_BIT: EGLint = 0x00000004;
+#[cfg(target_os = "android")]
 const EGL_OPENGL_ES3_BIT: EGLint = 0x00000040;
+#[cfg(target_os = "android")]
 const EGL_SURFACE_TYPE: EGLint = 0x3033;
+#[cfg(target_os = "android")]
 const EGL_WINDOW_BIT: EGLint = 0x0004;
+#[cfg(target_os = "android")]
 const EGL_PBUFFER_BIT: EGLint = 0x0001;
+#[cfg(target_os = "android")]
 const EGL_RED_SIZE: EGLint = 0x3024;
+#[cfg(target_os = "android")]
 const EGL_GREEN_SIZE: EGLint = 0x3023;
+#[cfg(target_os = "android")]
 const EGL_BLUE_SIZE: EGLint = 0x3022;
+#[cfg(target_os = "android")]
 const EGL_ALPHA_SIZE: EGLint = 0x3021;
+#[cfg(target_os = "android")]
 const EGL_DEPTH_SIZE: EGLint = 0x3025;
+#[cfg(target_os = "android")]
 const EGL_STENCIL_SIZE: EGLint = 0x3026;
+#[cfg(target_os = "android")]
 const EGL_NONE: EGLint = 0x3038;
+#[cfg(target_os = "android")]
 const EGL_CONTEXT_CLIENT_VERSION: EGLint = 0x3098;
+#[cfg(target_os = "android")]
 const EGL_NATIVE_VISUAL_ID: EGLint = 0x302E;
+#[cfg(target_os = "android")]
 const EGL_EXTENSIONS: EGLint = 0x3055;
+#[cfg(target_os = "android")]
 const EGL_CONFIG_CAVEAT: EGLint = 0x3027;
+#[cfg(target_os = "android")]
 const EGL_CONFIG_ID: EGLint = 0x3028;
+#[cfg(target_os = "android")]
 const EGL_SLOW_CONFIG: EGLint = 0x3050;
+#[cfg(target_os = "android")]
 const EGL_NON_CONFORMANT_CONFIG: EGLint = 0x3051;
 
+#[cfg(target_os = "android")]
 const GL_VENDOR: u32 = 0x1F00;
+#[cfg(target_os = "android")]
 const GL_RENDERER: u32 = 0x1F01;
+#[cfg(target_os = "android")]
 const GL_EXTENSIONS: u32 = 0x1F03;
 
 /// Upper bound for the attach handshake; the caller is the UI thread, so it must never be unbounded.
@@ -167,6 +206,7 @@ fn nlog(msg: &str) {
 
 // ---------- libmpv 常量与类型 ----------
 
+#[allow(dead_code)]
 const MPV_FORMAT_NONE: c_int = 0;
 const MPV_FORMAT_STRING: c_int = 1;
 const MPV_FORMAT_FLAG: c_int = 3;
@@ -185,24 +225,36 @@ const MPV_EVENT_PROPERTY_CHANGE: c_int = 22;
 ///
 /// mpv's own ids stop well below 1000, so the app-defined range is free above it; the Kotlin side
 /// declares the same constant.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const JAVA_EVENT_FIRST_FRAME: jint = 1002;
 
 const MPV_ERROR_SUCCESS: c_int = 0;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_PARAM_API_TYPE: c_int = 1;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_PARAM_OPENGL_FBO: c_int = 3;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_PARAM_FLIP_Y: c_int = 4;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME: c_int = 12;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+const MPV_RENDER_PARAM_SKIP_RENDERING: c_int = 13;
 
 /// `mpv_render_frame_info.flags` bit: the queued "frame" is a redraw, not a new picture.
 ///
 /// render.h: "If set, the frame is not an actual new video frame, but a redraw request. For example
 /// if the video is paused, and an option that affects video rendering was changed (or any other
 /// reason)". Loading a file is such a reason: mpv redraws the previous file's last frame.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_FRAME_INFO_REDRAW: u64 = 1 << 1;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const MPV_RENDER_UPDATE_FRAME: u64 = 1;
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 #[repr(C)]
 struct MpvRenderParam {
     param_type: c_int,
@@ -210,18 +262,21 @@ struct MpvRenderParam {
 }
 
 /// Layout of `mpv_render_frame_info` (render.h): `flags`, then the target display time.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 #[repr(C)]
 struct MpvRenderFrameInfo {
     flags: u64,
     target_time: i64,
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 #[repr(C)]
 struct MpvOpenGLInitParams {
     get_proc_address: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
     get_proc_address_ctx: *mut c_void,
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 #[repr(C)]
 struct MpvOpenGLFbo {
     fbo: c_int,
@@ -240,6 +295,7 @@ macro_rules! sym {
     }};
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 struct MpvApi {
     mpv_create: unsafe extern "C" fn() -> *mut c_void,
     mpv_initialize: unsafe extern "C" fn(*mut c_void) -> c_int,
@@ -252,6 +308,7 @@ struct MpvApi {
     mpv_request_log_messages: unsafe extern "C" fn(*mut c_void, *const c_char) -> c_int,
     mpv_wait_event: unsafe extern "C" fn(*mut c_void, c_double) -> *mut c_void,
     mpv_wakeup: unsafe extern "C" fn(*mut c_void),
+    mpv_get_time_us: unsafe extern "C" fn(*mut c_void) -> i64,
     mpv_render_context_create:
         unsafe extern "C" fn(*mut *mut c_void, *mut c_void, *mut MpvRenderParam) -> c_int,
     mpv_render_context_render: unsafe extern "C" fn(*mut c_void, *mut MpvRenderParam) -> c_int,
@@ -270,6 +327,17 @@ unsafe impl Sync for MpvApi {}
 // ---------- 全局状态与符号解析 ----------
 
 static G_MPVP: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+/// Protects synchronous JNI operations (`command`, `setOptionString`, `getProperty*`,
+/// `setProperty*`, `observeProperty`) against racing with `destroy()` / `create()`'s
+/// `safe_terminate_mpv`.
+///
+/// Short synchronous JNI calls acquire a read lock around their `mpv_*` invocation, while
+/// `create()` and `destroy()` take a write lock to atomically swap `G_MPVP` to null and wait for
+/// all in-flight synchronous JNI calls to finish before invoking `safe_terminate_mpv`.
+/// Note: `event_thread` and `render_thread` do NOT hold this read lock across blocking waits
+/// (`mpv_wait_event` / `mpv_render_context_render`), because `safe_terminate_mpv` synchronizes
+/// with those two threads explicitly via `mpv_wakeup` + `join` and `RenderCommand::DestroyContext`.
+static G_MPV_LIFECYCLE: RwLock<usize> = RwLock::new(0);
 static G_EVENT_THREAD_EXIT: AtomicBool = AtomicBool::new(false);
 static HANDLE_VALID: AtomicBool = AtomicBool::new(false);
 
@@ -320,6 +388,7 @@ fn cached_api() -> Result<&'static MpvApi, String> {
         mpv_request_log_messages: sym!(lib, mpv_request_log_messages, unsafe extern "C" fn(*mut c_void, *const c_char) -> c_int),
         mpv_wait_event: sym!(lib, mpv_wait_event, unsafe extern "C" fn(*mut c_void, c_double) -> *mut c_void),
         mpv_wakeup: sym!(lib, mpv_wakeup, unsafe extern "C" fn(*mut c_void)),
+        mpv_get_time_us: sym!(lib, mpv_get_time_us, unsafe extern "C" fn(*mut c_void) -> i64),
         mpv_render_context_create: sym!(lib, mpv_render_context_create, unsafe extern "C" fn(*mut *mut c_void, *mut c_void, *mut MpvRenderParam) -> c_int),
         mpv_render_context_render: sym!(lib, mpv_render_context_render, unsafe extern "C" fn(*mut c_void, *mut MpvRenderParam) -> c_int),
         mpv_render_context_report_swap: sym!(lib, mpv_render_context_report_swap, unsafe extern "C" fn(*mut c_void)),
@@ -341,6 +410,7 @@ fn with_api<T>(f: impl FnOnce(&MpvApi) -> T) -> Result<T, String> {
 ///
 /// The only way these fail is a missing symbol in libmpv, which used to surface as a silently
 /// dead code path: the pipeline kept running with no render context and no explanation.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn with_api_logged(what: &str, f: impl FnOnce(&MpvApi)) {
     if let Err(err) = with_api(f) {
         nlog(&format!("mpv: {what} 无法执行 ({err})"));
@@ -356,6 +426,52 @@ unsafe fn mpv_handle() -> Result<*mut c_void, String> {
     }
 }
 
+/// Acquires the lifecycle read guard and returns the active mpv handle if valid.
+///
+/// Holding the returned [`RwLockReadGuard`] guarantees that `destroy()` / `create()` cannot reach
+/// `safe_terminate_mpv` (`mpv_terminate_destroy`) until the caller finishes its `mpv_*` FFI call.
+unsafe fn mpv_handle_guarded() -> Result<(RwLockReadGuard<'static, usize>, *mut c_void), String> {
+    let guard = G_MPV_LIFECYCLE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let p = G_MPVP.load(Ordering::Acquire);
+    if p.is_null() || !HANDLE_VALID.load(Ordering::Acquire) {
+        Err("mpv handle is null or invalid".into())
+    } else {
+        Ok((guard, p))
+    }
+}
+
+/// Atomically detaches the current mpv handle under the lifecycle write lock so no new guarded
+/// JNI call can start and all in-flight guarded JNI calls have completed.
+fn take_mpv_handle_for_teardown() -> *mut c_void {
+    let mut guard = G_MPV_LIFECYCLE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    HANDLE_VALID.store(false, Ordering::Release);
+    let old = G_MPVP.swap(std::ptr::null_mut(), Ordering::AcqRel);
+    *guard = 0;
+    old
+}
+
+#[cfg(unix)]
+mod libc {
+    use std::ffi::{c_int, c_long};
+    #[repr(C)]
+    pub struct timespec {
+        pub tv_sec: c_long,
+        pub tv_nsec: c_long,
+    }
+    #[cfg(target_os = "macos")]
+    pub const CLOCK_MONOTONIC: c_int = 6;
+    #[cfg(not(target_os = "macos"))]
+    pub const CLOCK_MONOTONIC: c_int = 1;
+
+    extern "C" {
+        pub fn clock_gettime(clk_id: c_int, tp: *mut timespec) -> c_int;
+    }
+}
+
 #[cfg(unix)]
 extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
@@ -363,6 +479,25 @@ extern "C" {
 }
 #[cfg(unix)]
 const RTLD_LAZY: c_int = 0x0001;
+
+/// Returns the current `CLOCK_MONOTONIC` (`SYSTEM_TIME_MONOTONIC`) timestamp in nanoseconds.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn monotonic_ns() -> i64 {
+    #[cfg(unix)]
+    unsafe {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        if libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) == 0 {
+            return (ts.tv_sec as i64)
+                .saturating_mul(1_000_000_000)
+                .saturating_add(ts.tv_nsec as i64);
+        }
+        0
+    }
+    #[cfg(not(unix))]
+    {
+        G_MONOTONIC_BASE.get_or_init(Instant::now).elapsed().as_nanos() as i64
+    }
+}
 
 /// Resolves a symbol out of libavcodec/libavutil for the JNI bridge.
 ///
@@ -397,6 +532,7 @@ fn resolve_avcodec_symbol(_name: &str) -> *mut c_void {
 
 // ---------- 原生渲染命令与常驻线程 ----------
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 enum RenderCommand {
     AttachSurface(NativeWindowPtr, std::sync::mpsc::SyncSender<()>),
     DetachSurface,
@@ -422,6 +558,8 @@ static G_FRAMES_STARVED: AtomicU64 = AtomicU64::new(0);
 static G_LAST_DRAW_MS: AtomicU64 = AtomicU64::new(0);
 /// Set by the render thread when video output has to be re-armed; the event thread does the work.
 static G_REARM_VIDEO: AtomicBool = AtomicBool::new(false);
+/// Tracks any pending `wid` / video surface rebind across lifecycle resets.
+static G_PENDING_WID_REBIND: AtomicBool = AtomicBool::new(false);
 /// Set when a new file starts, cleared by the first frame that actually reaches the window.
 ///
 /// The surface keeps the previous file's last buffer until mpv queues a new one, so this is the
@@ -439,12 +577,16 @@ static G_FILE_LOADED_REACHED: AtomicBool = AtomicBool::new(false);
 static G_LOAD_STARTED_MS: AtomicU64 = AtomicU64::new(0);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
 /// Mirror of the owning thread id, for the hot-path check in [`assert_render_thread`].
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 static G_AFFINITY_OWNER: AtomicU64 = AtomicU64::new(0);
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 static NEXT_LOGICAL_TID: AtomicU64 = AtomicU64::new(1);
 
 /// Lazily assigned per-thread id. `0` is reserved for "unowned".
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn logical_thread_id() -> u64 {
     thread_local! {
         static TID: u64 = NEXT_LOGICAL_TID.fetch_add(1, Ordering::Relaxed);
@@ -454,6 +596,7 @@ fn logical_thread_id() -> u64 {
 
 /// Fails loudly in debug builds when a GL entry point runs on a thread that does not own the
 /// context. Release builds compile this down to a single relaxed atomic load.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 #[inline]
 unsafe fn assert_render_thread(what: &str) {
     let tid = logical_thread_id();
@@ -469,6 +612,7 @@ unsafe fn assert_render_thread(what: &str) {
 // ---------- 防御层 1：冷启动离屏环境探针 (Static Env Probe) ----------
 static G_ZERO_COPY_SAFE: AtomicBool = AtomicBool::new(true);
 static G_GPU_RENDERER: OnceLock<String> = OnceLock::new();
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 
 // ---------- 帧健康监测 (Frame Health) ----------
@@ -486,8 +630,41 @@ static G_CACHE_TIME_THROTTLE: Mutex<SampleThrottle> = Mutex::new(SampleThrottle:
 static G_RECOVERY: Mutex<ContextRecovery> = Mutex::new(ContextRecovery::with_defaults());
 /// Set once the rebuild budget is gone. Every later frame would fail the same swap, so the render
 /// thread stops touching GL instead of retrying and logging at frame rate.
-#[cfg(target_os = "android")]
 static G_RENDER_DEAD: AtomicBool = AtomicBool::new(false);
+
+/// Centralizes per-session lifecycle state reset so `create()`, `destroy()`, and
+/// `RenderCommand::Shutdown` leave no stale flags, counters, throttles, or GL function pointers
+/// behind across engine restarts.
+fn reset_engine_lifecycle_state() {
+    G_FRAME_GATE.release();
+    G_RENDER_DEAD.store(false, Ordering::Release);
+    G_AWAITING_FIRST_FRAME.store(false, Ordering::Release);
+    G_FILE_LOADED_REACHED.store(false, Ordering::Release);
+    G_REARM_VIDEO.store(false, Ordering::Release);
+    G_PENDING_WID_REBIND.store(false, Ordering::Release);
+    G_LOAD_STARTED_MS.store(0, Ordering::Release);
+    G_FRAMES_DRAWN.store(0, Ordering::Release);
+    G_FRAMES_STARVED.store(0, Ordering::Release);
+    G_LAST_DRAW_MS.store(0, Ordering::Release);
+    REAL_GL_FENCE_SYNC.store(std::ptr::null_mut(), Ordering::Release);
+    REAL_GL_DELETE_SYNC.store(std::ptr::null_mut(), Ordering::Release);
+    if let Ok(mut fences) = ACTIVE_FENCES.lock() {
+        fences.clear();
+    }
+    if let Ok(mut health) = G_FRAME_HEALTH.lock() {
+        *health = FrameHealthMonitor::with_defaults();
+    }
+    if let Ok(mut tp) = G_TIME_POS_THROTTLE.lock() {
+        *tp = SampleThrottle::with_defaults();
+    }
+    if let Ok(mut ct) = G_CACHE_TIME_THROTTLE.lock() {
+        *ct = SampleThrottle::with_defaults();
+    }
+    #[cfg(target_os = "android")]
+    if let Ok(mut recovery) = G_RECOVERY.lock() {
+        *recovery = ContextRecovery::with_defaults();
+    }
+}
 
 /// Where the GL strings are read from, and what has to be torn down afterwards.
 #[cfg(target_os = "android")]
@@ -632,6 +809,7 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLContext) {
 }
 
 #[cfg(not(target_os = "android"))]
+#[allow(dead_code)]
 unsafe fn probe_graphics_environment(_display: EGLDisplay, _ctx: EGLContext) {}
 
 fn monotonic_ms() -> u128 {
@@ -656,37 +834,12 @@ fn throttle_allows(name: &str) -> bool {
     }
 }
 
-/// `eglPresentationTimeANDROID` from libEGL, resolved lazily.
-///
-/// Part of `EGL_ANDROID_presentation_time`, which is optional; a device without it keeps the old
-/// behaviour instead of failing to load.
-#[cfg(target_os = "android")]
-type EglPresentationTime = unsafe extern "C" fn(EGLDisplay, EGLSurface, i64) -> EGLint;
-
-#[cfg(target_os = "android")]
-static EGL_PRESENTATION_TIME: OnceLock<Option<EglPresentationTime>> = OnceLock::new();
-
-#[cfg(target_os = "android")]
-fn egl_presentation_time() -> Option<EglPresentationTime> {
-    *EGL_PRESENTATION_TIME.get_or_init(|| unsafe {
-        let symbol = dlsym(
-            std::ptr::null_mut(),
-            b"eglPresentationTimeANDROID ".as_ptr().cast(),
-        );
-        if symbol.is_null() {
-            nlog("EGL: 无 eglPresentationTimeANDROID，帧时间戳交给合成器的能力不可用");
-            None
-        } else {
-            Some(std::mem::transmute::<*mut c_void, EglPresentationTime>(symbol))
-        }
-    })
-}
-
 /// Tells the UI that the first frame of the current file reached the window.
 ///
 /// Called from the render thread right after a successful swap, at most once per `loadfile`, so the
 /// cost of attaching the thread is invisible next to the swap that just happened. This is the signal
 /// that lets the UI drop the cover which hides the previous video's last frame.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn signal_first_frame() {
     // A file that has not finished loading cannot own a rendered frame yet; keep the wait
     // armed so the first genuine frame of the loaded file still releases the cover later.
@@ -709,7 +862,7 @@ fn signal_first_frame() {
 /// Runs one mpv command and returns its status code, or `None` when mpv could not be reached at all.
 fn run_mpv_command(args: &[&str]) -> Option<c_int> {
     with_api(|api| {
-        let handle = unsafe { mpv_handle() }.ok()?;
+        let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;
         let owned: Vec<CString> = args.iter().map(|a| CString::new(*a).unwrap_or_default()).collect();
         let mut arg_ptrs: Vec<*mut c_char> = owned.iter().map(|c| c.as_ptr() as *mut c_char).collect();
         arg_ptrs.push(std::ptr::null_mut());
@@ -729,12 +882,14 @@ fn record_frame_counter(counter: FrameCounter, total: i64) {
     let Ok(mut monitor) = G_FRAME_HEALTH.lock() else { return };
     let Some(report) = monitor.on_counter(counter, total, now_ms) else { return };
     nlog(&format!(
-        "HEALTH: 过去 {}s 迟到 {} 帧、解码器丢弃 {} 帧（跟不上音画同步）；显示跳过 {} 帧。累计 迟到={} 解码丢帧={} 显示跳过={}",
+        "HEALTH: 过去 {}s 迟到 {} 帧、错拍 {} 帧、解码器丢弃 {} 帧；显示跳过 {} 帧。累计 迟到={} 错拍={} 解码丢帧={} 显示跳过={}",
         report.window_ms / 1000,
         report.late_frames,
+        report.mistimed_frames,
         report.dropped_frames,
         report.skipped_frames,
         monitor.late_frames(),
+        monitor.mistimed_frames(),
         monitor.dropped_frames(),
         monitor.skipped_frames()
     ));
@@ -766,9 +921,10 @@ fn rearm_video_output() -> bool {
 /// does not fail loudly: libmpv turns it into the "mpv_render_context_render() not being called or
 /// stuck" timeouts and degraded playback. So the render thread raises a flag and wakes the pump;
 /// `mpv_wakeup` is documented as safe from any thread.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn request_video_rearm() {
     G_REARM_VIDEO.store(true, Ordering::Release);
-    if let Ok(handle) = unsafe { mpv_handle() } {
+    if let Ok((_guard, handle)) = unsafe { mpv_handle_guarded() } {
         let _ = with_api(|api| unsafe { (api.mpv_wakeup)(handle) });
     }
 }
@@ -782,6 +938,7 @@ static REAL_GL_FENCE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut
 static REAL_GL_DELETE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ACTIVE_FENCES: Mutex<Vec<SyncHandle>> = Mutex::new(Vec::new());
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c_void {
     assert_render_thread("glFenceSync");
     let real_fn = REAL_GL_FENCE_SYNC.load(Ordering::Relaxed);
@@ -810,6 +967,7 @@ unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c
     sync
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
     assert_render_thread("glDeleteSync");
     if !sync.is_null() {
@@ -841,6 +999,7 @@ unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
 /// thread have no context and are undefined behaviour. When mpv's render context is freed it
 /// deletes the fences it still tracks through [wrapped_gl_delete_sync], so whatever survives that is
 /// a leak from the sliding window and is safe to delete here.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 unsafe fn drain_active_fences() {
     assert_render_thread("drain_active_fences");
     let Ok(mut fences) = ACTIVE_FENCES.lock() else { return };
@@ -860,6 +1019,7 @@ unsafe fn drain_active_fences() {
     nlog(&format!("EGL: 已释放 {leaked} 个残留 fence 对象"));
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 unsafe extern "C" fn gl_proc_address(_ctx: *mut c_void, name: *const c_char) -> *mut c_void {
     #[cfg(target_os = "android")]
     {
@@ -1317,6 +1477,7 @@ impl Drop for SurfaceSlot {
 ///
 /// Two call sites (first attach, deferred frame) shared a 30 line parameter table that had already
 /// drifted apart in wording; the table now lives once.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 unsafe fn ensure_render_context(slot: &mut *mut c_void) {
     if !slot.is_null() {
         return;
@@ -1468,6 +1629,8 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     if slot.is_ready() {
                         ensure_render_context(&mut mpv_render_ctx);
                         draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, false);
+                    } else if !mpv_render_ctx.is_null() {
+                        skip_frame_native(mpv_render_ctx);
                     }
                 }
                 RenderCommand::DestroyContext(ack) => {
@@ -1486,6 +1649,7 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     // Tear the surface down while the context is still current.
                     slot.detach();
                     core.destroy();
+                    reset_engine_lifecycle_state();
                     // Release ownership last: anything still holding the id would otherwise look
                     // like a live render thread.
                     if let Ok(mut affinity) = G_AFFINITY.lock() {
@@ -1500,7 +1664,16 @@ fn native_render_loop(receiver: Receiver<RenderCommand>) {
     #[cfg(not(target_os = "android"))]
     {
         while let Ok(cmd) = receiver.recv() {
-            if let RenderCommand::Shutdown = cmd { break; }
+            match cmd {
+                RenderCommand::DestroyContext(ack) => {
+                    let _ = ack.send(());
+                }
+                RenderCommand::Shutdown => {
+                    reset_engine_lifecycle_state();
+                    break;
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -1535,12 +1708,56 @@ unsafe fn free_render_context(display: EGLDisplay, ctx: EGLContext, render_ctx: 
     if headless.is_none() {
         nlog("EGL: 无法绑定无窗口上下文，仍尝试释放 render context");
     }
-    with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(*render_ctx));
+    with_api_logged("mpv_render_context_free", |api| {
+        (api.mpv_render_context_set_update_callback)(*render_ctx, None, std::ptr::null_mut());
+        (api.mpv_render_context_free)(*render_ctx);
+    });
     *render_ctx = std::ptr::null_mut();
     drain_active_fences();
     if let Some(target) = headless {
         target.release(display);
     }
+}
+
+/// Consumes a pending frame notification when no `EGLSurface` is currently bound (e.g. while
+/// detached in background or between surface rebinds).
+///
+/// Why this is required by `mpv/render.h`:
+/// 1. `vo_libmpv` fires `mpv_update_callback` on a 0 -> `MPV_RENDER_UPDATE_FRAME` edge and never
+///    clears `update_flags` until `mpv_render_context_update()` is called. Ignoring a notification
+///    while detached leaves `update_flags` non-zero and permanently silences future callbacks.
+/// 2. Passing `MPV_RENDER_PARAM_SKIP_RENDERING = 1` advances mpv's internal VO queue without
+///    needing a bound FBO or touching OpenGL, preventing `"mpv_render_context_render() not being
+///    called or stuck"` stalls.
+#[cfg(target_os = "android")]
+unsafe fn skip_frame_native(ctx: *mut c_void) {
+    if ctx.is_null() {
+        return;
+    }
+    assert_render_thread("skip_frame_native");
+    let _ = with_api(|api| {
+        let flags = (api.mpv_render_context_update)(ctx);
+        if flags & MPV_RENDER_UPDATE_FRAME == 0 {
+            return;
+        }
+        let skip: c_int = 1;
+        let block_for_target: c_int = 0;
+        let mut params = [
+            MpvRenderParam {
+                param_type: MPV_RENDER_PARAM_SKIP_RENDERING,
+                data: &skip as *const _ as *mut c_void,
+            },
+            MpvRenderParam {
+                param_type: MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME,
+                data: &block_for_target as *const _ as *mut c_void,
+            },
+            MpvRenderParam {
+                param_type: 0,
+                data: std::ptr::null_mut(),
+            },
+        ];
+        let _ = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
+    });
 }
 
 // 原生帧绘制（在渲染线程内部执行，0 JNI 开销）
@@ -1556,39 +1773,44 @@ unsafe fn draw_frame_native(
     }
     assert_render_thread("draw_frame_native");
     with_api(|api| {
-        if !force {
-            let flags = (api.mpv_render_context_update)(ctx);
-            if flags & MPV_RENDER_UPDATE_FRAME == 0 {
-                let starved = G_FRAMES_STARVED.fetch_add(1, Ordering::Relaxed) + 1;
-                // A rising starved count with a frozen presented count means mpv stopped producing
-                // frames, not that the render loop stopped asking for them.
-                if starved % 120 == 0 {
-                    nlog(&format!(
-                        "RENDER: presented={} starved={}",
-                        G_FRAMES_DRAWN.load(Ordering::Relaxed),
-                        starved
-                    ));
-                }
-                return DrawOutcome::Skipped;
+        // Always call mpv_render_context_update even when `force == true` so libmpv's edge-triggered
+        // internal update_flags bit is cleared; otherwise an update that arrived before AttachSurface
+        // or Redraw would leave update_flags set and block future mpv_update_callback notifications.
+        let flags = (api.mpv_render_context_update)(ctx);
+        if !force && (flags & MPV_RENDER_UPDATE_FRAME == 0) {
+            let starved = G_FRAMES_STARVED.fetch_add(1, Ordering::Relaxed) + 1;
+            // A rising starved count with a frozen presented count means mpv stopped producing
+            // frames, not that the render loop stopped asking for them.
+            if starved % 120 == 0 {
+                nlog(&format!(
+                    "RENDER: presented={} starved={}",
+                    G_FRAMES_DRAWN.load(Ordering::Relaxed),
+                    starved
+                ));
             }
+            return DrawOutcome::Skipped;
         }
 
         // A swap can carry the previous file's last frame: after `loadfile`, mpv answers the redraw
         // requests it receives (the title OSD, the video reconfig) by re-rendering that frame, and
         // the swap succeeds without a single new pixel. render.h exposes exactly this distinction,
         // so ask for it while a cover is waiting and never release the cover on a redraw.
-        let mut info = MpvRenderFrameInfo { flags: 0, target_time: 0 };
-        let have_info = {
+        let awaiting_first_frame = G_AWAITING_FIRST_FRAME.load(Ordering::Acquire);
+        let is_redraw = if awaiting_first_frame {
+            let mut info = MpvRenderFrameInfo { flags: 0, target_time: 0 };
             let param = MpvRenderParam {
                 param_type: MPV_RENDER_PARAM_NEXT_FRAME_INFO,
                 data: &mut info as *mut MpvRenderFrameInfo as *mut c_void,
             };
-            (api.mpv_render_context_get_info)(ctx, param) == MPV_ERROR_SUCCESS
+            let have_info = (api.mpv_render_context_get_info)(ctx, param) == MPV_ERROR_SUCCESS;
+            let redraw = have_info && info.flags & MPV_RENDER_FRAME_INFO_REDRAW != 0;
+            if redraw {
+                nlog("RENDER: 换片中的重绘帧（内容仍是上一部），继续等待首帧");
+            }
+            redraw
+        } else {
+            false
         };
-        let is_redraw = have_info && info.flags & MPV_RENDER_FRAME_INFO_REDRAW != 0;
-        if is_redraw && G_AWAITING_FIRST_FRAME.load(Ordering::Acquire) {
-            nlog("RENDER: 换片中的重绘帧（内容仍是上一部），继续等待首帧");
-        }
 
         // Read from EGL every frame, deliberately not from a cache: `surfaceChanged` is a UI-thread
         // callback and it lands tens of milliseconds late while a PiP transition has the main thread
@@ -1626,17 +1848,6 @@ unsafe fn draw_frame_native(
         let render_start = Instant::now();
         let render_rc = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
         let render_ms = render_start.elapsed().as_millis();
-        // eglSwapBuffers does not wait for vsync on Android - it only blocks when the buffer queue
-        // is full - so a frame submitted between two vsyncs is picked up by whichever refresh the
-        // compositor happens to run next. That random phase is what makes a 60fps presentation of a
-        // 75 or 93fps source look uneven. `eglPresentationTimeANDROID` carries mpv's own target
-        // display time into the compositor, which schedules the frame instead of showing whatever
-        // arrived last.
-        if have_info && info.target_time > 0 {
-            if let Some(set_presentation_time) = egl_presentation_time() {
-                set_presentation_time(display, surface, info.target_time.saturating_mul(1_000));
-            }
-        }
         let swap_start = Instant::now();
         let swap_rc = eglSwapBuffers(display, surface);
         let swap_ms = swap_start.elapsed().as_millis();
@@ -1694,11 +1905,24 @@ unsafe fn draw_frame_native(
         // presented frame, and counting it made the log claim a frame rate the screen never saw.
         let presented = G_FRAMES_DRAWN.fetch_add(1, Ordering::Relaxed) + 1;
         if presented <= 3 || presented % 300 == 0 {
+            let (delayed, mistimed, vo_drop, dec_drop) = match G_FRAME_HEALTH.lock() {
+                Ok(m) => (
+                    m.late_frames(),
+                    m.mistimed_frames(),
+                    m.skipped_frames(),
+                    m.dropped_frames(),
+                ),
+                Err(_) => (0, 0, 0, 0),
+            };
             nlog(&format!(
-                "RENDER: presented={} elapsed={}ms starved={}",
+                "RENDER: presented={} elapsed={}ms starved={} vo_drop={} dec_drop={} delayed={} mistimed={}",
                 presented,
                 elapsed.as_millis(),
-                G_FRAMES_STARVED.load(Ordering::Relaxed)
+                G_FRAMES_STARVED.load(Ordering::Relaxed),
+                vo_drop,
+                dec_drop,
+                delayed,
+                mistimed
             ));
         }
 
@@ -1743,7 +1967,10 @@ unsafe fn revive_dead_pipeline(core: &mut EglCore, mpv_render_ctx: &mut *mut c_v
 
     // mpv's render context is bound to the dead context; release it before that context goes away.
     if !mpv_render_ctx.is_null() {
-        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(*mpv_render_ctx));
+        with_api_logged("mpv_render_context_free", |api| {
+            (api.mpv_render_context_set_update_callback)(*mpv_render_ctx, None, std::ptr::null_mut());
+            (api.mpv_render_context_free)(*mpv_render_ctx);
+        });
         *mpv_render_ctx = std::ptr::null_mut();
     }
     forget_active_fences();
@@ -1791,7 +2018,10 @@ unsafe fn recover_gl_context(
     // mpv owns GL objects created in the lost context; it must be told before that context goes
     // away. Best effort: the objects are already invalid, only the bookkeeping matters.
     if !mpv_render_ctx.is_null() {
-        with_api_logged("mpv_render_context_free", |api| (api.mpv_render_context_free)(*mpv_render_ctx));
+        with_api_logged("mpv_render_context_free", |api| {
+            (api.mpv_render_context_set_update_callback)(*mpv_render_ctx, None, std::ptr::null_mut());
+            (api.mpv_render_context_free)(*mpv_render_ctx);
+        });
         *mpv_render_ctx = std::ptr::null_mut();
     }
     forget_active_fences();
@@ -1848,6 +2078,7 @@ unsafe fn draw_and_recover(
     }
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
     if !G_FRAME_GATE.try_acquire() {
         return;
@@ -2154,9 +2385,6 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_create(
 ) {
     cache_class(&mut env);
     ensure_render_thread();
-    // A slot left over from a previous session must not survive into the new one, otherwise the
-    // update callback would never queue another frame and the next playback would freeze.
-    G_FRAME_GATE.release();
 
     let global_ctx_raw = if !appctx.is_null() {
         if G_APP_CTX.get().is_none() {
@@ -2171,16 +2399,23 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_create(
     };
 
     let _ = with_api(|api| unsafe {
-        let old = G_MPVP.swap(std::ptr::null_mut(), Ordering::AcqRel);
+        let old = take_mpv_handle_for_teardown();
         if !old.is_null() {
             safe_terminate_mpv(api, old);
         }
+        reset_engine_lifecycle_state();
 
         let handle = (api.mpv_create)();
         if handle.is_null() { return; }
-        G_EVENT_THREAD_EXIT.store(false, Ordering::Release);
-        G_MPVP.store(handle, Ordering::Release);
-        HANDLE_VALID.store(true, Ordering::Release);
+        {
+            let mut guard = G_MPV_LIFECYCLE
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            G_EVENT_THREAD_EXIT.store(false, Ordering::Release);
+            G_MPVP.store(handle, Ordering::Release);
+            HANDLE_VALID.store(true, Ordering::Release);
+            *guard = handle as usize;
+        }
 
         if let Some(VmPtr(vm_ptr)) = G_VM.get() {
             type JniSetter = unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int;
@@ -2209,7 +2444,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_init(
 ) {
     cache_class(&mut env);
     let _ = with_api(|api| unsafe {
-        let handle = match mpv_handle() {
+        let (_guard, handle) = match mpv_handle_guarded() {
             Ok(h) => h,
             Err(_) => return,
         };
@@ -2257,7 +2492,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_destroy(
     _class: JClass,
 ) {
     let _ = with_api(|api| unsafe {
-        let handle = G_MPVP.swap(std::ptr::null_mut(), Ordering::AcqRel);
+        let handle = take_mpv_handle_for_teardown();
         if !handle.is_null() {
             safe_terminate_mpv(api, handle);
         }
@@ -2272,6 +2507,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_destroy(
         let _ = handle.sender.send(RenderCommand::Shutdown);
         let _ = handle._thread.join();
     }
+    reset_engine_lifecycle_state();
 }
 
 #[no_mangle]
@@ -2283,7 +2519,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_attachSurface(
     #[cfg(target_os = "android")]
     unsafe {
         if _surface.is_null() { return; }
-        let mut env = _env;
+        let env = _env;
         let raw_env = env.get_native_interface();
         let win = ANativeWindow_fromSurface(raw_env, _surface);
         if win.is_null() {
@@ -2361,10 +2597,6 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_command(
     args: JObjectArray,
 ) {
     let _ = with_api(|api| unsafe {
-        let handle = match mpv_handle() {
-            Ok(h) => h,
-            Err(_) => return,
-        };
         let count = env.get_array_length(&args).unwrap_or(0);
         let mut c_args: Vec<CString> = Vec::with_capacity(count as usize);
         for i in 0..count {
@@ -2382,9 +2614,68 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_command(
         }
         let mut ptrs: Vec<*mut c_char> = c_args.iter().map(|s| s.as_ptr() as *mut c_char).collect();
         ptrs.push(std::ptr::null_mut());
+        let (_guard, handle) = match mpv_handle_guarded() {
+            Ok(h) => h,
+            Err(_) => return,
+        };
         let rc = (api.mpv_command)(handle, ptrs.as_mut_ptr());
         nlog(&format!("mpv_command: {:?} -> rc={rc}", c_args));
     });
+}
+
+fn match_static_property(name: &str) -> Option<&'static CStr> {
+    match name {
+        "time-pos" => Some(c"time-pos"),
+        "duration" => Some(c"duration"),
+        "pause" => Some(c"pause"),
+        "paused-for-cache" => Some(c"paused-for-cache"),
+        "demuxer-cache-time" => Some(c"demuxer-cache-time"),
+        "speed" => Some(c"speed"),
+        "dwidth" => Some(c"dwidth"),
+        "dheight" => Some(c"dheight"),
+        "width" => Some(c"width"),
+        "height" => Some(c"height"),
+        "video-out-params/dw" => Some(c"video-out-params/dw"),
+        "video-out-params/dh" => Some(c"video-out-params/dh"),
+        "video-out-params/rotate" => Some(c"video-out-params/rotate"),
+        "video-params/rotate" => Some(c"video-params/rotate"),
+        "container-fps" => Some(c"container-fps"),
+        "estimated-vf-fps" => Some(c"estimated-vf-fps"),
+        "frame-drop-count" => Some(c"frame-drop-count"),
+        "vo-delayed-frame-count" => Some(c"vo-delayed-frame-count"),
+        "mistimed-frame-count" => Some(c"mistimed-frame-count"),
+        "hwdec-current" => Some(c"hwdec-current"),
+        "media-title" => Some(c"media-title"),
+        "display-fps" => Some(c"display-fps"),
+        "display-fps-override" => Some(c"display-fps-override"),
+        "sub-delay" => Some(c"sub-delay"),
+        "audio-delay" => Some(c"audio-delay"),
+        "sub-scale" => Some(c"sub-scale"),
+        "sub-pos" => Some(c"sub-pos"),
+        "chapter" => Some(c"chapter"),
+        "deband" => Some(c"deband"),
+        "brightness" => Some(c"brightness"),
+        "contrast" => Some(c"contrast"),
+        "saturation" => Some(c"saturation"),
+        "volume" => Some(c"volume"),
+        "af" => Some(c"af"),
+        _ => None,
+    }
+}
+
+fn with_property_cstr<R>(
+    env: &mut JNIEnv,
+    name: &JString,
+    f: impl FnOnce(&CStr) -> Result<R, String>,
+) -> Result<R, String> {
+    let s = env.get_string(name).map_err(|_| "get_string failed")?;
+    let s_str = s.to_str().unwrap_or("");
+    if let Some(static_cstr) = match_static_property(s_str) {
+        f(static_cstr)
+    } else {
+        let cstr = CString::new(s_str).map_err(|_| "interior nul")?;
+        f(&cstr)
+    }
 }
 
 fn jstr_to_cstring(env: &mut JNIEnv, s: &JString) -> Result<CString, String> {
@@ -2403,7 +2694,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setOptionString(
         let n = jstr_to_cstring(&mut env, &name)?;
         let v = jstr_to_cstring(&mut env, &value)?;
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             Ok((api.mpv_set_option_string)(handle, n.as_ptr(), v.as_ptr()))
         })?
     })();
@@ -2416,16 +2707,15 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_getPropertyLong(
     _class: JClass,
     name: JString,
 ) -> jlong {
-    let result = (|| -> Result<i64, String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let result = with_property_cstr(&mut env, &name, |n| {
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             let mut out: i64 = i64::MIN;
             let rc = (api.mpv_get_property)(handle, n.as_ptr(), MPV_FORMAT_INT64, std::ptr::from_mut(&mut out).cast::<c_void>());
             if rc != MPV_ERROR_SUCCESS { return Err("get failed".into()); }
             Ok(out)
         })?
-    })();
+    });
     result.unwrap_or(i64::MIN)
 }
 
@@ -2435,16 +2725,15 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_getPropertyDouble(
     _class: JClass,
     name: JString,
 ) -> jdouble {
-    let result = (|| -> Result<f64, String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let result = with_property_cstr(&mut env, &name, |n| {
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             let mut out: f64 = f64::NAN;
             let rc = (api.mpv_get_property)(handle, n.as_ptr(), MPV_FORMAT_DOUBLE, std::ptr::from_mut(&mut out).cast::<c_void>());
             if rc != MPV_ERROR_SUCCESS { return Err("get failed".into()); }
             Ok(out)
         })?
-    })();
+    });
     result.unwrap_or(f64::NAN)
 }
 
@@ -2454,16 +2743,15 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_getPropertyBoolean(
     _class: JClass,
     name: JString,
 ) -> jboolean {
-    let result = (|| -> Result<bool, String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let result = with_property_cstr(&mut env, &name, |n| {
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             let mut out: c_int = 0;
             let rc = (api.mpv_get_property)(handle, n.as_ptr(), MPV_FORMAT_FLAG, std::ptr::from_mut(&mut out).cast::<c_void>());
             if rc != MPV_ERROR_SUCCESS { return Err("get failed".into()); }
             Ok(out != 0)
         })?
-    })();
+    });
     match result {
         Ok(v) => v as jboolean,
         Err(_) => 2u8,
@@ -2477,17 +2765,21 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_getPropertyString(
     name: JString,
 ) -> jobject {
     let result = (|| -> Result<jobject, String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
-        with_api(|api| unsafe {
-            let handle = mpv_handle()?;
-            let mut out: *mut c_char = std::ptr::null_mut();
-            let rc = (api.mpv_get_property)(handle, n.as_ptr(), MPV_FORMAT_STRING, std::ptr::from_mut(&mut out).cast::<c_void>());
-            if rc != MPV_ERROR_SUCCESS || out.is_null() { return Err("get failed".into()); }
-            let s = CStr::from_ptr(out).to_string_lossy().into_owned();
-            (api.mpv_free)(out as *mut c_void);
-            let j = env.new_string(s).map_err(|_| "new_string failed")?;
-            Ok(j.into_raw())
-        })?
+        let s: String = with_property_cstr(&mut env, &name, |n| {
+            with_api(|api| -> Result<String, String> {
+                unsafe {
+                    let (_guard, handle) = mpv_handle_guarded()?;
+                    let mut out: *mut c_char = std::ptr::null_mut();
+                    let rc = (api.mpv_get_property)(handle, n.as_ptr(), MPV_FORMAT_STRING, std::ptr::from_mut(&mut out).cast::<c_void>());
+                    if rc != MPV_ERROR_SUCCESS || out.is_null() { return Err("get failed".into()); }
+                    let s = CStr::from_ptr(out).to_string_lossy().into_owned();
+                    (api.mpv_free)(out as *mut c_void);
+                    Ok(s)
+                }
+            })?
+        })?;
+        let j = env.new_string(s).map_err(|_| "new_string failed")?;
+        Ok(j.into_raw())
     })();
     result.unwrap_or(std::ptr::null_mut())
 }
@@ -2499,15 +2791,14 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setPropertyLong(
     name: JString,
     value: jlong,
 ) {
-    let _ = (|| -> Result<(), String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let _ = with_property_cstr(&mut env, &name, |n| {
         let mut v: i64 = value;
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             (api.mpv_set_property)(handle, n.as_ptr(), MPV_FORMAT_INT64, std::ptr::from_mut(&mut v).cast::<c_void>());
             Ok(())
         })?
-    })();
+    });
 }
 
 #[no_mangle]
@@ -2517,15 +2808,14 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setPropertyDouble(
     name: JString,
     value: jdouble,
 ) {
-    let _ = (|| -> Result<(), String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let _ = with_property_cstr(&mut env, &name, |n| {
         let mut v: f64 = value;
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             (api.mpv_set_property)(handle, n.as_ptr(), MPV_FORMAT_DOUBLE, std::ptr::from_mut(&mut v).cast::<c_void>());
             Ok(())
         })?
-    })();
+    });
 }
 
 #[no_mangle]
@@ -2535,15 +2825,14 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setPropertyBoolean(
     name: JString,
     value: jboolean,
 ) {
-    let _ = (|| -> Result<(), String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let _ = with_property_cstr(&mut env, &name, |n| {
         let mut v: c_int = (value != 0) as c_int;
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             (api.mpv_set_property)(handle, n.as_ptr(), MPV_FORMAT_FLAG, std::ptr::from_mut(&mut v).cast::<c_void>());
             Ok(())
         })?
-    })();
+    });
 }
 
 #[no_mangle]
@@ -2554,14 +2843,15 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setPropertyString(
     value: JString,
 ) {
     let _ = (|| -> Result<(), String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
         let v = jstr_to_cstring(&mut env, &value)?;
-        with_api(|api| unsafe {
-            let handle = mpv_handle()?;
-            let mut value_ptr: *const c_char = v.as_ptr();
-            (api.mpv_set_property)(handle, n.as_ptr(), MPV_FORMAT_STRING, std::ptr::from_mut(&mut value_ptr).cast::<c_void>());
-            Ok(())
-        })?
+        with_property_cstr(&mut env, &name, |n| {
+            with_api(|api| unsafe {
+                let (_guard, handle) = mpv_handle_guarded()?;
+                let mut value_ptr: *const c_char = v.as_ptr();
+                (api.mpv_set_property)(handle, n.as_ptr(), MPV_FORMAT_STRING, std::ptr::from_mut(&mut value_ptr).cast::<c_void>());
+                Ok(())
+            })?
+        })
     })();
 }
 
@@ -2572,14 +2862,13 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_observeProperty(
     name: JString,
     format: jint,
 ) {
-    let _ = (|| -> Result<(), String> {
-        let n = jstr_to_cstring(&mut env, &name)?;
+    let _ = with_property_cstr(&mut env, &name, |n| {
         with_api(|api| unsafe {
-            let handle = mpv_handle()?;
+            let (_guard, handle) = mpv_handle_guarded()?;
             (api.mpv_observe_property)(handle, 0, n.as_ptr(), format);
             Ok(())
         })?
-    })();
+    });
 }
 
 #[no_mangle]
@@ -2592,12 +2881,118 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_isZeroCopySafe(
 
 #[no_mangle]
 pub extern "system" fn Java_dev_gyro_engine_GyroNative_getGpuRenderer(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
 ) -> jobject {
     let renderer = G_GPU_RENDERER.get().map(|s| s.as_str()).unwrap_or("unknown");
     match env.new_string(renderer) {
         Ok(j) => j.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reset_engine_lifecycle_state_clears_all_session_flags_and_pointers() {
+        let _ = G_FRAME_GATE.try_acquire();
+        G_RENDER_DEAD.store(true, Ordering::Release);
+        G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
+        G_FILE_LOADED_REACHED.store(true, Ordering::Release);
+        G_REARM_VIDEO.store(true, Ordering::Release);
+        G_PENDING_WID_REBIND.store(true, Ordering::Release);
+        G_LOAD_STARTED_MS.store(12345, Ordering::Release);
+        G_FRAMES_DRAWN.store(100, Ordering::Release);
+        G_FRAMES_STARVED.store(50, Ordering::Release);
+        G_LAST_DRAW_MS.store(999, Ordering::Release);
+        REAL_GL_FENCE_SYNC.store(0x1234 as *mut c_void, Ordering::Release);
+        REAL_GL_DELETE_SYNC.store(0x5678 as *mut c_void, Ordering::Release);
+        if let Ok(mut fences) = ACTIVE_FENCES.lock() {
+            fences.push(SyncHandle(0xABCD as *mut c_void));
+        }
+
+        reset_engine_lifecycle_state();
+
+        assert!(!G_FRAME_GATE.is_pending());
+        assert!(!G_RENDER_DEAD.load(Ordering::Acquire));
+        assert!(!G_AWAITING_FIRST_FRAME.load(Ordering::Acquire));
+        assert!(!G_FILE_LOADED_REACHED.load(Ordering::Acquire));
+        assert!(!G_REARM_VIDEO.load(Ordering::Acquire));
+        assert!(!G_PENDING_WID_REBIND.load(Ordering::Acquire));
+        assert_eq!(0, G_LOAD_STARTED_MS.load(Ordering::Acquire));
+        assert_eq!(0, G_FRAMES_DRAWN.load(Ordering::Acquire));
+        assert_eq!(0, G_FRAMES_STARVED.load(Ordering::Acquire));
+        assert_eq!(0, G_LAST_DRAW_MS.load(Ordering::Acquire));
+        assert!(REAL_GL_FENCE_SYNC.load(Ordering::Acquire).is_null());
+        assert!(REAL_GL_DELETE_SYNC.load(Ordering::Acquire).is_null());
+        assert!(ACTIVE_FENCES.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mpv_lifecycle_guard_prevents_concurrent_access_after_teardown_take() {
+        let dummy_ptr = 0xDEADBEEFusize as *mut c_void;
+        {
+            let mut w = G_MPV_LIFECYCLE.write().unwrap();
+            G_MPVP.store(dummy_ptr, Ordering::Release);
+            HANDLE_VALID.store(true, Ordering::Release);
+            *w = dummy_ptr as usize;
+        }
+
+        {
+            let (_guard, h) = unsafe { mpv_handle_guarded().expect("valid handle") };
+            assert_eq!(dummy_ptr, h);
+        }
+
+        let taken = take_mpv_handle_for_teardown();
+        assert_eq!(dummy_ptr, taken);
+        assert!(unsafe { mpv_handle_guarded().is_err() });
+        assert!(unsafe { mpv_handle().is_err() });
+        assert!(!HANDLE_VALID.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn monotonic_ns_returns_positive_increasing_timestamps() {
+        let t1 = monotonic_ns();
+        let t2 = monotonic_ns();
+        assert!(t1 > 0);
+        assert!(t2 >= t1);
+
+        for (prop, expected) in [
+            ("time-pos", c"time-pos"),
+            ("duration", c"duration"),
+            ("pause", c"pause"),
+            ("paused-for-cache", c"paused-for-cache"),
+            ("demuxer-cache-time", c"demuxer-cache-time"),
+            ("speed", c"speed"),
+            ("dwidth", c"dwidth"),
+            ("dheight", c"dheight"),
+            ("width", c"width"),
+            ("height", c"height"),
+            ("video-out-params/dw", c"video-out-params/dw"),
+            ("video-out-params/dh", c"video-out-params/dh"),
+            ("video-out-params/rotate", c"video-out-params/rotate"),
+            ("video-params/rotate", c"video-params/rotate"),
+            ("estimated-vf-fps", c"estimated-vf-fps"),
+            ("frame-drop-count", c"frame-drop-count"),
+            ("hwdec-current", c"hwdec-current"),
+            ("media-title", c"media-title"),
+            ("display-fps", c"display-fps"),
+            ("sub-delay", c"sub-delay"),
+            ("audio-delay", c"audio-delay"),
+            ("sub-scale", c"sub-scale"),
+            ("sub-pos", c"sub-pos"),
+            ("chapter", c"chapter"),
+            ("deband", c"deband"),
+            ("brightness", c"brightness"),
+            ("contrast", c"contrast"),
+            ("saturation", c"saturation"),
+            ("volume", c"volume"),
+            ("af", c"af"),
+        ] {
+            assert_eq!(match_static_property(prop), Some(expected));
+        }
+        assert_eq!(match_static_property("unknown-prop"), None);
     }
 }

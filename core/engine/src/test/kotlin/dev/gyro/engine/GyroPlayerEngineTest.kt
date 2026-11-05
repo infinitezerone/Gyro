@@ -2,12 +2,15 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.TestUri
 import android.view.Surface
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.engine.model.VideoDimensions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -209,10 +212,195 @@ class GyroPlayerEngineTest {
 
     @Test
     fun testRelease() {
+        val uri = TestUri("content://media/external/video/media/99")
+        engine.loadUri(uri)
+        assertEquals(uri, engine.currentUri.value)
+
         engine.release()
         assertEquals(1, fakeBridge.destroyCount)
         assertEquals(null, fakeBridge.eventListener)
         assertEquals(PlaybackState.IDLE, engine.playbackState.value)
         assertFalse(engine.isPlaying.value)
+        assertNull(engine.currentUri.value)
+        assertEquals(VideoDimensions(), engine.videoDimensions.value)
+        assertEquals(0f, engine.videoAspect.value, 0.0001f)
+        assertFalse(engine.firstFrameRendered.value)
+        assertFalse(engine.geometryReady.value)
+    }
+
+    @Test
+    fun testEnsureInitialized_observesVideoOutParams() {
+        assertTrue(fakeBridge.isPropertyObserved("video-out-params", MpvNativeBridge.Format.NONE))
+        assertTrue(fakeBridge.isPropertyObserved("video-params", MpvNativeBridge.Format.NONE))
+    }
+
+    @Test
+    fun testPublishVideoDimensions_fromVideoOutParamsWithRotation() {
+        fakeBridge.properties["video-out-params/dw"] = 1920L
+        fakeBridge.properties["video-out-params/dh"] = 1080L
+        fakeBridge.properties["video-out-params/rotate"] = 90L
+
+        fakeBridge.emitProperty("video-out-params")
+
+        assertEquals(VideoDimensions(1080, 1920), engine.videoDimensions.value)
+        assertEquals(1080f / 1920f, engine.videoAspect.value, 0.0001f)
+        assertTrue(engine.geometryReady.value)
+    }
+
+    @Test
+    fun testPublishVideoDimensions_gatesOnVideoOutParamsToPreventDualAspectFlash() {
+        // Before VO is up, only dwidth/dheight are present; must NOT publish premature shape
+        fakeBridge.properties["dwidth"] = 1280L
+        fakeBridge.properties["dheight"] = 720L
+        fakeBridge.properties["video-params/rotate"] = 270L
+
+        fakeBridge.emitProperty("video-params")
+
+        assertEquals(VideoDimensions(), engine.videoDimensions.value)
+        assertFalse(engine.geometryReady.value)
+
+        // Once video-out-params becomes available, it publishes once in final display orientation
+        fakeBridge.properties["video-out-params/dw"] = 1920L
+        fakeBridge.properties["video-out-params/dh"] = 1080L
+        fakeBridge.properties["video-out-params/rotate"] = 0L
+
+        fakeBridge.emitProperty("video-out-params")
+
+        assertEquals(VideoDimensions(1920, 1080), engine.videoDimensions.value)
+        assertEquals(1920f / 1080f, engine.videoAspect.value, 0.0001f)
+        assertTrue(engine.geometryReady.value)
+    }
+
+    @Test
+    fun testLoad_keepsPreviousDimensionsBehindShutterUntilNewGeometryArrives() {
+        fakeBridge.properties["video-out-params/dw"] = 1920L
+        fakeBridge.properties["video-out-params/dh"] = 1080L
+        fakeBridge.emitProperty("video-out-params")
+        fakeBridge.emitEvent(MpvNativeBridge.Event.FIRST_FRAME)
+
+        assertEquals(VideoDimensions(1920, 1080), engine.videoDimensions.value)
+        assertEquals(1920f / 1080f, engine.videoAspect.value, 0.0001f)
+        assertTrue(engine.firstFrameRendered.value)
+        assertTrue(engine.geometryReady.value)
+
+        engine.load("file:///tmp/another.mp4")
+
+        assertEquals(VideoDimensions(1920, 1080), engine.videoDimensions.value)
+        assertEquals(1920f / 1080f, engine.videoAspect.value, 0.0001f)
+        assertFalse(engine.firstFrameRendered.value)
+        assertFalse(engine.geometryReady.value)
+    }
+
+    @Test
+    fun testDetachSurface_ownershipGuardIgnoresWrongSurface() {
+        val surface1 = Surface(android.graphics.SurfaceTexture(0))
+        val surface2 = Surface(android.graphics.SurfaceTexture(1))
+
+        engine.attachSurface(surface1)
+        assertTrue(engine.isSurfaceAttached)
+        assertEquals(1, fakeBridge.attachSurfaceCount)
+
+        // Detaching a different surface must be ignored
+        engine.detachSurface(surface2)
+        assertTrue(engine.isSurfaceAttached)
+        assertEquals(0, fakeBridge.detachSurfaceCount)
+
+        // Detaching the actual attached surface succeeds
+        engine.detachSurface(surface1)
+        assertFalse(engine.isSurfaceAttached)
+        assertEquals(1, fakeBridge.detachSurfaceCount)
+    }
+
+    @Test
+    fun testLoadUri_updatesCurrentUriImmediately() {
+        assertNull(engine.currentUri.value)
+        val uri1 = TestUri("content://media/external/video/media/101")
+        val uri2 = TestUri("content://media/external/video/media/102")
+
+        engine.loadUri(uri1)
+        assertEquals(uri1, engine.currentUri.value)
+
+        engine.loadUri(uri2)
+        assertEquals(uri2, engine.currentUri.value)
+    }
+
+    @Test
+    fun testComputeDisplayFittedBufferSize_fitsDisplayResolutionAcrossAllVideoSizes() {
+        // Low-res 360p (16:9) and 4K (16:9) both map to the exact same 2261x1272 native screen FBO
+        val from360p = dev.gyro.engine.ui.computeDisplayFittedBufferSize(640, 360, 1272, 2772)
+        val from4k = dev.gyro.engine.ui.computeDisplayFittedBufferSize(3840, 2160, 1272, 2772)
+        assertEquals(Pair(2261, 1272), from360p)
+        assertEquals(from360p, from4k)
+
+        // Portrait 9:16 maps to 1272x2261
+        val portrait = dev.gyro.engine.ui.computeDisplayFittedBufferSize(1080, 1920, 1272, 2772)
+        assertEquals(Pair(1272, 2261), portrait)
+
+        // Ultrawide 21:9 (2560x1080) fits long edge 2772
+        val ultrawide = dev.gyro.engine.ui.computeDisplayFittedBufferSize(2560, 1080, 1272, 2772)
+        assertEquals(Pair(2772, 1169), ultrawide)
+    }
+
+    @Test
+    fun testOnDisplayRefreshRateMeasured_setsDisplayFpsOverrideAndDeduplicates() {
+        engine.onDisplayRefreshRateMeasured(90.0f)
+        assertEquals(90.0, fakeBridge.properties["display-fps-override"] as Double, 0.01)
+        assertEquals(90.0, fakeBridge.properties["display-fps"] as Double, 0.01)
+
+        // Sub-0.5Hz jitter is ignored
+        engine.onDisplayRefreshRateMeasured(90.2f)
+        assertEquals(90.0, fakeBridge.properties["display-fps-override"] as Double, 0.01)
+
+        // Real mode switch (90Hz -> 120Hz) updates mpv
+        engine.onDisplayRefreshRateMeasured(120.0f)
+        assertEquals(120.0, fakeBridge.properties["display-fps-override"] as Double, 0.01)
+        assertEquals(120.0, fakeBridge.properties["display-fps"] as Double, 0.01)
+    }
+
+    @Test
+    fun testSelectPreferredDisplayMode_matchesMultiplesAndHighRefreshForNonDivisors() {
+        val modes = listOf(
+            dev.gyro.engine.ui.DisplayModeCandidate(1, 1272, 2772, 120.00001f),
+            dev.gyro.engine.ui.DisplayModeCandidate(2, 1272, 2772, 60.000004f),
+            dev.gyro.engine.ui.DisplayModeCandidate(3, 1272, 2772, 90.0f),
+            dev.gyro.engine.ui.DisplayModeCandidate(4, 1272, 2772, 144.00002f),
+            dev.gyro.engine.ui.DisplayModeCandidate(5, 1272, 2772, 165.0f)
+        )
+
+        // 24fps (5x = 120Hz) -> 120Hz (id=1)
+        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 23.976f)?.modeId)
+        // 30fps (4x = 120Hz) -> 120Hz (id=1)
+        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 30.0f)?.modeId)
+        // 60fps (2x = 120Hz) -> 120Hz (id=1)
+        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 60.0f)?.modeId)
+        // 90fps (1x = 90Hz) -> 90Hz (id=3)
+        assertEquals(3, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 90.0f)?.modeId)
+        // 87.36fps transient (within 3% of 90Hz) -> snaps to 90Hz (id=3), avoiding false 120Hz churn
+        assertEquals(3, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 87.3584f)?.modeId)
+        // 48fps (3x = 144Hz) -> 144Hz (id=4)
+        assertEquals(4, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 48.0f)?.modeId)
+        // 75.07fps (no integer multiple) -> 120Hz (id=1) for finest standard VSync granularity
+        assertEquals(1, dev.gyro.engine.ui.selectPreferredDisplayMode(modes, 1272, 2772, 75.0699f)?.modeId)
+    }
+
+    @Test
+    fun testNormalizeContentFps_snapsTransientJitterToNominalRates() {
+        assertEquals(90.0f, dev.gyro.engine.ui.normalizeContentFps(87.3584f), 0.001f)
+        assertEquals(23.976f, dev.gyro.engine.ui.normalizeContentFps(23.976f), 0.001f)
+        assertEquals(59.94f, dev.gyro.engine.ui.normalizeContentFps(59.94f), 0.001f)
+        assertEquals(75.0699f, dev.gyro.engine.ui.normalizeContentFps(75.0699f), 0.001f)
+    }
+
+    @Test
+    fun testVideoFrameRate_publishedWhenContainerFpsArrivesAfterFileLoaded() {
+        assertTrue(fakeBridge.isPropertyObserved("container-fps", MpvNativeBridge.Format.DOUBLE))
+        assertEquals(0f, engine.videoFrameRate.value, 0.001f)
+
+        fakeBridge.emitPropertyDouble("container-fps", 90.0)
+        assertEquals(90.0f, engine.videoFrameRate.value, 0.01f)
+
+        // Estimated fps jitter does not overwrite established container frame rate
+        fakeBridge.emitPropertyDouble("estimated-vf-fps", 87.3584)
+        assertEquals(90.0f, engine.videoFrameRate.value, 0.01f)
     }
 }

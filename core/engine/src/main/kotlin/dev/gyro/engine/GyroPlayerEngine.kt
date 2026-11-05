@@ -157,6 +157,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _mediaTitle = MutableStateFlow("")
     val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
 
+    private val _currentUri = MutableStateFlow<Uri?>(null)
+    val currentUri: StateFlow<Uri?> = _currentUri.asStateFlow()
+
     /**
      * Title supplied by the caller (content resolver display name, or derived from the URI).
      *
@@ -297,9 +300,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     // build, so the dimensions stayed at zero and every consumer silently fell back
                     // to track-list data or to 16:9.
                     publishVideoDimensions()
-                    bridge.getDouble("container-fps")?.let { fps ->
-                        // Guard against the placeholder values mpv reports for some streams.
-                        if (fps > 1.0 && fps < 1000.0) _videoFrameRate.value = fps.toFloat()
+                    val containerFps = bridge.getDouble("container-fps")
+                    Log.i(TAG, "FILE_LOADED: container-fps=$containerFps")
+                    if (containerFps != null && containerFps > 1.0 && containerFps < 1000.0) {
+                        _videoFrameRate.value = containerFps.toFloat()
                     }
                     refreshTracks()
                     // An audio-only file never presents a frame, so waiting for the first-frame
@@ -350,7 +354,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 "chapter-list" -> refreshChapters()
                 // `video-params` flips once the decoder knows the real stream parameters, which is
                 // the earliest point where dwidth/dheight carry the rotated (displayed) size.
-                "video-params" -> publishVideoDimensions()
+                "video-params", "video-out-params" -> publishVideoDimensions()
             }
         }
 
@@ -401,8 +405,24 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 "speed" -> {
                     _speed.value = value.toFloat()
                 }
+                "container-fps" -> {
+                    Log.i(TAG, "onPropertyDouble container-fps=$value (current _videoFrameRate=${_videoFrameRate.value})")
+                    if (value > 1.0 && value < 1000.0) {
+                        _videoFrameRate.value = value.toFloat()
+                    }
+                }
                 "estimated-vf-fps" -> {
                     _fps.value = value
+                    val normalized = dev.gyro.engine.ui.normalizeContentFps(value.toFloat())
+                    Log.i(TAG, "onPropertyDouble estimated-vf-fps=$value (normalized=$normalized, current _videoFrameRate=${_videoFrameRate.value})")
+                    if (value > 1.0 && value < 1000.0) {
+                        // Seed videoFrameRate if no container-fps was available.
+                        // Normalize startup estimation noise so transient 87.35fps snaps to 90.0fps.
+                        // Once established, do not let continuous running estimation jitter overwrite it.
+                        if (_videoFrameRate.value <= 0f) {
+                            _videoFrameRate.value = normalized
+                        }
+                    }
                 }
                 "sub-delay" -> {
                     _subDelay.value = value
@@ -538,6 +558,16 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 bridge.init()
                 bridge.eventListener = nativeListener
 
+                // Apply the VSync rate measured by Choreographer if the surface attached before
+                // init(). Never fall back to Display.refreshRate here: on ColorOS it reports 120Hz
+                // while the compositor runs the window at 90Hz, which would make mpv pace against
+                // a 120Hz grid the window is not actually getting.
+                val initialDisplayFps = measuredDisplayFps
+                if (initialDisplayFps in 20f..240f) {
+                    bridge.setPropertyDouble("display-fps-override", initialDisplayFps.toDouble())
+                    bridge.setPropertyDouble("display-fps", initialDisplayFps.toDouble())
+                }
+
                 // Restore active shader if previously configured
                 val currentShader = _shaderState.value
                 val currentPath = currentShader.currentPath
@@ -557,9 +587,11 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 bridge.observeProperty("height", MpvNativeBridge.Format.INT64)
                 bridge.observeProperty("hwdec-current", MpvNativeBridge.Format.STRING)
                 bridge.observeProperty("speed", MpvNativeBridge.Format.DOUBLE)
+                bridge.observeProperty("container-fps", MpvNativeBridge.Format.DOUBLE)
                 bridge.observeProperty("estimated-vf-fps", MpvNativeBridge.Format.DOUBLE)
                 bridge.observeProperty("frame-drop-count", MpvNativeBridge.Format.INT64)
                 bridge.observeProperty("video-params", MpvNativeBridge.Format.NONE)
+                bridge.observeProperty("video-out-params", MpvNativeBridge.Format.NONE)
                 bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
                 bridge.observeProperty("sub-delay", MpvNativeBridge.Format.DOUBLE)
                 bridge.observeProperty("audio-delay", MpvNativeBridge.Format.DOUBLE)
@@ -596,13 +628,15 @@ class GyroPlayerEngine @JvmOverloads constructor(
         if (fps < 20f || fps > 240f) return
         if (kotlin.math.abs(fps - measuredDisplayFps) < 0.5f) return
         measuredDisplayFps = fps
-        Log.i(TAG, "display-fps -> $fps")
+        Log.i(TAG, "display-fps-override -> $fps")
         if (isInitialized.get()) {
+            bridge.setPropertyDouble("display-fps-override", fps.toDouble())
             bridge.setPropertyDouble("display-fps", fps.toDouble())
         }
     }
 
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
+        _currentUri.value = uri
         resetSoftwareGain()
         val fastTitle = uri.lastPathSegment ?: ""
         if (fastTitle.isNotBlank()) {
@@ -678,6 +712,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         // The buffer and layout still carry the previous file's shape; the cover stays until the
         // new file's dimensions have been published and the geometry has followed.
         _geometryReady.value = false
+        _videoFrameRate.value = 0f
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {
@@ -794,6 +829,13 @@ class GyroPlayerEngine @JvmOverloads constructor(
         _videoDimensions.value = VideoDimensions(w, h)
         _videoAspect.value = w.toFloat() / h
         _geometryReady.value = true
+        if (_videoFrameRate.value <= 0f) {
+            bridge.getDouble("container-fps")?.let { fps ->
+                if (fps > 1.0 && fps < 1000.0) {
+                    _videoFrameRate.value = fps.toFloat()
+                }
+            }
+        }
     }
 
     fun refreshTracks() {
@@ -1219,5 +1261,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
         bridge.destroy()
         _playbackState.value = PlaybackState.IDLE
         _isPlaying.value = false
+        _currentUri.value = null
+        _videoDimensions.value = VideoDimensions()
+        _videoAspect.value = 0f
+        _firstFrameRendered.value = false
+        _geometryReady.value = false
     }
 }

@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                         if (top.uri == uri) return@LaunchedEffect
                         backStack.removeAt(backStack.lastIndex)
                     }
+                    playerEngine.notifyScreenEntry()
                     backStack.add(Screen.Player(uri))
                     val startPos = if (settings.autoResume) {
                         val progress = historyRepository.getProgress(uri)
@@ -329,14 +330,14 @@ class MainActivity : ComponentActivity() {
         // On Android 12+, autoEnterEnabled on PictureInPictureParams handles home gesture automatically.
         // For Android 8.0 - 11 (API 26-30), manually trigger enterPictureInPictureMode.
         if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R && playerEngine.isPlaying.value) {
+            val videoAspect = playerEngine.videoAspect.value
             val dims = playerEngine.videoDimensions.value
-            val ratio = if (dims.width > 0 && dims.height > 0) {
-                val clamped = dims.aspectRatio.coerceIn(0.42f, 2.38f)
-                val num = (clamped * 1000).toInt()
-                Rational(num, 1000)
-            } else {
-                Rational(16, 9)
-            }
+            val rawRatio = when {
+                videoAspect > 0f -> videoAspect
+                dims.width > 0 && dims.height > 0 -> dims.aspectRatio
+                else -> 16f / 9f
+            }.coerceIn(0.42f, 2.38f)
+            val ratio = Rational((rawRatio * 1000).toInt(), 1000)
 
             val params = buildPipParams(
                 context = this,
@@ -347,6 +348,13 @@ class MainActivity : ComponentActivity() {
             )
             enterPictureInPictureMode(params)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Returning to the foreground: dismiss the background audio notification service
+        // so it does not stay pinned in the status bar while the user is actively viewing the video.
+        PlaybackService.dismiss(this)
     }
 
     override fun onStop() {
@@ -362,6 +370,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (isChangingConfigurations) return
         PlaybackService.stop(this)
         PlaybackService.activeEngine = null
         PlaybackService.activePlaylistManager = null

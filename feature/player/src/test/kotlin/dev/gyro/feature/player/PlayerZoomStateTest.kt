@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -282,5 +282,91 @@ class PlayerZoomStateTest {
         val minY = 719f
         val maxY = 1281f - 2000f / 4.0f
         assertEquals(minY, zoomState.contentOffset.y, 0.01f) // Clamped to top edge
+    }
+
+    @Test
+    fun testContainerLocalTranslationAlignsWithComposeVideoBoundsAcrossResizeModes() = runBlocking {
+        val clock = object : androidx.compose.runtime.MonotonicFrameClock {
+            override suspend fun <R> withFrameNanos(onFrame: (frameTimeNanos: Long) -> R): R {
+                return onFrame(System.nanoTime())
+            }
+        }
+        kotlinx.coroutines.withContext(clock) {
+            // Landscape viewport: 2400 x 1080
+            val viewport = Size(2400f, 1080f)
+
+            // Case A: Pillarboxed 16:9 container inside 2400x1080 viewport (width = 1920, origin = (240, 0))
+            val origin16x9 = Offset(240f, 0f)
+            val bounds16x9 = androidx.compose.ui.geometry.Rect(
+                left = origin16x9.x,
+                top = origin16x9.y,
+                right = origin16x9.x + 1920f,
+                bottom = origin16x9.y + 1080f
+            )
+
+            val zoomState = PlayerZoomState()
+            // 1. At scale = 1.0f, resting clampOffset is Offset.Zero and container-local translation is 0
+            val restingOffset = zoomState.clampOffset(Offset.Zero, 1.0f, viewport, bounds16x9)
+            assertEquals(0f, restingOffset.x, 0.01f)
+            assertEquals(0f, restingOffset.y, 0.01f)
+
+            // 2. Pinch to 1.15x around an off-center point inside the 16:9 container (e.g. (600, 300))
+            // Scaled width = 1920 * 1.15 = 2208 <= 2400 (still narrower than viewport!)
+            val anchor = Offset(600f, 300f)
+            zoomState.onGesture(
+                zoomChange = 1.15f,
+                panDelta = Offset.Zero,
+                centroid = anchor,
+                viewportSize = viewport,
+                contentBounds = bounds16x9,
+                isPinch = true
+            )
+
+            // Container-local graphicsLayer translation: (origin - contentOffset) * scale - origin
+            // Screen position of a container-local point pLocal = anchor - origin is:
+            // origin + pLocal * scale + containerTranslation = (anchor - contentOffset) * scale
+            val containerTransX = (origin16x9.x - zoomState.contentOffset.x) * zoomState.scale - origin16x9.x
+            val containerTransY = (origin16x9.y - zoomState.contentOffset.y) * zoomState.scale - origin16x9.y
+            val pLocal = anchor - origin16x9
+            val screenAnchorX = origin16x9.x + pLocal.x * zoomState.scale + containerTransX
+            val screenAnchorY = origin16x9.y + pLocal.y * zoomState.scale + containerTransY
+            assertEquals(anchor.x, screenAnchorX, 0.01f)
+            assertEquals(anchor.y, screenAnchorY, 0.01f)
+
+            // 3. When fingers release (animateSettle) at 1.15x where scaledW (2208) <= viewport.width (2400),
+            // the video container MUST settle centered horizontally on the screen:
+            // screenCenterX of container = origin.x + (videoW * scale) / 2 + containerTransX == viewport.width / 2
+            zoomState.animateSettle(viewport, bounds16x9)
+            val settledTransX = (origin16x9.x - zoomState.contentOffset.x) * zoomState.scale - origin16x9.x
+            val renderedContainerLeft = origin16x9.x + settledTransX
+            val renderedContainerCenter = renderedContainerLeft + (1920f * zoomState.scale) / 2f
+            assertEquals(viewport.width / 2f, renderedContainerCenter, 0.01f)
+
+            // Case B: Letterboxed ultra-wide (2.76:1) container inside 2400x1080 viewport
+            // (height = 870, origin = (0, 105))
+            val originUltraWide = Offset(0f, 105f)
+            val boundsUltraWide = androidx.compose.ui.geometry.Rect(
+                left = originUltraWide.x,
+                top = originUltraWide.y,
+                right = 2400f,
+                bottom = 105f + 870f
+            )
+            zoomState.reset(viewport, boundsUltraWide)
+            assertEquals(Offset.Zero, zoomState.contentOffset)
+
+            // Zoom to 1.1x (scaledHeight = 870 * 1.1 = 957 <= 1080, scaledWidth = 2640 > 2400)
+            zoomState.onGesture(
+                zoomChange = 1.1f,
+                panDelta = Offset(0f, -200f),
+                centroid = Offset(1200f, 540f),
+                viewportSize = viewport,
+                contentBounds = boundsUltraWide,
+                isPinch = false
+            )
+            val ultraTransY = (originUltraWide.y - zoomState.contentOffset.y) * zoomState.scale - originUltraWide.y
+            val renderedTop = originUltraWide.y + ultraTransY
+            val renderedVerticalCenter = renderedTop + (870f * zoomState.scale) / 2f
+            assertEquals(viewport.height / 2f, renderedVerticalCenter, 0.01f)
+        }
     }
 }

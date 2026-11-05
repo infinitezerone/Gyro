@@ -4,6 +4,8 @@
 //! a frame" and "is the GPU stuck" lives in this module so it can be exercised on the host with
 //! `cargo test`; the unsafe glue in `lib.rs` only forwards measurements into these types.
 
+#![cfg_attr(not(target_os = "android"), allow(dead_code))]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// One-slot gate that collapses mpv's per-frame update notifications into at most one queued
@@ -41,6 +43,7 @@ impl FrameCoalescer {
     }
 
     /// True while some notification owns the gate and has not been released yet.
+    #[allow(dead_code)]
     pub fn is_pending(&self) -> bool {
         self.pending.load(Ordering::Acquire)
     }
@@ -63,6 +66,8 @@ impl Default for FrameCoalescer {
 pub enum FrameCounter {
     /// Frames delayed by external circumstances in display-sync mode.
     Late,
+    /// Frames presented on the wrong vsync phase in display-sync mode.
+    Mistimed,
     /// Frames dropped by the video output.
     Dropped,
     /// Frames dropped by the decoder because video fell too far behind audio.
@@ -70,8 +75,9 @@ pub enum FrameCounter {
 }
 
 impl FrameCounter {
-    pub const ALL: [FrameCounter; 3] = [
+    pub const ALL: [FrameCounter; 4] = [
         FrameCounter::Late,
+        FrameCounter::Mistimed,
         FrameCounter::Dropped,
         FrameCounter::DecoderDropped,
     ];
@@ -80,6 +86,7 @@ impl FrameCounter {
     pub const fn property(self) -> &'static str {
         match self {
             FrameCounter::Late => "vo-delayed-frame-count",
+            FrameCounter::Mistimed => "mistimed-frame-count",
             FrameCounter::Dropped => "frame-drop-count",
             FrameCounter::DecoderDropped => "decoder-frame-drop-count",
         }
@@ -96,6 +103,8 @@ pub struct FrameHealthReport {
     pub window_ms: u128,
     /// Delayed frames, only produced in display-sync mode.
     pub late_frames: i64,
+    /// Mistimed frames, only produced in display-sync mode.
+    pub mistimed_frames: i64,
     /// Frames the decoder dropped because video had fallen too far behind audio.
     pub dropped_frames: i64,
     /// Frames the video output skipped because the display cannot show them all (a 75fps source on
@@ -115,9 +124,11 @@ pub struct FrameHealthMonitor {
     report_after: i64,
     window_started_at_ms: Option<u128>,
     baseline_late: i64,
+    baseline_mistimed: i64,
     baseline_dropped: i64,
     baseline_skipped: i64,
     late: i64,
+    mistimed: i64,
     vo_dropped: i64,
     decoder_dropped: i64,
 }
@@ -130,9 +141,11 @@ impl FrameHealthMonitor {
             report_after: if report_after < 1 { 1 } else { report_after },
             window_started_at_ms: None,
             baseline_late: 0,
+            baseline_mistimed: 0,
             baseline_dropped: 0,
             baseline_skipped: 0,
             late: 0,
+            mistimed: 0,
             vo_dropped: 0,
             decoder_dropped: 0,
         }
@@ -146,6 +159,10 @@ impl FrameHealthMonitor {
 
     pub fn late_frames(&self) -> i64 {
         self.late
+    }
+
+    pub fn mistimed_frames(&self) -> i64 {
+        self.mistimed
     }
 
     /// Frames the decoder gave up on: video had fallen too far behind audio.
@@ -167,6 +184,7 @@ impl FrameHealthMonitor {
     ) -> Option<FrameHealthReport> {
         let previous = match counter {
             FrameCounter::Late => self.late,
+            FrameCounter::Mistimed => self.mistimed,
             FrameCounter::Dropped => self.vo_dropped,
             FrameCounter::DecoderDropped => self.decoder_dropped,
         };
@@ -174,6 +192,7 @@ impl FrameHealthMonitor {
             // The counters restart with a new file. Keeping the old window would report a negative
             // delta now and then a phantom burst on the first sample of the next file.
             self.late = 0;
+            self.mistimed = 0;
             self.vo_dropped = 0;
             self.decoder_dropped = 0;
             self.window_started_at_ms = None;
@@ -181,6 +200,7 @@ impl FrameHealthMonitor {
         }
         match counter {
             FrameCounter::Late => self.late = total,
+            FrameCounter::Mistimed => self.mistimed = total,
             FrameCounter::Dropped => self.vo_dropped = total,
             FrameCounter::DecoderDropped => self.decoder_dropped = total,
         }
@@ -190,6 +210,7 @@ impl FrameHealthMonitor {
             None => {
                 self.window_started_at_ms = Some(now_ms);
                 self.baseline_late = self.late;
+                self.baseline_mistimed = self.mistimed;
                 self.baseline_dropped = self.decoder_dropped;
                 self.baseline_skipped = self.vo_dropped;
                 return None;
@@ -201,19 +222,22 @@ impl FrameHealthMonitor {
         }
 
         let late = self.late - self.baseline_late;
+        let mistimed = self.mistimed - self.baseline_mistimed;
         let dropped = self.decoder_dropped - self.baseline_dropped;
         let skipped = self.vo_dropped - self.baseline_skipped;
         self.window_started_at_ms = Some(now_ms);
         self.baseline_late = self.late;
+        self.baseline_mistimed = self.mistimed;
         self.baseline_dropped = self.decoder_dropped;
         self.baseline_skipped = self.vo_dropped;
         // Only loss the pipeline could not avoid counts: a late frame and a frame the decoder had to
         // give up on both mean video is falling behind. A VO skip means the source has more frames
         // than the panel can show, which is not a fault.
-        if late + dropped >= self.report_after {
+        if late + mistimed + dropped >= self.report_after {
             Some(FrameHealthReport {
                 window_ms,
                 late_frames: late,
+                mistimed_frames: mistimed,
                 dropped_frames: dropped,
                 skipped_frames: skipped,
             })
@@ -578,6 +602,30 @@ pub fn egl_config_attempts(prefer_10bit: bool) -> &'static [EglConfigRequest] {
         &CONFIG_ATTEMPTS_10BIT
     } else {
         &CONFIG_ATTEMPTS_8BIT
+    }
+}
+
+/// Converts an mpv target display timestamp (`mpv_render_frame_info.target_time`, in microseconds
+/// on `mpv_get_time_us()`'s relative epoch) into a `CLOCK_MONOTONIC` (`SYSTEM_TIME_MONOTONIC`)
+/// nanosecond timestamp suitable for `eglPresentationTimeANDROID`.
+///
+/// Returns `None` if `target_mpv_us <= 0` or `now_mono_ns <= 0` or if the resulting timestamp is
+/// non-positive.
+#[allow(dead_code)]
+pub fn compute_monotonic_presentation_ns(
+    target_mpv_us: i64,
+    now_mpv_us: i64,
+    now_mono_ns: i64,
+) -> Option<i64> {
+    if target_mpv_us <= 0 || now_mono_ns <= 0 {
+        return None;
+    }
+    let delta_ns = target_mpv_us.saturating_sub(now_mpv_us).saturating_mul(1_000);
+    let target_mono_ns = now_mono_ns.saturating_add(delta_ns);
+    if target_mono_ns > 0 {
+        Some(target_mono_ns)
+    } else {
+        None
     }
 }
 
@@ -1033,5 +1081,34 @@ mod tests {
     fn error_names_do_not_panic_on_vendor_codes() {
         assert_eq!("EGL_UNKNOWN", egl_error_name(0x3FFF));
         assert_eq!("EGL_UNKNOWN", egl_error_name(-1));
+    }
+
+    // ---------- compute_monotonic_presentation_ns ----------
+
+    #[test]
+    fn presentation_ns_rejects_non_positive_target_or_monotonic_clock() {
+        assert_eq!(None, compute_monotonic_presentation_ns(0, 1_000, 5_000_000_000));
+        assert_eq!(None, compute_monotonic_presentation_ns(-10, 1_000, 5_000_000_000));
+        assert_eq!(None, compute_monotonic_presentation_ns(1_500, 1_000, 0));
+        assert_eq!(None, compute_monotonic_presentation_ns(1_500, 1_000, -1));
+    }
+
+    #[test]
+    fn presentation_ns_translates_relative_mpv_us_to_monotonic_ns() {
+        // mpv starts near 0 (e.g. 500_000 us = 0.5s), target is 16ms ahead (516_000 us),
+        // while CLOCK_MONOTONIC is 1000s (1_000_000_000_000 ns).
+        let target_ns = compute_monotonic_presentation_ns(516_000, 500_000, 1_000_000_000_000);
+        assert_eq!(Some(1_000_016_000_000), target_ns);
+    }
+
+    #[test]
+    fn presentation_ns_handles_slightly_past_target_and_saturates_on_overflow() {
+        // Target 2ms in the past relative to now_mpv_us
+        let past_ns = compute_monotonic_presentation_ns(498_000, 500_000, 1_000_000_000_000);
+        assert_eq!(Some(999_998_000_000), past_ns);
+
+        // Saturates instead of wrapping on extreme values
+        let saturated = compute_monotonic_presentation_ns(i64::MAX, 0, 1_000_000);
+        assert_eq!(Some(i64::MAX), saturated);
     }
 }

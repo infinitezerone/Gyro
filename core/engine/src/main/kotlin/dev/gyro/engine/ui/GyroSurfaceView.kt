@@ -1,34 +1,186 @@
 package dev.gyro.engine.ui
 
+import android.app.Activity
 import android.content.Context
-import android.view.Choreographer
+import android.content.ContextWrapper
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
+import android.view.Choreographer
+import android.view.Display
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.WindowManager
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import dev.gyro.engine.GyroNative
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.VideoDimensions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.abs
-import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** A stored buffer whose aspect has drifted from a newly reported one by more than this is re-locked. */
 private const val ASPECT_EPSILON = 0.01
 
-/** Frames sampled by [GyroSurfaceView.measureDisplayRate]; ~440ms at 90Hz. */
-private const val MEASURED_FRAMES = 40
+/**
+ * Computes the optimal fixed SurfaceHolder buffer dimensions by fitting the video's display aspect
+ * ratio into the physical screen's native resolution bounds.
+ *
+ * Why this design:
+ * 1. **PiP & window transition stability**: By locking the SurfaceHolder (`setFixedSize`) to an
+ *    aspect-matched resolution decoupled from the transient view layout size, entering/exiting PiP
+ *    or rotating the screen becomes a pure SurfaceFlinger hardware matrix scale with zero
+ *    `BLASTBufferQueue` reallocation (eliminating the 40-70ms resize lag / flash).
+ * 2. **Full-resolution shaders & subtitles**: Fitting to the display's physical bounds rather than
+ *    clamping down to low-res video dimensions (`min(1f, ...)`) guarantees that 480p/720p videos
+ *    still get a native screen-resolution OpenGL FBO for Anime4K upscaling and crisp ASS subtitles.
+ * 3. **Zero re-lock on same-aspect playlist switches**: A 360p (16:9) video and a 4K (16:9) video
+ *    map to the exact same screen-fitted buffer size, avoiding buffer churn across playlist items.
+ */
+internal fun computeDisplayFittedBufferSize(
+    videoWidth: Int,
+    videoHeight: Int,
+    displayWidth: Int,
+    displayHeight: Int
+): Pair<Int, Int> {
+    if (videoWidth <= 0 || videoHeight <= 0 || displayWidth <= 0 || displayHeight <= 0) {
+        return Pair(videoWidth.coerceAtLeast(1), videoHeight.coerceAtLeast(1))
+    }
+    val shortEdge = minOf(displayWidth, displayHeight)
+    val longEdge = maxOf(displayWidth, displayHeight)
+    val aspect = videoWidth.toDouble() / videoHeight.toDouble()
+
+    val maxW = if (aspect >= 1.0) longEdge else shortEdge
+    val maxH = if (aspect >= 1.0) shortEdge else longEdge
+    val boxAspect = maxW.toDouble() / maxH.toDouble()
+
+    return if (aspect > boxAspect) {
+        val w = maxW
+        val h = (maxW / aspect).roundToInt().coerceAtLeast(1)
+        Pair(w, h)
+    } else {
+        val h = maxH
+        val w = (maxH * aspect).roundToInt().coerceAtLeast(1)
+        Pair(w, h)
+    }
+}
+
+private fun resolvePhysicalDisplaySize(context: Context): Pair<Int, Int> {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val wm = context.getSystemService(WindowManager::class.java)
+        val bounds = wm?.maximumWindowMetrics?.bounds
+        if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
+            return Pair(bounds.width(), bounds.height())
+        }
+    }
+    val metrics = context.applicationContext.resources.displayMetrics
+    return Pair(metrics.widthPixels, metrics.heightPixels)
+}
+
+internal data class DisplayModeCandidate(
+    val modeId: Int,
+    val width: Int,
+    val height: Int,
+    val refreshRate: Float
+)
+
+/**
+ * Normalizes content frame rate to standard broadcast/digital video nominal rates
+ * if it falls within a 3.5% tolerance window. This prevents transient frame rate estimation
+ * noise (e.g. 87.35fps during playback startup for a 90fps video) from falling out of
+ * integer multiple matching and triggering false hardware display mode churn.
+ */
+internal fun normalizeContentFps(contentFps: Float): Float {
+    if (contentFps <= 1f) return 0f
+    val nominalRates = floatArrayOf(
+        23.976f, 24.0f, 25.0f, 29.97f, 30.0f,
+        48.0f, 50.0f, 59.94f, 60.0f,
+        72.0f, 90.0f, 120.0f, 144.0f
+    )
+    for (nominal in nominalRates) {
+        if (abs(contentFps - nominal) / nominal <= 0.035f) {
+            return nominal
+        }
+    }
+    return contentFps
+}
+
+/**
+ * Selects the optimal physical display mode for [contentFps] at the active resolution
+ * ([activeWidth] x [activeHeight]).
+ *
+ * Strategy:
+ * 1. If one or more modes at the active resolution are an exact integer multiple of [contentFps]
+ *    (e.g. 120Hz for 24/30/40/60/120fps, 90Hz for 45/90fps, 144Hz for 48/72/144fps), pick the
+ *    highest exact-multiple mode up to 120Hz (or the lowest exact multiple >= [contentFps] if all
+ *    exact multiples exceed 120Hz).
+ * 2. If no mode is an integer multiple of [contentFps] (e.g. 75.07fps), pick the highest refresh
+ *    rate mode up to 120Hz (or highest overall if [contentFps] > 120Hz) so VSync quantization step
+ *    size (8.33ms at 120Hz vs 11.11ms at 90Hz or 16.67ms at 60Hz) is minimized.
+ */
+internal fun selectPreferredDisplayMode(
+    modes: List<DisplayModeCandidate>,
+    activeWidth: Int,
+    activeHeight: Int,
+    contentFps: Float
+): DisplayModeCandidate? {
+    if (contentFps <= 1f || modes.isEmpty()) return null
+    val targetFps = normalizeContentFps(contentFps)
+    Log.i("GyroSurfaceView", "selectPreferredDisplayMode: contentFps=$contentFps, targetFps=$targetFps, active=${activeWidth}x$activeHeight, modes=${modes.map { "${it.modeId}:${it.refreshRate}Hz" }}")
+    val resolutionMatched = modes.filter { it.width == activeWidth && it.height == activeHeight }
+        .ifEmpty { modes }
+
+    val exactMultiples = resolutionMatched.filter { mode ->
+        if (mode.refreshRate < targetFps - 0.5f) return@filter false
+        val mult = (mode.refreshRate / targetFps).roundToInt()
+        mult >= 1 && abs(mode.refreshRate - targetFps * mult) <= 0.8f
+    }
+
+    if (exactMultiples.isNotEmpty()) {
+        val standardMultiples = exactMultiples.filter { it.refreshRate <= 120.5f }
+        return if (standardMultiples.isNotEmpty()) {
+            standardMultiples.maxByOrNull { it.refreshRate }
+        } else {
+            exactMultiples.minByOrNull { it.refreshRate }
+        }
+    }
+
+    val standardHigh = resolutionMatched.filter { it.refreshRate <= 120.5f && it.refreshRate >= targetFps - 0.5f }
+    return if (standardHigh.isNotEmpty()) {
+        standardHigh.maxByOrNull { it.refreshRate }
+    } else {
+        resolutionMatched.maxByOrNull { it.refreshRate }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private var hiddenApiExemptionsAdded = false
+
+private fun ensureHiddenApiExemptions() {
+    if (hiddenApiExemptionsAdded) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        runCatching {
+            org.lsposed.hiddenapibypass.HiddenApiBypass.addHiddenApiExemptions("L")
+            hiddenApiExemptionsAdded = true
+        }.onFailure {
+            Log.w("GyroSurfaceView", "HiddenApiBypass.addHiddenApiExemptions failed: ${it.message}")
+        }
+    }
+}
 
 /**
  * High-performance, zero-overhead SurfaceView for Gyro MPV player.
@@ -65,11 +217,42 @@ class GyroSurfaceView @JvmOverloads constructor(
     /** Frame rate of the content on screen, 0 when the system should pick. */
     private var contentFrameRate = 0f
 
+    /**
+     * ColorOS (OnePlus / OPPO / Realme) OplusRefreshRateInjectorImpl walks the view hierarchy
+     * when WindowInsets change (controls hide). If it finds a visible SurfaceView where
+     * `!isZOrderedOnTop()`, it unconditionally overrides window refresh rate to 60Hz (refreshRateId 2),
+     * causing severe frame judder/drops on 90fps/120fps content.
+     *
+     * In Android SurfaceView, `isZOrderedOnTop()` is a public (hidden from public SDK) virtual method.
+     * By providing this method with matching signature `public boolean isZOrderedOnTop()`,
+     * ART virtual dispatch directs ColorOS to this implementation.
+     * Returning true causes `surfaceViewAvailable` to return false, completely neutralizing ColorOS's
+     * vendor 60Hz override and letting standard Android Window/Surface display-rate voting rule.
+     */
+    @Suppress("unused")
+    fun isZOrderedOnTop(): Boolean {
+        return true
+    }
+
     /** Surface whose window the engine currently holds, for the ownership check in `surfaceDestroyed`. */
     private var attachedSurface: Surface? = null
 
+    /** Active Choreographer callback sampling the compositor's real VSync interval, if any. */
+    private var activeFrameCallback: Choreographer.FrameCallback? = null
+
+    /** Listens for system display refresh-rate switches so mpv's `display-fps-override` stays in sync. */
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == Display.DEFAULT_DISPLAY && isAttachedToWindow) {
+                measureDisplayRate { measuredFps -> engine?.onDisplayRefreshRateMeasured(measuredFps) }
+            }
+        }
+    }
+
     init {
-        holder.addCallback(this)
+        holder?.addCallback(this)
     }
 
     /**
@@ -81,9 +264,12 @@ class GyroSurfaceView @JvmOverloads constructor(
      */
     fun lockBufferSizeToVideo(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-        if (lockedWidth > 0) {
+        if (width == lockedWidth && height == lockedHeight) return
+        if (lockedWidth > 0 && lockedHeight > 0) {
             val lockedAspect = lockedWidth.toDouble() / lockedHeight
-            if (abs(width.toDouble() / height - lockedAspect) <= lockedAspect * ASPECT_EPSILON) return
+            val sameAspect = abs(width.toDouble() / height - lockedAspect) <= lockedAspect * ASPECT_EPSILON
+            val sameOrSmaller = width.toLong() * height <= lockedWidth.toLong() * lockedHeight
+            if (sameAspect && sameOrSmaller) return
         }
         lockBufferSize(holder, width, height)
     }
@@ -101,82 +287,157 @@ class GyroSurfaceView @JvmOverloads constructor(
             lockBufferSize(holder, width, height)
         }
 
-        val target = engine
+        val target = engine ?: return
         // A live surface with the native side unbound is the frozen-picture case: `surfaceDestroyed`
         // ran, no `surfaceCreated` followed because the view was reused, and drawing silently stops
         // while audio keeps playing. Re-bind before deciding whether a repaint is needed.
-        if (target != null && !target.isSurfaceAttached && holder.surface?.isValid == true) {
+        if (!target.isSurfaceAttached && holder.surface?.isValid == true) {
             Log.i(TAG, "surfaceChanged -> re-attach unbound surface")
             attach(holder.surface)
             return
         }
         // Repaint so a paused player follows a relock. A playing one is already producing frames at
         // whatever size EGL reports, which is the number the renderer trusts.
-        if (target != null) {
-            target.redraw()
-        } else {
-            GyroNative.redraw()
-        }
+        target.redraw()
+        measureDisplayRate { measuredFps -> target.onDisplayRefreshRateMeasured(measuredFps) }
     }
-
-    /**
-     * Measures the rate the compositor actually runs at and hands it to the engine.
-     *
-     * `Display.mode.refreshRate` reports 120 on this device while SurfaceFlinger composites this
-     * window at 60, so the platform value cannot be trusted: mpv would schedule every frame for a
-     * 120Hz grid the panel never produces. Choreographer callbacks follow the real vsync, so twenty
-     * consecutive ones give the number mpv actually needs.
-     */
-    fun measureDisplayRate(onMeasured: (Float) -> Unit) {
-        val choreographer = Choreographer.getInstance()
-        val intervals = LongArray(MEASURED_FRAMES - 1)
-        var previous = 0L
-        var frames = 0
-        val callback = object : Choreographer.FrameCallback {
-            override fun doFrame(frameTimeNanos: Long) {
-                if (previous != 0L) {
-                    // The median, not the mean: a frame lost to a transition or a GC pause would
-                    // otherwise drag the average down and hand mpv the wrong rate - the exact bug
-                    // this measurement exists to fix.
-                    intervals[frames] = frameTimeNanos - previous
-                    frames++
-                }
-                previous = frameTimeNanos
-                if (frames < intervals.size) {
-                    choreographer.postFrameCallback(this)
-                    return
-                }
-                intervals.sort()
-                val median = intervals[intervals.size / 2]
-                if (median <= 0L) return
-                val fps = 1_000_000_000.0 / median
-                Log.i(TAG, "measured display rate: %.2f fps (median interval %dns)".format(fps, median))
-                onMeasured(fps.toFloat())
-            }
-        }
-        choreographer.postFrameCallback(callback)
-    }
-
 
     fun applyContentFrameRate(fps: Float) {
+        Log.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
         contentFrameRate = fps
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        val surface = attachedSurface ?: holder.surface ?: return
-        if (!surface.isValid) return
         val requested = if (fps > 1f && fps < 1000f) fps else 0f
+        val normalized = normalizeContentFps(requested)
+        var preferredMode: DisplayModeCandidate? = null
+
+        // 1. Request preferred display mode on the hosting Activity Window so high-refresh panels
+        // (90Hz / 120Hz / 144Hz) do not throttle the window via dynamic frame-rate categories.
         runCatching {
-            // DEFAULT, not FIXED_SOURCE: the latter asks for a mode that is an exact multiple of
-            // the content rate, and no panel mode is an exact multiple of 75 or 93, so the platform
-            // gives up and composites at 60 - a third of every high-frame-rate file is dropped with
-            // an uneven cadence. DEFAULT lets it pick the closest mode (90 on this panel).
-            surface.setFrameRate(requested, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
-            Log.i(TAG, "setFrameRate: $requested")
-        }.onFailure { Log.w(TAG, "setFrameRate($requested) failed: ${it.message}") }
+            val activity = context.findActivity()
+            val window = activity?.window
+            val currentDisplay = display
+                ?: context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)
+            val activeMode = currentDisplay?.mode
+            val supported = currentDisplay?.supportedModes
+            if (activeMode != null && !supported.isNullOrEmpty() && normalized > 0f) {
+                val candidates = supported.map {
+                    DisplayModeCandidate(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate)
+                }
+                val selected = selectPreferredDisplayMode(
+                    modes = candidates,
+                    activeWidth = activeMode.physicalWidth,
+                    activeHeight = activeMode.physicalHeight,
+                    contentFps = normalized
+                )
+                preferredMode = selected
+                if (window != null && selected != null) {
+                    val attrs = window.attributes
+                    var changed = false
+                    if (attrs.preferredDisplayModeId != selected.modeId) {
+                        attrs.preferredDisplayModeId = selected.modeId
+                        changed = true
+                    }
+                    if (attrs.preferredRefreshRate != selected.refreshRate) {
+                        attrs.preferredRefreshRate = selected.refreshRate
+                        changed = true
+                    }
+                    runCatching {
+                        ensureHiddenApiExemptions()
+                        val minField = attrs.javaClass.getField("preferredMinDisplayRefreshRate")
+                        val maxField = attrs.javaClass.getField("preferredMaxDisplayRefreshRate")
+                        if (minField.getFloat(attrs) != selected.refreshRate) {
+                            minField.setFloat(attrs, selected.refreshRate)
+                            changed = true
+                        }
+                        if (maxField.getFloat(attrs) != selected.refreshRate) {
+                            maxField.setFloat(attrs, selected.refreshRate)
+                            changed = true
+                        }
+                    }.onFailure { Log.d(TAG, "preferredMin/MaxDisplayRefreshRate failed: ${it.message}") }
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        runCatching {
+                            window.setFrameRatePowerSavingsBalanced(false)
+                        }
+                    }
+                    if (changed) {
+                        window.attributes = attrs
+                        Log.i(TAG, "Window preferred rate -> mode=${selected.modeId}, rate=${selected.refreshRate}Hz (contentFps=$requested, normalized=$normalized)")
+                    }
+                }
+            } else if (window != null && normalized <= 0f) {
+                val attrs = window.attributes
+                var changed = false
+                if (attrs.preferredDisplayModeId != 0) {
+                    attrs.preferredDisplayModeId = 0
+                    changed = true
+                }
+                if (attrs.preferredRefreshRate != 0f) {
+                    attrs.preferredRefreshRate = 0f
+                    changed = true
+                }
+                runCatching {
+                    ensureHiddenApiExemptions()
+                    val minField = attrs.javaClass.getField("preferredMinDisplayRefreshRate")
+                    val maxField = attrs.javaClass.getField("preferredMaxDisplayRefreshRate")
+                    if (minField.getFloat(attrs) != 0f) {
+                        minField.setFloat(attrs, 0f)
+                        changed = true
+                    }
+                    if (maxField.getFloat(attrs) != 0f) {
+                        maxField.setFloat(attrs, 0f)
+                        changed = true
+                    }
+                }
+                if (changed) {
+                    window.attributes = attrs
+                    Log.i(TAG, "Window preferred rate reset to 0 (default)")
+                }
+            }
+        }.onFailure { Log.w(TAG, "preferredDisplayModeId update failed: ${it.message}") }
+
+        // 2. Vote on the Surface itself (Android 11+).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val surface = attachedSurface ?: holder.surface
+            if (surface != null && surface.isValid) {
+                // For high-fps videos (>60.5fps, e.g. 75fps, 87fps, 90fps, 120fps), vote with the selected
+                // display mode's refresh rate (90Hz or 120Hz) as FIXED_SOURCE. This forces SurfaceFlinger
+                // and hardware touch/idle arbiters (e.g. OTI) to lock the active display mode to the
+                // video's target refresh rate instead of downclocking to 60Hz when touch stops.
+                val selected = preferredMode
+                val surfaceVoteFps = if (normalized > 60.5f && selected != null) {
+                    selected.refreshRate
+                } else {
+                    normalized
+                }
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        surface.setFrameRate(
+                            surfaceVoteFps,
+                            Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                            Surface.CHANGE_FRAME_RATE_ALWAYS
+                        )
+                    } else {
+                        surface.setFrameRate(
+                            surfaceVoteFps,
+                            Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+                        )
+                    }
+                    Log.i(TAG, "setFrameRate: vote=$surfaceVoteFps (content=$requested, normalized=$normalized, compat=FIXED_SOURCE)")
+                }.onFailure { Log.w(TAG, "setFrameRate($surfaceVoteFps) failed: ${it.message}") }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    runCatching {
+                        setRequestedFrameRate(surfaceVoteFps)
+                    }
+                }
+            }
+        }
+
+        // 3. Measure actual VSync cadence delivered by the compositor.
+        measureDisplayRate { measuredFps -> engine?.onDisplayRefreshRateMeasured(measuredFps) }
     }
 
-
-    private fun lockBufferSize(holder: SurfaceHolder, w: Int, h: Int) {
-        if (w <= 0 || h <= 0) return
+    private fun lockBufferSize(holder: SurfaceHolder?, w: Int, h: Int) {
+        if (holder == null || w <= 0 || h <= 0) return
         lockedWidth = w
         lockedHeight = h
         holder.setFixedSize(w, h)
@@ -189,11 +450,65 @@ class GyroSurfaceView @JvmOverloads constructor(
         // A fresh surface starts at the platform default rate; re-apply the content rate that
         // was published before it existed.
         applyContentFrameRate(contentFrameRate)
-        engine?.let { target -> measureDisplayRate { fps -> target.onDisplayRefreshRateMeasured(fps) } }
-        if (engine != null) {
-            engine?.attachSurface(surface)
-        } else {
-            GyroNative.attachSurface(surface)
+        engine?.attachSurface(surface)
+    }
+
+    /**
+     * Two-stage measurement of the refresh rate the compositor is actually delivering to this window:
+     * - Stage 1 (after 12 intervals, ~100-130ms): reports an initial median VSync rate so mpv never
+     *   runs uncalibrated at startup.
+     * - Stage 2 (intervals 15..44, after ~150ms mode-switch warm-up): reports the settled median VSync
+     *   rate after SurfaceFlinger finishes switching the physical panel refresh rate.
+     */
+    private fun measureDisplayRate(onMeasured: (Float) -> Unit) {
+        val choreographer = runCatching { Choreographer.getInstance() }.getOrNull() ?: return
+        activeFrameCallback?.let { choreographer.removeFrameCallback(it) }
+        val totalSamples = 45
+        val quickSamples = 12
+        val settleStart = 15
+        val intervals = LongArray(totalSamples)
+        var lastNs = 0L
+        var count = 0
+        val callback = object : Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                if (lastNs != 0L) {
+                    intervals[count++] = frameTimeNanos - lastNs
+                    if (count == quickSamples) {
+                        val quickSlice = intervals.copyOfRange(0, quickSamples)
+                        quickSlice.sort()
+                        val medianNs = quickSlice[quickSlice.size / 2]
+                        if (medianNs > 0L) {
+                            onMeasured(1_000_000_000f / medianNs)
+                        }
+                    }
+                }
+                lastNs = frameTimeNanos
+                if (count < totalSamples) {
+                    choreographer.postFrameCallback(this)
+                } else {
+                    activeFrameCallback = null
+                    val settledSlice = intervals.copyOfRange(settleStart, totalSamples)
+                    settledSlice.sort()
+                    val medianNs = settledSlice[settledSlice.size / 2]
+                    if (medianNs > 0L) {
+                        onMeasured(1_000_000_000f / medianNs)
+                    }
+                }
+            }
+        }
+        activeFrameCallback = callback
+        choreographer.postFrameCallback(callback)
+    }
+
+    /**
+     * Releases surface ownership if this view's surface is currently attached to [targetEngine],
+     * without unconditionally detaching a newer surface owned by another [GyroSurfaceView].
+     */
+    fun releaseSurfaceOwnership(targetEngine: GyroPlayerEngine? = engine) {
+        val surfaceToDetach = attachedSurface ?: holder.surface
+        attachedSurface = null
+        if (surfaceToDetach != null) {
+            targetEngine?.detachSurface(surfaceToDetach)
         }
     }
 
@@ -207,11 +522,27 @@ class GyroSurfaceView @JvmOverloads constructor(
      */
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        runCatching {
+            context.getSystemService(DisplayManager::class.java)
+                ?.registerDisplayListener(displayListener, handler)
+        }
         val surface = holder.surface
         if (surface != null && surface.isValid && attachedSurface !== surface) {
             Log.i(TAG, "onAttachedToWindow -> re-attach existing surface")
             attach(surface)
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        runCatching {
+            context.getSystemService(DisplayManager::class.java)
+                ?.unregisterDisplayListener(displayListener)
+        }
+        activeFrameCallback?.let { callback ->
+            runCatching { Choreographer.getInstance().removeFrameCallback(callback) }
+        }
+        activeFrameCallback = null
+        super.onDetachedFromWindow()
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -223,12 +554,11 @@ class GyroSurfaceView @JvmOverloads constructor(
             Log.i(TAG, "surfaceDestroyed ignored: surface is no longer the attached one")
             return
         }
+        val surfaceToDetach = current ?: holder.surface
         attachedSurface = null
         Log.i(TAG, "surfaceDestroyed -> detachSurface")
-        if (engine != null) {
-            engine?.detachSurface(holder.surface)
-        } else {
-            GyroNative.detachSurface()
+        if (surfaceToDetach != null) {
+            engine?.detachSurface(surfaceToDetach)
         }
     }
 }
@@ -253,27 +583,31 @@ fun GyroPlayerSurface(
     DisposableEffect(engine) {
         surfaceView.engine = engine
         onDispose {
-            surfaceView.engine?.detachSurface() ?: GyroNative.detachSurface()
+            surfaceView.releaseSurfaceOwnership(engine)
         }
     }
 
     val frameRate by (engine?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
-    LaunchedEffect(frameRate) { surfaceView.applyContentFrameRate(frameRate) }
+    LaunchedEffect(frameRate) {
+        Log.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$frameRate), engine=$engine")
+        surfaceView.applyContentFrameRate(frameRate)
+    }
 
-    // Pin the buffer to the video's own display size the moment the engine knows it. From then on
-    // window resizes never touch the BufferQueue again; the layout layer keeps the view's aspect
-    // equal to this one. Long edges are clamped to the screen so a 4K file does not force the
-    // compositor to drag a buffer larger than anything it will ever show.
+    // Pin the buffer to the physical display resolution fitted to the video's aspect ratio.
+    // From then on window resizes (including PiP entry/exit) never touch the BufferQueue again;
+    // low-res videos still get full screen-resolution FBOs for Anime4K shaders and ASS subtitles,
+    // while same-aspect playlist switches reuse the exact same BufferQueue without re-locking.
     val videoDimensions by (engine?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
     LaunchedEffect(videoDimensions.width, videoDimensions.height) {
         if (videoDimensions.width <= 0 || videoDimensions.height <= 0) return@LaunchedEffect
-        val metrics = context.resources.displayMetrics
-        val maxDim = maxOf(metrics.widthPixels, metrics.heightPixels).toFloat()
-        val scale = min(1f, maxDim / maxOf(videoDimensions.width, videoDimensions.height))
-        surfaceView.lockBufferSizeToVideo(
-            (videoDimensions.width * scale).toInt().coerceAtLeast(1),
-            (videoDimensions.height * scale).toInt().coerceAtLeast(1)
+        val (displayW, displayH) = resolvePhysicalDisplaySize(context)
+        val (targetW, targetH) = computeDisplayFittedBufferSize(
+            videoWidth = videoDimensions.width,
+            videoHeight = videoDimensions.height,
+            displayWidth = displayW,
+            displayHeight = displayH
         )
+        surfaceView.lockBufferSizeToVideo(targetW, targetH)
     }
 
     AndroidView(

@@ -30,4 +30,6 @@ class TestUri(private val uriString: String = "content://media/1") : Uri() {
     override fun writeToParcel(dest: Parcel, flags: Int) {}
     override fun describeContents(): Int = 0
     override fun compareTo(other: Uri?): Int = uriString.compareTo(other?.toString() ?: "")
+    override fun equals(other: Any?): Boolean = other is Uri && uriString == other.toString()
+    override fun hashCode(): Int = uriString.hashCode()
 }

@@ -34,6 +34,11 @@ class PlaybackService : Service() {
         const val ACTION_PREV = "dev.gyro.player.ACTION_PREV"
         const val ACTION_NEXT = "dev.gyro.player.ACTION_NEXT"
         const val ACTION_STOP = "dev.gyro.player.ACTION_STOP"
+        const val ACTION_DISMISS = "dev.gyro.player.ACTION_DISMISS"
+
+        @Volatile
+        var isRunning: Boolean = false
+            internal set
 
         @Volatile
         var activeEngine: GyroPlayerEngine? = null
@@ -51,8 +56,17 @@ class PlaybackService : Service() {
         }
 
         fun stop(context: Context) {
+            if (!isRunning) return
             val intent = Intent(context, PlaybackService::class.java).apply {
                 action = ACTION_STOP
+            }
+            context.startService(intent)
+        }
+
+        fun dismiss(context: Context) {
+            if (!isRunning) return
+            val intent = Intent(context, PlaybackService::class.java).apply {
+                action = ACTION_DISMISS
             }
             context.startService(intent)
         }
@@ -73,6 +87,7 @@ class PlaybackService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         Log.i(TAG, "PlaybackService created")
         createNotificationChannel()
 
@@ -116,6 +131,11 @@ class PlaybackService : Service() {
             ACTION_PREV -> mediaSessionManager?.skipToPrevious()
             ACTION_NEXT -> mediaSessionManager?.skipToNext()
             ACTION_STOP -> {
+                activeEngine?.pause()
+                stopForegroundAndSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_DISMISS -> {
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
@@ -160,7 +180,9 @@ class PlaybackService : Service() {
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -249,7 +271,6 @@ class PlaybackService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
-        mediaSessionManager?.stop()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -289,6 +310,7 @@ class PlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
+        isRunning = false
         mediaSessionManager?.release()
         mediaSessionManager = null
     }

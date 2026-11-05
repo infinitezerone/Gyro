@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player
 
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -69,7 +69,7 @@ fun buildPipToggleAction(context: Context, isPlaying: Boolean): RemoteAction {
 
 /**
  * Calculates physical rect of actual video content within the container,
- * stripping letterbox / pillarbox black bars in FIT mode so that Android 12+
+ * stripping letterbox / pillarbox black bars in FIT / 16:9 / 21:9 modes so that Android 12+
  * PiP transition morphs smoothly without border jump artifacts.
  */
 fun calculateVideoSourceRect(
@@ -77,12 +77,16 @@ fun calculateVideoSourceRect(
     aspectRatio: Rational,
     resizeMode: ResizeMode
 ): Rect {
-    if (resizeMode != ResizeMode.FIT) return containerBounds
+    val videoRatio = when (resizeMode) {
+        ResizeMode.FIT -> aspectRatio.numerator.toFloat() / aspectRatio.denominator.toFloat().coerceAtLeast(1f)
+        ResizeMode.ASPECT_16_9 -> 16f / 9f
+        ResizeMode.ASPECT_21_9 -> 21f / 9f
+        ResizeMode.CROP, ResizeMode.STRETCH -> return containerBounds
+    }
     val containerWidth = containerBounds.width().toFloat()
     val containerHeight = containerBounds.height().toFloat()
-    if (containerWidth <= 0 || containerHeight <= 0) return containerBounds
+    if (containerWidth <= 0f || containerHeight <= 0f || videoRatio <= 0f) return containerBounds
 
-    val videoRatio = aspectRatio.numerator.toFloat() / aspectRatio.denominator.toFloat().coerceAtLeast(1f)
     val containerRatio = containerWidth / containerHeight
 
     return if (containerRatio > videoRatio) {

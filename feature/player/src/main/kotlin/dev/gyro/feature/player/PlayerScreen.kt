@@ -12,8 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -42,13 +40,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,15 +112,17 @@ fun PlayerScreen(
     // 1. Engine & Playback States
     val playbackState by engine.playbackState.collectAsState()
     val isPlaying by engine.isPlaying.collectAsState()
-    val timePosMs by engine.timePosMs.collectAsState()
     val durationMs by engine.durationMs.collectAsState()
-    val bufferedPosMs by engine.bufferedPosMs.collectAsState()
+    // Collected as State<Long> (without `by` delegation) so PlayerScreen itself does not read
+    // `.value` and never recomposes on 10Hz time-pos ticks; only PlayerBottomBar reads `.value`
+    // via the deferred lambda while the bottom bar is visible.
+    val timePosState = engine.timePosMs.collectAsState()
+    val bufferedPosState = engine.bufferedPosMs.collectAsState()
     val hwdecCurrent by engine.hwdecCurrent.collectAsState()
+    val videoFrameRate by engine.videoFrameRate.collectAsState()
     val speed by engine.speed.collectAsState()
     val tracks by engine.tracks.collectAsState()
     val resizeMode by engine.resizeMode.collectAsState()
-    val fps by engine.fps.collectAsState()
-    val droppedFrames by engine.droppedFrames.collectAsState()
     val subDelaySec by engine.subDelay.collectAsState()
     val audioDelaySec by engine.audioDelay.collectAsState()
     val subScale by engine.subScale.collectAsState()
@@ -145,14 +143,20 @@ fun PlayerScreen(
     val nightMode by engine.nightMode.collectAsState()
     val stereoDownmix by engine.stereoDownmix.collectAsState()
 
-    var activeUri by remember(currentUri) { mutableStateOf(currentUri) }
+    val engineCurrentUri by engine.currentUri.collectAsState()
+    var activeUri by remember(currentUri) { mutableStateOf(currentUri ?: engineCurrentUri) }
+    LaunchedEffect(engineCurrentUri) {
+        if (engineCurrentUri != null && engineCurrentUri != activeUri) {
+            activeUri = engineCurrentUri
+        }
+    }
 
     val playlist by (playlistManager?.items ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }).collectAsState()
     val currentPlaylistIndex by (playlistManager?.currentIndex ?: remember { kotlinx.coroutines.flow.MutableStateFlow(-1) }).collectAsState()
     val hasPrevious = playlistManager?.hasPrevious ?: false
     val hasNext = playlistManager?.hasNext ?: false
 
-    fun playMediaItem(item: VideoMediaItem) {
+    fun openUri(uri: Uri) {
         activeUri?.let { oldUri ->
             val curPos = engine.timePosMs.value
             val curDur = engine.durationMs.value
@@ -161,18 +165,17 @@ fun PlayerScreen(
             }
         }
 
-        activeUri = item.uri
+        activeUri = uri
         val startPos = if (settings.autoResume) {
-            val p = historyRepository?.getProgress(item.uri)
+            val p = historyRepository?.getProgress(uri)
             if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
         } else 0L
 
-        engine.loadUri(item.uri, startPos)
+        engine.loadUri(uri, startPos)
+    }
 
-        if (settings.subAutoLoad) {
-            val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, item.uri, item.displayName)
-            subs.forEach { path -> engine.addSubtitle(path) }
-        }
+    fun playMediaItem(item: VideoMediaItem) {
+        openUri(item.uri)
     }
 
     // Auto-advance to next video when current video completes
@@ -190,8 +193,9 @@ fun PlayerScreen(
     LaunchedEffect(activeUri) {
         activeUri?.let { uri ->
             if (settings.subAutoLoad) {
+                val knownDisplayName = playlist.firstOrNull { it.uri == uri }?.displayName
                 withContext(Dispatchers.IO) {
-                    val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri)
+                    val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri, knownDisplayName)
                     subs.forEach { path -> engine.addSubtitle(path) }
                 }
             }
@@ -372,7 +376,7 @@ fun PlayerScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            engine.loadUri(it)
+            openUri(it)
         }
     }
 
@@ -384,24 +388,36 @@ fun PlayerScreen(
         }
     }
 
-    val composeVideoBounds = remember(videoSourceRect) {
-        videoSourceRect?.let {
+    var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
+    var videoContainerSize by remember { mutableStateOf(IntSize.Zero) }
+
+    val composeVideoBounds = remember(videoContainerOrigin, videoContainerSize, videoSourceRect) {
+        if (videoContainerSize.width > 0 && videoContainerSize.height > 0) {
             androidx.compose.ui.geometry.Rect(
-                left = it.left.toFloat(),
-                top = it.top.toFloat(),
-                right = it.right.toFloat(),
-                bottom = it.bottom.toFloat()
+                left = videoContainerOrigin.x,
+                top = videoContainerOrigin.y,
+                right = videoContainerOrigin.x + videoContainerSize.width.toFloat(),
+                bottom = videoContainerOrigin.y + videoContainerSize.height.toFloat()
             )
+        } else {
+            videoSourceRect?.let {
+                androidx.compose.ui.geometry.Rect(
+                    left = it.left.toFloat(),
+                    top = it.top.toFloat(),
+                    right = it.right.toFloat(),
+                    bottom = it.bottom.toFloat()
+                )
+            }
         }
     }
 
-    val mediaSubtitle = remember(videoDimensions, hwdecCurrent, fps) {
+    val mediaSubtitle = remember(videoDimensions, videoFrameRate, hwdecCurrent) {
         val parts = mutableListOf<String>()
         if (videoDimensions.width > 0 && videoDimensions.height > 0) {
             parts.add("${videoDimensions.width}x${videoDimensions.height}")
         }
-        if (fps > 0.0) {
-            parts.add("${String.format(Locale.US, "%.0f", fps)}fps")
+        if (videoFrameRate > 0f) {
+            parts.add("${String.format(Locale.US, "%.0f", videoFrameRate)}fps")
         }
         if (hwdecCurrent.isNotBlank() && hwdecCurrent != "no") {
             parts.add("HW")
@@ -477,7 +493,7 @@ fun PlayerScreen(
         // decodes its first picture at the target timestamp, so a first frame past two minutes
         // means a resume happened. Waiting for "position > 2s" instead would also fire on
         // from-scratch playback the moment it reached two seconds.
-        val firstFrameAtMs = snapshotFlow { engine.timePosMs.value }.first { it > 0L }
+        val firstFrameAtMs = engine.timePosMs.first { it > 0L }
         if (firstFrameAtMs > 2000L) {
             hasShownResumeNotice = true
             gestureHudState = GestureHudState.Notice(
@@ -500,7 +516,7 @@ fun PlayerScreen(
             context = context,
             isLocked = isLocked,
             isPlaying = isPlaying,
-            currentPosMs = { timePosMs },
+            currentPosMs = { engine.timePosMs.value },
             durationMs = { durationMs },
             scrubState = scrubState,
             zoomScale = { zoomState.scale },
@@ -589,15 +605,8 @@ fun PlayerScreen(
         delay(4_000L)
         if (!engine.firstFrameRendered.value || !engine.geometryReady.value) shutterTimedOut = true
     }
-    val shutterTarget = if (
-        !isPipLayout && playbackState != PlaybackState.IDLE &&
+    val showShutter = !isPipLayout && playbackState != PlaybackState.IDLE &&
         !(firstFrameRendered && geometryReady) && !shutterTimedOut
-    ) 1f else 0f
-    val shutterAlpha by animateFloatAsState(
-        targetValue = shutterTarget,
-        animationSpec = tween(durationMillis = 160),
-        label = "shutter",
-    )
 
     Box(
         modifier = modifier
@@ -637,43 +646,32 @@ fun PlayerScreen(
         // container whose top-left is not the screen origin. Rewriting the translation into
         // container-local terms - (origin - offset) * scale - origin - keeps the finger
         // anchor exact wherever the container sits: identity stays identity, (c - 0)*1 - c = 0.
-        // The compositor eases a SurfaceView's geometry change over several frames with the x/y
-        // axes moving independently, which reads as the picture growing out of a corner on an
-        // aspect change. A fresh SurfaceView is born directly in the new geometry with no
-        // old-to-new path to animate, so a *file switch* that changes the shape rebuilds it.
-        //
-        // The key is the file, not the aspect ratio. Keying on the aspect re-created the view once
-        // per open: `videoAspect` goes 0 -> 1.78 when the first dimensions are published, which
-        // landed ~50ms *after* the first frame had already released the shutter, and the brand new
-        // surface then needed ~300ms to present its own first frame - a black screen in the open,
-        // measured in the field. An aspect that changes within one file (rotation metadata, a resize
-        // mode override) only resizes the existing view, which the compositor scales without a gap.
-        key(activeUri) {
-            var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
-            GyroPlayerSurface(
-                modifier = videoContainerModifier
-                    // The outer Box centers nothing by default (its other children rely on top-start),
-                    // so the aspect-fitted container centers itself here; CROP's overflow is clipped
-                    // symmetrically for the same reason.
-                    .align(Alignment.Center)
-                    .onGloballyPositioned { videoContainerOrigin = it.positionInParent() }
-                    .graphicsLayer {
-                        scaleX = zoomState.scale
-                        scaleY = zoomState.scale
-                        translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
-                        translationY = (videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y
-                        transformOrigin = zoomState.transformOrigin
-                    },
-                engine = engine
-            )
-        }
+        GyroPlayerSurface(
+            modifier = videoContainerModifier
+                // The outer Box centers nothing by default (its other children rely on top-start),
+                // so the aspect-fitted container centers itself here; CROP's overflow is clipped
+                // symmetrically for the same reason.
+                .align(Alignment.Center)
+                .onGloballyPositioned { coords ->
+                    videoContainerOrigin = coords.positionInParent()
+                    videoContainerSize = coords.size
+                }
+                .graphicsLayer {
+                    scaleX = zoomState.scale
+                    scaleY = zoomState.scale
+                    translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
+                    translationY = (videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y
+                    transformOrigin = zoomState.transformOrigin
+                },
+            engine = engine
+        )
 
         // A2. Shutter over the file-switch window.
-        if (shutterAlpha > 0.01f) {
+        if (showShutter) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = shutterAlpha))
+                    .background(Color.Black)
             )
         }
 
@@ -753,9 +751,9 @@ fun PlayerScreen(
                 title = mediaTitle.ifBlank { "Gyro Player" },
                 mediaSubtitle = mediaSubtitle,
                 isPlaying = isPlaying,
-                timePosMs = { timePosMs },
+                timePosMs = { timePosState.value },
                 durationMs = { durationMs },
-                bufferedPosMs = { bufferedPosMs },
+                bufferedPosMs = { bufferedPosState.value },
                 resizeMode = resizeMode,
                 speed = speed,
                 scrubState = scrubState,
@@ -836,6 +834,9 @@ fun PlayerScreen(
         // G. Modal Tabbed Settings & Calibrator Bottom Sheet
         activeSheetTab?.let { tab ->
             if (!isPipLayout && !hideChrome) {
+                val timePosMs by engine.timePosMs.collectAsState()
+                val fps by engine.fps.collectAsState()
+                val droppedFrames by engine.droppedFrames.collectAsState()
                 val currentMediaInfo = remember(activeSheetTab, activeUri) {
                     engine.queryMediaInfo(
                         fallbackTitle = mediaTitle,

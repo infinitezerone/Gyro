@@ -147,9 +147,17 @@ class MediaSessionManager(
                     updatePlaybackState()
                 }
             }
+            var lastReportedPos = 0L
             launch {
-                engine.timePosMs.collect {
-                    updatePlaybackState()
+                engine.timePosMs.collect { pos ->
+                    // Android's PlaybackState automatically extrapolates playback position based on
+                    // updateTime and speed when STATE_PLAYING. Updating on every 50ms progress tick
+                    // floods system_server Binder IPC. Only update on large position discontinuities (seeks)
+                    // or periodic low-frequency sync (every 5 seconds).
+                    if (kotlin.math.abs(pos - lastReportedPos) >= 2000L) {
+                        lastReportedPos = pos
+                        updatePlaybackState()
+                    }
                 }
             }
             launch {
