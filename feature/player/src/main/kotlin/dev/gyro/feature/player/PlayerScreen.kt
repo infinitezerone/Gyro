@@ -596,17 +596,26 @@ fun PlayerScreen(
     val geometryReady by engine.geometryReady.collectAsState()
     // A signal that never arrives must not leave a permanent black screen: the timeout covers a
     // slow open and recovers on its own if the native side ever stops reporting.
+    var isShutterReady by remember(activeUri) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
     LaunchedEffect(activeUri, firstFrameRendered, geometryReady) {
         if (firstFrameRendered && geometryReady) {
+            // Wait for one VSYNC frame after geometry & first frame are ready so Compose
+            // and SurfaceFlinger have committed the new layout bounds before revealing.
+            withFrameNanos { }
+            isShutterReady = true
             shutterTimedOut = false
             return@LaunchedEffect
         }
+        isShutterReady = false
         delay(4_000L)
-        if (!engine.firstFrameRendered.value || !engine.geometryReady.value) shutterTimedOut = true
+        if (!engine.firstFrameRendered.value || !engine.geometryReady.value) {
+            shutterTimedOut = true
+            isShutterReady = true
+        }
     }
     val showShutter = !isPipLayout && playbackState != PlaybackState.IDLE &&
-        !(firstFrameRendered && geometryReady) && !shutterTimedOut
+        !isShutterReady && !shutterTimedOut
 
     Box(
         modifier = modifier
@@ -875,6 +884,7 @@ fun PlayerScreen(
                     onDismiss = { activeSheetTab = null },
                     onSelectPlaylistItem = { idx ->
                         playlistManager?.playAtIndex(idx)?.let { playMediaItem(it) }
+                        activeSheetTab = null
                     },
                     onSelectChapter = { idx ->
                         engine.seekToChapter(idx)

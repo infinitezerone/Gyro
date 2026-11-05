@@ -598,15 +598,25 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
     }
 
+    @Volatile
+    private var currentLoadJob: kotlinx.coroutines.Job? = null
+
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
         _currentUri.value = uri
         resetSoftwareGain()
+        // Synchronously arm the shutter and buffering state on the main thread
+        // so UI never exposes the stale frame of the previous video during async I/O.
+        _firstFrameRendered.value = false
+        _geometryReady.value = false
+        _playbackState.value = PlaybackState.BUFFERING
+
         val fastTitle = uri.lastPathSegment ?: ""
         if (fastTitle.isNotBlank()) {
             _mediaTitle.value = fastTitle
         }
 
-        engineScope.launch(Dispatchers.IO) {
+        currentLoadJob?.cancel()
+        currentLoadJob = engineScope.launch(Dispatchers.IO) {
             val displayName = runCatching {
                 appContext.contentResolver.query(
                     uri,

@@ -218,6 +218,7 @@ const MPV_EVENT_LOG_MESSAGE: c_int = 2;
 const MPV_EVENT_START_FILE: c_int = 6;
 const MPV_EVENT_FILE_LOADED: c_int = 8;
 const MPV_EVENT_END_FILE: c_int = 7;
+const MPV_END_FILE_REASON_EOF: c_int = 0;
 const MPV_EVENT_PLAYBACK_RESTART: c_int = 21;
 const MPV_EVENT_PROPERTY_CHANGE: c_int = 22;
 
@@ -2180,6 +2181,15 @@ struct MpvEventLogMessage {
     log_level: c_int,
 }
 
+#[repr(C)]
+struct MpvEventEndFile {
+    reason: c_int,
+    error: c_int,
+    playlist_entry_id: i64,
+    playlist_insert_id: i64,
+    playlist_insert_num_entries: c_int,
+}
+
 fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_void) {
     // The frame counters feed the native monitor, but `frame-drop-count` also feeds a UI counter,
     // so they still fall through to Java rather than being answered here.
@@ -2351,7 +2361,21 @@ fn event_thread() {
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
                     call_static(env, "onEvent", "(I)V", &[JValue::Int(event_id)]);
                 }
-                MPV_EVENT_END_FILE | MPV_EVENT_PLAYBACK_RESTART => {
+                MPV_EVENT_END_FILE => {
+                    let reason = if !(*ev).data.is_null() {
+                        let end_data = &*((*ev).data as *const MpvEventEndFile);
+                        end_data.reason
+                    } else {
+                        MPV_END_FILE_REASON_EOF
+                    };
+                    nlog(&format!("event_thread: 收到 MPV_EVENT_END_FILE, reason={reason}"));
+                    if reason == MPV_END_FILE_REASON_EOF {
+                        call_static(env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_END_FILE)]);
+                    } else {
+                        nlog("event_thread: 非 EOF 结束（替换/停止），忽略 END_FILE 事件");
+                    }
+                }
+                MPV_EVENT_PLAYBACK_RESTART => {
                     nlog(&format!("event_thread: 收到事件 event_id={event_id}"));
                     call_static(env, "onEvent", "(I)V", &[JValue::Int(event_id)]);
                 }
