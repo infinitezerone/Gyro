@@ -12,6 +12,8 @@ import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
 import dev.gyro.engine.session.RealVideoGeometryCoordinator
 import dev.gyro.engine.session.VideoGeometryCoordinator
+import dev.gyro.engine.shader.RealShaderController
+import dev.gyro.engine.shader.ShaderController
 import dev.gyro.engine.tracks.RealTrackAndChapterManager
 import dev.gyro.engine.tracks.TrackAndChapterManager
 import javax.inject.Singleton
@@ -49,4 +51,10 @@ interface EngineModule {
     fun bindVideoGeometryCoordinator(
         impl: RealVideoGeometryCoordinator
     ): VideoGeometryCoordinator
+
+    @Binds
+    @Singleton
+    fun bindShaderController(
+        impl: RealShaderController
+    ): ShaderController
 }

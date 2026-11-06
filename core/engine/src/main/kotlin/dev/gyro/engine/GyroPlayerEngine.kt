@@ -26,6 +26,8 @@ import dev.gyro.engine.tracks.TrackAndChapterManager
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.shader.RealShaderController
+import dev.gyro.engine.shader.ShaderController
 import dev.gyro.engine.shader.ShaderManager
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.session.PlaybackSessionState
@@ -49,15 +51,37 @@ import javax.inject.Singleton
 class GyroPlayerEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
-    private val shaderManager: ShaderManager = ShaderManager(context),
-    private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
-    private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),
-    private val videoEffects: VideoEffectsController = RealVideoEffectsController(bridge),
-    private val trackAndChapterManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge)
-) : VideoGeometryCoordinator by geometryCoordinator,
-    AudioEffectsController by audioEffects,
-    VideoEffectsController by videoEffects,
-    TrackAndChapterManager by trackAndChapterManager {
+    val shaders: ShaderController = RealShaderController(bridge, ShaderManager(context)),
+    val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
+    val audio: AudioEffectsController = RealAudioEffectsController(bridge),
+    val video: VideoEffectsController = RealVideoEffectsController(bridge),
+    val trackManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge)
+) : VideoGeometryCoordinator by geometry,
+    AudioEffectsController by audio,
+    VideoEffectsController by video,
+    TrackAndChapterManager by trackManager {
+
+    // Backwards-compatible secondary constructor for tests passing legacy coordinators/managers
+    constructor(
+        context: Context,
+        bridge: MpvNativeBridge = RealMpvNativeBridge,
+        shaderManager: ShaderManager,
+        geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
+        audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),
+        videoEffects: VideoEffectsController = RealVideoEffectsController(bridge),
+        trackAndChapterManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge)
+    ) : this(
+        context = context,
+        bridge = bridge,
+        shaders = RealShaderController(bridge, shaderManager),
+        geometry = geometryCoordinator,
+        audio = audioEffects,
+        video = videoEffects,
+        trackManager = trackAndChapterManager
+    )
+
+    val trackController: TrackAndChapterManager
+        get() = trackManager
     companion object {
         private const val TAG = "GyroPlayerEngine"
 
@@ -207,8 +231,8 @@ class GyroPlayerEngine @Inject constructor(
     val subPos: StateFlow<Long> = _subPos.asStateFlow()
 
     // Shader Management (R1)
-    private val _shaderState = MutableStateFlow(GlslShaderState())
-    val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
+    val shaderState: StateFlow<GlslShaderState>
+        get() = shaders.shaderState
 
     @Volatile
     private var pendingSeekMs: Long = -1L
@@ -221,7 +245,7 @@ class GyroPlayerEngine @Inject constructor(
             when (eventId) {
                 MpvNativeBridge.Event.FIRST_FRAME -> {
                     SwitchTrace.log("KOTLIN_EVENT_FIRST_FRAME", "timePos=${_timePosMs.value}ms")
-                    geometryCoordinator.onFirstFramePresented()
+                    geometry.onFirstFramePresented()
                     // The reported position is the cheapest proof that the frame behind the cover is
                     // the new file: a redraw of the previous file still reports that file's position.
                     Log.i(TAG, "First frame presented at ${_timePosMs.value}ms, releasing the cover")
@@ -243,7 +267,7 @@ class GyroPlayerEngine @Inject constructor(
                     bridge.getBoolean("pause")?.let { paused -> _isPlaying.value = !paused }
 
                     val hasVideo = bridge.getPropertyString("video") != "no"
-                    geometryCoordinator.onFileLoaded(_currentUri.value?.toString().orEmpty(), hasVideo)
+                    geometry.onFileLoaded(_currentUri.value?.toString().orEmpty(), hasVideo)
 
                     refreshTracks()
                     refreshChapters()
@@ -259,14 +283,14 @@ class GyroPlayerEngine @Inject constructor(
                     refreshTracks()
                 }
                 MpvNativeBridge.Event.END_FILE -> {
-                    geometryCoordinator.onSessionEnded()
+                    geometry.onSessionEnded()
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.ENDED
                     clearChapters()
                     resetSoftwareGain()
                 }
                 MpvNativeBridge.Event.SHUTDOWN -> {
-                    geometryCoordinator.onSessionEnded()
+                    geometry.onSessionEnded()
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.IDLE
                     clearChapters()
@@ -284,13 +308,13 @@ class GyroPlayerEngine @Inject constructor(
                 "chapter-list" -> refreshChapters()
                 // `video-params` flips once the decoder knows the real stream parameters, which is
                 // the earliest point where dwidth/dheight carry the rotated (displayed) size.
-                "video-params", "video-out-params" -> geometryCoordinator.onVoParamsChanged()
+                "video-params", "video-out-params" -> geometry.onVoParamsChanged()
             }
         }
 
         override fun onPropertyLong(name: String, value: Long) {
             when (name) {
-                "width", "height", "dwidth", "dheight" -> geometryCoordinator.onVoParamsChanged()
+                "width", "height", "dwidth", "dheight" -> geometry.onVoParamsChanged()
                 "frame-drop-count" -> {
                     _droppedFrames.value = value
                 }
@@ -298,10 +322,10 @@ class GyroPlayerEngine @Inject constructor(
                     _subPos.value = value
                 }
                 "chapter" -> {
-                    trackAndChapterManager.onChapterPropertyChanged(value.toInt())
+                    trackManager.onChapterPropertyChanged(value.toInt())
                 }
                 "brightness", "contrast", "saturation" -> {
-                    videoEffects.onColorPropertyChanged(name, value.toInt())
+                    video.onColorPropertyChanged(name, value.toInt())
                 }
             }
         }
@@ -324,12 +348,12 @@ class GyroPlayerEngine @Inject constructor(
                     _speed.value = value.toFloat()
                 }
                 "container-fps" -> {
-                    geometryCoordinator.onFpsUpdated(value.toFloat(), isEstimated = false)
+                    geometry.onFpsUpdated(value.toFloat(), isEstimated = false)
                 }
                 "estimated-vf-fps" -> {
                     _fps.value = value
                     val normalized = dev.gyro.engine.ui.normalizeContentFps(value.toFloat())
-                    geometryCoordinator.onFpsUpdated(normalized, isEstimated = true)
+                    geometry.onFpsUpdated(normalized, isEstimated = true)
                 }
                 "sub-delay" -> {
                     _subDelay.value = value
@@ -359,7 +383,7 @@ class GyroPlayerEngine @Inject constructor(
                     }
                 }
                 "deband" -> {
-                    videoEffects.onDebandPropertyChanged(value)
+                    video.onDebandPropertyChanged(value)
                 }
             }
         }
@@ -398,7 +422,7 @@ class GyroPlayerEngine @Inject constructor(
                 bridge.create(context)
 
                 // Pre-extract built-in shaders to POSIX filesDir
-                shaderManager.extractBuiltInShaders()
+                shaders.extractBuiltInShaders()
 
                 // =================================================================
                 // 1. INJECT USER mpv.conf (Excluding Protected Engine Keys)
@@ -486,11 +510,7 @@ class GyroPlayerEngine @Inject constructor(
                 }
 
                 // Restore active shader if previously configured
-                val currentShader = _shaderState.value
-                val currentPath = currentShader.currentPath
-                if (currentShader.activeShader != GlslShader.OFF && currentPath != null) {
-                    bridge.command(arrayOf("change-list", "glsl-shaders", "set", currentPath))
-                }
+                shaders.restoreActiveShader()
 
                 // Register property observers
                 bridge.observeProperty("time-pos", MpvNativeBridge.Format.DOUBLE)
@@ -557,39 +577,43 @@ class GyroPlayerEngine @Inject constructor(
     @Volatile
     private var currentLoadJob: kotlinx.coroutines.Job? = null
 
-    fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
+    fun loadUri(uri: Uri, startPositionMs: Long = 0L, displayTitle: String? = null) {
         SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
         _currentUri.value = uri
-        geometryCoordinator.onSwitchStarted(uri.toString(), startPositionMs)
+        geometry.onSwitchStarted(uri.toString(), startPositionMs)
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
         _playbackState.value = PlaybackState.BUFFERING
         SwitchTrace.log("SHUTTER_ARMED", "firstFrame=false, geometryReady=false")
 
-        val fastTitle = uri.lastPathSegment ?: ""
+        val fastTitle = displayTitle ?: uri.lastPathSegment ?: ""
         if (fastTitle.isNotBlank()) {
             _mediaTitle.value = fastTitle
         }
 
         currentLoadJob?.cancel()
         currentLoadJob = engineScope.launch(Dispatchers.IO) {
-            val displayName = runCatching {
-                context.contentResolver.query(
-                    uri,
-                    arrayOf(OpenableColumns.DISPLAY_NAME),
-                    null,
-                    null,
-                    null
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (idx >= 0) cursor.getString(idx) else null
-                    } else null
-                }
-            }.getOrNull() ?: fastTitle
-            if (displayName.isNotBlank()) {
-                _mediaTitle.value = displayName
+            val resolvedTitle = if (!displayTitle.isNullOrBlank()) {
+                displayTitle
+            } else {
+                runCatching {
+                    context.contentResolver.query(
+                        uri,
+                        arrayOf(OpenableColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (idx >= 0) cursor.getString(idx) else null
+                        } else null
+                    }
+                }.getOrNull() ?: fastTitle
+            }
+            if (resolvedTitle.isNotBlank()) {
+                _mediaTitle.value = resolvedTitle
             }
 
             val targetPath = try {
@@ -611,7 +635,7 @@ class GyroPlayerEngine @Inject constructor(
             Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
             SwitchTrace.log("RESOLVE_PATH_DONE", "targetPath=$targetPath")
             withContext(Dispatchers.Main) {
-                load(targetPath, startPositionMs, displayName)
+                load(targetPath, startPositionMs, resolvedTitle)
             }
         }
     }
@@ -634,7 +658,7 @@ class GyroPlayerEngine @Inject constructor(
         ensureInitialized()
         // A new file invalidates any in-flight seek of the previous one.
         pendingSeekTargetMs = null
-        geometryCoordinator.onSwitchStarted(url, startPositionMs)
+        geometry.onSwitchStarted(url, startPositionMs)
         // The property watchers keep reporting the previous file's position and duration until the
         // new file's first events arrive; anything reading them in that window (the controls, the
         // progress bar) would show the old movie's time against the new one's picture.
@@ -869,7 +893,7 @@ class GyroPlayerEngine @Inject constructor(
     }
 
     // =========================================================================
-    // Shader Control Methods (R1)
+    // Shader Control Methods (R1) - Delegated to ShaderController
     // =========================================================================
 
     /**
@@ -877,53 +901,7 @@ class GyroPlayerEngine @Inject constructor(
      */
     fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) {
         ensureInitialized()
-        when (shader) {
-            GlslShader.OFF -> {
-                clearShader()
-            }
-            GlslShader.CAS -> {
-                val file = shaderManager.getBuiltInShaderFile(GlslShader.CAS)
-                if (file != null && file.exists()) {
-                    bridge.command(arrayOf("change-list", "glsl-shaders", "set", file.absolutePath))
-                    _shaderState.value = GlslShaderState(
-                        activeShader = GlslShader.CAS,
-                        currentPath = file.absolutePath,
-                        displayName = "AMD FidelityFX CAS"
-                    )
-                    Log.i(TAG, "Applied CAS shader: ${file.absolutePath}")
-                } else {
-                    Log.e(TAG, "Failed to apply CAS shader: file missing")
-                }
-            }
-            GlslShader.ANIME4K -> {
-                val file = shaderManager.getBuiltInShaderFile(GlslShader.ANIME4K)
-                if (file != null && file.exists()) {
-                    bridge.command(arrayOf("change-list", "glsl-shaders", "set", file.absolutePath))
-                    _shaderState.value = GlslShaderState(
-                        activeShader = GlslShader.ANIME4K,
-                        currentPath = file.absolutePath,
-                        displayName = "Anime4K Lite"
-                    )
-                    Log.i(TAG, "Applied Anime4K Lite shader: ${file.absolutePath}")
-                } else {
-                    Log.e(TAG, "Failed to apply Anime4K Lite shader: file missing")
-                }
-            }
-            GlslShader.CUSTOM -> {
-                if (!customPath.isNullOrBlank() && File(customPath).exists()) {
-                    val displayName = customName ?: File(customPath).nameWithoutExtension
-                    bridge.command(arrayOf("change-list", "glsl-shaders", "set", customPath))
-                    _shaderState.value = GlslShaderState(
-                        activeShader = GlslShader.CUSTOM,
-                        currentPath = customPath,
-                        displayName = displayName
-                    )
-                    Log.i(TAG, "Applied custom shader: $customPath ($displayName)")
-                } else {
-                    Log.w(TAG, "Custom shader path invalid or file does not exist: $customPath")
-                }
-            }
-        }
+        shaders.setShader(shader, customPath, customName)
     }
 
     /**
@@ -931,30 +909,20 @@ class GyroPlayerEngine @Inject constructor(
      */
     fun clearShader() {
         ensureInitialized()
-        bridge.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
-        _shaderState.value = GlslShaderState(
-            activeShader = GlslShader.OFF,
-            currentPath = null,
-            displayName = null
-        )
-        Log.i(TAG, "Cleared glsl-shaders")
+        shaders.clearShader()
     }
 
     /**
      * Convenience method to cache and apply a user-selected SAF custom shader.
      */
     fun importAndSetCustomShader(uri: Uri): Result<String> {
-        return shaderManager.importCustomShader(uri).map { file ->
-            val name = file.nameWithoutExtension
-            setShader(GlslShader.CUSTOM, customPath = file.absolutePath, customName = name)
-            file.absolutePath
-        }
+        return shaders.importAndSetCustomShader(uri)
     }
 
     /**
      * Returns list of currently cached custom shaders.
      */
-    fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
+    fun getCustomShaders(): List<File> = shaders.getCustomShaders()
 
     // =========================================================================
     // Chapter Methods (R3)
@@ -974,7 +942,7 @@ class GyroPlayerEngine @Inject constructor(
 
         beginPendingSeek(chapterList[index].timeMs)
         bridge.setPropertyLong("chapter", index.toLong())
-        trackAndChapterManager.onChapterPropertyChanged(index)
+        trackManager.onChapterPropertyChanged(index)
         Log.i(TAG, "seekToChapter: jumped to chapter $index (${chapterList[index].title})")
     }
 
@@ -993,6 +961,6 @@ class GyroPlayerEngine @Inject constructor(
         _playbackState.value = PlaybackState.IDLE
         _isPlaying.value = false
         _currentUri.value = null
-        geometryCoordinator.reset()
+        geometry.reset()
     }
 }

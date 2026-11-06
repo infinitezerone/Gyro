@@ -117,7 +117,68 @@ flowchart TD
 
 ---
 
-## 四、 项目开发与提交规范
+## 四、 播放引擎核心架构演化规范 (Core Engine Architecture Roadmap)
+
+为解决底层引擎“伪拆分、真上帝”的高耦合与反模式问题，确立如下分层与演化路径：
+
+```mermaid
+flowchart TD
+    subgraph UI_Service ["表现层 / 服务层 (UI & Service Layer)"]
+        VM["PlayerViewModel"]
+        Service["PlaybackService"]
+    end
+
+    subgraph EngineFacade ["现代化 GyroPlayerEngine 门面"]
+        direction TB
+        CorePlay["最小核心核: load / play / pause / seekTo / release"]
+
+        subgraph DomainControllers ["显式领域控制器 (Domain Controllers)"]
+            AudioCtrl["engine.audio: AudioEffectsController\n(volume, nightMode, limiter, downmix)"]
+            VideoCtrl["engine.video: VideoEffectsController\n(brightness, contrast, saturation, deband)"]
+            GeomCtrl["engine.geometry: VideoGeometryCoordinator\n(dimensions, aspect, framerate, sessions)"]
+            TrackCtrl["engine.trackManager: TrackAndChapterManager\n(tracks, subtitles, chapters)"]
+            ShaderCtrl["engine.shaders: ShaderController\n(CAS, Anime4K, custom shaders)"]
+        end
+
+        Bus["单向响应式事件流: SharedFlow&lt;MpvEvent&gt;"]
+    end
+
+    subgraph NativeCore ["底层 Native 核心驱动"]
+        Bridge["MpvNativeBridge (mpv c-api)"]
+    end
+
+    VM -->|"清晰命名空间"| DomainControllers
+    VM -->|"基础控制"| CorePlay
+    Service -->|"基础控制"| CorePlay
+
+    CorePlay --> Bridge
+    DomainControllers --> Bridge
+    Bridge -->|"Native 事件"| Bus
+    Bus -->|"单向订阅"| DomainControllers
+```
+
+### 1. 已落地重构项 (Phase 1 Completed)
+- ✅ **UI 与手势高内聚分包**：
+  - `feature:player` 收拢为 `component/`（UI 树状叶子）与 `gesture/`（`PlayerGestureNode` 单节点状态机及辅助计算）。
+- ✅ **跨层会话与播放列表解耦**：
+  - `MediaSessionManager` 迁移至 `core:engine:session`，构造注入解耦 Service 循环引用；
+  - `PlaylistManager` 迁移至 `core:engine:playlist`，数据模型与逻辑边界清晰。
+- ✅ **领域命名空间一等公民挂载**：
+  - `GyroPlayerEngine` 正式挂载 `audio`、`video`、`geometry`、`trackManager`、`shaders` 显式控制器；
+  - 抽离独立 `ShaderController`，负责 GLSL 资源管理与管线热插拔；
+  - `loadUri` 支持显式透传 `displayTitle`，阻断引擎层对 `ContentResolver.query` 的越界强耦合。
+
+### 2. 下一阶段推进路线图 (Next Steps)
+- **Phase 2: 表现层全量调用点平滑迁移**：
+  - 将 `PlayerScreen`、`PlayerViewModel`、`PlayerControlsOverlay` 中遗留的直接扁平调用迁移为命名空间式调用（例如 `engine.setNightMode` -> `engine.audio.setNightMode`；`engine.tracks` -> `engine.trackManager.tracks`）。
+- **Phase 3: 完全拔除上帝类委托 (`by`)**：
+  - 待调用点全部切至领域控制器后，彻底移除 `GyroPlayerEngine` 声明处的 `by audio, by video, by geometry, by trackManager` 4 重类委托，消除上帝类。
+- **Phase 4: 单向响应式事件总线 (Reactive Event Bus)**：
+  - `MpvNativeBridge` 提供基于 Flow 的单向事件流广播，子控制器自主订阅生命周期事件，彻底拆除 `GyroPlayerEngine.nativeListener` 中的中心化网状转发代码。
+
+---
+
+## 五、 项目开发与提交规范
 
 1. **分支与提交规范**：
    - 遵循 Conventional Commits（如 `feat(ui): ...`、`fix(engine): ...`、`refactor(ui): ...`）；
