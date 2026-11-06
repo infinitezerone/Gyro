@@ -23,24 +23,46 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * High-performance, Room-backed persistent repository for tracking playback progress and resume points.
- *
- * Architecture highlights aligned with Now in Android & BgmPlus:
- * - Backed by Room database in `:core:database` with ACID guarantees.
- * - Reactive in-memory state [progressMap] kept in sync with the Room DAO for zero-latency lookups.
- * - One-time migration from legacy SharedPreferences ("gyro_playback_history") if existing records are found.
- * - Thread-safe, Main-safe with injected [ioDispatcher] & [appScope].
+ * Interface contract for tracking playback progress and resume points.
+ */
+interface PlaybackHistoryRepository {
+    val progressMap: StateFlow<Map<String, PlaybackProgress>>
+    fun saveProgress(uri: Uri, positionMs: Long, durationMs: Long, title: String = "")
+    fun saveProgressThrottled(
+        uri: Uri,
+        positionMs: Long,
+        durationMs: Long,
+        title: String = "",
+        minIntervalMs: Long = 10_000L,
+        minDeltaMs: Long = 5_000L
+    ): Boolean
+    fun getProgress(uri: Uri): PlaybackProgress?
+    fun clearAll()
+    fun clearHistory()
+    fun clearProgress(uri: Uri)
+    fun deleteEntry(uri: Uri)
+}
+
+/**
+ * Factory function for testing or manual instantiation.
+ */
+fun PlaybackHistoryRepository(
+    dao: PlaybackHistoryDao,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    appScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
+): PlaybackHistoryRepository = DefaultPlaybackHistoryRepository(dao, ioDispatcher, appScope, null)
+
+/**
+ * Production implementation of [PlaybackHistoryRepository] backed by Room database.
  */
 @Singleton
-class PlaybackHistoryRepository @Inject constructor(
+class DefaultPlaybackHistoryRepository @Inject constructor(
     private val dao: PlaybackHistoryDao,
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope,
     @ApplicationContext context: Context? = null,
-) {
-    /**
-     * Testing constructor with custom/fake DAO.
-     */
+) : PlaybackHistoryRepository {
+
     constructor(
         dao: PlaybackHistoryDao,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -53,19 +75,17 @@ class PlaybackHistoryRepository @Inject constructor(
     )
 
     private val _progressMap = MutableStateFlow<Map<String, PlaybackProgress>>(emptyMap())
-    val progressMap: StateFlow<Map<String, PlaybackProgress>> = _progressMap.asStateFlow()
+    override val progressMap: StateFlow<Map<String, PlaybackProgress>> = _progressMap.asStateFlow()
 
     private var lastSavedTimestamp: Long = 0L
     private var lastSavedPositionMs: Long = 0L
     private var lastSavedUri: String? = null
 
     init {
-        // 1. One-time legacy SharedPreferences migration if present
         if (context != null) {
             migrateLegacyPrefsIfNeeded(context)
         }
 
-        // 2. Continuously observe Room database updates to sync in-memory cache
         appScope.launch(ioDispatcher) {
             dao.observeRecentHistory(500).collectLatest { entities ->
                 val map = entities.associate { it.uriString to it.toModel() }
@@ -107,11 +127,7 @@ class PlaybackHistoryRepository @Inject constructor(
         }
     }
 
-    /**
-     * Record playback progress for a media URI.
-     * Records with duration <= 0 or position < 2000ms are ignored unless clearing.
-     */
-    fun saveProgress(uri: Uri, positionMs: Long, durationMs: Long, title: String = "") {
+    override fun saveProgress(uri: Uri, positionMs: Long, durationMs: Long, title: String) {
         if (durationMs <= 0L) return
         if (positionMs < 2000L) return
 
@@ -145,18 +161,13 @@ class PlaybackHistoryRepository @Inject constructor(
         }
     }
 
-    /**
-     * Saves progress only if at least [minIntervalMs] has elapsed since the last write AND
-     * the playback position has moved by at least [minDeltaMs].
-     * Avoids excessive disk I/O while video is playing smoothly.
-     */
-    fun saveProgressThrottled(
+    override fun saveProgressThrottled(
         uri: Uri,
         positionMs: Long,
         durationMs: Long,
-        title: String = "",
-        minIntervalMs: Long = 10_000L,
-        minDeltaMs: Long = 5_000L
+        title: String,
+        minIntervalMs: Long,
+        minDeltaMs: Long
     ): Boolean {
         val now = System.currentTimeMillis()
         val key = uri.toString()
@@ -171,35 +182,22 @@ class PlaybackHistoryRepository @Inject constructor(
         return true
     }
 
-    /**
-     * Retrieve the recorded progress for a media URI from in-memory cache.
-     * Guaranteed to be synchronous and non-blocking.
-     */
-    fun getProgress(uri: Uri): PlaybackProgress? {
+    override fun getProgress(uri: Uri): PlaybackProgress? {
         return _progressMap.value[uri.toString()]
     }
 
-    /**
-     * Clear all playback history from in-memory cache and Room database.
-     */
-    fun clearAll() {
+    override fun clearAll() {
         _progressMap.value = emptyMap()
         appScope.launch(ioDispatcher) {
             dao.clearAll()
         }
     }
 
-    fun clearHistory() = clearAll()
+    override fun clearHistory() = clearAll()
 
-    /**
-     * Clear playback history for a single URI.
-     */
-    fun clearProgress(uri: Uri) = deleteEntry(uri)
+    override fun clearProgress(uri: Uri) = deleteEntry(uri)
 
-    /**
-     * Delete a single entry from history.
-     */
-    fun deleteEntry(uri: Uri) {
+    override fun deleteEntry(uri: Uri) {
         val uriStr = uri.toString()
         _progressMap.update { current -> current - uriStr }
         appScope.launch(ioDispatcher) {

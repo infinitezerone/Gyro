@@ -18,15 +18,39 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Interface contract for managing custom mpv.conf configuration file.
+ */
+interface MpvConfigRepository {
+    val configText: StateFlow<String>
+    suspend fun saveConfig(content: String)
+    suspend fun resetToDefault()
+    fun getParsedOptions(): Map<String, String>
+    fun getConfigFile(): File
+}
+
+/**
+ * Factory functions for tests or manual instantiation.
+ */
+fun MpvConfigRepository(
+    configFile: File,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+): MpvConfigRepository = DefaultMpvConfigRepository(configFile, ioDispatcher)
+
+fun MpvConfigRepository(
+    context: Context,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+): MpvConfigRepository = DefaultMpvConfigRepository(context, ioDispatcher)
+
+/**
  * Persistent repository for custom mpv.conf file.
  * Backed by an internal application file (context.filesDir/mpv.conf)
  * and exposing reactive StateFlow for Compose UI observation.
  */
 @Singleton
-class MpvConfigRepository(
+class DefaultMpvConfigRepository(
     private val configFile: File,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-) {
+) : MpvConfigRepository {
 
     @Inject
     constructor(
@@ -40,7 +64,7 @@ class MpvConfigRepository(
     private val mutex = Mutex()
 
     private val _configText = MutableStateFlow(loadSync())
-    val configText: StateFlow<String> = _configText.asStateFlow()
+    override val configText: StateFlow<String> = _configText.asStateFlow()
 
     private fun loadSync(): String {
         return try {
@@ -56,7 +80,7 @@ class MpvConfigRepository(
         }
     }
 
-    suspend fun saveConfig(content: String): Unit = mutex.withLock {
+    override suspend fun saveConfig(content: String): Unit = mutex.withLock {
         withContext(ioDispatcher) {
             configFile.parentFile?.mkdirs()
             configFile.writeText(content, Charsets.UTF_8)
@@ -64,7 +88,7 @@ class MpvConfigRepository(
         }
     }
 
-    suspend fun resetToDefault(): Unit = mutex.withLock {
+    override suspend fun resetToDefault(): Unit = mutex.withLock {
         withContext(ioDispatcher) {
             configFile.parentFile?.mkdirs()
             configFile.writeText(MpvConfig.DEFAULT_TEMPLATE, Charsets.UTF_8)
@@ -72,7 +96,7 @@ class MpvConfigRepository(
         }
     }
 
-    fun getParsedOptions(): Map<String, String> = MpvConfig.parse(_configText.value)
+    override fun getParsedOptions(): Map<String, String> = MpvConfig.parse(_configText.value)
 
-    fun getConfigFile(): File = configFile
+    override fun getConfigFile(): File = configFile
 }

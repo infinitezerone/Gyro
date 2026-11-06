@@ -16,15 +16,35 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Interface contract for accessing local video media and custom folder sources.
+ */
+interface MediaRepository {
+    val customFolderManager: CustomFolderManager
+    suspend fun getVideos(): List<VideoMediaItem>
+    fun addCustomFolder(treeUri: Uri): Boolean
+    fun removeCustomFolder(treeUri: Uri)
+    fun getCustomFolders(): Set<Uri>
+    suspend fun getCustomFolderDetails(): List<CustomFolderDetail>
+}
+
+/**
+ * Factory function for manual instantiation or tests.
+ */
+fun MediaRepository(
+    context: Context,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+): MediaRepository = DefaultMediaRepository(context, ioDispatcher)
+
 @Singleton
-class MediaRepository @Inject constructor(
+class DefaultMediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-) {
+) : MediaRepository {
 
-    val customFolderManager = CustomFolderManager(context, ioDispatcher)
+    override val customFolderManager = CustomFolderManager(context, ioDispatcher)
 
-    suspend fun getVideos(): List<VideoMediaItem> = withContext(ioDispatcher) {
+    override suspend fun getVideos(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val videoList = mutableListOf<VideoMediaItem>()
 
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -62,8 +82,8 @@ class MediaRepository @Inject constructor(
                 val widthColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
                 val heightColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
                 val dateModifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_MODIFIED)
-                val bucketColumn = cursor.getColumnIndex(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
-                val mimeTypeColumn = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)
+                val bucketColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+                val mimeTypeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)
 
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
@@ -73,10 +93,10 @@ class MediaRepository @Inject constructor(
                     val width = cursor.getInt(widthColumn)
                     val height = cursor.getInt(heightColumn)
                     val dateModified = cursor.getLong(dateModifiedColumn)
-                    val folderName = if (bucketColumn >= 0) cursor.getString(bucketColumn) ?: "未知" else "视频"
-                    val mimeType = if (mimeTypeColumn >= 0) cursor.getString(mimeTypeColumn) else null
+                    val folderName = cursor.getString(bucketColumn) ?: "Videos"
+                    val mimeType = cursor.getString(mimeTypeColumn)
 
-                    val contentUri = ContentUris.withAppendedId(
+                    val contentUri: Uri = ContentUris.withAppendedId(
                         MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                         id
                     )
@@ -118,19 +138,19 @@ class MediaRepository @Inject constructor(
         videoList
     }
 
-    fun addCustomFolder(treeUri: Uri): Boolean {
+    override fun addCustomFolder(treeUri: Uri): Boolean {
         return customFolderManager.addFolder(treeUri)
     }
 
-    fun removeCustomFolder(treeUri: Uri) {
+    override fun removeCustomFolder(treeUri: Uri) {
         customFolderManager.removeFolder(treeUri)
     }
 
-    fun getCustomFolders(): Set<Uri> {
+    override fun getCustomFolders(): Set<Uri> {
         return customFolderManager.getSavedFolderUris()
     }
 
-    suspend fun getCustomFolderDetails(): List<CustomFolderDetail> {
+    override suspend fun getCustomFolderDetails(): List<CustomFolderDetail> {
         return customFolderManager.getFolderDetails()
     }
 }
