@@ -35,6 +35,8 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
             add("implementation", libs.findLibrary("androidx-activity-compose").get())
             add("implementation", libs.findLibrary("androidx-navigation3-runtime").get())
             add("implementation", libs.findLibrary("androidx-navigation3-ui").get())
+            add("implementation", libs.findLibrary("androidx-lifecycle-viewmodel-navigation3").get())
+            add("implementation", libs.findLibrary("androidx-hilt-navigation-compose").get())
             add("implementation", libs.findLibrary("kotlinx-serialization-core").get())
 
             add("implementation", libs.findLibrary("androidx-compose-ui").get())

@@ -230,7 +230,7 @@ class PlayerViewModel @Inject constructor(
         _resumeNoticePosMs.value = null
     }
 
-    override fun onCleared() {
+    public override fun onCleared() {
         super.onCleared()
         periodicSaveJob?.cancel()
         saveCurrentProgress()

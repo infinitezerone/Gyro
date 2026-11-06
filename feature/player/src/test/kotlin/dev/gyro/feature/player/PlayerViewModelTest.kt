@@ -77,6 +77,7 @@ class PlayerViewModelTest {
 
     @After
     fun tearDown() {
+        viewModel.onCleared()
         Dispatchers.resetMain()
     }
 

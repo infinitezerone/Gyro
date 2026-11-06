@@ -29,8 +29,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
 import dagger.hilt.android.AndroidEntryPoint
@@ -65,7 +68,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var playlistManager: PlaylistManager
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
-    private val folderViewModel: FolderManagementViewModel by viewModels()
     private val playerViewModel: PlayerViewModel by viewModels()
     private val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
@@ -119,6 +121,10 @@ class MainActivity : ComponentActivity() {
             ) {
                 NavDisplay(
                     backStack = backStack,
+                    entryDecorators = listOf(
+                        rememberSaveableStateHolderNavEntryDecorator(),
+                        rememberViewModelStoreNavEntryDecorator()
+                    ),
                     onBack = {
                         if (backStack.size > 1) {
                             val popped = backStack.removeLast()
@@ -250,7 +256,7 @@ class MainActivity : ComponentActivity() {
                         }
                         entry<Screen.FolderManagement> {
                             FolderManagementScreen(
-                                viewModel = folderViewModel,
+                                viewModel = hiltViewModel(),
                                 onBack = {
                                     backStack.removeLast()
                                     homeViewModel.refreshVideos()
