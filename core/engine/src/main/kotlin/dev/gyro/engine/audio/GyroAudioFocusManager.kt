@@ -170,6 +170,15 @@ class GyroAudioFocusManager(
         hasFocus = false
     }
 
+    /** Resets the abandoned state so the manager can accept requests upon engine re-initialization. */
+    fun reset() {
+        released = false
+        hasFocus = false
+        pendingPlay = false
+        pausedBy = PAUSED_BY_NONE
+        focusUnavailableLogged = false
+    }
+
     private fun handleFocusChange(change: Int) {
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {

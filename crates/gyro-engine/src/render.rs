@@ -1321,13 +1321,20 @@ unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
 pub fn render_sender() -> Option<Sender<RenderCommand>> {
     let lock = RENDER_THREAD.get()?;
     let guard = lock.lock().ok()?;
-    guard.as_ref().map(|handle| handle.sender.clone())
+    match guard.as_ref() {
+        Some(handle) if !handle._thread.is_finished() => Some(handle.sender.clone()),
+        _ => None,
+    }
 }
 
 pub fn ensure_render_thread() {
     let lock = RENDER_THREAD.get_or_init(|| Mutex::new(None));
     if let Ok(mut guard) = lock.lock() {
-        if guard.is_none() {
+        let is_dead = match guard.as_ref() {
+            None => true,
+            Some(handle) => handle._thread.is_finished(),
+        };
+        if is_dead {
             let (sender, receiver) = channel();
             let thread = std::thread::Builder::new()
                 .name("gyro-render".into())
@@ -1335,6 +1342,14 @@ pub fn ensure_render_thread() {
                 .expect("spawn gyro-render failed");
             *guard = Some(RenderThreadHandle { sender, _thread: thread });
             nlog("ensure_render_thread: gyro-render 原生线程已启动");
+        }
+    }
+}
+
+pub fn clear_render_thread() {
+    if let Some(lock) = RENDER_THREAD.get() {
+        if let Ok(mut guard) = lock.lock() {
+            *guard = None;
         }
     }
 }

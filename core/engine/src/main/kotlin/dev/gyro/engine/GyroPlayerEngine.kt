@@ -82,7 +82,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     private val appContext = runCatching { context.applicationContext }.getOrNull() ?: context
     private val isInitialized = AtomicBoolean(false)
-    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var engineJob = SupervisorJob()
+    private var engineScope = CoroutineScope(engineJob + Dispatchers.Default)
 
     /**
      * Audio focus lives here rather than in the ViewModel or the service so that the same state
@@ -373,6 +374,11 @@ class GyroPlayerEngine @JvmOverloads constructor(
     fun ensureInitialized() {
         if (isInitialized.compareAndSet(false, true)) {
             try {
+                if (!engineJob.isActive) {
+                    engineJob = SupervisorJob()
+                    engineScope = CoroutineScope(engineJob + Dispatchers.Default)
+                }
+                audioFocusManager.reset()
                 bridge.create(appContext)
 
                 // Pre-extract built-in shaders to POSIX filesDir
@@ -959,7 +965,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun release() {
-        engineScope.cancel()
+        engineJob.cancel()
         audioFocusManager.abandon()
         resetSoftwareGain()
         clearChapters()
