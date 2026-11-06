@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.media.session.PlaybackState
 import android.net.TestUri
+import android.net.Uri
 import android.view.KeyEvent
+import dev.gyro.core.data.repository.AndroidUriParser
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
@@ -15,6 +17,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -40,6 +43,7 @@ class MediaSessionManagerTest {
 
     @Before
     fun setUp() {
+        AndroidUriParser.parser = { str -> TestUri(str) }
         val filesDir = tempFolder.newFolder("mediasession_test")
         testContext = object : ContextWrapper(null) {
             override fun getApplicationContext(): Context = this
@@ -50,6 +54,11 @@ class MediaSessionManagerTest {
         engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
         engine.ensureInitialized()
         playlistManager = PlaylistManager()
+    }
+
+    @After
+    fun tearDown() {
+        AndroidUriParser.parser = { str -> Uri.parse(str) }
     }
 
     private fun createMediaSessionManager(): MediaSessionManager {
@@ -169,9 +178,9 @@ class MediaSessionManagerTest {
         val manager = createMediaSessionManager()
         engine.attachSurface(android.view.Surface(android.graphics.SurfaceTexture(0)))
 
-        val item1 = VideoMediaItem(1L, TestUri("file:///video1.mp4"), "Video 1", 1000L, 100L, 0, 0, 0L, "F")
-        val item2 = VideoMediaItem(2L, TestUri("file:///video2.mp4"), "Video 2", 2000L, 200L, 0, 0, 0L, "F")
-        val item3 = VideoMediaItem(3L, TestUri("file:///video3.mp4"), "Video 3", 3000L, 300L, 0, 0, 0L, "F")
+        val item1 = VideoMediaItem(1L, "file:///video1.mp4", "Video 1", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///video2.mp4", "Video 2", 2000L, 200L, 0, 0, 0L, "F")
+        val item3 = VideoMediaItem(3L, "file:///video3.mp4", "Video 3", 3000L, 300L, 0, 0, 0L, "F")
         playlistManager.setPlaylist(listOf(item1, item2, item3), 0)
 
         // Skip to Next -> item2
@@ -230,8 +239,8 @@ class MediaSessionManagerTest {
         assertEquals(true, fakeBridge.properties["pause"]) // Toggles to paused
 
         // 5. KEYCODE_MEDIA_NEXT
-        val item1 = VideoMediaItem(1L, TestUri("file:///video1.mp4"), "Video 1", 1000L, 100L, 0, 0, 0L, "F")
-        val item2 = VideoMediaItem(2L, TestUri("file:///video2.mp4"), "Video 2", 2000L, 200L, 0, 0, 0L, "F")
+        val item1 = VideoMediaItem(1L, "file:///video1.mp4", "Video 1", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///video2.mp4", "Video 2", 2000L, 200L, 0, 0, 0L, "F")
         playlistManager.setPlaylist(listOf(item1, item2), 0)
 
         assertTrue(manager.handleKeyCode(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT))

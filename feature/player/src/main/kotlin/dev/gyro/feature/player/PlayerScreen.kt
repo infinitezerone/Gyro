@@ -176,7 +176,7 @@ fun PlayerScreen(
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        openUri(item.uri)
+        openUri(Uri.parse(item.uriString))
     }
 
     // Auto-advance to next video when current video completes
@@ -194,7 +194,7 @@ fun PlayerScreen(
     LaunchedEffect(activeUri) {
         activeUri?.let { uri ->
             if (settings.subAutoLoad) {
-                val knownDisplayName = playlist.firstOrNull { it.uri == uri }?.displayName
+                val knownDisplayName = playlist.firstOrNull { it.uriString == uri.toString() }?.displayName
                 withContext(Dispatchers.IO) {
                     val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri, knownDisplayName)
                     subs.forEach { path -> engine.addSubtitle(path) }

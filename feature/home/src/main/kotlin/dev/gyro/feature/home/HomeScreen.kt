@@ -96,7 +96,7 @@ fun HomeScreen(
         uri?.let {
             val singleItem = VideoMediaItem(
                 id = System.currentTimeMillis(),
-                uri = it,
+                uriString = it.toString(),
                 displayName = it.lastPathSegment ?: "Video",
                 durationMs = 0L,
                 sizeBytes = 0L,
@@ -316,7 +316,7 @@ fun HomeContent(
                                 items = uiState.filteredVideos,
                                 key = { it.id }
                             ) { videoItem ->
-                                val progress = uiState.playbackMap[videoItem.uri.toString()]
+                                val progress = uiState.playbackMap[videoItem.uriString]
                                 VideoCard(
                                     item = videoItem,
                                     playbackProgress = progress,
@@ -427,7 +427,7 @@ private fun VideoCard(
                     .background(Color(0xFF222634))
             ) {
                 VideoThumbnail(
-                    uri = item.uri,
+                    uri = Uri.parse(item.uriString),
                     modifier = Modifier.fillMaxSize()
                 )
 

@@ -1,13 +1,13 @@
 package dev.gyro.core.model
 
-import android.net.Uri
+import java.util.Locale
 
 /**
  * 本地视频媒体项数据模型
  */
 data class VideoMediaItem(
     val id: Long,
-    val uri: Uri,
+    val uriString: String,
     val displayName: String,
     val durationMs: Long,
     val sizeBytes: Long,
@@ -18,6 +18,11 @@ data class VideoMediaItem(
     val mimeType: String? = null
 ) {
     /**
+     * URI 字符串别名，便于直接使用字符串访问
+     */
+    val uri: String get() = uriString
+
+    /**
      * 格式化时长 (如 05:24 或 01:23:45)
      */
     val formattedDuration: String
@@ -27,9 +32,9 @@ data class VideoMediaItem(
             val minutes = (totalSeconds % 3600L) / 60L
             val seconds = totalSeconds % 60L
             return if (hours > 0) {
-                String.format("%d:%02d:%02d", hours, minutes, seconds)
+                String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
             } else {
-                String.format("%02d:%02d", minutes, seconds)
+                String.format(Locale.US, "%02d:%02d", minutes, seconds)
             }
         }
 
@@ -43,9 +48,9 @@ data class VideoMediaItem(
             val mb = kb / 1024.0
             val gb = mb / 1024.0
             return when {
-                gb >= 1.0 -> String.format("%.1f GB", gb)
-                mb >= 1.0 -> String.format("%.1f MB", mb)
-                else -> String.format("%.0f KB", kb)
+                gb >= 1.0 -> String.format(Locale.US, "%.1f GB", gb)
+                mb >= 1.0 -> String.format(Locale.US, "%.1f MB", mb)
+                else -> String.format(Locale.US, "%.0f KB", kb)
             }
         }
 

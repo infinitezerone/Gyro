@@ -13,7 +13,7 @@ class PlaylistManagerTest {
     private fun createItem(id: Long, name: String): VideoMediaItem {
         return VideoMediaItem(
             id = id,
-            uri = TestUri("content://media/external/video/media/$id"),
+            uriString = "content://media/external/video/media/$id",
             displayName = name,
             durationMs = 60_000L,
             sizeBytes = 1000L,

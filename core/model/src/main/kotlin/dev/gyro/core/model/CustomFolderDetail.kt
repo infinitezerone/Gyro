@@ -1,17 +1,18 @@
 package dev.gyro.core.model
 
-import android.net.Uri
 import java.util.Locale
 
 /**
  * 用户授权的自定义外部目录详情
  */
 data class CustomFolderDetail(
-    val uri: Uri,
+    val uriString: String,
     val displayName: String,
     val videoCount: Int,
     val totalSizeBytes: Long
 ) {
+    val uri: String get() = uriString
+
     val formattedTotalSize: String
         get() {
             if (totalSizeBytes <= 0) return "0 B"

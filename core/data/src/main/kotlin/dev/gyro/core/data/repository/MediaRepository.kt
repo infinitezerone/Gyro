@@ -74,7 +74,7 @@ class MediaRepository(private val context: Context) {
                     videoList.add(
                         VideoMediaItem(
                             id = id,
-                            uri = contentUri,
+                            uriString = contentUri.toString(),
                             displayName = name,
                             durationMs = duration,
                             sizeBytes = size,

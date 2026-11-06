@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.settings.folders
+package dev.gyro.feature.settings.folders
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -78,7 +78,7 @@ fun FolderManagementScreen(
         uiState = uiState,
         onBack = onBack,
         onAddFolder = { openFolderLauncher.launch(null) },
-        onRevokeFolder = { viewModel.revokeFolder(it.uri) },
+        onRevokeFolder = { viewModel.revokeFolder(Uri.parse(it.uriString)) },
         onRefresh = { viewModel.loadFolders() },
         modifier = modifier
     )
@@ -179,7 +179,7 @@ fun FolderManagementContent(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(uiState.folders, key = { it.uri.toString() }) { folder ->
+                        items(uiState.folders, key = { it.uriString }) { folder ->
                             FolderItemCard(
                                 folder = folder,
                                 onRevokeClick = { pendingRevokeFolder = folder }

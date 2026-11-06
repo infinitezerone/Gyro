@@ -1,6 +1,5 @@
 package dev.gyro.core.testing.data
 
-import android.net.TestUri
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.MediaInfo
@@ -20,7 +19,7 @@ object TestData {
         folderName: String = "Movies"
     ): VideoMediaItem = VideoMediaItem(
         id = id,
-        uri = TestUri(uriString),
+        uriString = uriString,
         displayName = displayName,
         durationMs = durationMs,
         sizeBytes = sizeBytes,
@@ -137,7 +136,7 @@ object TestData {
         videoCount: Int = 12,
         totalSizeBytes: Long = 10_000_000_000L
     ): CustomFolderDetail = CustomFolderDetail(
-        uri = TestUri(uriString),
+        uriString = uriString,
         displayName = displayName,
         videoCount = videoCount,
         totalSizeBytes = totalSizeBytes

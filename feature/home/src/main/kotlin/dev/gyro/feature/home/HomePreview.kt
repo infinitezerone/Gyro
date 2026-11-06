@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.home
+package dev.gyro.feature.home
 
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -26,7 +26,7 @@ fun HomeScreenPreview() {
     val mockVideos = listOf(
         VideoMediaItem(
             id = 1L,
-            uri = sampleUri1,
+            uriString = sampleUri1.toString(),
             displayName = "Big Buck Bunny 1080p 60fps HDR.mp4",
             durationMs = 596000L,
             sizeBytes = 285000000L,
@@ -37,7 +37,7 @@ fun HomeScreenPreview() {
         ),
         VideoMediaItem(
             id = 2L,
-            uri = sampleUri2,
+            uriString = sampleUri2.toString(),
             displayName = "Tears of Steel 4K.mkv",
             durationMs = 734000L,
             sizeBytes = 850000000L,
@@ -48,7 +48,7 @@ fun HomeScreenPreview() {
         ),
         VideoMediaItem(
             id = 3L,
-            uri = sampleUri3,
+            uriString = sampleUri3.toString(),
             displayName = "Sintel 1080p Animated Short.webm",
             durationMs = 888000L,
             sizeBytes = 150000000L,

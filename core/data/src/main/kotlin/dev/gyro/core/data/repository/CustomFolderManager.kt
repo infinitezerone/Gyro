@@ -68,7 +68,7 @@ class CustomFolderManager(private val context: Context) {
                 val totalSize = items.sumOf { it.sizeBytes }
                 result.add(
                     CustomFolderDetail(
-                        uri = treeUri,
+                        uriString = treeUri.toString(),
                         displayName = folderName,
                         videoCount = items.size,
                         totalSizeBytes = totalSize
@@ -153,7 +153,7 @@ class CustomFolderManager(private val context: Context) {
                             outList.add(
                                 VideoMediaItem(
                                     id = childDocId.hashCode().toLong(),
-                                    uri = fileDocUri,
+                                    uriString = fileDocUri.toString(),
                                     displayName = displayName,
                                     durationMs = 0L,
                                     sizeBytes = sizeBytes,

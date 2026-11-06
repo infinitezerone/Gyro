@@ -6,11 +6,13 @@ import android.content.Intent
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.data.repository.asAndroidUri
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import kotlinx.coroutines.CoroutineScope
@@ -202,7 +204,7 @@ class MediaSessionManager(
     fun skipToNext(): Boolean {
         val next = playlistManager?.playNext()
         return if (next != null) {
-            engine.loadUri(next.uri)
+            engine.loadUri(next.asAndroidUri)
             true
         } else {
             false
@@ -212,7 +214,7 @@ class MediaSessionManager(
     fun skipToPrevious(): Boolean {
         val prev = playlistManager?.playPrevious()
         return if (prev != null) {
-            engine.loadUri(prev.uri)
+            engine.loadUri(prev.asAndroidUri)
             true
         } else {
             false

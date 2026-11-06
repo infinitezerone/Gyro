@@ -62,7 +62,7 @@ class PlaylistManager {
     fun setSingle(uri: Uri, displayName: String) {
         val item = VideoMediaItem(
             id = System.currentTimeMillis(),
-            uri = uri,
+            uriString = uri.toString(),
             displayName = displayName,
             durationMs = 0L,
             sizeBytes = 0L,
