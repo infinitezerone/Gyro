@@ -1,4 +1,4 @@
-package dev.gyro.player
+package dev.gyro.player.service
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

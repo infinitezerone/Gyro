@@ -43,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -66,13 +67,17 @@ import androidx.compose.ui.unit.toSize
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import dev.gyro.core.data.repository.PlaylistManager
-import dev.gyro.core.data.repository.asAndroidUri
+import dev.gyro.engine.playlist.PlaylistManager
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.feature.player.component.PlayerControlsOverlay
+import dev.gyro.feature.player.component.PlayerHudOverlay
+import dev.gyro.feature.player.component.PlayerSheetTab
+import dev.gyro.feature.player.component.PlayerTrackSelectionSheet
+import dev.gyro.feature.player.gesture.*
 import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.model.PlaybackState
@@ -176,8 +181,8 @@ fun PlayerScreen(
     }
 
     fun playMediaItem(item: VideoMediaItem) {
+        // activeUri follows through the vmActiveUri effect: the ViewModel owns the conversion.
         viewModel.playMediaItem(item)
-        activeUri = item.asAndroidUri
     }
 
     // Auto-advance, companion subtitle loading and progress persistence all live in
@@ -260,6 +265,32 @@ fun PlayerScreen(
                 autoEnter = isPlaying
             )
             componentActivity.setPictureInPictureParams(params)
+        }
+    }
+
+    // Auto-enter PiP on Android 8.0 - 11 (API 26-30) via UserLeaveHintListener.
+    // The listener is registered once per Activity: latest playback state is read through
+    // rememberUpdatedState instead of re-registering the callback on every play/pause.
+    val latestIsPlaying by rememberUpdatedState(isPlaying)
+    val latestAspectRatio by rememberUpdatedState(targetAspectRatio)
+    val latestSourceRect by rememberUpdatedState(videoSourceRect)
+    DisposableEffect(componentActivity) {
+        val act = componentActivity ?: return@DisposableEffect onDispose { }
+        val hintListener = Runnable {
+            if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R && latestIsPlaying) {
+                val params = buildPipParams(
+                    context = act,
+                    isPlaying = latestIsPlaying,
+                    aspectRatio = latestAspectRatio,
+                    sourceRect = latestSourceRect,
+                    autoEnter = true
+                )
+                act.enterPictureInPictureMode(params)
+            }
+        }
+        act.addOnUserLeaveHintListener(hintListener)
+        onDispose {
+            act.removeOnUserLeaveHintListener(hintListener)
         }
     }
 

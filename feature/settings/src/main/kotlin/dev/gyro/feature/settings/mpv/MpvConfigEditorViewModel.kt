@@ -18,14 +18,31 @@ class MpvConfigEditorViewModel @Inject constructor(
     private val repository: MpvConfigRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(
-        MpvConfigEditorUiState(
-            content = repository.configText.value,
-            originalContent = repository.configText.value,
-            isModified = false
-        )
-    )
+    private val _uiState = MutableStateFlow(MpvConfigEditorUiState(isLoading = true))
     val uiState: StateFlow<MpvConfigEditorUiState> = _uiState.asStateFlow()
+
+    init {
+        // Reading the conf file touches the disk, so it happens on the repository's IO dispatcher
+        // instead of the constructor. The editor stays disabled until the first read lands, which
+        // is what keeps a fast typist from being overwritten by the initial content.
+        viewModelScope.launch {
+            val initialContent = repository.loadConfig()
+            _uiState.update { current ->
+                // The editor is disabled while loading, so this can only fire for programmatic
+                // edits; never let the disk read clobber text the user already typed.
+                if (current.isModified) {
+                    current.copy(isLoading = false)
+                } else {
+                    current.copy(
+                        content = initialContent,
+                        originalContent = initialContent,
+                        isModified = false,
+                        isLoading = false
+                    )
+                }
+            }
+        }
+    }
 
     fun updateContent(newContent: String) {
         _uiState.update { current ->
@@ -85,8 +102,7 @@ class MpvConfigEditorViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, showResetDialog = false) }
             try {
-                repository.resetToDefault()
-                val resetText = repository.configText.value
+                val resetText = repository.resetToDefault()
                 _uiState.update {
                     it.copy(
                         content = resetText,

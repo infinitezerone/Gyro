@@ -1,5 +1,6 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.gesture
 
+import dev.gyro.feature.player.PlayerScrubState
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper

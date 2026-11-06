@@ -13,31 +13,30 @@ import javax.inject.Inject
 
 /**
  * Interface contract for tracking playback progress and resume points.
+ *
+ * Data is backed by Room as the Single Source of Truth (SSOT).
  */
 interface PlaybackHistoryRepository {
     /** Cold view of the persisted history. Collecting is the caller's decision, not ours. */
     val progressMap: Flow<Map<String, PlaybackProgress>>
 
     /**
-     * Persists a resume point. Fire-and-forget on purpose: the player calls this from
-     * `onCleared`, where no caller-owned coroutine survives, so the write has to be owned by the
-     * repository scope rather than by the call site.
+     * Persists a resume point.
      *
-     * Rate limiting is deliberately absent: "how often to save" is a session policy owned by the
-     * caller, and keeping its state here would leak across ViewModel lifetimes.
+     * Note: This method is non-suspending and fire-and-forget by design: the player calls this from
+     * `ViewModel.onCleared()` or lifecycle teardown, where no caller-owned coroutine survives.
+     * Therefore, the write is executed on an [ApplicationScope] coroutine.
      */
     fun saveProgress(uri: Uri, positionMs: Long, durationMs: Long, title: String = "")
 
     suspend fun getProgress(uri: Uri): PlaybackProgress?
-    fun clearAll()
-    fun clearHistory()
-    fun clearProgress(uri: Uri)
-    fun deleteEntry(uri: Uri)
 }
 
 /**
+ * Default implementation of [PlaybackHistoryRepository].
+ *
  * Room is the single source of truth: [progressMap] is the DAO flow mapped and shared, with no
- * in-memory copy to fall out of sync. Writes go straight to the DAO on the repository scope.
+ * in-memory copy to fall out of sync.
  */
 class DefaultPlaybackHistoryRepository @Inject constructor(
     private val dao: PlaybackHistoryDao,
@@ -71,19 +70,6 @@ class DefaultPlaybackHistoryRepository @Inject constructor(
         }
     }
 
-    override fun clearAll() {
-        appScope.launch { dao.clearAll() }
-    }
-
-    override fun clearHistory() = clearAll()
-
-    override fun clearProgress(uri: Uri) = deleteEntry(uri)
-
-    override fun deleteEntry(uri: Uri) {
-        val uriStr = uri.toString()
-        appScope.launch { dao.deleteByUri(uriStr) }
-    }
-
     private companion object {
         const val MAX_ENTRIES = 500
 
@@ -91,12 +77,3 @@ class DefaultPlaybackHistoryRepository @Inject constructor(
         const val MIN_RESUME_POSITION_MS = 2_000L
     }
 }
-
-/**
- * Test-only construction path: callers supply their own DAO so the repository can be exercised
- * without Hilt.
- */
-fun PlaybackHistoryRepository(
-    dao: PlaybackHistoryDao,
-    appScope: CoroutineScope,
-): PlaybackHistoryRepository = DefaultPlaybackHistoryRepository(dao, appScope)

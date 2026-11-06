@@ -1,4 +1,4 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.gesture
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size

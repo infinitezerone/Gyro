@@ -1,13 +1,11 @@
 package dev.gyro.core.data.repository
 
-import dev.gyro.core.model.MpvConfig
-import kotlinx.coroutines.Dispatchers
+import dev.gyro.core.testing.fakes.FakeContext
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -21,13 +19,12 @@ class MpvConfigRepositoryStressTest {
 
     @Test
     fun testRapidConcurrentSaveAndResetConsistency() {
-        val configFile = File(tempFolder.root, "mpv.conf")
-        // Use a multi-threaded dispatcher with 8 threads to simulate intense concurrent IO
         val pool = Executors.newFixedThreadPool(8)
         val multiThreadDispatcher = pool.asCoroutineDispatcher()
 
         try {
-            val repository = MpvConfigRepository(configFile, multiThreadDispatcher)
+            val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), multiThreadDispatcher)
+            val configFile = File(tempFolder.root, "mpv.conf")
 
             runBlocking(multiThreadDispatcher) {
                 val iterations = 100
@@ -41,17 +38,16 @@ class MpvConfigRepositoryStressTest {
                     }
                 }
                 jobs.awaitAll()
+
+                val fileContent = configFile.readText(Charsets.UTF_8)
+                val loadedContent = repository.loadConfig()
+
+                assertEquals(
+                    "DESYNCHRONIZATION DETECTED: Loaded config does not match file on disk!",
+                    fileContent,
+                    loadedContent
+                )
             }
-
-            // Empirical assertion: In-memory StateFlow MUST strictly match the persisted file on disk
-            val fileContent = configFile.readText(Charsets.UTF_8)
-            val stateFlowValue = repository.configText.value
-
-            assertEquals(
-                "DESYNCHRONIZATION DETECTED: In-memory configText StateFlow does not match file on disk!",
-                fileContent,
-                stateFlowValue
-            )
         } finally {
             pool.shutdown()
         }
@@ -59,12 +55,13 @@ class MpvConfigRepositoryStressTest {
 
     @Test
     fun testHeavyConcurrentSavesConsistency() {
-        val configFile = File(tempFolder.root, "mpv_heavy.conf")
+        val subDir = tempFolder.newFolder("heavy")
         val pool = Executors.newFixedThreadPool(10)
         val multiThreadDispatcher = pool.asCoroutineDispatcher()
 
         try {
-            val repository = MpvConfigRepository(configFile, multiThreadDispatcher)
+            val repository = DefaultMpvConfigRepository(FakeContext(subDir), multiThreadDispatcher)
+            val configFile = File(subDir, "mpv.conf")
 
             runBlocking(multiThreadDispatcher) {
                 val iterations = 150
@@ -75,16 +72,16 @@ class MpvConfigRepositoryStressTest {
                     }
                 }
                 jobs.awaitAll()
+
+                val fileContent = configFile.readText(Charsets.UTF_8)
+                val loadedContent = repository.loadConfig()
+
+                assertEquals(
+                    "DESYNCHRONIZATION DETECTED under heavy concurrent saves!",
+                    fileContent,
+                    loadedContent
+                )
             }
-
-            val fileContent = configFile.readText(Charsets.UTF_8)
-            val stateFlowValue = repository.configText.value
-
-            assertEquals(
-                "DESYNCHRONIZATION DETECTED under heavy concurrent saves!",
-                fileContent,
-                stateFlowValue
-            )
         } finally {
             pool.shutdown()
         }

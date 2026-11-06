@@ -7,6 +7,8 @@ data class MpvConfigEditorUiState(
     val content: String = "",
     val originalContent: String = "",
     val isModified: Boolean = false,
+    /** True until the conf file has been read off the IO dispatcher. */
+    val isLoading: Boolean = false,
     val isSaving: Boolean = false,
     val showResetDialog: Boolean = false,
     val showDiscardDialog: Boolean = false,

@@ -1,5 +1,6 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.component
 
+import dev.gyro.feature.player.PlayerScrubState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio

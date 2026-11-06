@@ -1,4 +1,4 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.gesture
 
 import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -410,9 +410,7 @@ data class PlayerGestureElement(
     }
 }
 
-/**
- * Attaches MX Player style customizable gesture handling to the modifier chain via Modifier.Node.
- */
+
 fun Modifier.playerGestures(
     config: PlayerGestureConfig,
     callbacks: PlayerGestureCallbacks

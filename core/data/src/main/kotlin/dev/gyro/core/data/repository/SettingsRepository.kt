@@ -10,12 +10,13 @@ import javax.inject.Inject
 
 /**
  * Interface contract for managing application settings and gesture configurations.
+ *
+ * All operations exposed by this repository are main-safe. Data is emitted as a cold [Flow]
+ * to adhere to the Single Source of Truth (SSOT) architecture.
  */
 interface SettingsRepository {
     /**
-     * Settings as a cold flow over the only source of truth (DataStore). Deliberately not a
-     * StateFlow: a repository must not own a subscription, which is what makes it stateless and
-     * safe to instantiate per call site.
+     * Cold flow observing persisted settings.
      */
     val settings: Flow<UserSettings>
 
@@ -30,49 +31,14 @@ interface SettingsRepository {
     suspend fun setGesturesEnabled(enabled: Boolean): UserSettings
 
     suspend fun setGestureConfig(config: PlayerGestureConfig)
-    suspend fun setGestureLocked(locked: Boolean)
-    suspend fun setGestureVolumeEnabled(enabled: Boolean)
-    suspend fun setVolumeGestureEnabled(enabled: Boolean)
-    suspend fun setGestureBrightnessEnabled(enabled: Boolean)
-    suspend fun setBrightnessGestureEnabled(enabled: Boolean)
-    suspend fun setGestureSeekEnabled(enabled: Boolean)
-    suspend fun setSeekGestureEnabled(enabled: Boolean)
-    suspend fun setGestureZoomEnabled(enabled: Boolean)
-    suspend fun setZoomGestureEnabled(enabled: Boolean)
-    suspend fun setGestureDoubleTapSeekEnabled(enabled: Boolean)
-    suspend fun setDoubleTapSeekEnabled(enabled: Boolean)
-    suspend fun setGestureDoubleTapPlayPauseEnabled(enabled: Boolean)
-    suspend fun setDoubleTapPlayPauseEnabled(enabled: Boolean)
-    suspend fun setGestureLongPressSpeedEnabled(enabled: Boolean)
-    suspend fun setLongPressSpeedEnabled(enabled: Boolean)
-    suspend fun setGestureSwapVolumeBrightness(swapped: Boolean)
-    suspend fun setSwapVolumeAndBrightness(swap: Boolean)
-    suspend fun setGestureDoubleTapSeekSeconds(seconds: Int): UserSettings
-    suspend fun setDoubleTapSeekSeconds(seconds: Int): UserSettings
-    suspend fun setGestureLongPressSpeed(speed: Float)
-    suspend fun setLongPressSpeed(speed: Float)
-    suspend fun setGestureVolumeSensitivity(sensitivity: Float)
-    suspend fun setVolumeSensitivity(sensitivity: Float)
-    suspend fun setGestureBrightnessSensitivity(sensitivity: Float)
-    suspend fun setBrightnessSensitivity(sensitivity: Float)
-    suspend fun setGestureEdgeExclusionPx(px: Float)
-    suspend fun setLongPressTimeoutMs(timeoutMs: Long)
-    suspend fun setDoubleTapTimeoutMs(timeoutMs: Long)
-    suspend fun setSingleTapDelayMs(delayMs: Long)
-
     suspend fun resetGestureConfigToDefault()
-    suspend fun resetGestureConfigToDefaults()
 }
 
 /**
+ * Default implementation of [SettingsRepository] backed by Jetpack DataStore.
+ *
  * DataStore is the single source of truth, and this class holds nothing of its own.
- *
- * [settings] is DataStore's `data` flow with an IOException fallback, so every consumer sees the
- * same values regardless of how many instances exist. Writes go through [DataStore.updateData],
- * which serializes them and computes each one against the latest persisted value.
- *
- * No StateFlow, no mirror, no scope: shared state belongs to whoever collects (a ViewModel with
- * `stateIn`, a `collectAsState` in Compose), not to the repository.
+ * Writes go through [DataStore.updateData], which serializes them against the latest persisted value.
  */
 class DefaultSettingsRepository @Inject constructor(
     private val dataStore: DataStore<UserSettings>,
@@ -119,48 +85,8 @@ class DefaultSettingsRepository @Inject constructor(
         updateSettings { it.copy(gesturesEnabled = enabled) }
 
     override suspend fun setGestureConfig(config: PlayerGestureConfig) = updateGestureConfig { config }
-    override suspend fun setGestureLocked(locked: Boolean) = updateGestureConfig { it.copy(isLocked = locked) }
-    override suspend fun setGestureVolumeEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isVolumeEnabled = enabled) }
-    override suspend fun setVolumeGestureEnabled(enabled: Boolean) = setGestureVolumeEnabled(enabled)
-    override suspend fun setGestureBrightnessEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isBrightnessEnabled = enabled) }
-    override suspend fun setBrightnessGestureEnabled(enabled: Boolean) = setGestureBrightnessEnabled(enabled)
-    override suspend fun setGestureSeekEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isSeekEnabled = enabled) }
-    override suspend fun setSeekGestureEnabled(enabled: Boolean) = setGestureSeekEnabled(enabled)
-    override suspend fun setGestureZoomEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isZoomEnabled = enabled) }
-    override suspend fun setZoomGestureEnabled(enabled: Boolean) = setGestureZoomEnabled(enabled)
-    override suspend fun setGestureDoubleTapSeekEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isDoubleTapSeekEnabled = enabled) }
-    override suspend fun setDoubleTapSeekEnabled(enabled: Boolean) = setGestureDoubleTapSeekEnabled(enabled)
-    override suspend fun setGestureDoubleTapPlayPauseEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isDoubleTapPlayPauseEnabled = enabled) }
-    override suspend fun setDoubleTapPlayPauseEnabled(enabled: Boolean) = setGestureDoubleTapPlayPauseEnabled(enabled)
-    override suspend fun setGestureLongPressSpeedEnabled(enabled: Boolean) = updateGestureConfig { it.copy(isLongPressSpeedEnabled = enabled) }
-    override suspend fun setLongPressSpeedEnabled(enabled: Boolean) = setGestureLongPressSpeedEnabled(enabled)
-    override suspend fun setGestureSwapVolumeBrightness(swapped: Boolean) = updateGestureConfig { it.copy(swapVolumeAndBrightness = swapped) }
-    override suspend fun setSwapVolumeAndBrightness(swap: Boolean) = setGestureSwapVolumeBrightness(swap)
-    override suspend fun setGestureDoubleTapSeekSeconds(seconds: Int) = setSeekStepSeconds(seconds)
-    override suspend fun setDoubleTapSeekSeconds(seconds: Int) = setSeekStepSeconds(seconds)
-    override suspend fun setGestureLongPressSpeed(speed: Float) = updateGestureConfig { it.copy(longPressSpeed = speed) }
-    override suspend fun setLongPressSpeed(speed: Float) = setGestureLongPressSpeed(speed)
-    override suspend fun setGestureVolumeSensitivity(sensitivity: Float) = updateGestureConfig { it.copy(volumeSensitivity = sensitivity) }
-    override suspend fun setVolumeSensitivity(sensitivity: Float) = setGestureVolumeSensitivity(sensitivity)
-    override suspend fun setGestureBrightnessSensitivity(sensitivity: Float) = updateGestureConfig { it.copy(brightnessSensitivity = sensitivity) }
-    override suspend fun setBrightnessSensitivity(sensitivity: Float) = setGestureBrightnessSensitivity(sensitivity)
-    override suspend fun setGestureEdgeExclusionPx(px: Float) = updateGestureConfig { it.copy(edgeExclusionPx = px) }
-    override suspend fun setLongPressTimeoutMs(timeoutMs: Long) = updateGestureConfig { it.copy(longPressTimeoutMs = timeoutMs) }
-    override suspend fun setDoubleTapTimeoutMs(timeoutMs: Long) = updateGestureConfig { it.copy(doubleTapTimeoutMs = timeoutMs) }
-    override suspend fun setSingleTapDelayMs(delayMs: Long) = updateGestureConfig { it.copy(singleTapDelayMs = delayMs) }
 
     override suspend fun resetGestureConfigToDefault() {
         updateGestureConfig { PlayerGestureConfig() }
     }
-
-    override suspend fun resetGestureConfigToDefaults() {
-        resetGestureConfigToDefault()
-    }
 }
-
-/**
- * Test-only construction path: callers supply their own DataStore (usually an in-memory or
- * file-backed one) so the repository can be exercised without Android.
- */
-fun SettingsRepository(dataStore: DataStore<UserSettings>): SettingsRepository =
-    DefaultSettingsRepository(dataStore)

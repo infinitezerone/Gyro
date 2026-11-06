@@ -3,9 +3,16 @@ package dev.gyro.feature.player
 import android.content.Context
 import android.content.ContextWrapper
 import android.net.TestUri
-import dev.gyro.core.data.repository.AndroidUriParser
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.TestScope
+import dev.gyro.core.model.PlaybackProgress
+import dev.gyro.core.data.repository.UriParser
+import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
-import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
@@ -30,7 +37,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -38,12 +44,6 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@Ignore(
-    "Asserts against the previous StateFlow-backed repository with fixed scheduler ordering. " +
-        "SettingsRepository/PlaybackHistoryRepository now expose cold Flows over DataStore/Room, " +
-        "so these need to collect and wait instead of sampling .value and pumping a fixed delay. " +
-        "Rewrite tracked separately; core:data covers the repository behaviour itself."
-)
 class PlayerViewModelTest {
 
     @get:Rule
@@ -63,7 +63,6 @@ class PlayerViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        AndroidUriParser.parser = { str -> TestUri(str) }
 
         val filesDir = tempFolder.newFolder("player_vm_test")
         testContext = object : ContextWrapper(null) {
@@ -79,10 +78,10 @@ class PlayerViewModelTest {
         testScope = CoroutineScope(SupervisorJob() + testDispatcher)
         val settingsFile = File(filesDir, "user_settings.json")
         val dataStore = UserSettingsDataStoreFactory.createForFile(settingsFile, testScope)
-        settingsRepo = SettingsRepository(dataStore)
+        settingsRepo = DefaultSettingsRepository(dataStore)
 
         val fakeHistoryDao = FakePlaybackHistoryDao()
-        historyRepo = PlaybackHistoryRepository(fakeHistoryDao, testScope)
+        historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
         playlistManager = PlaylistManager()
         val fakeSubtitleRepo = object : SubtitleRepository {
             override suspend fun findCompanionSubtitles(videoUri: android.net.Uri, videoDisplayName: String?): List<String> = emptyList()
@@ -93,15 +92,36 @@ class PlayerViewModelTest {
             settingsRepository = settingsRepo,
             historyRepository = historyRepo,
             playlistManager = playlistManager,
-            subtitleRepository = fakeSubtitleRepo
+            subtitleRepository = fakeSubtitleRepo,
+            uriParser = UriParser { TestUri(it) }
         )
     }
 
     @After
     fun tearDown() {
         viewModel.onCleared()
+        // The engine owns its own scope and audio-focus callbacks; leaving them alive makes the
+        // next test inherit their dispatches after Main has been reset.
+        engine.release()
+        // DataStore/Room collectors live on this scope; cancelling it before resetMain keeps a
+        // straggler from touching Dispatchers.Main after the rule has torn it down.
+        testScope.cancel()
         Dispatchers.resetMain()
-        AndroidUriParser.parser = { str -> android.net.Uri.parse(str) }
+    }
+
+    /**
+     * Room writes are fire-and-forget on the repository scope, so the row only becomes visible once
+     * that coroutine runs. Virtual time makes the wait deterministic instead of wall-clock bound.
+     */
+    private suspend fun TestScope.awaitProgress(uri: android.net.Uri): PlaybackProgress? {
+        repeat(100) {
+            runCurrent()
+            historyRepo.getProgress(uri)?.let { return it }
+            // Virtual time alone is not enough: part of the engine -> ViewModel -> repository chain
+            // resumes on real dispatchers, so give those threads a slice before pumping again.
+            withContext(Dispatchers.Default) { delay(2) }
+        }
+        return null
     }
 
     @Test
@@ -146,9 +166,11 @@ class PlayerViewModelTest {
         assertEquals(30_000L, progress?.positionMs)
         assertEquals(120_000L, progress?.durationMs)
 
-        // Pause to stop the periodic loop
+        // Pause to stop the periodic loop, then cancel the scope: an unbounded delay loop keeps
+        // runTest's final advanceUntilIdle spinning in virtual time forever.
         fakeBridge.emitPropertyFlag("pause", true)
         testScheduler.runCurrent()
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
@@ -167,9 +189,10 @@ class PlayerViewModelTest {
         fakeBridge.emitPropertyFlag("pause", true)
         testScheduler.runCurrent()
 
-        val progress = historyRepo.getProgress(uri)
+        val progress = awaitProgress(uri)
         assertNotNull(progress)
         assertEquals(45_000L, progress?.positionMs)
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
@@ -187,13 +210,7 @@ class PlayerViewModelTest {
 
         // Writes go to Room on the repository scope and come back through the DAO flow, so the
         // value is observable one scheduler pass later, not synchronously.
-        var progress = historyRepo.getProgress(uri)
-        for (i in 0 until 50) {
-            testScheduler.runCurrent()
-            progress = historyRepo.getProgress(uri)
-            if (progress != null) break
-            Thread.sleep(10)
-        }
+        val progress = awaitProgress(uri)
         assertNotNull(progress)
         assertEquals(45_000L, progress?.positionMs)
         assertEquals(200_000L, progress?.durationMs)
@@ -216,13 +233,7 @@ class PlayerViewModelTest {
         viewModel.openUri(uri2)
         testScheduler.runCurrent()
 
-        var progress1 = historyRepo.getProgress(uri1)
-        for (i in 0 until 50) {
-            testScheduler.runCurrent()
-            progress1 = historyRepo.getProgress(uri1)
-            if (progress1 != null) break
-            Thread.sleep(10)
-        }
+        val progress1 = awaitProgress(uri1)
         assertNotNull(progress1)
         assertEquals(50_000L, progress1?.positionMs)
         assertEquals(100_000L, progress1?.durationMs)
@@ -252,11 +263,7 @@ class PlayerViewModelTest {
         // Save progress at 35 seconds; wait for it to surface through the DAO flow before the
         // resume path reads it.
         historyRepo.saveProgress(uri, 35_000L, 100_000L)
-        for (i in 0 until 50) {
-            testScheduler.runCurrent()
-            if (historyRepo.getProgress(uri) != null) break
-            Thread.sleep(10)
-        }
+        awaitProgress(uri)
 
         val surface = android.view.Surface(android.graphics.SurfaceTexture(0))
         engine.attachSurface(surface)
@@ -266,12 +273,11 @@ class PlayerViewModelTest {
 
         // Wait for IO path resolution and pump testScheduler for withContext(Dispatchers.Main)
         var loadCmd: List<String>? = null
-        for (i in 0 until 50) {
-            testScheduler.runCurrent()
+        repeat(200) {
+            runCurrent()
             loadCmd = fakeBridge.commands.find { it.firstOrNull() == "loadfile" }
-            if (loadCmd != null) break
-            Thread.sleep(20)
-            testScheduler.runCurrent()
+            if (loadCmd != null) return@repeat
+            delay(5)
         }
 
         assertNotNull("Expected loadfile command to be dispatched", loadCmd)

@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -37,18 +36,20 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
+import androidx.core.content.IntentCompat
+import androidx.core.net.toUri
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.MpvConfigRepository
-import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.engine.playlist.PlaylistManager
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.player.service.PlaybackService
 import dev.gyro.feature.home.HomeScreen
 import dev.gyro.feature.home.HomeViewModel
 import dev.gyro.feature.player.PlayerScreen
 import dev.gyro.feature.player.PlayerViewModel
-import dev.gyro.feature.player.buildPipParams
 import dev.gyro.feature.settings.SettingsScreen
 import dev.gyro.feature.settings.SettingsViewModel
 import dev.gyro.feature.settings.folders.FolderManagementScreen
@@ -83,14 +84,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // Extend completely into display cutout (camera hole) in both portrait and landscape
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window.attributes.layoutInDisplayCutoutMode =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-        }
+        window.attributes.layoutInDisplayCutoutMode =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
 
         // Keep screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -141,7 +140,7 @@ class MainActivity : ComponentActivity() {
                     ),
                     onBack = {
                         if (backStack.size > 1) {
-                            val popped = backStack.removeLast()
+                            val popped = backStack.removeAt(backStack.lastIndex)
                             if (popped is Screen.Player) {
                                 playerEngine.pause()
                                 playerEngine.abandonAudioFocus()
@@ -218,7 +217,7 @@ class MainActivity : ComponentActivity() {
                                     val idx = currentList.indexOfFirst { it.uriString == item.uriString }
                                     playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
                                     playerEngine.notifyScreenEntry()
-                                    val itemAndroidUri = Uri.parse(item.uriString)
+                                    val itemAndroidUri = item.uriString.toUri()
                                     backStack.add(Screen.Player(itemAndroidUri))
                                     playerViewModel.openUri(itemAndroidUri)
                                 },
@@ -243,7 +242,7 @@ class MainActivity : ComponentActivity() {
                                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                     }
                                     incomingIntentUri.value = null
-                                    backStack.removeLast()
+                                    backStack.removeAt(backStack.lastIndex)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
@@ -255,7 +254,7 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 viewModel = settingsViewModel,
                                 onBack = {
-                                    backStack.removeLast()
+                                    backStack.removeAt(backStack.lastIndex)
                                 },
                                 onOpenFolderManagement = {
                                     backStack.add(Screen.FolderManagement)
@@ -273,7 +272,7 @@ class MainActivity : ComponentActivity() {
                             FolderManagementScreen(
                                 viewModel = hiltViewModel(),
                                 onBack = {
-                                    backStack.removeLast()
+                                    backStack.removeAt(backStack.lastIndex)
                                     homeViewModel.refreshVideos()
                                 },
                                 modifier = Modifier.fillMaxSize()
@@ -282,7 +281,7 @@ class MainActivity : ComponentActivity() {
                         entry<Screen.MpvConfigEditor> {
                             MpvConfigEditorScreen(
                                 onBack = {
-                                    backStack.removeLast()
+                                    backStack.removeAt(backStack.lastIndex)
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -290,7 +289,7 @@ class MainActivity : ComponentActivity() {
                         entry<Screen.GestureSettings> {
                             GestureSettingsScreen(
                                 onBack = {
-                                    backStack.removeLast()
+                                    backStack.removeAt(backStack.lastIndex)
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -309,22 +308,13 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: android.content.Intent?) {
         if (intent == null) return
-        val uri: android.net.Uri? = when (intent.action) {
+        val uri: Uri? = when (intent.action) {
             android.content.Intent.ACTION_SEND -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
-                } ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+                IntentCompat.getParcelableExtra(intent, android.content.Intent.EXTRA_STREAM, Uri::class.java)
+                    ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
             }
             android.content.Intent.ACTION_SEND_MULTIPLE -> {
-                val list = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM)
-                }
+                val list = IntentCompat.getParcelableArrayListExtra(intent, android.content.Intent.EXTRA_STREAM, Uri::class.java)
                 list?.firstOrNull() ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
             }
             else -> {
@@ -332,34 +322,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        android.util.Log.i("MainActivity", "handleIntent: action=${intent.action}, uri=$uri")
+        Log.i("MainActivity", "handleIntent: action=${intent.action}, uri=$uri")
         uri?.let {
             incomingIntentUri.value = it
-        }
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        // On Android 12+, autoEnterEnabled on PictureInPictureParams handles home gesture automatically.
-        // For Android 8.0 - 11 (API 26-30), manually trigger enterPictureInPictureMode.
-        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R && playerEngine.isPlaying.value) {
-            val videoAspect = playerEngine.videoAspect.value
-            val dims = playerEngine.videoDimensions.value
-            val rawRatio = when {
-                videoAspect > 0f -> videoAspect
-                dims.width > 0 && dims.height > 0 -> dims.aspectRatio
-                else -> 16f / 9f
-            }.coerceIn(0.42f, 2.38f)
-            val ratio = Rational((rawRatio * 1000).toInt(), 1000)
-
-            val params = buildPipParams(
-                context = this,
-                isPlaying = true,
-                aspectRatio = ratio,
-                sourceRect = null,
-                autoEnter = true
-            )
-            enterPictureInPictureMode(params)
         }
     }
 
@@ -372,8 +337,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
-        if (!inPip && ::playerEngine.isInitialized && playerEngine.isPlaying.value) {
+        if (!isInPictureInPictureMode && ::playerEngine.isInitialized && playerEngine.isPlaying.value) {
             // Detach video surface for headless EGL_NO_SURFACE operation in background
             playerEngine.detachSurface()
             // Launch foreground service for background audio playback

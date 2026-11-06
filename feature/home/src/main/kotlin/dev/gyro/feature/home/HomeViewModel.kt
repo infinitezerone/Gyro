@@ -3,6 +3,7 @@ package dev.gyro.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.gyro.core.data.repository.CustomFolderRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.model.PlaybackProgress
@@ -37,6 +38,7 @@ private data class FilterState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val customFolderRepository: CustomFolderRepository,
     val historyRepository: PlaybackHistoryRepository
 ) : ViewModel() {
 
@@ -115,9 +117,10 @@ class HomeViewModel @Inject constructor(
     }
 
     fun addCustomFolder(treeUri: android.net.Uri) {
-        val success = repository.addCustomFolder(treeUri)
-        if (success) {
-            refreshVideos()
+        viewModelScope.launch {
+            if (customFolderRepository.addFolder(treeUri)) {
+                refreshVideos()
+            }
         }
     }
 }

@@ -8,7 +8,6 @@ import android.provider.MediaStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
-import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -16,14 +15,16 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * Interface contract for accessing local video media and custom folder sources.
+ * Interface contract for accessing local video media.
+ *
+ * Aggregates videos discovered from the system [MediaStore] and user-granted custom SAF folders.
+ * All functions are main-safe.
  */
 interface MediaRepository {
+    /**
+     * Retrieves all accessible videos sorted by modification date descending.
+     */
     suspend fun getVideos(): List<VideoMediaItem>
-    fun addCustomFolder(treeUri: Uri): Boolean
-    fun removeCustomFolder(treeUri: Uri)
-    fun getCustomFolders(): Set<Uri>
-    suspend fun getCustomFolderDetails(): List<CustomFolderDetail>
 }
 
 class DefaultMediaRepository @Inject constructor(
@@ -124,21 +125,5 @@ class DefaultMediaRepository @Inject constructor(
         }
 
         videoList
-    }
-
-    override fun addCustomFolder(treeUri: Uri): Boolean {
-        return customFolderRepository.addFolder(treeUri)
-    }
-
-    override fun removeCustomFolder(treeUri: Uri) {
-        customFolderRepository.removeFolder(treeUri)
-    }
-
-    override fun getCustomFolders(): Set<Uri> {
-        return customFolderRepository.getSavedFolderUris()
-    }
-
-    override suspend fun getCustomFolderDetails(): List<CustomFolderDetail> {
-        return customFolderRepository.getFolderDetails()
     }
 }

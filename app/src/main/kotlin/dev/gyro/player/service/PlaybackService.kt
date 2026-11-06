@@ -1,4 +1,4 @@
-package dev.gyro.player
+package dev.gyro.player.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -13,10 +13,13 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.KeyEvent
+import androidx.core.content.IntentCompat
 import dagger.hilt.android.AndroidEntryPoint
-import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.session.MediaSessionManager
+import dev.gyro.player.MainActivity
 import javax.inject.Inject
 
 /**
@@ -94,12 +97,20 @@ class PlaybackService : Service() {
         setupMediaSessionManager(engine, playlistManager)
     }
 
-    fun setupMediaSessionManager(engine: GyroPlayerEngine, playlistManager: PlaylistManager?) {
+    fun setupMediaSessionManager(engine: GyroPlayerEngine, playlistManager: PlaylistManager) {
         mediaSessionManager?.release()
+        val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(this, PlaybackService::class.java)
+        val buttonPendingIntent = PendingIntent.getService(
+            this,
+            0,
+            buttonIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         mediaSessionManager = MediaSessionManager(
             context = this,
             engine = engine,
-            playlistManager = playlistManager
+            playlistManager = playlistManager,
+            mediaButtonReceiver = buttonPendingIntent
         ).apply {
             onPlaybackStateChanged = { _ ->
                 updateNotification()
@@ -137,12 +148,7 @@ class PlaybackService : Service() {
                 return START_NOT_STICKY
             }
             Intent.ACTION_MEDIA_BUTTON -> {
-                val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
-                }
+                val keyEvent = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
                 if (keyEvent != null) {
                     mediaSessionManager?.handleKeyEvent(keyEvent)
                 }

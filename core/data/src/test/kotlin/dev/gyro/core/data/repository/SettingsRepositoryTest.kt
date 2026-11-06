@@ -39,7 +39,7 @@ class SettingsRepositoryTest {
         UserSettingsDataStoreFactory.createForFile(File(tempFolder.root, "$name.json"), scope)
 
     private fun newRepo(store: DataStore<UserSettings>, scope: CoroutineScope): SettingsRepository =
-        SettingsRepository(store)
+        DefaultSettingsRepository(store)
 
     /** The repository loads asynchronously; every read of persisted state has to wait for it. */
     private suspend fun SettingsRepository.awaitSettings(
@@ -180,9 +180,7 @@ class SettingsRepositoryTest {
         val scope = newScope()
         try {
             val repo = newRepo(newStore(scope, "reset"), scope)
-            repo.setGestureLocked(true)
-            repo.setGestureLongPressSpeed(3f)
-
+            repo.updateGestureConfig { it.copy(isLocked = true, longPressSpeed = 3f) }
             repo.resetGestureConfigToDefault()
 
             val gesture = repo.awaitSettings { it.gestureConfig == PlayerGestureConfig() }.gestureConfig

@@ -37,19 +37,19 @@ class GestureSettingsViewModel @Inject constructor(
 
     fun setVolumeGestureEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureVolumeEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isVolumeEnabled = enabled) }
         }
     }
 
     fun setBrightnessGestureEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureBrightnessEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isBrightnessEnabled = enabled) }
         }
     }
 
     fun setInvertSwipeDirections(inverted: Boolean) {
         viewModelScope.launch {
-            repository.setGestureSwapVolumeBrightness(inverted)
+            repository.updateGestureConfig { it.copy(swapVolumeAndBrightness = inverted) }
         }
     }
 
@@ -57,19 +57,19 @@ class GestureSettingsViewModel @Inject constructor(
 
     fun setSeekGestureEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureSeekEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isSeekEnabled = enabled) }
         }
     }
 
     fun setDoubleTapSeekEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureDoubleTapSeekEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isDoubleTapSeekEnabled = enabled) }
         }
     }
 
     fun setDoubleTapSeekSeconds(seconds: Int) {
         viewModelScope.launch {
-            repository.setGestureDoubleTapSeekSeconds(seconds)
+            repository.setSeekStepSeconds(seconds)
         }
     }
 
@@ -77,19 +77,19 @@ class GestureSettingsViewModel @Inject constructor(
 
     fun setDoubleTapPlayPauseEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureDoubleTapPlayPauseEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isDoubleTapPlayPauseEnabled = enabled) }
         }
     }
 
     fun setLongPressSpeedEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureLongPressSpeedEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isLongPressSpeedEnabled = enabled) }
         }
     }
 
     fun setLongPressSpeedMultiplier(multiplier: Float) {
         viewModelScope.launch {
-            repository.setGestureLongPressSpeed(multiplier)
+            repository.updateGestureConfig { it.copy(longPressSpeed = multiplier) }
         }
     }
 
@@ -97,7 +97,7 @@ class GestureSettingsViewModel @Inject constructor(
 
     fun setPinchZoomEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.setGestureZoomEnabled(enabled)
+            repository.updateGestureConfig { it.copy(isZoomEnabled = enabled) }
         }
     }
 

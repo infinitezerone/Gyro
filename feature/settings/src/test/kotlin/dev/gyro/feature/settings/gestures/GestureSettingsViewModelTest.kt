@@ -1,5 +1,6 @@
 package dev.gyro.feature.settings.gestures
 
+import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.PlayerGestureConfig
@@ -7,28 +8,22 @@ import dev.gyro.core.model.UserSettings
 import dev.gyro.core.testing.util.MainDispatcherRule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 
-@OptIn(ExperimentalCoroutinesApi::class)
-@Ignore(
-    "Written against the old StateFlow-cached repository. SettingsRepository now exposes a cold " +
-        "Flow read from DataStore, so these assertions need to collect instead of sampling .value. " +
-        "Rewrite tracked separately; core:data covers the repository behaviour itself."
-)
+/**
+ * The repository exposes a cold Flow over DataStore, so nothing here can sample `.value` or pump a
+ * virtual clock: every assertion waits for the emission it depends on, on real dispatchers.
+ */
 class GestureSettingsViewModelTest {
 
     @get:Rule
@@ -47,9 +42,9 @@ class GestureSettingsViewModelTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scopes += scope
         val store = UserSettingsDataStoreFactory.createInMemory(initial, scope)
-        val repo = SettingsRepository(store)
-        // The repository mirrors DataStore through stateIn, so the seeded value has to be
-        // observable before the ViewModel snapshots it.
+        val repo = DefaultSettingsRepository(store)
+        // Seed before the ViewModel starts collecting, so the first state it publishes is the
+        // value under test rather than the default.
         runBlocking {
             repo.updateSettings { initial }
             repo.settings.first { it == initial }
@@ -57,14 +52,17 @@ class GestureSettingsViewModelTest {
         return Pair(GestureSettingsViewModel(repo), repo)
     }
 
-    /**
-     * Writes travel through DataStore, so `advanceUntilIdle` cannot observe them: the test has to
-     * wait for the flow instead of for the scheduler.
-     */
-    private suspend fun awaitGesture(repo: SettingsRepository, expected: (PlayerGestureConfig) -> Boolean) {
-        // Real time and a real dispatcher: the repository flow reads DataStore, which runTest's
-        // virtual clock cannot advance.
-        withContext(Dispatchers.Default) {
+    private fun currentSettings(repo: SettingsRepository): UserSettings =
+        runBlocking { repo.settings.first() }
+
+    /** Waits until both the ViewModel state and the repository agree on [expected]. */
+    private fun awaitGesture(
+        vm: GestureSettingsViewModel,
+        repo: SettingsRepository,
+        expected: (PlayerGestureConfig) -> Boolean
+    ) {
+        runBlocking {
+            withTimeout(3_000) { vm.gestureConfig.first(expected) }
             withTimeout(3_000) { repo.settings.first { expected(it.gestureConfig) } }
         }
     }
@@ -89,9 +87,8 @@ class GestureSettingsViewModelTest {
     }
 
     @Test
-    @Ignore("Repository exposes a cold Flow now; these assert through a StateFlow cache that no longer exists. Rewriting against the Flow is tracked separately.")
-    fun testInitialLoadExposesCustomPreferences() = runTest {
-        val (vm, _) = createViewModel(
+    fun testInitialLoadExposesCustomPreferences() {
+        val (vm, repo) = createViewModel(
             UserSettings(
                 seekStepSeconds = 15,
                 gestureConfig = PlayerGestureConfig(
@@ -102,8 +99,9 @@ class GestureSettingsViewModelTest {
                 )
             )
         )
-        val config = vm.gestureConfig.value
+        awaitGesture(vm, repo) { it.doubleTapSeekSeconds == 15 && !it.isVolumeEnabled }
 
+        val config = vm.gestureConfig.value
         assertFalse(config.isVolumeEnabled)
         assertTrue(config.swapVolumeAndBrightness)
         assertEquals(15, config.doubleTapSeekSeconds)
@@ -111,88 +109,75 @@ class GestureSettingsViewModelTest {
     }
 
     @Test
-    fun testVerticalGestureToggles() = runTest {
+    fun testVerticalGestureToggles() {
         val (vm, repo) = createViewModel()
 
         vm.setVolumeGestureEnabled(false)
-        awaitGesture(repo) { !it.isVolumeEnabled }
-        assertFalse(vm.gestureConfig.value.isVolumeEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isVolumeEnabled)
+        awaitGesture(vm, repo) { !it.isVolumeEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isVolumeEnabled)
 
         vm.setBrightnessGestureEnabled(false)
-        awaitGesture(repo) { !it.isBrightnessEnabled }
-        assertFalse(vm.gestureConfig.value.isBrightnessEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isBrightnessEnabled)
+        awaitGesture(vm, repo) { !it.isBrightnessEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isBrightnessEnabled)
 
         vm.setInvertSwipeDirections(true)
-        awaitGesture(repo) { it.swapVolumeAndBrightness }
-        assertTrue(vm.gestureConfig.value.swapVolumeAndBrightness)
-        assertTrue(repo.settings.first().gestureConfig.swapVolumeAndBrightness)
+        awaitGesture(vm, repo) { it.swapVolumeAndBrightness }
+        assertTrue(currentSettings(repo).gestureConfig.swapVolumeAndBrightness)
     }
 
     @Test
-    @Ignore("Repository exposes a cold Flow now; these assert through a StateFlow cache that no longer exists. Rewriting against the Flow is tracked separately.")
-    fun testHorizontalAndSeekingGestures() = runTest {
+    fun testHorizontalAndSeekingGestures() {
         val (vm, repo) = createViewModel()
 
         vm.setSeekGestureEnabled(false)
-        awaitGesture(repo) { !it.isSeekEnabled }
-        assertFalse(vm.gestureConfig.value.isSeekEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isSeekEnabled)
+        awaitGesture(vm, repo) { !it.isSeekEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isSeekEnabled)
 
         vm.setDoubleTapSeekEnabled(false)
-        awaitGesture(repo) { !it.isDoubleTapSeekEnabled }
-        assertFalse(vm.gestureConfig.value.isDoubleTapSeekEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isDoubleTapSeekEnabled)
+        awaitGesture(vm, repo) { !it.isDoubleTapSeekEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isDoubleTapSeekEnabled)
 
-        // Verifies synchronization between double tap seek seconds and seekStepSeconds
+        // doubleTapSeekSeconds and seekStepSeconds are kept in sync by the repository.
         vm.setDoubleTapSeekSeconds(30)
-        awaitGesture(repo) { it.doubleTapSeekSeconds == 30 }
+        awaitGesture(vm, repo) { it.doubleTapSeekSeconds == 30 }
         assertEquals(30, vm.gestureConfig.value.doubleTapSeekSeconds)
-        assertEquals(30, repo.settings.first().seekStepSeconds)
+        assertEquals(30, currentSettings(repo).seekStepSeconds)
     }
 
     @Test
-    @Ignore("Repository exposes a cold Flow now; these assert through a StateFlow cache that no longer exists. Rewriting against the Flow is tracked separately.")
-    fun testPlaybackAndAdvancedControls() = runTest {
+    fun testPlaybackAndAdvancedControls() {
         val (vm, repo) = createViewModel()
 
         vm.setDoubleTapPlayPauseEnabled(false)
-        awaitGesture(repo) { !it.isDoubleTapPlayPauseEnabled }
-        assertFalse(vm.gestureConfig.value.isDoubleTapPlayPauseEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isDoubleTapPlayPauseEnabled)
+        awaitGesture(vm, repo) { !it.isDoubleTapPlayPauseEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isDoubleTapPlayPauseEnabled)
 
         vm.setLongPressSpeedEnabled(false)
-        awaitGesture(repo) { !it.isLongPressSpeedEnabled }
-        assertFalse(vm.gestureConfig.value.isLongPressSpeedEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isLongPressSpeedEnabled)
+        awaitGesture(vm, repo) { !it.isLongPressSpeedEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isLongPressSpeedEnabled)
 
         vm.setLongPressSpeedMultiplier(3.0f)
-        awaitGesture(repo) { it.longPressSpeed == 3.0f }
-        assertEquals(3.0f, vm.gestureConfig.value.longPressSpeed, 0.001f)
-        assertEquals(3.0f, repo.settings.first().gestureConfig.longPressSpeed, 0.001f)
+        awaitGesture(vm, repo) { it.longPressSpeed == 3.0f }
+        assertEquals(3.0f, currentSettings(repo).gestureConfig.longPressSpeed, 0.001f)
 
         vm.setPinchZoomEnabled(false)
-        awaitGesture(repo) { !it.isZoomEnabled }
-        assertFalse(vm.gestureConfig.value.isZoomEnabled)
-        assertFalse(repo.settings.first().gestureConfig.isZoomEnabled)
+        awaitGesture(vm, repo) { !it.isZoomEnabled }
+        assertFalse(currentSettings(repo).gestureConfig.isZoomEnabled)
     }
 
     @Test
-    fun testResetToDefault() = runTest {
+    fun testResetToDefault() {
         val (vm, repo) = createViewModel()
 
         vm.setVolumeGestureEnabled(false)
-        vm.setInvertSwipeDirections(true)
+        awaitGesture(vm, repo) { !it.isVolumeEnabled }
         vm.setDoubleTapSeekSeconds(30)
-        vm.setLongPressSpeedMultiplier(1.5f)
-        awaitGesture(repo) { it.longPressSpeed == 1.5f }
+        awaitGesture(vm, repo) { it.doubleTapSeekSeconds == 30 }
 
         vm.resetToDefault()
-        awaitGesture(repo) { it == PlayerGestureConfig() }
+        awaitGesture(vm, repo) { it == PlayerGestureConfig() }
 
-        val resetConfig = vm.gestureConfig.value
-        assertEquals(PlayerGestureConfig(), resetConfig)
-        assertEquals(PlayerGestureConfig(), repo.settings.first().gestureConfig)
+        assertEquals(PlayerGestureConfig(), vm.gestureConfig.value)
+        assertEquals(PlayerGestureConfig(), currentSettings(repo).gestureConfig)
     }
 }

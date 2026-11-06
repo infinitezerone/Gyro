@@ -1,7 +1,8 @@
 package dev.gyro.feature.settings.mpv
 
+import dev.gyro.core.testing.fakes.FakeContext
+import dev.gyro.core.data.repository.DefaultMpvConfigRepository
 import dev.gyro.core.data.repository.MpvConfigRepository
-import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.MpvConfig
 import dev.gyro.core.testing.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,7 +34,7 @@ class MpvConfigEditorAdversarialTest {
     private fun createRepository(initialText: String = MpvConfig.DEFAULT_TEMPLATE): Pair<File, MpvConfigRepository> {
         val file = File(tempFolder.root, "mpv.conf")
         file.writeText(initialText, Charsets.UTF_8)
-        return file to MpvConfigRepository(file, testDispatcher)
+        return file to DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
     }
 
     private fun createViewModel(repository: MpvConfigRepository): MpvConfigEditorViewModel {
@@ -81,7 +82,7 @@ class MpvConfigEditorAdversarialTest {
 
         assertFalse(viewModel.uiState.value.isSaving)
         assertFalse(viewModel.uiState.value.isModified)
-        assertEquals(largeContent, repository.configText.value)
+        assertEquals(largeContent, repository.loadConfig())
 
         val parseDuration = measureTimeMillis {
             val options = repository.getParsedOptions()
@@ -115,7 +116,7 @@ class MpvConfigEditorAdversarialTest {
         viewModel.saveConfig()
         advanceUntilIdle()
 
-        assertEquals(mbContent, repository.configText.value)
+        assertEquals(mbContent, repository.loadConfig())
         val parsed = repository.getParsedOptions()
         assertEquals("104857600", parsed["demuxer-max-bytes"])
         assertEquals("Noto Sans CJK SC", parsed["sub-font"])
@@ -146,7 +147,7 @@ class MpvConfigEditorAdversarialTest {
         viewModel.saveConfig()
         advanceUntilIdle()
 
-        val saved = repository.configText.value
+        val saved = repository.loadConfig()
         assertEquals(specialConfig, saved)
 
         val options = repository.getParsedOptions()
@@ -269,10 +270,11 @@ class MpvConfigEditorAdversarialTest {
 
     @Test
     fun testConcurrentEditsWhileSaveInFlight_dirtyStateIntegrity() = runTest(testDispatcher) {
-        val file = File(tempFolder.root, "mpv_race1.conf")
+        val raceDir = tempFolder.newFolder("race1")
+        val file = File(raceDir, "mpv.conf")
         file.writeText("initial=1", Charsets.UTF_8)
         val controllableIo = ControllableDispatcher()
-        val repository = MpvConfigRepository(file, controllableIo)
+        val repository = DefaultMpvConfigRepository(FakeContext(raceDir), controllableIo)
         val viewModel = createViewModel(repository)
 
         // User edits text to version 1
@@ -298,7 +300,7 @@ class MpvConfigEditorAdversarialTest {
 
         // Empirical Observation:
         // What was persisted to repository?
-        assertEquals("version=1", repository.configText.value)
+        assertEquals("version=1", repository.loadConfig())
         // What is currently in the editor?
         assertEquals("version=1\nunsaved_mutation=2", state.content)
 
@@ -311,10 +313,11 @@ class MpvConfigEditorAdversarialTest {
 
     @Test
     fun testCallingResetToDefaultWhileSaveInFlight() = runTest(testDispatcher) {
-        val file = File(tempFolder.root, "mpv_race2.conf")
+        val raceDir = tempFolder.newFolder("race2")
+        val file = File(raceDir, "mpv.conf")
         file.writeText("custom=old", Charsets.UTF_8)
         val controllableIo = ControllableDispatcher()
-        val repository = MpvConfigRepository(file, controllableIo)
+        val repository = DefaultMpvConfigRepository(FakeContext(raceDir), controllableIo)
         val viewModel = createViewModel(repository)
 
         viewModel.updateContent("custom=new_save")
@@ -333,9 +336,9 @@ class MpvConfigEditorAdversarialTest {
         val state = viewModel.uiState.value
         assertFalse(state.isSaving)
         println("Final content after race: '${state.content}'")
-        println("Final repo after race: '${repository.configText.value}'")
+        println("Final repo after race: '${repository.loadConfig()}'")
         // Check that repository and editor end up in a clean, consistent state
-        assertEquals(repository.configText.value, state.content)
+        assertEquals(repository.loadConfig(), state.content)
         assertFalse(state.isModified)
     }
 
@@ -355,7 +358,7 @@ class MpvConfigEditorAdversarialTest {
         assertFalse(state.isSaving)
         assertFalse(state.isModified)
         assertEquals("step_20=value_20", state.content)
-        assertEquals("step_20=value_20", repository.configText.value)
+        assertEquals("step_20=value_20", repository.loadConfig())
     }
 
     // =========================================================================
@@ -365,8 +368,8 @@ class MpvConfigEditorAdversarialTest {
     @Test
     fun testSimulatedDiskFailure_gracefulHandlingAndDirtyRetention() = runTest(testDispatcher) {
         // Create repository pointing to a directory path instead of a file so writeText fails
-        val faultDir = tempFolder.newFolder("fault_dir")
-        val repoWithFault = MpvConfigRepository(faultDir, testDispatcher)
+        val notADir = tempFolder.newFile("not_a_dir")
+        val repoWithFault = DefaultMpvConfigRepository(FakeContext(notADir), testDispatcher)
         val viewModel = createViewModel(repoWithFault)
 
         viewModel.updateContent("critical_setting=1")

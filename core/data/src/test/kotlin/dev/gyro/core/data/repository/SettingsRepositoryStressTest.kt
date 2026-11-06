@@ -40,7 +40,7 @@ class SettingsRepositoryStressTest {
         UserSettingsDataStoreFactory.createForFile(File(tempFolder.root, "$name.json"), scope)
 
     private fun newRepo(store: DataStore<UserSettings>, scope: CoroutineScope): SettingsRepository =
-        SettingsRepository(store)
+        DefaultSettingsRepository(store)
 
     @Test
     fun allGestureSettingsSurviveRepositoryRecreation() = runBlocking {
@@ -88,7 +88,7 @@ class SettingsRepositoryStressTest {
             assertEquals(25, afterSeek.seekStepSeconds)
             assertEquals(25, afterSeek.gestureConfig.doubleTapSeekSeconds)
 
-            repo.setGestureDoubleTapSeekSeconds(45)
+            repo.setSeekStepSeconds(45)
             val afterDoubleTap = withTimeout(3_000) { repo.settings.first { it.seekStepSeconds == 45 } }
             assertEquals(45, afterDoubleTap.seekStepSeconds)
             assertEquals(45, afterDoubleTap.gestureConfig.doubleTapSeekSeconds)
@@ -104,14 +104,14 @@ class SettingsRepositoryStressTest {
             val repo = newRepo(newStore(scope, "concurrent"), scope)
 
             val jobs = listOf(
-                launch { repo.setGestureVolumeEnabled(false) },
-                launch { repo.setGestureBrightnessEnabled(false) },
-                launch { repo.setGestureSeekEnabled(false) },
-                launch { repo.setGestureZoomEnabled(false) },
-                launch { repo.setGestureDoubleTapSeekEnabled(false) },
-                launch { repo.setGestureDoubleTapPlayPauseEnabled(false) },
-                launch { repo.setGestureLongPressSpeedEnabled(false) },
-                launch { repo.setGestureSwapVolumeBrightness(true) },
+                launch { repo.updateGestureConfig { it.copy(isVolumeEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(isBrightnessEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(isSeekEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(isZoomEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(isDoubleTapSeekEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(isDoubleTapPlayPauseEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(isLongPressSpeedEnabled = false) } },
+                launch { repo.updateGestureConfig { it.copy(swapVolumeAndBrightness = true) } },
             )
             jobs.joinAll()
 
@@ -147,7 +147,7 @@ class SettingsRepositoryStressTest {
             val repo = newRepo(newStore(scope, "repeated"), scope)
 
             val jobs = (0 until 50).map {
-                launch { repo.setGestureVolumeEnabled(false) }
+                launch { repo.updateGestureConfig { it.copy(isVolumeEnabled = false) } }
             }
             jobs.joinAll()
 
@@ -184,7 +184,7 @@ class SettingsRepositoryStressTest {
             val repo = newRepo(newStore(scope, "speed_boundary"), scope)
 
             for (value in listOf(0.25f, 10f)) {
-                repo.setGestureLongPressSpeed(value)
+                repo.updateGestureConfig { it.copy(longPressSpeed = value) }
                 val loaded = withTimeout(3_000) {
                     repo.settings.first { it.gestureConfig.longPressSpeed == value }
                 }
@@ -202,7 +202,7 @@ class SettingsRepositoryStressTest {
             val repo = newRepo(newStore(scope, "repeated_reset"), scope)
 
             repeat(20) {
-                repo.setGestureLocked(true)
+                repo.updateGestureConfig { it.copy(isLocked = true) }
                 repo.resetGestureConfigToDefault()
             }
 

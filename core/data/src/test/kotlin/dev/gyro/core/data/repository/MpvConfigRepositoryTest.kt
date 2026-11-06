@@ -1,5 +1,6 @@
 package dev.gyro.core.data.repository
 
+import dev.gyro.core.testing.fakes.FakeContext
 import dev.gyro.core.model.MpvConfig
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -20,14 +21,15 @@ class MpvConfigRepositoryTest {
     private val testDispatcher = StandardTestDispatcher()
 
     @Test
-    fun testCreationCreatesDefaultTemplateWhenFileMissing() {
+    fun testCreationCreatesDefaultTemplateWhenFileMissing() = runTest(testDispatcher) {
         val configFile = File(tempFolder.root, "mpv.conf")
         assertTrue("Precondition: file must not exist", !configFile.exists())
 
-        val repository = MpvConfigRepository(configFile, testDispatcher)
+        val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
 
+        val loaded = repository.loadConfig()
         assertTrue("File should be created on disk", configFile.exists())
-        assertEquals(MpvConfig.DEFAULT_TEMPLATE, repository.configText.value)
+        assertEquals(MpvConfig.DEFAULT_TEMPLATE, loaded)
         assertEquals(MpvConfig.DEFAULT_TEMPLATE, configFile.readText(Charsets.UTF_8))
 
         val options = repository.getParsedOptions()
@@ -36,14 +38,14 @@ class MpvConfigRepositoryTest {
     }
 
     @Test
-    fun testLoadsExistingCustomConfigWithoutOverwriting() {
+    fun testLoadsExistingCustomConfigWithoutOverwriting() = runTest(testDispatcher) {
         val configFile = File(tempFolder.root, "mpv.conf")
         val customText = "hwdec=mediacodec\ndeband\nspeed=1.5\n"
         configFile.writeText(customText, Charsets.UTF_8)
 
-        val repository = MpvConfigRepository(configFile, testDispatcher)
+        val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
 
-        assertEquals(customText, repository.configText.value)
+        assertEquals(customText, repository.loadConfig())
         val options = repository.getParsedOptions()
         assertEquals("mediacodec", options["hwdec"])
         assertEquals("yes", options["deband"])
@@ -51,14 +53,14 @@ class MpvConfigRepositoryTest {
     }
 
     @Test
-    fun testSaveConfigUpdatesDiskAndStateFlow() = runTest(testDispatcher) {
+    fun testSaveConfigUpdatesDisk() = runTest(testDispatcher) {
         val configFile = File(tempFolder.root, "mpv.conf")
-        val repository = MpvConfigRepository(configFile, testDispatcher)
+        val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
 
         val newContent = "scale=ewa_lanczos\nblend-subtitles=yes\n"
         repository.saveConfig(newContent)
 
-        assertEquals(newContent, repository.configText.value)
+        assertEquals(newContent, repository.loadConfig())
         assertEquals(newContent, configFile.readText(Charsets.UTF_8))
 
         val options = repository.getParsedOptions()
@@ -69,22 +71,16 @@ class MpvConfigRepositoryTest {
     @Test
     fun testResetToDefaultOverwritesDiskWithTemplate() = runTest(testDispatcher) {
         val configFile = File(tempFolder.root, "mpv.conf")
-        val repository = MpvConfigRepository(configFile, testDispatcher)
+        val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
 
         repository.saveConfig("arbitrary-option=123")
-        assertEquals("arbitrary-option=123", repository.configText.value)
+        assertEquals("arbitrary-option=123", repository.loadConfig())
 
-        repository.resetToDefault()
+        val resetResult = repository.resetToDefault()
 
-        assertEquals(MpvConfig.DEFAULT_TEMPLATE, repository.configText.value)
+        assertEquals(MpvConfig.DEFAULT_TEMPLATE, resetResult)
+        assertEquals(MpvConfig.DEFAULT_TEMPLATE, repository.loadConfig())
         assertEquals(MpvConfig.DEFAULT_TEMPLATE, configFile.readText(Charsets.UTF_8))
         assertEquals("libmpv", repository.getParsedOptions()["vo"])
-    }
-
-    @Test
-    fun testGetConfigFileReturnsProvidedFile() {
-        val configFile = File(tempFolder.root, "mpv.conf")
-        val repository = MpvConfigRepository(configFile, testDispatcher)
-        assertEquals(configFile.absolutePath, repository.getConfigFile().absolutePath)
     }
 }

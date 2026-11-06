@@ -1,5 +1,7 @@
 package dev.gyro.feature.settings.mpv
 
+import dev.gyro.core.testing.fakes.FakeContext
+import dev.gyro.core.data.repository.DefaultMpvConfigRepository
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.MpvConfig
@@ -32,7 +34,7 @@ class MpvConfigEditorViewModelTest {
     private fun createRepository(initialText: String = MpvConfig.DEFAULT_TEMPLATE): MpvConfigRepository {
         val file = File(tempFolder.root, "mpv.conf")
         file.writeText(initialText, Charsets.UTF_8)
-        return MpvConfigRepository(file, testDispatcher)
+        return DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
     }
 
     private fun createViewModel(repository: MpvConfigRepository): MpvConfigEditorViewModel {
@@ -40,9 +42,10 @@ class MpvConfigEditorViewModelTest {
     }
 
     @Test
-    fun testInitialState_loadsFromRepository() {
+    fun testInitialState_loadsFromRepository() = runTest(testDispatcher) {
         val repository = createRepository("vo=gpu-next\nhwdec=mediacodec\n")
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertEquals("vo=gpu-next\nhwdec=mediacodec\n", state.content)
@@ -54,9 +57,10 @@ class MpvConfigEditorViewModelTest {
     }
 
     @Test
-    fun testUpdateContent_marksModifiedAndCalculatesStats() {
+    fun testUpdateContent_marksModifiedAndCalculatesStats() = runTest(testDispatcher) {
         val repository = createRepository()
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         viewModel.updateContent("vo=gpu-next\n")
 
@@ -72,9 +76,10 @@ class MpvConfigEditorViewModelTest {
     }
 
     @Test
-    fun testInsertOption_appendsSnippetCleanly() {
+    fun testInsertOption_appendsSnippetCleanly() = runTest(testDispatcher) {
         val repository = createRepository("vo=libmpv")
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         viewModel.insertOption("deband=yes")
 
@@ -87,6 +92,7 @@ class MpvConfigEditorViewModelTest {
     fun testSaveConfig_persistsToRepositoryAndClearsModified() = runTest(testDispatcher) {
         val repository = createRepository("vo=libmpv")
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         viewModel.updateContent("vo=gpu-next\nhwdec=mediacodec")
         viewModel.saveConfig()
@@ -97,13 +103,14 @@ class MpvConfigEditorViewModelTest {
         assertFalse(state.isModified)
         assertFalse(state.isSaving)
         assertEquals(R.string.mpv_config_saved_toast, state.userMessageRes)
-        assertEquals("vo=gpu-next\nhwdec=mediacodec", repository.configText.value)
+        assertEquals("vo=gpu-next\nhwdec=mediacodec", repository.loadConfig())
     }
 
     @Test
     fun testResetToDefault_restoresTemplate() = runTest(testDispatcher) {
         val repository = createRepository("custom=123")
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         viewModel.resetToDefault()
 
@@ -113,7 +120,7 @@ class MpvConfigEditorViewModelTest {
         assertEquals(MpvConfig.DEFAULT_TEMPLATE, state.content)
         assertFalse(state.isModified)
         assertEquals(R.string.mpv_config_reset_success, state.userMessageRes)
-        assertEquals(MpvConfig.DEFAULT_TEMPLATE, repository.configText.value)
+        assertEquals(MpvConfig.DEFAULT_TEMPLATE, repository.loadConfig())
     }
 
     @Test
@@ -141,6 +148,7 @@ class MpvConfigEditorViewModelTest {
     fun testDismissMessageClearsNotification() = runTest(testDispatcher) {
         val repository = createRepository()
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         viewModel.updateContent("vo=gpu-next")
         viewModel.saveConfig()
@@ -156,6 +164,7 @@ class MpvConfigEditorViewModelTest {
     fun testSaveConfig_concurrentEditPreservesModifiedState() = runTest(testDispatcher) {
         val repository = createRepository("initial")
         val viewModel = createViewModel(repository)
+        advanceUntilIdle()
 
         viewModel.updateContent("saved_version")
         viewModel.saveConfig()
@@ -170,6 +179,6 @@ class MpvConfigEditorViewModelTest {
         assertEquals("saved_version", state.originalContent)
         assertTrue("isModified must remain true when content was modified during save", state.isModified)
         assertFalse(state.isSaving)
-        assertEquals("saved_version", repository.configText.value)
+        assertEquals("saved_version", repository.loadConfig())
     }
 }

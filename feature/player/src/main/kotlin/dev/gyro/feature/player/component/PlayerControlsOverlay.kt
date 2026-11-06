@@ -1,4 +1,6 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.component
+
+import dev.gyro.feature.player.PlayerScrubState
 
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility

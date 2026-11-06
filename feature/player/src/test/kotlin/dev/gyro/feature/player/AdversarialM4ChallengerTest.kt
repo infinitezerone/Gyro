@@ -1,6 +1,7 @@
 package dev.gyro.feature.player
 
 import dev.gyro.core.model.ChapterInfo
+import dev.gyro.feature.player.gesture.TwoStageVolumeCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

@@ -5,15 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
-import dev.gyro.core.data.repository.PlaylistManager
-import dev.gyro.core.data.repository.asAndroidUri
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
+import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
+import dev.gyro.engine.playlist.PlaylistManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +46,8 @@ class PlayerViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     val historyRepository: PlaybackHistoryRepository,
     val playlistManager: PlaylistManager,
-    private val subtitleRepository: SubtitleRepository
+    private val subtitleRepository: SubtitleRepository,
+    private val uriParser: UriParser
 ) : ViewModel() {
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
@@ -166,7 +167,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        openUri(item.asAndroidUri)
+        openUri(uriParser.parse(item.uriString))
     }
 
     fun playNext(): Boolean {

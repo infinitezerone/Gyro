@@ -4,14 +4,21 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.datastore.core.DataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
+import dev.gyro.core.datastore.di.CustomFolderUris
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import javax.inject.Inject
 
 /**
@@ -20,13 +27,17 @@ import javax.inject.Inject
  * The persisted grant survives reboots, so this repository owns the only path that may call
  * take/releasePersistableUriPermission: doing it from anywhere else silently drops the grant for
  * every other reader.
+ *
+ * Grants live in DataStore, not SharedPreferences: adding a folder is a read-modify-write, and the
+ * previous getStringSet/putStringSet pair let two concurrent adds overwrite each other.
  */
 interface CustomFolderRepository {
-    fun getSavedFolderUris(): Set<Uri>
+    /** Grants currently held. Cold: each collector reads the store, the repository caches nothing. */
+    val savedFolderUris: Flow<Set<Uri>>
 
-    fun addFolder(treeUri: Uri): Boolean
+    suspend fun addFolder(treeUri: Uri): Boolean
 
-    fun removeFolder(treeUri: Uri)
+    suspend fun removeFolder(treeUri: Uri)
 
     suspend fun getFolderDetails(): List<CustomFolderDetail>
 
@@ -35,55 +46,44 @@ interface CustomFolderRepository {
 
 class DefaultCustomFolderRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    @CustomFolderUris private val dataStore: DataStore<List<String>>,
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : CustomFolderRepository {
 
-    private val prefs = context.getSharedPreferences("gyro_custom_folders", Context.MODE_PRIVATE)
-    private val keyCustomUris = "custom_tree_uris"
+    override val savedFolderUris: Flow<Set<Uri>> = dataStore.data
+        .catch { cause -> if (cause is IOException) emit(emptyList()) else throw cause }
+        .map { stored -> stored.mapNotNull(::parseUri).toSet() }
 
-    override fun getSavedFolderUris(): Set<Uri> {
-        val strings = prefs.getStringSet(keyCustomUris, emptySet()) ?: emptySet()
-        return strings.mapNotNull {
-            try {
-                Uri.parse(it)
-            } catch (e: Exception) {
-                null
-            }
-        }.toSet()
+    override suspend fun addFolder(treeUri: Uri): Boolean {
+        val granted = runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }.isSuccess
+        if (!granted) return false
+
+        return runCatching {
+            dataStore.updateData { stored -> (stored + treeUri.toString()).distinct() }
+        }.isSuccess
     }
 
-    override fun addFolder(treeUri: Uri): Boolean {
-        return try {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(treeUri, flags)
-
-            val current = getSavedFolderUris().map { it.toString() }.toMutableSet()
-            current.add(treeUri.toString())
-            prefs.edit().putStringSet(keyCustomUris, current).apply()
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
+    override suspend fun removeFolder(treeUri: Uri) {
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
         }
-    }
-
-    override fun removeFolder(treeUri: Uri) {
-        try {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.releasePersistableUriPermission(treeUri, flags)
-        } catch (e: Exception) {
-            // ignore
+        runCatching {
+            dataStore.updateData { stored -> stored - treeUri.toString() }
         }
-        val current = getSavedFolderUris().map { it.toString() }.toMutableSet()
-        current.remove(treeUri.toString())
-        prefs.edit().putStringSet(keyCustomUris, current).apply()
     }
 
     override suspend fun getFolderDetails(): List<CustomFolderDetail> = withContext(ioDispatcher) {
         val result = mutableListOf<CustomFolderDetail>()
-        val uris = getSavedFolderUris()
 
-        for (treeUri in uris) {
+        for (treeUri in savedFolderUris.first()) {
             try {
                 val folderName = getDocDisplayName(treeUri) ?: "自定义目录"
                 val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
@@ -107,9 +107,8 @@ class DefaultCustomFolderRepository @Inject constructor(
 
     override suspend fun scanCustomFolders(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val result = mutableListOf<VideoMediaItem>()
-        val uris = getSavedFolderUris()
 
-        for (treeUri in uris) {
+        for (treeUri in savedFolderUris.first()) {
             try {
                 val folderName = getDocDisplayName(treeUri) ?: "自定义目录"
                 val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
@@ -119,6 +118,12 @@ class DefaultCustomFolderRepository @Inject constructor(
             }
         }
         result
+    }
+
+    private fun parseUri(raw: String): Uri? = try {
+        Uri.parse(raw)
+    } catch (e: Exception) {
+        null
     }
 
     private data class QueueNode(val docId: String, val folderName: String, val depth: Int)

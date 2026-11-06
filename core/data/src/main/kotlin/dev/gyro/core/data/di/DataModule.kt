@@ -9,6 +9,7 @@ import dev.gyro.core.data.repository.DefaultCustomFolderRepository
 import dev.gyro.core.data.repository.DefaultMediaRepository
 import dev.gyro.core.data.repository.DefaultMpvConfigRepository
 import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
+import dev.gyro.core.data.repository.AndroidUriParser
 import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.DefaultSubtitleRepository
 import dev.gyro.core.data.repository.MediaRepository
@@ -16,6 +17,7 @@ import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
+import dev.gyro.core.data.repository.UriParser
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -50,4 +52,9 @@ interface DataModule {
     fun bindSubtitleRepository(
         impl: DefaultSubtitleRepository,
     ): SubtitleRepository
+
+    @Binds
+    fun bindUriParser(
+        impl: AndroidUriParser,
+    ): UriParser
 }

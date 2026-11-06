@@ -1,6 +1,10 @@
 package dev.gyro.feature.player
 
 import android.app.Activity
+import dev.gyro.feature.player.component.PlayerSheetTab
+import dev.gyro.feature.player.gesture.GestureHudState
+import dev.gyro.feature.player.gesture.PlayerZoomState
+import dev.gyro.feature.player.gesture.rememberPlayerZoomState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue

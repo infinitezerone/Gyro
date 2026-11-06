@@ -1,4 +1,4 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.gesture
 
 import dev.gyro.core.model.PlayerGestureConfig
 import org.junit.Assert.assertEquals

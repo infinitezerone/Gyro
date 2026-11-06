@@ -1,4 +1,7 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.component
+
+import dev.gyro.feature.player.gesture.DoubleTapSide
+import dev.gyro.feature.player.gesture.GestureHudState
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween

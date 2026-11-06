@@ -1,5 +1,6 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.gesture
 
+import dev.gyro.feature.player.PlayerScrubState
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

@@ -7,91 +7,82 @@ import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.MpvConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
- * Interface contract for managing custom mpv.conf configuration file.
+ * Interface contract for managing the custom `mpv.conf` configuration file.
  */
 interface MpvConfigRepository {
-    val configText: StateFlow<String>
+    /** Reads the conf file, creating the default template if it does not exist yet. */
+    suspend fun loadConfig(): String
     suspend fun saveConfig(content: String)
-    suspend fun resetToDefault()
-    fun getParsedOptions(): Map<String, String>
-    fun getConfigFile(): File
+    suspend fun resetToDefault(): String
+    suspend fun getParsedOptions(): Map<String, String>
 }
 
 /**
- * Factory function for tests or manual instantiation with an explicit config file.
+ * Default implementation of [MpvConfigRepository].
+ *
+ * Persists and loads the `mpv.conf` file directly under `context.filesDir`.
  */
-fun MpvConfigRepository(
-    configFile: File,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-): MpvConfigRepository = DefaultMpvConfigRepository(configFile, ioDispatcher)
-
-/**
- * Persistent repository for custom mpv.conf file.
- * Backed by an internal application file (context.filesDir/mpv.conf)
- * and exposing reactive StateFlow for Compose UI observation.
- */
-@Singleton
-class DefaultMpvConfigRepository(
-    private val configFile: File,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+class DefaultMpvConfigRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : MpvConfigRepository {
 
-    @Inject
-    constructor(
-        @ApplicationContext context: Context,
-        @Dispatcher(GyroDispatchers.IO) ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-    ) : this(
-        configFile = context.filesDir.resolve("mpv.conf"),
-        ioDispatcher = ioDispatcher
-    )
+    private val configFile: File get() = context.filesDir.resolve("mpv.conf")
 
-    private val mutex = Mutex()
+    /**
+     * `writeText` is not atomic: two concurrent writes interleave bytes and leave a file that
+     * parses as garbage. The mutex is a lock, not state — it does not make this class stateful.
+     */
+    private val writeMutex = Mutex()
 
-    private val _configText = MutableStateFlow(loadSync())
-    override val configText: StateFlow<String> = _configText.asStateFlow()
-
-    private fun loadSync(): String {
-        return try {
-            if (configFile.exists()) {
-                configFile.readText(Charsets.UTF_8)
-            } else {
-                configFile.parentFile?.mkdirs()
-                configFile.writeText(MpvConfig.DEFAULT_TEMPLATE, Charsets.UTF_8)
+    override suspend fun loadConfig(): String = withContext(ioDispatcher) {
+        readFile() ?: writeMutex.withLock {
+            // Another writer may have created it while we waited for the lock.
+            readFile() ?: run {
+                writeDefaultTemplate()
                 MpvConfig.DEFAULT_TEMPLATE
             }
-        } catch (e: Exception) {
-            MpvConfig.DEFAULT_TEMPLATE
         }
     }
 
-    override suspend fun saveConfig(content: String): Unit = mutex.withLock {
-        withContext(ioDispatcher) {
+    override suspend fun saveConfig(content: String) = withContext(ioDispatcher) {
+        writeMutex.withLock {
             configFile.parentFile?.mkdirs()
             configFile.writeText(content, Charsets.UTF_8)
-            _configText.value = content
         }
     }
 
-    override suspend fun resetToDefault(): Unit = mutex.withLock {
-        withContext(ioDispatcher) {
+    override suspend fun resetToDefault(): String = withContext(ioDispatcher) {
+        writeMutex.withLock { writeDefaultTemplate() }
+        MpvConfig.DEFAULT_TEMPLATE
+    }
+
+    /**
+     * Pure read: startup asks for the parsed options before any file exists, and that must not
+     * create one. The in-memory template stands in for the file until the editor saves it.
+     */
+    override suspend fun getParsedOptions(): Map<String, String> = withContext(ioDispatcher) {
+        MpvConfig.parse(readFile() ?: MpvConfig.DEFAULT_TEMPLATE)
+    }
+
+    private fun readFile(): String? =
+        if (configFile.isFile) {
+            runCatching { configFile.readText(Charsets.UTF_8) }.getOrNull()
+        } else {
+            null
+        }
+
+    private fun writeDefaultTemplate() {
+        runCatching {
             configFile.parentFile?.mkdirs()
             configFile.writeText(MpvConfig.DEFAULT_TEMPLATE, Charsets.UTF_8)
-            _configText.value = MpvConfig.DEFAULT_TEMPLATE
         }
     }
-
-    override fun getParsedOptions(): Map<String, String> = MpvConfig.parse(_configText.value)
-
-    override fun getConfigFile(): File = configFile
 }

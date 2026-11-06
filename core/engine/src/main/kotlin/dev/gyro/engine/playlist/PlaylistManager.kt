@@ -1,4 +1,4 @@
-package dev.gyro.core.data.repository
+package dev.gyro.engine.playlist
 
 import android.net.Uri
 import dev.gyro.core.model.VideoMediaItem
@@ -10,7 +10,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Manages the current playlist / playback queue for continuous playback and episode switching.
+ * In-memory manager for the active playback playlist and track queue.
+ *
+ * This is an in-memory session coordinator rather than a persistent repository.
  */
 @Singleton
 class PlaylistManager @Inject constructor() {

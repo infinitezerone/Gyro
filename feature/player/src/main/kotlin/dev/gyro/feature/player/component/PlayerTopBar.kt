@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.player
+package dev.gyro.feature.player.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box

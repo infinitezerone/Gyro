@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -301,35 +302,46 @@ fun MpvConfigEditorContent(
             Spacer(modifier = Modifier.height(10.dp))
 
             // Monospace Editor Area (Pure floating UI: no opaque solid card block)
-            OutlinedTextField(
-                value = uiState.content,
-                onValueChange = onContentChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                textStyle = TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.5.sp,
-                    lineHeight = 20.sp,
-                    color = GyroColors.TextPrimary
-                ),
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.mpv_config_hint),
+            if (uiState.isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = GyroColors.PrimaryLight)
+                }
+            } else {
+                OutlinedTextField(
+                    value = uiState.content,
+                    onValueChange = onContentChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    textStyle = TextStyle(
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        color = GyroColors.TextMuted
-                    )
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedBorderColor = GyroColors.Primary.copy(alpha = 0.6f),
-                    unfocusedBorderColor = GyroColors.SurfaceVariant,
-                    cursorColor = GyroColors.PrimaryLight
-                ),
-                shape = RoundedCornerShape(12.dp)
-            )
+                        fontSize = 13.5.sp,
+                        lineHeight = 20.sp,
+                        color = GyroColors.TextPrimary
+                    ),
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.mpv_config_hint),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 13.sp,
+                            color = GyroColors.TextMuted
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = GyroColors.Primary.copy(alpha = 0.6f),
+                        unfocusedBorderColor = GyroColors.SurfaceVariant,
+                        cursorColor = GyroColors.PrimaryLight
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 

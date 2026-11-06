@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
+import dev.gyro.feature.player.gesture.DoubleTapSide
+import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.GyroPlayerEngine
 import org.junit.Assert.assertEquals

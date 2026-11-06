@@ -1,4 +1,4 @@
-package dev.gyro.player
+package dev.gyro.engine.session
 
 import android.app.PendingIntent
 import android.content.Context
@@ -11,10 +11,10 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
-import dev.gyro.core.data.repository.PlaylistManager
-import dev.gyro.core.data.repository.asAndroidUri
+import androidx.core.content.IntentCompat
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
+import dev.gyro.engine.playlist.PlaylistManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,8 +29,10 @@ import kotlinx.coroutines.launch
 class MediaSessionManager(
     private val context: Context,
     val engine: GyroPlayerEngine,
-    val playlistManager: PlaylistManager? = null,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+    val playlistManager: PlaylistManager,
+    private val mediaButtonReceiver: PendingIntent? = null,
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
+    private val uriParser: (String) -> Uri = { Uri.parse(it) }
 ) {
     companion object {
         private const val TAG = "MediaSessionManager"
@@ -97,12 +99,7 @@ class MediaSessionManager(
         }
 
         override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
-            val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
-            }
+            val keyEvent = IntentCompat.getParcelableExtra(mediaButtonIntent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
             if (handleKeyEvent(keyEvent)) {
                 return true
             }
@@ -118,15 +115,10 @@ class MediaSessionManager(
         try {
             val session = MediaSession(context, MEDIA_SESSION_TAG)
             session.setCallback(sessionCallback)
-            val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(context, PlaybackService::class.java)
-            val buttonPendingIntent = PendingIntent.getService(
-                context,
-                0,
-                buttonIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            @Suppress("DEPRECATION")
-            session.setMediaButtonReceiver(buttonPendingIntent)
+            mediaButtonReceiver?.let {
+                @Suppress("DEPRECATION")
+                session.setMediaButtonReceiver(it)
+            }
             session.isActive = true
             mediaSession = session
         } catch (t: Throwable) {
@@ -202,9 +194,9 @@ class MediaSessionManager(
     }
 
     fun skipToNext(): Boolean {
-        val next = playlistManager?.playNext()
+        val next = playlistManager.playNext()
         return if (next != null) {
-            engine.loadUri(next.asAndroidUri)
+            engine.loadUri(uriParser(next.uriString))
             true
         } else {
             false
@@ -212,9 +204,9 @@ class MediaSessionManager(
     }
 
     fun skipToPrevious(): Boolean {
-        val prev = playlistManager?.playPrevious()
+        val prev = playlistManager.playPrevious()
         return if (prev != null) {
-            engine.loadUri(prev.asAndroidUri)
+            engine.loadUri(uriParser(prev.uriString))
             true
         } else {
             false

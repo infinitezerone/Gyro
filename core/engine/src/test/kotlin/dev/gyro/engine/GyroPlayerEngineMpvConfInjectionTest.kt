@@ -2,7 +2,9 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.content.ContextWrapper
+import dev.gyro.core.data.repository.DefaultMpvConfigRepository
 import dev.gyro.core.data.repository.MpvConfigRepository
+import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
@@ -35,7 +37,7 @@ class GyroPlayerEngineMpvConfInjectionTest {
         filesDir = tempFolder.newFolder("engine_mpv_conf")
         testContext = object : ContextWrapper(null) {
             override fun getApplicationContext(): Context = this
-            override fun getFilesDir(): File = filesDir
+            override fun getFilesDir(): File = this@GyroPlayerEngineMpvConfInjectionTest.filesDir
         }
         fakeBridge = FakeMpvNativeBridge()
     }
@@ -54,13 +56,13 @@ class GyroPlayerEngineMpvConfInjectionTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = MpvConfigRepository(configFile = confFile)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
 
         val engine = GyroPlayerEngine(
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
+        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
 
         // Protected keys must remain invariant
         assertEquals("libmpv", fakeBridge.options["vo"])
@@ -83,12 +85,12 @@ class GyroPlayerEngineMpvConfInjectionTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = MpvConfigRepository(configFile = confFile)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
         val settings = UserSettings(defaultHwdec = "mediacodec", subAutoLoad = true)
         val settingsRepo = runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             val store = UserSettingsDataStoreFactory.createInMemory(settings, scope)
-            val repo = SettingsRepository(store)
+            val repo = DefaultSettingsRepository(store)
             repo.updateSettings { settings }
             repo.settings.first { it == settings }
             repo
@@ -98,7 +100,7 @@ class GyroPlayerEngineMpvConfInjectionTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions(), settings = settings)
+        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
 
         // GUI explicit settings must overwrite user config values for conflicting keys. The chosen
         // hardware mode is expanded with the copy-back variant so an init failure is not fatal.
@@ -111,13 +113,13 @@ class GyroPlayerEngineMpvConfInjectionTest {
         val confFile = File(filesDir, "mpv.conf").apply {
             writeText("speed=1.5\n")
         }
-        val mpvRepo = MpvConfigRepository(configFile = confFile)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
 
         val engine = GyroPlayerEngine(
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
+        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
 
         assertEquals("1.5", fakeBridge.options["speed"])
 

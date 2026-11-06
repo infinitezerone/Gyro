@@ -1,4 +1,4 @@
-package dev.gyro.feature.player
+package dev.gyro.feature.player.gesture
 
 import kotlin.math.roundToInt
 
