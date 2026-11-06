@@ -21,6 +21,8 @@ import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
+import dev.gyro.engine.tracks.RealTrackAndChapterManager
+import dev.gyro.engine.tracks.TrackAndChapterManager
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
@@ -49,10 +51,12 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context),
     private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
     private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),
-    private val videoEffects: VideoEffectsController = RealVideoEffectsController(bridge)
+    private val videoEffects: VideoEffectsController = RealVideoEffectsController(bridge),
+    private val trackAndChapterManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge)
 ) : VideoGeometryCoordinator by geometryCoordinator,
     AudioEffectsController by audioEffects,
-    VideoEffectsController by videoEffects {
+    VideoEffectsController by videoEffects,
+    TrackAndChapterManager by trackAndChapterManager {
     companion object {
         private const val TAG = "GyroPlayerEngine"
 
@@ -177,9 +181,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _speed = MutableStateFlow(1.0f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
 
-    private val _tracks = MutableStateFlow<List<TrackInfo>>(emptyList())
-    val tracks: StateFlow<List<TrackInfo>> = _tracks.asStateFlow()
-
     private val _resizeMode = MutableStateFlow(ResizeMode.FIT)
     val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
@@ -204,13 +205,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
     // Shader Management (R1)
     private val _shaderState = MutableStateFlow(GlslShaderState())
     val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
-
-    // Chapters (R3)
-    private val _chapters = MutableStateFlow<List<ChapterInfo>>(emptyList())
-    val chapters: StateFlow<List<ChapterInfo>> = _chapters.asStateFlow()
-
-    private val _currentChapter = MutableStateFlow(-1)
-    val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
     @Volatile
     private var pendingSeekMs: Long = -1L
@@ -264,16 +258,14 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     geometryCoordinator.onSessionEnded()
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.ENDED
-                    _chapters.value = emptyList()
-                    _currentChapter.value = -1
+                    clearChapters()
                     resetSoftwareGain()
                 }
                 MpvNativeBridge.Event.SHUTDOWN -> {
                     geometryCoordinator.onSessionEnded()
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.IDLE
-                    _chapters.value = emptyList()
-                    _currentChapter.value = -1
+                    clearChapters()
                     resetSoftwareGain()
                 }
                 MpvNativeBridge.Event.PLAYBACK_RESTART -> {
@@ -302,7 +294,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     _subPos.value = value
                 }
                 "chapter" -> {
-                    _currentChapter.value = value.toInt()
+                    trackAndChapterManager.onChapterPropertyChanged(value.toInt())
                 }
                 "brightness", "contrast", "saturation" -> {
                     videoEffects.onColorPropertyChanged(name, value.toInt())
@@ -718,50 +710,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
         bridge.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
     }
 
-    fun refreshTracks() {
-        try {
-            val count = bridge.getLong("track-list/count") ?: 0L
-            val trackList = mutableListOf<TrackInfo>()
-            for (i in 0 until count) {
-                val id = bridge.getLong("track-list/$i/id")?.toInt() ?: (i.toInt() + 1)
-                val type = bridge.getPropertyString("track-list/$i/type") ?: ""
-                val title = bridge.getPropertyString("track-list/$i/title")
-                val lang = bridge.getPropertyString("track-list/$i/lang")
-                val selected = bridge.getBoolean("track-list/$i/selected") ?: false
-                trackList.add(TrackInfo(id, type, title, lang, selected))
-            }
-            _tracks.value = trackList
-            Log.i(TAG, "Refreshed tracks: count=$count, tracks=$trackList")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to refresh tracks: ${t.message}")
-        }
-    }
-
-    fun selectTrack(type: String, id: Int) {
-        when (type) {
-            "audio" -> {
-                if (id <= 0) {
-                    bridge.setPropertyString("aid", "no")
-                } else {
-                    bridge.setPropertyString("aid", "$id")
-                }
-            }
-            "sub" -> {
-                if (id <= 0) {
-                    bridge.setPropertyString("sid", "no")
-                } else {
-                    bridge.setPropertyString("sid", "$id")
-                }
-            }
-        }
-        refreshTracks()
-    }
-
-    fun addSubtitle(path: String) {
-        bridge.command(arrayOf("sub-add", path, "select"))
-        refreshTracks()
-    }
-
     fun setSubtitleDelay(delaySec: Double) {
         val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(-10.0, 10.0)
         _subDelay.value = clamped
@@ -992,35 +940,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
     // Chapter Methods (R3)
     // =========================================================================
 
-    fun refreshChapters() {
-        try {
-            val count = bridge.getLong("chapter-list/count") ?: 0L
-            if (count <= 0L) {
-                _chapters.value = emptyList()
-                _currentChapter.value = -1
-                return
-            }
-
-            val chapterList = ArrayList<ChapterInfo>(count.toInt())
-            for (i in 0 until count) {
-                val rawTitle = bridge.getPropertyString("chapter-list/$i/title")?.trim()
-                val timeSec = bridge.getDouble("chapter-list/$i/time") ?: 0.0
-                val timeMs = (timeSec * 1000.0).toLong().coerceAtLeast(0L)
-                val title = if (!rawTitle.isNullOrBlank()) rawTitle else "Chapter ${i + 1}"
-                chapterList.add(ChapterInfo(index = i.toInt(), title = title, timeMs = timeMs))
-            }
-            _chapters.value = chapterList
-
-            val activeChapter = bridge.getLong("chapter")?.toInt() ?: -1
-            _currentChapter.value = activeChapter
-            Log.i(TAG, "Refreshed chapters: count=$count, activeChapter=$activeChapter")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to refresh chapters: ${t.message}")
-        }
-    }
-
     fun seekToChapter(index: Int) {
-        val chapterList = _chapters.value
+        val chapterList = chapters.value
         if (index !in chapterList.indices) {
             Log.w(TAG, "seekToChapter: index $index out of bounds (0..${chapterList.size - 1})")
             return
@@ -1033,7 +954,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
         beginPendingSeek(chapterList[index].timeMs)
         bridge.setPropertyLong("chapter", index.toLong())
-        _currentChapter.value = index
+        trackAndChapterManager.onChapterPropertyChanged(index)
         Log.i(TAG, "seekToChapter: jumped to chapter $index (${chapterList[index].title})")
     }
 
@@ -1041,6 +962,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         engineScope.cancel()
         audioFocusManager.abandon()
         resetSoftwareGain()
+        clearChapters()
         isInitialized.set(false)
         bridge.eventListener = null
         bridge.destroy()
