@@ -8,13 +8,13 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Display
 import android.view.Surface
-import dev.gyro.core.data.repository.MpvConfigRepository
-import dev.gyro.core.data.repository.SettingsRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.MediaInfo
+import dev.gyro.core.model.UserSettings
 import dev.gyro.engine.audio.GyroAudioFocusManager
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.effects.AudioEffectsController
@@ -42,13 +42,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class GyroPlayerEngine @JvmOverloads constructor(
-    private val context: Context,
+@Singleton
+class GyroPlayerEngine @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
-    private val mpvConfigRepository: MpvConfigRepository? = runCatching { MpvConfigRepository(context) }.getOrNull(),
-    private val settingsRepository: SettingsRepository? = null,
-    private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context),
+    private val shaderManager: ShaderManager = ShaderManager(context),
     private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
     private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),
     private val videoEffects: VideoEffectsController = RealVideoEffectsController(bridge),
@@ -80,7 +81,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
         const val FILTER_ALIMITER = AudioEffectsController.FILTER_ALIMITER
     }
 
-    private val appContext = runCatching { context.applicationContext }.getOrNull() ?: context
     private val isInitialized = AtomicBoolean(false)
     private var engineJob = SupervisorJob()
     private var engineScope = CoroutineScope(engineJob + Dispatchers.Default)
@@ -90,7 +90,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
      * machine covers foreground playback, background audio and media-button resumes.
      */
     private val audioFocusManager = GyroAudioFocusManager(
-        context = appContext,
+        context = context,
         listener = object : GyroAudioFocusManager.Listener {
             override fun onPlayRequested() {
                 bridge.setPropertyBoolean("pause", false)
@@ -374,7 +374,20 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
     }
 
-    fun ensureInitialized() {
+    /**
+     * Initialises the native core.
+     *
+     * Configuration arrives as values, not as repositories: the engine must not know where
+     * settings live. The caller reads them and hands over a snapshot, which also keeps this
+     * method synchronous — mpv requires every option to be set before `mpv_init()`.
+     *
+     * @param userOptions parsed `mpv.conf` entries; protected keys are dropped here.
+     * @param settings GUI settings, applied after [userOptions] so they win.
+     */
+    fun ensureInitialized(
+        userOptions: Map<String, String> = emptyMap(),
+        settings: UserSettings = UserSettings(),
+    ) {
         if (isInitialized.compareAndSet(false, true)) {
             try {
                 if (!engineJob.isActive) {
@@ -382,7 +395,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     engineScope = CoroutineScope(engineJob + Dispatchers.Default)
                 }
                 audioFocusManager.reset()
-                bridge.create(appContext)
+                bridge.create(context)
 
                 // Pre-extract built-in shaders to POSIX filesDir
                 shaderManager.extractBuiltInShaders()
@@ -390,7 +403,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // =================================================================
                 // 1. INJECT USER mpv.conf (Excluding Protected Engine Keys)
                 // =================================================================
-                val userOptions = mpvConfigRepository?.getParsedOptions() ?: emptyMap()
                 for ((key, value) in userOptions) {
                     val normalizedKey = key.trim().lowercase()
                     if (normalizedKey in PROTECTED_OPTION_KEYS) {
@@ -406,8 +418,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // =================================================================
                 // 2. INJECT GUI EXPLICIT SETTINGS (Unconditionally Overrides mpv.conf)
                 // =================================================================
-                val userSettings = settingsRepository?.settings?.value
-                val userHwdec = userSettings?.defaultHwdec?.trim() ?: ""
+                val userHwdec = settings.defaultHwdec.trim()
                 // Hardware is the default: software decoding caps a phone at 1080p H.264 and cannot
                 // play 4K HEVC at all. Failures go to mpv's own two fallbacks rather than to the
                 // default value: `mediacodec,mediacodec-copy` lets a codec that refuses the surface
@@ -429,7 +440,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 // as "not recommended ... can produce unwatchable choppy output".
                 bridge.setOptionString("framedrop", "vo")
 
-                val subAuto = if (userSettings?.subAutoLoad != false) "all" else "no"
+                val subAuto = if (settings.subAutoLoad) "all" else "no"
                 bridge.setOptionString("sub-auto", subAuto)
 
                 // Enforce engine lifecycle invariant contracts
@@ -521,7 +532,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     /** Refresh rate of the display the player is on, or null when it cannot be read. */
     private fun displayRefreshRate(): Float? {
-        val manager = appContext.getSystemService(DisplayManager::class.java) ?: return null
+        val manager = context.getSystemService(DisplayManager::class.java) ?: return null
         val display = manager.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
         val rate = display.mode?.refreshRate ?: return null
         return rate.takeIf { it in 20f..300f }
@@ -564,7 +575,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         currentLoadJob?.cancel()
         currentLoadJob = engineScope.launch(Dispatchers.IO) {
             val displayName = runCatching {
-                appContext.contentResolver.query(
+                context.contentResolver.query(
                     uri,
                     arrayOf(OpenableColumns.DISPLAY_NAME),
                     null,
@@ -582,7 +593,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
             }
 
             val targetPath = try {
-                val pfd = appContext.contentResolver.openFileDescriptor(uri, "r")
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
                 val fd = pfd?.detachFd() ?: -1
                 if (fd >= 0) {
                     "fdclose://$fd"

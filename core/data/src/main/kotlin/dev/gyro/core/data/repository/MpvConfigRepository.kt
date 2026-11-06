@@ -29,17 +29,12 @@ interface MpvConfigRepository {
 }
 
 /**
- * Factory functions for tests or manual instantiation.
+ * Factory function for tests or manual instantiation with an explicit config file.
  */
 fun MpvConfigRepository(
     configFile: File,
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): MpvConfigRepository = DefaultMpvConfigRepository(configFile, ioDispatcher)
-
-fun MpvConfigRepository(
-    context: Context,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-): MpvConfigRepository = DefaultMpvConfigRepository(context, ioDispatcher)
 
 /**
  * Persistent repository for custom mpv.conf file.

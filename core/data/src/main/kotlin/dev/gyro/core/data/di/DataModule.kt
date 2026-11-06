@@ -4,6 +4,8 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dev.gyro.core.data.repository.CustomFolderRepository
+import dev.gyro.core.data.repository.DefaultCustomFolderRepository
 import dev.gyro.core.data.repository.DefaultMediaRepository
 import dev.gyro.core.data.repository.DefaultMpvConfigRepository
 import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
@@ -18,6 +20,11 @@ import dev.gyro.core.data.repository.SubtitleRepository
 @Module
 @InstallIn(SingletonComponent::class)
 interface DataModule {
+
+    @Binds
+    fun bindCustomFolderRepository(
+        impl: DefaultCustomFolderRepository,
+    ): CustomFolderRepository
 
     @Binds
     fun bindSettingsRepository(

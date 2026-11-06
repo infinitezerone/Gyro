@@ -4,6 +4,8 @@ import dev.gyro.engine.MpvNativeBridge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Manages video post-processing adjustments (deband, brightness, contrast, saturation).
@@ -24,7 +26,8 @@ interface VideoEffectsController {
     fun onColorPropertyChanged(name: String, value: Int)
 }
 
-class RealVideoEffectsController(
+@Singleton
+class RealVideoEffectsController @Inject constructor(
     private val bridge: MpvNativeBridge
 ) : VideoEffectsController {
 

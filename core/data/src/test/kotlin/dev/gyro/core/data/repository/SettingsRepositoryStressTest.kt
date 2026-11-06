@@ -1,214 +1,218 @@
 package dev.gyro.core.data.repository
 
+import androidx.datastore.core.DataStore
+import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.PlayerGestureConfig
-import dev.gyro.core.testing.fakes.FakeSharedPreferences
+import dev.gyro.core.model.UserSettings
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
+/**
+ * Concurrency guarantees for the DataStore-backed settings repository.
+ *
+ * These use a real IO dispatcher on purpose: the point is to prove that concurrent updates are
+ * serialized by DataStore and by the repository's lock, instead of racing the in-memory snapshot.
+ * One DataStore instance per file is a hard constraint, so recreating the repository means
+ * recreating the repository, not the store.
+ */
 class SettingsRepositoryStressTest {
 
-    @Test
-    fun testAll17GestureSettingsRetainedAcrossReinstantiation() {
-        val prefs = FakeSharedPreferences()
-        val repo1 = SettingsRepository(prefs)
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
-        // Non-default values for all 17 properties
-        val customConfig = PlayerGestureConfig(
-            isLocked = true,
-            isVolumeEnabled = false,
-            isBrightnessEnabled = false,
-            isSeekEnabled = false,
-            isZoomEnabled = false,
-            isDoubleTapSeekEnabled = false,
-            isDoubleTapPlayPauseEnabled = false,
-            isLongPressSpeedEnabled = false,
-            swapVolumeAndBrightness = true,
-            doubleTapSeekSeconds = 25,
-            longPressSpeed = 3.5f,
-            edgeExclusionPx = 120.0f,
-            volumeSensitivity = 1.8f,
-            brightnessSensitivity = 0.6f,
-            longPressTimeoutMs = 600L,
-            doubleTapTimeoutMs = 400L,
-            singleTapDelayMs = 350L
-        )
+    private fun newScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-        repo1.setGestureConfig(customConfig)
+    private fun newStore(scope: CoroutineScope, name: String): DataStore<UserSettings> =
+        UserSettingsDataStoreFactory.createForFile(File(tempFolder.root, "$name.json"), scope)
 
-        // Re-instantiate repository using the exact same backing storage
-        val repo2 = SettingsRepository(prefs)
-        val loaded = repo2.settings.value.gestureConfig
-
-        assertEquals("isLocked mismatch", true, loaded.isLocked)
-        assertEquals("isVolumeEnabled mismatch", false, loaded.isVolumeEnabled)
-        assertEquals("isBrightnessEnabled mismatch", false, loaded.isBrightnessEnabled)
-        assertEquals("isSeekEnabled mismatch", false, loaded.isSeekEnabled)
-        assertEquals("isZoomEnabled mismatch", false, loaded.isZoomEnabled)
-        assertEquals("isDoubleTapSeekEnabled mismatch", false, loaded.isDoubleTapSeekEnabled)
-        assertEquals("isDoubleTapPlayPauseEnabled mismatch", false, loaded.isDoubleTapPlayPauseEnabled)
-        assertEquals("isLongPressSpeedEnabled mismatch", false, loaded.isLongPressSpeedEnabled)
-        assertEquals("swapVolumeAndBrightness mismatch", true, loaded.swapVolumeAndBrightness)
-        assertEquals("doubleTapSeekSeconds mismatch", 25, loaded.doubleTapSeekSeconds)
-        assertEquals("longPressSpeed mismatch", 3.5f, loaded.longPressSpeed, 0.001f)
-        assertEquals("edgeExclusionPx mismatch", 120.0f, loaded.edgeExclusionPx, 0.001f)
-        assertEquals("volumeSensitivity mismatch", 1.8f, loaded.volumeSensitivity, 0.001f)
-        assertEquals("brightnessSensitivity mismatch", 0.6f, loaded.brightnessSensitivity, 0.001f)
-        assertEquals("longPressTimeoutMs mismatch", 600L, loaded.longPressTimeoutMs)
-        assertEquals("doubleTapTimeoutMs mismatch", 400L, loaded.doubleTapTimeoutMs)
-        assertEquals("singleTapDelayMs mismatch", 350L, loaded.singleTapDelayMs)
-
-        assertEquals("Custom config must match loaded config entirely", customConfig, loaded)
-    }
+    private fun newRepo(store: DataStore<UserSettings>, scope: CoroutineScope): SettingsRepository =
+        SettingsRepository(store)
 
     @Test
-    fun testSeekStepSynchronizationBidirectional() {
-        val prefs = FakeSharedPreferences()
-        val repo = SettingsRepository(prefs)
+    fun allGestureSettingsSurviveRepositoryRecreation() = runBlocking {
+        val scope = newScope()
+        try {
+            val store = newStore(scope, "gesture_roundtrip")
 
-        // 1. setSeekStepSeconds
-        repo.setSeekStepSeconds(25)
-        assertEquals(25, repo.settings.value.seekStepSeconds)
-        assertEquals(25, repo.settings.value.gestureConfig.doubleTapSeekSeconds)
-        assertEquals(25, prefs.getInt(SettingsRepository.KEY_SEEK_STEP_SEC, 10))
-        assertEquals(25, prefs.getInt(SettingsRepository.KEY_GESTURE_DOUBLE_TAP_SEEK_SEC, 10))
+            val custom = PlayerGestureConfig(
+                isLocked = true,
+                isVolumeEnabled = false,
+                isBrightnessEnabled = false,
+                isSeekEnabled = false,
+                isZoomEnabled = false,
+                isDoubleTapSeekEnabled = false,
+                isDoubleTapPlayPauseEnabled = false,
+                isLongPressSpeedEnabled = false,
+                swapVolumeAndBrightness = true,
+                doubleTapSeekSeconds = 25,
+                longPressSpeed = 3.5f,
+                edgeExclusionPx = 120f,
+                volumeSensitivity = 1.8f,
+                brightnessSensitivity = 0.6f,
+                longPressTimeoutMs = 600L,
+                doubleTapTimeoutMs = 400L,
+                singleTapDelayMs = 350L,
+            )
+            newRepo(store, scope).setGestureConfig(custom)
 
-        // 2. setGestureDoubleTapSeekSeconds
-        repo.setGestureDoubleTapSeekSeconds(45)
-        assertEquals(45, repo.settings.value.seekStepSeconds)
-        assertEquals(45, repo.settings.value.gestureConfig.doubleTapSeekSeconds)
-        assertEquals(45, prefs.getInt(SettingsRepository.KEY_SEEK_STEP_SEC, 10))
-        assertEquals(45, prefs.getInt(SettingsRepository.KEY_GESTURE_DOUBLE_TAP_SEEK_SEC, 10))
-
-        // 3. Re-instantiation preserves synchronized value
-        val repo2 = SettingsRepository(prefs)
-        assertEquals(45, repo2.settings.value.seekStepSeconds)
-        assertEquals(45, repo2.settings.value.gestureConfig.doubleTapSeekSeconds)
-    }
-
-    @Test
-    fun testUpdateGestureConfigDoubleTapSeekSync() {
-        val prefs = FakeSharedPreferences()
-        val repo = SettingsRepository(prefs)
-
-        // If updated via updateGestureConfig directly:
-        repo.updateGestureConfig { it.copy(doubleTapSeekSeconds = 60) }
-        val loadedConfig = repo.settings.value.gestureConfig
-        assertEquals(60, loadedConfig.doubleTapSeekSeconds)
-
-        // Verify backing prefs for gesture seek sec
-        assertEquals(60, prefs.getInt(SettingsRepository.KEY_GESTURE_DOUBLE_TAP_SEEK_SEC, 10))
-
-        // OBSERVED BEHAVIOR: KEY_SEEK_STEP_SEC and UserSettings.seekStepSeconds were NOT updated!
-        val currentSeekStep = repo.settings.value.seekStepSeconds
-        val prefSeekStep = prefs.getInt(SettingsRepository.KEY_SEEK_STEP_SEC, 10)
-        println("seekStepSeconds after updateGestureConfig: StateFlow=$currentSeekStep, Prefs=$prefSeekStep (expected 60 if fully synchronized)")
-
-        val repo2 = SettingsRepository(prefs)
-        println("Re-instantiated: seekStepSeconds=${repo2.settings.value.seekStepSeconds}, gesture.doubleTapSeekSeconds=${repo2.settings.value.gestureConfig.doubleTapSeekSeconds}")
-    }
-
-    @Test
-    fun testConcurrentUpdatesStress() = runBlocking(Dispatchers.Default) {
-        val prefs = FakeSharedPreferences()
-        val repo = SettingsRepository(prefs)
-
-        // 50 concurrent operations modifying independent fields
-        val jobs = listOf(
-            launch { repo.setGestureVolumeEnabled(false) },
-            launch { repo.setGestureBrightnessEnabled(false) },
-            launch { repo.setGestureSeekEnabled(false) },
-            launch { repo.setGestureZoomEnabled(false) },
-            launch { repo.setGestureDoubleTapSeekEnabled(false) },
-            launch { repo.setGestureDoubleTapPlayPauseEnabled(false) },
-            launch { repo.setGestureLongPressSpeedEnabled(false) },
-            launch { repo.setGestureSwapVolumeBrightness(true) },
-            launch { repo.setGestureLongPressSpeed(4.5f) },
-            launch { repo.setGestureEdgeExclusionPx(100f) },
-            launch { repo.setGestureVolumeSensitivity(2.0f) },
-            launch { repo.setGestureBrightnessSensitivity(0.5f) },
-            launch { repo.setAutoResume(false) },
-            launch { repo.setBackgroundPlayMode("audio_only") },
-            launch { repo.setDefaultHwdec("mediacodec-copy") },
-            launch { repo.setSubAutoLoad(false) },
-            launch { repo.setGesturesEnabled(false) }
-        )
-
-        jobs.joinAll()
-
-        // Verify state is accessible and consistent
-        val settings = repo.settings.value
-        // Note: Under concurrent non-synchronized read-modify-write,
-        // some updates may be overwritten (lost updates). We verify current behavior.
-        println("Concurrent test finished. gesturesEnabled=${settings.gesturesEnabled}, isVolumeEnabled=${settings.gestureConfig.isVolumeEnabled}")
-    }
-
-    @Test
-    fun testRapidAlternatingTogglesStress() {
-        val prefs = FakeSharedPreferences()
-        val repo = SettingsRepository(prefs)
-        val executor = Executors.newFixedThreadPool(4)
-
-        for (i in 0 until 100) {
-            executor.submit {
-                repo.setGestureVolumeEnabled(i % 2 == 0)
-            }
-            executor.submit {
-                repo.setGestureBrightnessEnabled(i % 2 == 1)
-            }
+            val restored = newRepo(store, scope)
+            val loaded = withTimeout(3_000) { restored.settings.first { it.gestureConfig == custom } }
+            assertEquals(custom, loaded.gestureConfig)
+        } finally {
+            scope.cancel()
         }
-
-        executor.shutdown()
-        assertTrue("Executor must terminate within 5 seconds", executor.awaitTermination(5, TimeUnit.SECONDS))
-
-        // Verify no deadlock, no crash, state is consistent with prefs
-        val stateVolume = repo.settings.value.gestureConfig.isVolumeEnabled
-        val prefVolume = prefs.getBoolean(SettingsRepository.KEY_GESTURE_VOLUME_ENABLED, true)
-        // Check if StateFlow and Prefs are in sync
-        println("Final volume state: StateFlow=$stateVolume, Prefs=$prefVolume")
     }
 
     @Test
-    fun testConcurrentDistinctFieldUpdatesLostUpdateCheck() = runBlocking(Dispatchers.Default) {
-        val prefs = FakeSharedPreferences()
-        val repo = SettingsRepository(prefs)
+    fun seekStepAndGestureDoubleTapStayInSync() = runBlocking {
+        val scope = newScope()
+        try {
+            val repo = newRepo(newStore(scope, "seek_sync"), scope)
 
-        // Launch concurrent updates to 8 distinct boolean flags
-        val jobs = listOf(
-            launch { repo.setGestureVolumeEnabled(false) },
-            launch { repo.setGestureBrightnessEnabled(false) },
-            launch { repo.setGestureSeekEnabled(false) },
-            launch { repo.setGestureZoomEnabled(false) },
-            launch { repo.setGestureDoubleTapSeekEnabled(false) },
-            launch { repo.setGestureDoubleTapPlayPauseEnabled(false) },
-            launch { repo.setGestureLongPressSpeedEnabled(false) },
-            launch { repo.setGestureSwapVolumeBrightness(true) }
-        )
+            repo.setSeekStepSeconds(25)
+            val afterSeek = withTimeout(3_000) { repo.settings.first { it.seekStepSeconds == 25 } }
+            assertEquals(25, afterSeek.seekStepSeconds)
+            assertEquals(25, afterSeek.gestureConfig.doubleTapSeekSeconds)
 
-        jobs.joinAll()
+            repo.setGestureDoubleTapSeekSeconds(45)
+            val afterDoubleTap = withTimeout(3_000) { repo.settings.first { it.seekStepSeconds == 45 } }
+            assertEquals(45, afterDoubleTap.seekStepSeconds)
+            assertEquals(45, afterDoubleTap.gestureConfig.doubleTapSeekSeconds)
+        } finally {
+            scope.cancel()
+        }
+    }
 
-        val finalConfig = repo.settings.value.gestureConfig
-        println("Final config after concurrent updates: $finalConfig")
+    @Test
+    fun concurrentDistinctFieldUpdatesAreNotLost() = runBlocking {
+        val scope = newScope()
+        try {
+            val repo = newRepo(newStore(scope, "concurrent"), scope)
 
-        // In a thread-safe implementation, all updates would succeed:
-        val lostUpdates = mutableListOf<String>()
-        if (finalConfig.isVolumeEnabled) lostUpdates.add("isVolumeEnabled")
-        if (finalConfig.isBrightnessEnabled) lostUpdates.add("isBrightnessEnabled")
-        if (finalConfig.isSeekEnabled) lostUpdates.add("isSeekEnabled")
-        if (finalConfig.isZoomEnabled) lostUpdates.add("isZoomEnabled")
-        if (finalConfig.isDoubleTapSeekEnabled) lostUpdates.add("isDoubleTapSeekEnabled")
-        if (finalConfig.isDoubleTapPlayPauseEnabled) lostUpdates.add("isDoubleTapPlayPauseEnabled")
-        if (finalConfig.isLongPressSpeedEnabled) lostUpdates.add("isLongPressSpeedEnabled")
-        if (!finalConfig.swapVolumeAndBrightness) lostUpdates.add("swapVolumeAndBrightness")
+            val jobs = listOf(
+                launch { repo.setGestureVolumeEnabled(false) },
+                launch { repo.setGestureBrightnessEnabled(false) },
+                launch { repo.setGestureSeekEnabled(false) },
+                launch { repo.setGestureZoomEnabled(false) },
+                launch { repo.setGestureDoubleTapSeekEnabled(false) },
+                launch { repo.setGestureDoubleTapPlayPauseEnabled(false) },
+                launch { repo.setGestureLongPressSpeedEnabled(false) },
+                launch { repo.setGestureSwapVolumeBrightness(true) },
+            )
+            jobs.joinAll()
 
-        println("Lost updates count: ${lostUpdates.size}, lost fields: $lostUpdates")
+            // Wait for the merged state instead of sampling .value: the write path is DataStore's
+            // updateData, and its emission lands one dispatch later.
+            val config = withTimeout(3_000) {
+                repo.settings.first { state ->
+                    with(state.gestureConfig) {
+                        !isVolumeEnabled && !isBrightnessEnabled && !isSeekEnabled && !isZoomEnabled &&
+                            !isDoubleTapSeekEnabled && !isDoubleTapPlayPauseEnabled &&
+                            !isLongPressSpeedEnabled && swapVolumeAndBrightness
+                    }
+                }
+            }.gestureConfig
+
+            assertFalse("isVolumeEnabled", config.isVolumeEnabled)
+            assertFalse("isBrightnessEnabled", config.isBrightnessEnabled)
+            assertFalse("isSeekEnabled", config.isSeekEnabled)
+            assertFalse("isZoomEnabled", config.isZoomEnabled)
+            assertFalse("isDoubleTapSeekEnabled", config.isDoubleTapSeekEnabled)
+            assertFalse("isDoubleTapPlayPauseEnabled", config.isDoubleTapPlayPauseEnabled)
+            assertFalse("isLongPressSpeedEnabled", config.isLongPressSpeedEnabled)
+            assertTrue("swapVolumeAndBrightness", config.swapVolumeAndBrightness)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun repeatedWritesConvergeWithoutDeadlock() = runBlocking {
+        val scope = newScope()
+        try {
+            val repo = newRepo(newStore(scope, "repeated"), scope)
+
+            val jobs = (0 until 50).map {
+                launch { repo.setGestureVolumeEnabled(false) }
+            }
+            jobs.joinAll()
+
+            val settled = withTimeout(3_000) {
+                repo.settings.first { !it.gestureConfig.isVolumeEnabled }
+            }
+            assertFalse(settled.gestureConfig.isVolumeEnabled)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun boundarySeekStepValuesRoundTrip() = runBlocking {
+        val scope = newScope()
+        try {
+            val repo = newRepo(newStore(scope, "seek_boundary"), scope)
+
+            for (value in listOf(0, 1, 3600)) {
+                repo.setSeekStepSeconds(value)
+                val loaded = withTimeout(3_000) { repo.settings.first { it.seekStepSeconds == value } }
+                assertEquals(value, loaded.seekStepSeconds)
+                assertEquals(value, loaded.gestureConfig.doubleTapSeekSeconds)
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun boundaryLongPressSpeedRoundTrips() = runBlocking {
+        val scope = newScope()
+        try {
+            val repo = newRepo(newStore(scope, "speed_boundary"), scope)
+
+            for (value in listOf(0.25f, 10f)) {
+                repo.setGestureLongPressSpeed(value)
+                val loaded = withTimeout(3_000) {
+                    repo.settings.first { it.gestureConfig.longPressSpeed == value }
+                }
+                assertEquals(value, loaded.gestureConfig.longPressSpeed, 0.001f)
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun repeatedResetConvergesToDefaults() = runBlocking {
+        val scope = newScope()
+        try {
+            val repo = newRepo(newStore(scope, "repeated_reset"), scope)
+
+            repeat(20) {
+                repo.setGestureLocked(true)
+                repo.resetGestureConfigToDefault()
+            }
+
+            val settled = withTimeout(3_000) {
+                repo.settings.first { it.gestureConfig == PlayerGestureConfig() }
+            }.gestureConfig
+            assertFalse(settled.isLocked)
+            assertEquals(PlayerGestureConfig(), settled)
+        } finally {
+            scope.cancel()
+        }
     }
 }
-

@@ -1,5 +1,6 @@
 plugins {
     id("gyro.android.library")
+    id("gyro.android.hilt")
     id("gyro.android.compose")
 }
 
@@ -121,7 +122,6 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("NativeLibs") }
 
 dependencies {
     api(project(":core:model"))
-    implementation(project(":core:data"))
     implementation(libs.libmpv)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
@@ -131,6 +131,10 @@ dependencies {
     implementation(libs.androidx.compose.ui)
 
     testImplementation(project(":core:testing"))
+    // Tests construct real MpvConfigRepository/SettingsRepository instances to drive the
+    // injection priority paths; main code has no dependency on :core:data.
+    testImplementation(project(":core:data"))
+    testImplementation(project(":core:datastore"))
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("junit:junit:4.13.2")
 

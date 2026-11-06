@@ -66,8 +66,6 @@ import androidx.compose.ui.unit.toSize
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import dev.gyro.core.data.repository.CompanionSubtitleScanner
-import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.data.repository.asAndroidUri
 import dev.gyro.core.model.GlslShader
@@ -81,13 +79,11 @@ import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
@@ -95,9 +91,8 @@ fun PlayerScreen(
     engine: GyroPlayerEngine,
     currentUri: Uri? = null,
     settings: UserSettings = UserSettings(),
-    historyRepository: PlaybackHistoryRepository? = null,
     playlistManager: PlaylistManager? = null,
-    viewModel: PlayerViewModel? = null,
+    viewModel: PlayerViewModel,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -147,7 +142,7 @@ fun PlayerScreen(
     val nightMode by engine.nightMode.collectAsState()
     val stereoDownmix by engine.stereoDownmix.collectAsState()
 
-    val vmActiveUri by (viewModel?.activeUri ?: remember { kotlinx.coroutines.flow.MutableStateFlow(null) }).collectAsState()
+    val vmActiveUri by viewModel.activeUri.collectAsState()
     val engineCurrentUri by engine.currentUri.collectAsState()
     var activeUri by remember(currentUri) { mutableStateOf(currentUri ?: vmActiveUri ?: engineCurrentUri) }
 
@@ -163,7 +158,7 @@ fun PlayerScreen(
     }
     LaunchedEffect(currentUri) {
         if (currentUri != null) {
-            if (viewModel != null && viewModel.activeUri.value != currentUri) {
+            if (viewModel.activeUri.value != currentUri) {
                 viewModel.openUri(currentUri)
             }
             activeUri = currentUri
@@ -176,62 +171,17 @@ fun PlayerScreen(
     val hasNext = playlistManager?.hasNext ?: false
 
     fun openUri(uri: Uri) {
-        if (viewModel != null) {
-            viewModel.openUri(uri)
-            activeUri = uri
-            return
-        }
-        activeUri?.let { oldUri ->
-            val curPos = engine.timePosMs.value
-            val curDur = engine.durationMs.value
-            if (curDur > 0L) {
-                historyRepository?.saveProgress(oldUri, curPos, curDur)
-            }
-        }
-
+        viewModel.openUri(uri)
         activeUri = uri
-        val startPos = if (settings.autoResume) {
-            val p = historyRepository?.getProgress(uri)
-            if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
-        } else 0L
-
-        engine.loadUri(uri, startPos)
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        if (viewModel != null) {
-            viewModel.playMediaItem(item)
-            activeUri = item.asAndroidUri
-        } else {
-            openUri(Uri.parse(item.uriString))
-        }
+        viewModel.playMediaItem(item)
+        activeUri = item.asAndroidUri
     }
 
-    // Auto-advance to next video when current video completes (fallback if viewModel absent)
-    LaunchedEffect(playbackState) {
-        if (viewModel == null && playbackState == PlaybackState.ENDED && playlistManager != null && playlistManager.hasNext) {
-            delay(500L)
-            val next = playlistManager.playNext()
-            if (next != null) {
-                playMediaItem(next)
-            }
-        }
-    }
-
-    // Auto-load companion subtitles asynchronously on IO dispatcher (fallback if viewModel absent)
-    LaunchedEffect(activeUri) {
-        if (viewModel == null) {
-            activeUri?.let { uri ->
-                if (settings.subAutoLoad) {
-                    val knownDisplayName = playlist.firstOrNull { it.uriString == uri.toString() }?.displayName
-                    withContext(Dispatchers.IO) {
-                        val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri, knownDisplayName)
-                        subs.forEach { path -> engine.addSubtitle(path) }
-                    }
-                }
-            }
-        }
-    }
+    // Auto-advance, companion subtitle loading and progress persistence all live in
+    // PlayerViewModel; this screen only renders and forwards intents.
 
     // Clear any residual MPV native video-zoom
     LaunchedEffect(Unit) {
@@ -474,20 +424,6 @@ fun PlayerScreen(
         }
     }
 
-    // Periodic progress persistence (fallback if viewModel absent)
-    LaunchedEffect(isPlaying, activeUri, historyRepository) {
-        if (viewModel == null && isPlaying && activeUri != null && historyRepository != null) {
-            while (true) {
-                delay(4000L)
-                val curPos = engine.timePosMs.value
-                val curDur = engine.durationMs.value
-                if (curDur > 0L) {
-                    historyRepository.saveProgress(activeUri!!, curPos, curDur)
-                }
-            }
-        }
-    }
-
     // 退出播放器界面时平滑恢复系统栏状态，避免返回 HomeScreen 时状态栏撕裂跳变
     DisposableEffect(Unit) {
         onDispose {
@@ -498,17 +434,11 @@ fun PlayerScreen(
         }
     }
 
-    // Save on disposal (when leaving player screen or switching videos)
-    DisposableEffect(activeUri, historyRepository) {
+    // Progress is persisted by PlayerViewModel.onCleared; the screen only has to drop the
+    // software gain so the next screen does not inherit an overdriven volume.
+    DisposableEffect(activeUri) {
         onDispose {
             engine.resetSoftwareGain()
-            if (viewModel == null && activeUri != null && historyRepository != null) {
-                val curPos = engine.timePosMs.value
-                val curDur = engine.durationMs.value
-                if (curDur > 0L) {
-                    historyRepository.saveProgress(activeUri!!, curPos, curDur)
-                }
-            }
         }
     }
 

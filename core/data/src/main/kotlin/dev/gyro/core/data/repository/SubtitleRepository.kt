@@ -9,7 +9,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Repository interface for scanning and managing companion subtitle files.
@@ -23,7 +22,6 @@ interface SubtitleRepository {
     suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String? = null): List<String>
 }
 
-@Singleton
 class DefaultSubtitleRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO

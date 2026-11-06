@@ -7,6 +7,8 @@ import dev.gyro.engine.model.TrackInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Manages audio, video, and subtitle tracks as well as chapter parsing and selection.
@@ -24,7 +26,8 @@ interface TrackAndChapterManager {
     fun clearChapters()
 }
 
-class RealTrackAndChapterManager(
+@Singleton
+class RealTrackAndChapterManager @Inject constructor(
     private val bridge: MpvNativeBridge
 ) : TrackAndChapterManager {
 

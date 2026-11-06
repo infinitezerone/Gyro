@@ -6,6 +6,8 @@ import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.math.abs
 
 /**
@@ -30,7 +32,8 @@ interface VideoGeometryCoordinator {
     fun reset()
 }
 
-class RealVideoGeometryCoordinator(
+@Singleton
+class RealVideoGeometryCoordinator @Inject constructor(
     private val bridge: MpvNativeBridge
 ) : VideoGeometryCoordinator {
 

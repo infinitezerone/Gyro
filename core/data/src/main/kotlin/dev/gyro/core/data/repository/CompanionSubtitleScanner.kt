@@ -8,8 +8,11 @@ import java.io.File
 
 /**
  * Scans for companion subtitles (.srt, .ass, .ssa, .vtt) in the same directory as the video.
+ *
+ * Internal on purpose: [SubtitleRepository] is the only entry point that callers should see,
+ * because it owns the dispatcher and the application context.
  */
-object CompanionSubtitleScanner {
+internal object CompanionSubtitleScanner {
 
     private const val TAG = "CompanionSubtitleScanner"
     private val SUB_EXTENSIONS = setOf("srt", "ass", "ssa", "vtt")

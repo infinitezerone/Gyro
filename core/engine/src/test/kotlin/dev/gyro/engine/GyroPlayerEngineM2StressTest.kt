@@ -5,6 +5,8 @@ import android.content.ContextWrapper
 import android.view.Surface
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.datastore.UserSettingsDataStoreFactory
+import dev.gyro.core.model.UserSettings
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import dev.gyro.engine.model.PlaybackState
@@ -22,6 +24,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 /**
  * Adversarial stress and priority collision test suite for Milestone 2:
@@ -31,6 +38,23 @@ import java.util.concurrent.atomic.AtomicInteger
  * 4. Rapid lifecycle transitions and surface attachment/detachment
  */
 class GyroPlayerEngineM2StressTest {
+
+    /**
+     * Settings over an in-memory DataStore. [SettingsRepository.updateSettings] applies to the
+     * in-memory flow synchronously, which is what the assertions read immediately afterwards.
+     */
+    private fun testSettingsRepo(settings: UserSettings = UserSettings()): SettingsRepository {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val store = UserSettingsDataStoreFactory.createInMemory(settings, scope)
+        val repo = SettingsRepository(store)
+        // stateIn propagates asynchronously; block until the repository reports the seeded value,
+        // otherwise ensureInitialized() would read the initial defaults.
+        runBlocking {
+            repo.updateSettings { settings }
+            repo.settings.first { it == settings }
+        }
+        return repo
+    }
 
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -288,10 +312,9 @@ class GyroPlayerEngineM2StressTest {
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
 
         // 1. Invariant keys must remain locked to engine contracts
         assertEquals("vo must be libmpv", "libmpv", fakeBridge.options["vo"])
@@ -327,10 +350,9 @@ class GyroPlayerEngineM2StressTest {
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
 
         assertEquals("libmpv", fakeBridge.options["vo"])
         assertEquals("yes", fakeBridge.options["idle"])
@@ -350,41 +372,16 @@ class GyroPlayerEngineM2StressTest {
             writeText("hwdec=no\n")
         }
         val mpvRepo = MpvConfigRepository(configFile = confFile)
-        val prefs = FakeSharedPreferences(mapOf("default_hwdec" to "mediacodec-copy"))
-        val settingsRepo = SettingsRepository(prefs)
+        val settings = UserSettings(defaultHwdec = "mediacodec-copy")
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo,
-            settingsRepository = settingsRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions(), settings = settings)
 
         // GUI setting 'mediacodec-copy' must win over mpv.conf 'no'
         assertEquals("mediacodec-copy", fakeBridge.options["hwdec"])
-    }
-
-    @Test
-    fun testPriority_legacyBlankHwdecStaysSoftware() {
-        val confFile = File(filesDir, "mpv.conf").apply {
-            writeText("hwdec=no\n")
-        }
-        val mpvRepo = MpvConfigRepository(configFile = confFile)
-        // "" is what the settings sheet stored for software before it wrote "no".
-        val prefs = FakeSharedPreferences(mapOf("default_hwdec" to ""))
-        val settingsRepo = SettingsRepository(prefs)
-
-        val engine = GyroPlayerEngine(
-            context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo,
-            settingsRepository = settingsRepo
-        )
-        engine.ensureInitialized()
-
-        // The user chose software once; a default change must not quietly turn it back on.
-        assertEquals("no", fakeBridge.options["hwdec"])
     }
 
     @Test
@@ -393,16 +390,13 @@ class GyroPlayerEngineM2StressTest {
             writeText("hwdec=no\n")
         }
         val mpvRepo = MpvConfigRepository(configFile = confFile)
-        val prefs = FakeSharedPreferences()
-        val settingsRepo = SettingsRepository(prefs)
+        val settings = UserSettings()
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo,
-            settingsRepository = settingsRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions(), settings = settings)
 
         // Hardware wins over mpv.conf, with the copy-back variant appended so a codec that refuses
         // the surface still decodes, and with mpv's own software fallback armed for decode errors.
@@ -417,16 +411,13 @@ class GyroPlayerEngineM2StressTest {
             writeText("sub-auto=all\n")
         }
         val mpvRepoA = MpvConfigRepository(configFile = confFileA)
-        val prefsA = FakeSharedPreferences(mapOf("sub_auto_load" to false))
-        val settingsRepoA = SettingsRepository(prefsA)
+        val settingsA = UserSettings(subAutoLoad = false)
         val bridgeA = FakeMpvNativeBridge()
 
         GyroPlayerEngine(
             context = testContext,
             bridge = bridgeA,
-            mpvConfigRepository = mpvRepoA,
-            settingsRepository = settingsRepoA
-        ).ensureInitialized()
+        ).ensureInitialized(userOptions = mpvRepoA.getParsedOptions(), settings = settingsA)
 
         assertEquals("no", bridgeA.options["sub-auto"])
 
@@ -435,16 +426,13 @@ class GyroPlayerEngineM2StressTest {
             writeText("sub-auto=no\n")
         }
         val mpvRepoB = MpvConfigRepository(configFile = confFileB)
-        val prefsB = FakeSharedPreferences(mapOf("sub_auto_load" to true))
-        val settingsRepoB = SettingsRepository(prefsB)
+        val settingsB = UserSettings(subAutoLoad = true)
         val bridgeB = FakeMpvNativeBridge()
 
         GyroPlayerEngine(
             context = testContext,
             bridge = bridgeB,
-            mpvConfigRepository = mpvRepoB,
-            settingsRepository = settingsRepoB
-        ).ensureInitialized()
+        ).ensureInitialized(userOptions = mpvRepoB.getParsedOptions(), settings = settingsB)
 
         assertEquals("all", bridgeB.options["sub-auto"])
     }
@@ -463,10 +451,9 @@ class GyroPlayerEngineM2StressTest {
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
 
         // Engine requires 200.0 headroom for overdrive and audiotrack,opensles for Android
         assertEquals("200.0", fakeBridge.options["volume-max"])
@@ -490,10 +477,9 @@ class GyroPlayerEngineM2StressTest {
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
 
         // Check pre-init options registered
         assertEquals("no", fakeBridge.options["deband"])

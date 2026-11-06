@@ -4,18 +4,30 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.model.GlslShader
 import java.io.File
 import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Manages extraction of built-in shader assets and caching of SAF imported custom shaders.
  */
+@Singleton
 class ShaderManager(
     private val context: Context,
     private val baseDir: File = runCatching { context.filesDir }.getOrNull()
         ?: File(System.getProperty("java.io.tmpdir"), "gyro_shaders")
 ) {
+    @Inject
+    constructor(
+        @ApplicationContext context: Context
+    ) : this(
+        context = context,
+        baseDir = runCatching { context.filesDir }.getOrNull()
+            ?: File(System.getProperty("java.io.tmpdir"), "gyro_shaders")
+    )
     companion object {
         private const val TAG = "ShaderManager"
         const val BUILT_IN_DIR = "shaders/built_in"

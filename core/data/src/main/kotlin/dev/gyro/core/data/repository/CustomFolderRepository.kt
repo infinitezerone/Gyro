@@ -4,24 +4,44 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gyro.core.common.dispatcher.Dispatcher
+import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
 
 /**
- * 用户自定义目录扫描与持久化管理
+ * Persists the SAF tree URIs the user granted and scans them for video files.
+ *
+ * The persisted grant survives reboots, so this repository owns the only path that may call
+ * take/releasePersistableUriPermission: doing it from anywhere else silently drops the grant for
+ * every other reader.
  */
-class CustomFolderManager(
-    private val context: Context,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-) {
+interface CustomFolderRepository {
+    fun getSavedFolderUris(): Set<Uri>
+
+    fun addFolder(treeUri: Uri): Boolean
+
+    fun removeFolder(treeUri: Uri)
+
+    suspend fun getFolderDetails(): List<CustomFolderDetail>
+
+    suspend fun scanCustomFolders(): List<VideoMediaItem>
+}
+
+class DefaultCustomFolderRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : CustomFolderRepository {
 
     private val prefs = context.getSharedPreferences("gyro_custom_folders", Context.MODE_PRIVATE)
     private val keyCustomUris = "custom_tree_uris"
 
-    fun getSavedFolderUris(): Set<Uri> {
+    override fun getSavedFolderUris(): Set<Uri> {
         val strings = prefs.getStringSet(keyCustomUris, emptySet()) ?: emptySet()
         return strings.mapNotNull {
             try {
@@ -32,7 +52,7 @@ class CustomFolderManager(
         }.toSet()
     }
 
-    fun addFolder(treeUri: Uri): Boolean {
+    override fun addFolder(treeUri: Uri): Boolean {
         return try {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
             context.contentResolver.takePersistableUriPermission(treeUri, flags)
@@ -47,7 +67,7 @@ class CustomFolderManager(
         }
     }
 
-    fun removeFolder(treeUri: Uri) {
+    override fun removeFolder(treeUri: Uri) {
         try {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
             context.contentResolver.releasePersistableUriPermission(treeUri, flags)
@@ -59,7 +79,7 @@ class CustomFolderManager(
         prefs.edit().putStringSet(keyCustomUris, current).apply()
     }
 
-    suspend fun getFolderDetails(): List<CustomFolderDetail> = withContext(ioDispatcher) {
+    override suspend fun getFolderDetails(): List<CustomFolderDetail> = withContext(ioDispatcher) {
         val result = mutableListOf<CustomFolderDetail>()
         val uris = getSavedFolderUris()
 
@@ -85,7 +105,7 @@ class CustomFolderManager(
         result
     }
 
-    suspend fun scanCustomFolders(): List<VideoMediaItem> = withContext(ioDispatcher) {
+    override suspend fun scanCustomFolders(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val result = mutableListOf<VideoMediaItem>()
         val uris = getSavedFolderUris()
 

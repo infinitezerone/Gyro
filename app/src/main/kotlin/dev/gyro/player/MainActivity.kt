@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
@@ -37,7 +38,9 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
 import dagger.hilt.android.AndroidEntryPoint
+import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen
 import dev.gyro.engine.GyroPlayerEngine
@@ -53,6 +56,8 @@ import dev.gyro.feature.settings.folders.FolderManagementViewModel
 import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 // Material 3 navigation motion specs: fixed-duration tweens instead of springs — a spring
@@ -66,6 +71,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var playerEngine: GyroPlayerEngine
     @Inject lateinit var playlistManager: PlaylistManager
+    @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var mpvConfigRepository: MpvConfigRepository
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val playerViewModel: PlayerViewModel by viewModels()
@@ -88,15 +95,22 @@ class MainActivity : ComponentActivity() {
         // Keep screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        playerEngine.ensureInitialized()
-
-        handleIntent(intent)
+        // The engine takes configuration as values, not repositories. The first emission of the
+        // DataStore flow is the real persisted value; reading a StateFlow here would have handed
+        // mpv the defaults while the disk was still loading.
+        lifecycleScope.launch {
+            val settings = settingsRepository.settings.first()
+            playerEngine.ensureInitialized(
+                userOptions = mpvConfigRepository.getParsedOptions(),
+                settings = settings,
+            )
+            handleIntent(intent)
+        }
 
         setContent {
             val backStack = rememberNavBackStack(Screen.Home)
             val intentUri by incomingIntentUri.collectAsState()
             val settings by settingsViewModel.settings.collectAsState()
-            val historyRepository = homeViewModel.historyRepository
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
@@ -219,7 +233,6 @@ class MainActivity : ComponentActivity() {
                                 engine = playerEngine,
                                 currentUri = playerScreen.uri,
                                 settings = settings,
-                                historyRepository = historyRepository,
                                 playlistManager = playlistManager,
                                 viewModel = playerViewModel,
                                 onBack = {

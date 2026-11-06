@@ -5,11 +5,7 @@ import org.gradle.api.Project
 import org.gradle.kotlin.dsl.dependencies
 
 /**
- * Hilt + KSP for Android modules that own an injection graph entry point.
- *
- * Deliberately does NOT touch :core:engine: the engine module stays free of DI frameworks, and
- * everything it needs is @Provides-ed from :app, which is the only module that knows the whole
- * graph. Applying this plugin to a core module would invert that.
+ * Hilt + KSP for Android modules that participate in the dependency injection graph.
  */
 class AndroidHiltConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {

@@ -31,7 +31,9 @@ import androidx.core.content.ContextCompat
  * of failing, so a broken audio stack can never make the player unusable.
  */
 class GyroAudioFocusManager(
-    context: Context,
+    // The application context, supplied by the engine: this reference is kept for the lifetime of
+    // the player so the becoming-noisy receiver can be unregistered later.
+    private val context: Context,
     private val listener: Listener,
     private val audioManager: AudioManager? = resolveAudioManager(context)
 ) {
@@ -61,12 +63,9 @@ class GyroAudioFocusManager(
         const val PAUSED_BY_TRANSIENT = 1
 
         fun resolveAudioManager(context: Context): AudioManager? = runCatching {
-            val target = context.applicationContext ?: context
-            target.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         }.getOrNull()
     }
-
-    private val appContext: Context = runCatching { context.applicationContext }.getOrNull() ?: context
 
     private var hasFocus = false
     private var pausedBy = PAUSED_BY_NONE
@@ -294,7 +293,7 @@ class GyroAudioFocusManager(
         }
         runCatching {
             ContextCompat.registerReceiver(
-                appContext,
+                context,
                 receiver,
                 IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
                 ContextCompat.RECEIVER_NOT_EXPORTED
@@ -308,7 +307,7 @@ class GyroAudioFocusManager(
 
     private fun unregisterNoisyReceiver() {
         noisyReceiver?.let { receiver ->
-            runCatching { appContext.unregisterReceiver(receiver) }
+            runCatching { context.unregisterReceiver(receiver) }
                 .onFailure { Log.w(TAG, "Failed to unregister noisy receiver: ${it.message}") }
         }
         noisyReceiver = null

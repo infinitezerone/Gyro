@@ -28,6 +28,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private const val CHECKPOINT_INTERVAL_MS = 10_000L
+private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
+
 /**
  * Business state container and orchestration pipeline for playback workflows.
  *
@@ -47,19 +50,28 @@ class PlayerViewModel @Inject constructor(
 ) : ViewModel() {
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
 
     val gestureConfig: StateFlow<PlayerGestureConfig> = settingsRepository.settings
         .map { it.gestureConfig }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
-            initialValue = settingsRepository.settings.value.gestureConfig
+            initialValue = PlayerGestureConfig()
         )
 
     private val _activeUri = MutableStateFlow<Uri?>(engine.currentUri.value)
     val activeUri: StateFlow<Uri?> = _activeUri.asStateFlow()
 
     private var periodicSaveJob: Job? = null
+
+    // Checkpoint bookkeeping lives in the ViewModel, not in the repository: it is session state,
+    // and a singleton repository would keep it alive across player sessions.
+    private var lastCheckpointUri: Uri? = null
+    private var lastCheckpointPosMs: Long = 0L
+
+    private fun shouldCheckpoint(uri: Uri, positionMs: Long): Boolean =
+        uri != lastCheckpointUri || kotlin.math.abs(positionMs - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS
 
     init {
         // Sync engine's currentUri changes into activeUri
@@ -105,18 +117,21 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        // 4. Periodic throttled checkpoint while playing (10s interval, prevents progress loss on kill)
+        // 4. Periodic checkpoint while playing: the timer itself is the rate limiter, the delta
+        // check only skips periods where the position did not move enough to be worth a write.
         periodicSaveJob = viewModelScope.launch {
             engine.isPlaying.collectLatest { playing ->
                 if (playing) {
                     while (isActive) {
-                        delay(10_000L)
+                        delay(CHECKPOINT_INTERVAL_MS)
                         val uri = _activeUri.value
                         if (uri != null) {
                             val curPos = engine.timePosMs.value
                             val curDur = engine.durationMs.value
-                            if (curDur > 0L) {
-                                historyRepository.saveProgressThrottled(uri, curPos, curDur)
+                            if (curDur > 0L && shouldCheckpoint(uri, curPos)) {
+                                lastCheckpointUri = uri
+                                lastCheckpointPosMs = curPos
+                                historyRepository.saveProgress(uri, curPos, curDur)
                             }
                         }
                     }
@@ -139,12 +154,15 @@ class PlayerViewModel @Inject constructor(
 
         _activeUri.value = uri
 
-        val startPos = if (settings.value.autoResume) {
-            val p = historyRepository.getProgress(uri)
-            if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
-        } else 0L
-
-        engine.loadUri(uri, startPos)
+        // getProgress is a suspend read now that the repository is stateless, so the load is
+        // dispatched instead of blocking the caller for a database round trip.
+        viewModelScope.launch {
+            val startPos = if (settings.value.autoResume) {
+                val p = historyRepository.getProgress(uri)
+                if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
+            } else 0L
+            engine.loadUri(uri, startPos)
+        }
     }
 
     fun playMediaItem(item: VideoMediaItem) {

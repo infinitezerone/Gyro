@@ -4,6 +4,8 @@ import dev.gyro.engine.MpvNativeBridge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Manages audio filtering, 0-200% volume overdrive, anti-clipping limiter,
@@ -29,7 +31,8 @@ interface AudioEffectsController {
     }
 }
 
-class RealAudioEffectsController(
+@Singleton
+class RealAudioEffectsController @Inject constructor(
     private val bridge: MpvNativeBridge
 ) : AudioEffectsController {
 

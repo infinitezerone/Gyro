@@ -6,6 +6,13 @@ import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
+import dev.gyro.core.datastore.UserSettingsDataStoreFactory
+import dev.gyro.core.model.UserSettings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Before
@@ -51,10 +58,9 @@ class GyroPlayerEngineMpvConfInjectionTest {
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
 
         // Protected keys must remain invariant
         assertEquals("libmpv", fakeBridge.options["vo"])
@@ -78,21 +84,21 @@ class GyroPlayerEngineMpvConfInjectionTest {
             )
         }
         val mpvRepo = MpvConfigRepository(configFile = confFile)
-        val prefs = FakeSharedPreferences(
-            mapOf(
-                "default_hwdec" to "mediacodec",
-                "sub_auto_load" to true
-            )
-        )
-        val settingsRepo = SettingsRepository(prefs)
+        val settings = UserSettings(defaultHwdec = "mediacodec", subAutoLoad = true)
+        val settingsRepo = runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            val store = UserSettingsDataStoreFactory.createInMemory(settings, scope)
+            val repo = SettingsRepository(store)
+            repo.updateSettings { settings }
+            repo.settings.first { it == settings }
+            repo
+        }
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo,
-            settingsRepository = settingsRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions(), settings = settings)
 
         // GUI explicit settings must overwrite user config values for conflicting keys. The chosen
         // hardware mode is expanded with the copy-back variant so an init failure is not fatal.
@@ -109,10 +115,9 @@ class GyroPlayerEngineMpvConfInjectionTest {
 
         val engine = GyroPlayerEngine(
             context = testContext,
-            bridge = fakeBridge,
-            mpvConfigRepository = mpvRepo
+            bridge = fakeBridge
         )
-        engine.ensureInitialized()
+        engine.ensureInitialized(userOptions = mpvRepo.getParsedOptions())
 
         assertEquals("1.5", fakeBridge.options["speed"])
 

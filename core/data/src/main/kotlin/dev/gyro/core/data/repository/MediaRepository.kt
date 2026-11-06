@@ -14,13 +14,11 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Interface contract for accessing local video media and custom folder sources.
  */
 interface MediaRepository {
-    val customFolderManager: CustomFolderManager
     suspend fun getVideos(): List<VideoMediaItem>
     fun addCustomFolder(treeUri: Uri): Boolean
     fun removeCustomFolder(treeUri: Uri)
@@ -28,21 +26,11 @@ interface MediaRepository {
     suspend fun getCustomFolderDetails(): List<CustomFolderDetail>
 }
 
-/**
- * Factory function for manual instantiation or tests.
- */
-fun MediaRepository(
-    context: Context,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-): MediaRepository = DefaultMediaRepository(context, ioDispatcher)
-
-@Singleton
 class DefaultMediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val customFolderRepository: CustomFolderRepository,
 ) : MediaRepository {
-
-    override val customFolderManager = CustomFolderManager(context, ioDispatcher)
 
     override suspend fun getVideos(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val videoList = mutableListOf<VideoMediaItem>()
@@ -123,7 +111,7 @@ class DefaultMediaRepository @Inject constructor(
 
         // 检索用户主动授权添加的外部自定义目录视频
         try {
-            val customVideos = customFolderManager.scanCustomFolders()
+            val customVideos = customFolderRepository.scanCustomFolders()
             // 去重（避免文件名和大小完全相同的重复项）
             val existingNames = videoList.map { it.displayName to it.sizeBytes }.toSet()
             for (item in customVideos) {
@@ -139,18 +127,18 @@ class DefaultMediaRepository @Inject constructor(
     }
 
     override fun addCustomFolder(treeUri: Uri): Boolean {
-        return customFolderManager.addFolder(treeUri)
+        return customFolderRepository.addFolder(treeUri)
     }
 
     override fun removeCustomFolder(treeUri: Uri) {
-        customFolderManager.removeFolder(treeUri)
+        customFolderRepository.removeFolder(treeUri)
     }
 
     override fun getCustomFolders(): Set<Uri> {
-        return customFolderManager.getSavedFolderUris()
+        return customFolderRepository.getSavedFolderUris()
     }
 
     override suspend fun getCustomFolderDetails(): List<CustomFolderDetail> {
-        return customFolderManager.getFolderDetails()
+        return customFolderRepository.getFolderDetails()
     }
 }
