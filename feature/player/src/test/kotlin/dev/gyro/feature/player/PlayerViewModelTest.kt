@@ -110,22 +110,37 @@ class PlayerViewModelTest {
     }
 
     /**
+     * Stops the ViewModel before `runTest` drains the scheduler.
+     *
+     * The checkpoint job is an unbounded `while (isActive) { delay(...) }` loop, so virtual time
+     * always has a pending task. Without this teardown the drain spins forever — and it spins
+     * *after* an assertion has already failed, which turns any red test into a hung build.
+     */
+    private fun runPlayerTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
+        try {
+            body()
+        } finally {
+            viewModel.viewModelScope.cancel()
+        }
+    }
+
+    /**
      * Room writes are fire-and-forget on the repository scope, so the row only becomes visible once
      * that coroutine runs. Virtual time makes the wait deterministic instead of wall-clock bound.
      */
     private suspend fun TestScope.awaitProgress(uri: android.net.Uri): PlaybackProgress? {
-        repeat(100) {
+        repeat(200) {
             runCurrent()
             historyRepo.getProgress(uri)?.let { return it }
             // Virtual time alone is not enough: part of the engine -> ViewModel -> repository chain
-            // resumes on real dispatchers, so give those threads a slice before pumping again.
-            withContext(Dispatchers.Default) { delay(2) }
+            // resumes on real dispatchers, so give those threads a real slice before pumping again.
+            withContext(Dispatchers.Default) { Thread.sleep(5) }
         }
         return null
     }
 
     @Test
-    fun testAutoAdvanceOnPlaybackEnded() = runTest(testDispatcher) {
+    fun testAutoAdvanceOnPlaybackEnded() = runPlayerTest {
         val item1 = VideoMediaItem(1L, "file:///video1.mp4", "Video 1", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///video2.mp4", "Video 2", 2000L, 200L, 0, 0, 0L, "F")
         playlistManager.setPlaylist(listOf(item1, item2), 0)
@@ -146,7 +161,7 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun testPeriodicSaveProgress() = runTest(testDispatcher) {
+    fun testPeriodicSaveProgress() = runPlayerTest {
         val uri = TestUri("file:///video1.mp4")
         viewModel.openUri(uri)
         testScheduler.runCurrent()
@@ -170,11 +185,10 @@ class PlayerViewModelTest {
         // runTest's final advanceUntilIdle spinning in virtual time forever.
         fakeBridge.emitPropertyFlag("pause", true)
         testScheduler.runCurrent()
-        viewModel.viewModelScope.cancel()
     }
 
     @Test
-    fun testPauseSavesProgressImmediately() = runTest(testDispatcher) {
+    fun testPauseSavesProgressImmediately() = runPlayerTest {
         val uri = TestUri("file:///video_pause.mp4")
         viewModel.openUri(uri)
         testScheduler.runCurrent()
@@ -192,11 +206,10 @@ class PlayerViewModelTest {
         val progress = awaitProgress(uri)
         assertNotNull(progress)
         assertEquals(45_000L, progress?.positionMs)
-        viewModel.viewModelScope.cancel()
     }
 
     @Test
-    fun testSaveCurrentProgressOnExit() = runTest(testDispatcher) {
+    fun testSaveCurrentProgressOnExit() = runPlayerTest {
         val uri = TestUri("file:///video_exit.mp4")
         viewModel.openUri(uri)
         testScheduler.runCurrent()
@@ -217,7 +230,7 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun testOpenUriSavesPreviousVideoProgress() = runTest(testDispatcher) {
+    fun testOpenUriSavesPreviousVideoProgress() = runPlayerTest {
         val uri1 = TestUri("file:///ep1.mp4")
         val uri2 = TestUri("file:///ep2.mp4")
 
@@ -240,7 +253,7 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun testPlaylistNavigationMethods() = runTest(testDispatcher) {
+    fun testPlaylistNavigationMethods() = runPlayerTest {
         val item1 = VideoMediaItem(1L, "file:///a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
         playlistManager.setPlaylist(listOf(item1, item2), 0)
@@ -258,7 +271,7 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun testAutoResumeLoadsSavedProgressSilently() = runTest(testDispatcher) {
+    fun testAutoResumeLoadsSavedProgressSilently() = runPlayerTest {
         val uri = TestUri("file:///resumed_video.mp4")
         // Save progress at 35 seconds; wait for it to surface through the DAO flow before the
         // resume path reads it.
@@ -285,7 +298,7 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun testReopenSameUriReloadsAndResumesPlayback() = runTest(testDispatcher) {
+    fun testReopenSameUriReloadsAndResumesPlayback() = runPlayerTest {
         val uri = TestUri("file:///same_video.mp4")
         viewModel.openUri(uri)
         testScheduler.runCurrent()
