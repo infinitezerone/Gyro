@@ -10,6 +10,8 @@ import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
+import dev.gyro.engine.media.DefaultMediaResourceResolver
+import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.session.PlaybackTimelineController
 import dev.gyro.engine.session.RealPlaybackTimelineController
 import dev.gyro.engine.session.RealVideoGeometryCoordinator
@@ -31,6 +33,12 @@ interface EngineModule {
     fun bindMpvNativeBridge(
         impl: RealMpvNativeBridge
     ): MpvNativeBridge
+
+    @Binds
+    @Singleton
+    fun bindMediaResourceResolver(
+        impl: DefaultMediaResourceResolver
+    ): MediaResourceResolver
 
     @Binds
     @Singleton

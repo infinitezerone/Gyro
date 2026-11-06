@@ -90,7 +90,7 @@ Data Flow:
 ### `:core:engine` ↔ `:feature:player` & `:app`
 - `MpvNativeBridge`: Interface abstracting all `GyroNative` calls (`command`, `setOptionString`, `getProperty*`, `setProperty*`, `observeProperty`) plus the typed native event stream `events: SharedFlow<MpvEvent>`.
 - `GyroPlayerEngine` (facade: session lifecycle + core playback only):
-  - Core commands: `ensureInitialized(userOptions, settings)`, `loadUri(uri, startPositionMs, displayTitle)`, `load(url, ...)`, `play()`, `pause()`, `togglePlayPause()`, `seekTo(ms)`, `seekRelative(ms)`, `release()`.
+  - Core commands: `ensureInitialized(userOptions, settings)`, `loadUri(uri, startPositionMs, displayTitle)`, `load(item: MediaItem)`, `load(url, ...)`, `play()`, `pause()`, `togglePlayPause()`, `seekTo(ms)`, `seekRelative(ms)`, `release()`.
   - Core state: `playbackState`, `isPlaying`, `timePosMs`, `durationMs`, `bufferedPosMs`, `isFileLoaded`, `currentUri`, `mediaTitle`, `hwdecCurrent`, `speed`, `fps`, `droppedFrames`.
   - Snapshot: `val snapshot: StateFlow<PlaybackSnapshot>` — one coherent read of every slow-moving fact across the facade and all controllers; UI subscribes once instead of per property. `timePosMs`/`bufferedPosMs` are deliberately excluded (report-frequency, scrub bar only).
   - Surface: `attachSurface(surface)`, `detachSurface(surface?)`, `redraw()`, `isSurfaceAttached`.
@@ -101,6 +101,7 @@ Data Flow:
 - `TrackAndChapterManager` (`engine.trackManager`): `tracks`, `chapters`, `currentChapter`; `selectTrack`, `addSubtitle`, `refreshTracks`, `seekToChapter` via `engine.seekToChapter`.
 - `ShaderController` (`engine.shaders`): `shaderState`; `setShader`, `clearShader`, `importAndSetCustomShader`, `getCustomShaders`.
 - `SyncTuningController` (`engine.tuning`): `subtitleDelaySec`, `audioDelaySec`, `subtitleScale`, `subtitlePositionPercent`; corresponding setters, clamping owned by the controller.
+- `MediaResourceResolver` (`:core:engine.media`): `suspend fun resolve(item: MediaItem): ResolvedMediaSource`. Opens content descriptors off the main thread and hands ownership over in `ResolvedMediaSource.takeTargetUrl()`; a request that is cancelled or replaced before `loadfile` is closed instead of leaking the fd. Resolution failure surfaces as `PlaybackState.ERROR`.
 - Event stream: `MpvEventBus` (owned by `GyroNative`, surfaced as `MpvNativeBridge.events`) publishes `MpvEvent`; every domain controller subscribes through `observeEvents(scope)`. No replay, publish applies backpressure on the native event thread.
 - `PlaybackTimelineController` is intentionally not a public namespace: it is the engine's own time/seek implementation.
 

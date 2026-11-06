@@ -15,6 +15,10 @@ import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
+import dev.gyro.engine.media.MediaItem
+import dev.gyro.engine.media.DefaultMediaResourceResolver
+import dev.gyro.engine.media.MediaResourceResolver
+import dev.gyro.engine.media.ResolvedMediaSource
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.engine.session.PlaybackTimelineController
@@ -33,6 +37,7 @@ import dev.gyro.engine.tuning.RealSyncTuningController
 import dev.gyro.engine.tuning.SyncTuningController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +54,7 @@ import javax.inject.Singleton
 class GyroPlayerEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
+    private val resolver: MediaResourceResolver = DefaultMediaResourceResolver(context),
     val shaders: ShaderController = RealShaderController(bridge, ShaderManager(context)),
     val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
     val audio: AudioEffectsController = RealAudioEffectsController(bridge),
@@ -421,43 +427,75 @@ class GyroPlayerEngine @Inject constructor(
     @Volatile
     private var currentLoadJob: kotlinx.coroutines.Job? = null
 
-    fun loadUri(uri: Uri, startPositionMs: Long = 0L, displayTitle: String? = null) {
-        SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
-        _currentUri.value = uri
-        geometry.onSwitchStarted(uri.toString(), startPositionMs)
+    fun loadUri(uri: Uri, startPositionMs: Long = 0L, displayTitle: String? = null) =
+        load(MediaItem(uri = uri, title = displayTitle, startPositionMs = startPositionMs))
+
+    /**
+     * Resolves [item] off the main thread, then hands the resulting source to mpv.
+     *
+     * The descriptor's ownership moves with the source: if this load is cancelled or replaced
+     * before `loadfile` runs, the pending source is closed instead of leaking the fd. Resolution
+     * failures surface as [PlaybackState.ERROR] rather than a silently black shutter.
+     */
+    fun load(item: MediaItem) {
+        beginLoad(
+            target = item.uri.toString(),
+            title = item.title,
+            startPositionMs = item.startPositionMs,
+            uri = item.uri
+        )
+
+        currentLoadJob?.cancel()
+        discardPending()
+        currentLoadJob = engineScope.launch {
+            var owned: ResolvedMediaSource? = null
+            try {
+                val resolved = resolver.resolve(item)
+                owned = resolved
+                SwitchTrace.log("RESOLVE_PATH_DONE", "target=${resolved.targetDescription}")
+                withContext(Dispatchers.Main) {
+                    submitOrQueue(resolved, item.startPositionMs, item.uri.toString())
+                }
+                // submitOrQueue owns the source from here: either queued or handed to mpv.
+                owned = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                Log.e(TAG, "load: cannot resolve ${item.uri}", t)
+                _playbackState.value = PlaybackState.ERROR
+            } finally {
+                owned?.close()
+            }
+        }
+    }
+
+    /**
+     * Arms the shutter, publishes the title and initialises the core for one request.
+     *
+     * Runs synchronously on the caller's thread so the UI never paints the previous file's title or
+     * position while the descriptor is still being resolved.
+     */
+    private fun beginLoad(target: String, title: String?, startPositionMs: Long, uri: Uri?) {
+        SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs")
+        if (uri != null) _currentUri.value = uri
+        geometry.onSwitchStarted(target, startPositionMs)
         audio.resetSoftwareGain()
-        // Synchronously arm the shutter and buffering state on the main thread
-        // so UI never exposes the stale frame of the previous video during async I/O.
         _playbackState.value = PlaybackState.BUFFERING
         SwitchTrace.log("SHUTTER_ARMED", "firstFrame=false, geometryReady=false")
 
-        val resolvedTitle = displayTitle?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment.orEmpty()
-        _mediaTitle.value = resolvedTitle
+        ensureInitialized()
+        timeline.onLoadStarted(startPositionMs)
 
-        currentLoadJob?.cancel()
-        currentLoadJob = engineScope.launch(Dispatchers.IO) {
-            val targetPath = try {
-                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
-                val fd = pfd?.detachFd() ?: -1
-                if (fd >= 0) {
-                    "fdclose://$fd"
-                } else {
-                    uri.path ?: uri.toString()
-                }
-            } catch (e: Throwable) {
-                Log.w(TAG, "openFileDescriptor fallback for uri=$uri: ${e.message}")
-                if (uri.scheme == "file") {
-                    uri.path ?: uri.toString()
-                } else {
-                    uri.toString()
-                }
-            }
-            Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
-            SwitchTrace.log("RESOLVE_PATH_DONE", "targetPath=$targetPath")
-            withContext(Dispatchers.Main) {
-                load(targetPath, startPositionMs, resolvedTitle)
-            }
+        requestedTitle = title?.trim().orEmpty()
+        val resolvedTitle = requestedTitle.ifBlank {
+            (uri?.lastPathSegment ?: target.substringAfterLast('/').substringAfterLast('\\'))
+                .takeIf { candidate -> candidate.isNotBlank() && !candidate.startsWith("fdclose://") }
+                .orEmpty()
         }
+        _mediaTitle.value = resolvedTitle
+        // Keep mpv's own metadata in step: media-title feeds the notification and media session, so
+        // a mismatch leaks the descriptor number outside the player screen.
+        bridge.setPropertyString("force-media-title", resolvedTitle)
     }
 
     /** True while the native renderer holds a bound surface; false means nothing is painting. */
@@ -466,40 +504,46 @@ class GyroPlayerEngine @Inject constructor(
         private set
 
     @Volatile
-    private var pendingLoadUrl: String? = null
+    private var pendingSource: ResolvedMediaSource? = null
     @Volatile
-    private var pendingLoadStartMs: Long = 0L
+    private var pendingStartMs: Long = 0L
     @Volatile
-    private var pendingLoadTitle: String? = null
+    private var pendingLabel: String = ""
 
+    private fun discardPending() {
+        pendingSource?.close()
+        pendingSource = null
+        pendingLabel = ""
+    }
+
+    /**
+     * Direct-target entry used by tests and by callers that already hold a path; no descriptor
+     * ownership is involved, so it stays synchronous.
+     */
     fun load(url: String, startPositionMs: Long = 0L, displayTitle: String? = null) {
-        SwitchTrace.log("LOAD_COMMAND_ISSUED", "url=$url, isSurfaceAttached=$isSurfaceAttached")
-        Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
-        audio.resetSoftwareGain()
-        ensureInitialized()
-        geometry.onSwitchStarted(url, startPositionMs)
-        timeline.onLoadStarted(startPositionMs)
+        beginLoad(target = url, title = displayTitle, startPositionMs = startPositionMs, uri = null)
+        currentLoadJob?.cancel()
+        discardPending()
+        submitOrQueue(ResolvedMediaSource(url), startPositionMs, url)
+    }
 
-        requestedTitle = displayTitle?.trim().orEmpty()
-        val resolvedTitle = requestedTitle.ifBlank {
-            url.substringAfterLast('/').substringAfterLast('\\')
-                .takeIf { candidate -> candidate.isNotBlank() && !candidate.startsWith("fdclose://") }
-                .orEmpty()
-        }
-        _mediaTitle.value = resolvedTitle
-        // Keep mpv's own metadata in step: media-title feeds the notification and media session, so
-        // a mismatch leaks the descriptor number outside the player screen.
-        bridge.setPropertyString("force-media-title", resolvedTitle)
-
+    private fun submitOrQueue(source: ResolvedMediaSource, startPositionMs: Long, label: String) {
         if (!isSurfaceAttached) {
-            Log.i(TAG, "load: SurfaceView 尚未挂载，先进入等待队列: $url")
-            pendingLoadUrl = url
-            pendingLoadStartMs = startPositionMs
-            pendingLoadTitle = displayTitle
+            Log.i(TAG, "load: surface not attached yet, queueing $label")
+            discardPending()
+            pendingSource = source
+            pendingStartMs = startPositionMs
+            pendingLabel = label
             _playbackState.value = PlaybackState.BUFFERING
             return
         }
-        pendingLoadUrl = null
+        submit(source, startPositionMs, label)
+    }
+
+    private fun submit(source: ResolvedMediaSource, startPositionMs: Long, label: String) {
+        val target = source.takeTargetUrl()
+        SwitchTrace.log("LOAD_COMMAND_ISSUED", "url=$target, isSurfaceAttached=$isSurfaceAttached")
+        Log.i(TAG, "submit: url=$target, startPositionMs=$startPositionMs")
         timeline.onLoadCommandIssued()
         _playbackState.value = PlaybackState.BUFFERING
         // Resume positions ride the loadfile itself. Passing start= makes mpv decode its first
@@ -510,9 +554,9 @@ class GyroPlayerEngine @Inject constructor(
         val loadArgs = if (startPositionMs > 0L) {
             // libmpv's loadfile is <url> <flags> <index> <options>: the integer index must be
             // filled in before the options, or the whole command is rejected (rc=-4).
-            arrayOf("loadfile", url, "replace", "0", "start=+${"%.3f".format(startSeconds)}")
+            arrayOf("loadfile", target, "replace", "0", "start=+${"%.3f".format(startSeconds)}")
         } else {
-            arrayOf("loadfile", url, "replace")
+            arrayOf("loadfile", target, "replace")
         }
         bridge.command(loadArgs)
         play()
@@ -567,11 +611,13 @@ class GyroPlayerEngine @Inject constructor(
         attachedSurfaceRef = surface
         isSurfaceAttached = true
         bridge.attachSurface(surface)
-        pendingLoadUrl?.let { url ->
-            Log.i(TAG, "attachSurface: Surface 已就绪，触发排队的待播视频: $url")
-            val title = pendingLoadTitle
-            pendingLoadTitle = null
-            load(url, pendingLoadStartMs, title)
+        pendingSource?.let { source ->
+            val startMs = pendingStartMs
+            val label = pendingLabel
+            pendingSource = null
+            pendingLabel = ""
+            Log.i(TAG, "attachSurface: surface ready, flushing queued $label")
+            submit(source, startMs, label)
         }
     }
 
@@ -641,6 +687,8 @@ class GyroPlayerEngine @Inject constructor(
 
     fun release() {
         engineJob.cancel()
+        currentLoadJob?.cancel()
+        discardPending()
         audioFocusManager.release()
         audio.resetSoftwareGain()
         trackManager.clearChapters()

@@ -19,6 +19,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
@@ -80,7 +81,11 @@ class PlayerViewModelTest {
         }
 
         fakeBridge = FakeMpvNativeBridge()
-        engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
+        engine = GyroPlayerEngine(
+            context = testContext,
+            bridge = fakeBridge,
+            resolver = FakeMediaResourceResolver()
+        )
         engine.ensureInitialized()
 
         testScope = CoroutineScope(SupervisorJob() + testDispatcher)
