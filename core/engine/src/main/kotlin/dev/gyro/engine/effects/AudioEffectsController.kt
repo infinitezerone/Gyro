@@ -1,0 +1,96 @@
+package dev.gyro.engine.effects
+
+import dev.gyro.engine.MpvNativeBridge
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Manages audio filtering, 0-200% volume overdrive, anti-clipping limiter,
+ * speech normalization (night mode), and stereo downmixing.
+ */
+interface AudioEffectsController {
+    val softwareVolume: StateFlow<Double>
+    val nightMode: StateFlow<Boolean>
+    val stereoDownmix: StateFlow<Boolean>
+
+    fun setSoftwareVolume(gain: Double)
+    fun resetSoftwareGain()
+    fun setNightMode(enabled: Boolean)
+    fun setStereoDownmix(enabled: Boolean)
+
+    companion object {
+        const val FILTER_STEREO_DOWNMIX =
+            "lavfi=[pan=stereo|c0=0.5*c2+0.707*c0+0.707*c4|c1=0.5*c2+0.707*c1+0.707*c5]"
+        const val FILTER_DYNAUDNORM =
+            "lavfi=[dynaudnorm=f=200:g=15:m=10:r=0.9]"
+        const val FILTER_ALIMITER =
+            "lavfi=[alimiter=limit=0.95:attack=5:release=50:asc=true]"
+    }
+}
+
+class RealAudioEffectsController(
+    private val bridge: MpvNativeBridge
+) : AudioEffectsController {
+
+    private val _softwareVolume = MutableStateFlow(100.0)
+    override val softwareVolume: StateFlow<Double> = _softwareVolume.asStateFlow()
+
+    private val _nightMode = MutableStateFlow(false)
+    override val nightMode: StateFlow<Boolean> = _nightMode.asStateFlow()
+
+    private val _stereoDownmix = MutableStateFlow(false)
+    override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
+
+    @Synchronized
+    override fun setSoftwareVolume(gain: Double) {
+        val clamped = gain.coerceIn(100.0, 200.0)
+        _softwareVolume.value = clamped
+        bridge.setPropertyDouble("volume", clamped)
+        updateAudioFilters()
+    }
+
+    @Synchronized
+    override fun resetSoftwareGain() {
+        _softwareVolume.value = 100.0
+        bridge.setPropertyDouble("volume", 100.0)
+        updateAudioFilters()
+    }
+
+    @Synchronized
+    override fun setNightMode(enabled: Boolean) {
+        if (_nightMode.value == enabled) return
+        _nightMode.value = enabled
+        updateAudioFilters()
+    }
+
+    @Synchronized
+    override fun setStereoDownmix(enabled: Boolean) {
+        if (_stereoDownmix.value == enabled) return
+        _stereoDownmix.value = enabled
+        updateAudioFilters()
+    }
+
+    @Synchronized
+    private fun updateAudioFilters() {
+        val activeFilters = ArrayList<String>(3)
+
+        // Pipeline Stage 1: Downmixing (pan)
+        if (_stereoDownmix.value) {
+            activeFilters.add(AudioEffectsController.FILTER_STEREO_DOWNMIX)
+        }
+
+        // Pipeline Stage 2: Dynamic Range Normalization (dynaudnorm)
+        if (_nightMode.value) {
+            activeFilters.add(AudioEffectsController.FILTER_DYNAUDNORM)
+        }
+
+        // Pipeline Stage 3: Brickwall Anti-Clipping Limiter (alimiter)
+        if (_softwareVolume.value > 100.0) {
+            activeFilters.add(AudioEffectsController.FILTER_ALIMITER)
+        }
+
+        val afChain = activeFilters.joinToString(",")
+        bridge.setPropertyString("af", afChain)
+    }
+}

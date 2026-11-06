@@ -17,6 +17,8 @@ import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.engine.audio.GyroAudioFocusManager
 import dev.gyro.engine.model.PlaybackState
+import dev.gyro.engine.effects.AudioEffectsController
+import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
@@ -43,8 +45,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val mpvConfigRepository: MpvConfigRepository? = runCatching { MpvConfigRepository(context) }.getOrNull(),
     private val settingsRepository: SettingsRepository? = runCatching { SettingsRepository(context) }.getOrNull(),
     private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context),
-    private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge)
-) : VideoGeometryCoordinator by geometryCoordinator {
+    private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
+    private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge)
+) : VideoGeometryCoordinator by geometryCoordinator,
+    AudioEffectsController by audioEffects {
     companion object {
         private const val TAG = "GyroPlayerEngine"
 
@@ -63,12 +67,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
             "gpu-context"
         )
 
-        const val FILTER_STEREO_DOWNMIX =
-            "lavfi=[pan=stereo|c0=0.5*c2+0.707*c0+0.707*c4|c1=0.5*c2+0.707*c1+0.707*c5]"
-        const val FILTER_DYNAUDNORM =
-            "lavfi=[dynaudnorm=f=200:g=15:m=10:r=0.9]"
-        const val FILTER_ALIMITER =
-            "lavfi=[alimiter=limit=0.95:attack=5:release=50:asc=true]"
+        const val FILTER_STEREO_DOWNMIX = AudioEffectsController.FILTER_STEREO_DOWNMIX
+        const val FILTER_DYNAUDNORM = AudioEffectsController.FILTER_DYNAUDNORM
+        const val FILTER_ALIMITER = AudioEffectsController.FILTER_ALIMITER
     }
 
     private val appContext = runCatching { context.applicationContext }.getOrNull() ?: context
@@ -207,10 +208,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _currentChapter = MutableStateFlow(-1)
     val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
-    // Volume Overdrive & Software Gain (R4)
-    private val _softwareVolume = MutableStateFlow(100.0)
-    val softwareVolume: StateFlow<Double> = _softwareVolume.asStateFlow()
-
     // Audiovisual Filters (R4)
     private val _deband = MutableStateFlow(false)
     val deband: StateFlow<Boolean> = _deband.asStateFlow()
@@ -223,12 +220,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     private val _saturation = MutableStateFlow(0)
     val saturation: StateFlow<Int> = _saturation.asStateFlow()
-
-    private val _nightMode = MutableStateFlow(false)
-    val nightMode: StateFlow<Boolean> = _nightMode.asStateFlow()
-
-    private val _stereoDownmix = MutableStateFlow(false)
-    val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
 
     @Volatile
     private var pendingSeekMs: Long = -1L
@@ -1062,27 +1053,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     // =========================================================================
-    // Volume Overdrive & Software Gain Methods (R4)
-    // =========================================================================
-
-    @Synchronized
-    fun setSoftwareVolume(gain: Double) {
-        val clamped = gain.coerceIn(100.0, 200.0)
-        _softwareVolume.value = clamped
-        bridge.setPropertyDouble("volume", clamped)
-        updateAudioFilters()
-        Log.d(TAG, "setSoftwareVolume: gain=$clamped, limiterActive=${clamped > 100.0}")
-    }
-
-    @Synchronized
-    fun resetSoftwareGain() {
-        _softwareVolume.value = 100.0
-        bridge.setPropertyDouble("volume", 100.0)
-        updateAudioFilters()
-        Log.d(TAG, "resetSoftwareGain: software gain reset to 100.0% (limiter cleared)")
-    }
-
-    // =========================================================================
     // Visual AV Filter Methods (R4)
     // =========================================================================
 
@@ -1113,48 +1083,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
         setBrightness(0)
         setContrast(0)
         setSaturation(0)
-    }
-
-    // =========================================================================
-    // Dialogue Enhancement, Stereo Downmix & Audio Filter Pipeline (R4)
-    // =========================================================================
-
-    @Synchronized
-    fun setNightMode(enabled: Boolean) {
-        if (_nightMode.value == enabled) return
-        _nightMode.value = enabled
-        updateAudioFilters()
-    }
-
-    @Synchronized
-    fun setStereoDownmix(enabled: Boolean) {
-        if (_stereoDownmix.value == enabled) return
-        _stereoDownmix.value = enabled
-        updateAudioFilters()
-    }
-
-    @Synchronized
-    private fun updateAudioFilters() {
-        val activeFilters = ArrayList<String>(3)
-
-        // Pipeline Stage 1: Downmixing (pan)
-        if (_stereoDownmix.value) {
-            activeFilters.add(FILTER_STEREO_DOWNMIX)
-        }
-
-        // Pipeline Stage 2: Dynamic Range Normalization (dynaudnorm)
-        if (_nightMode.value) {
-            activeFilters.add(FILTER_DYNAUDNORM)
-        }
-
-        // Pipeline Stage 3: Brickwall Anti-Clipping Limiter (alimiter)
-        if (_softwareVolume.value > 100.0) {
-            activeFilters.add(FILTER_ALIMITER)
-        }
-
-        val afChain = activeFilters.joinToString(",")
-        bridge.setPropertyString("af", afChain)
-        Log.d(TAG, "Active audio filter chain: '$afChain'")
     }
 
     fun release() {
