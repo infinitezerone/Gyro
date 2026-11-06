@@ -1065,6 +1065,12 @@ unsafe fn draw_frame_native(
 
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
+            if awaiting_first_frame {
+                crate::tracelog(
+                    "NATIVE_SWAP_WHILE_AWAITING",
+                    &format!("is_redraw={is_redraw}, buf={w}x{h}"),
+                );
+            }
             if !is_redraw {
                 crate::events::signal_first_frame();
             }
@@ -1372,6 +1378,11 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     nlog("EGL: Surface 已解绑 (EGLContext 与 render context 常驻)");
                 }
                 RenderCommand::Redraw => {
+                    let awaiting = G_AWAITING_FIRST_FRAME.load(Ordering::Acquire);
+                    crate::tracelog(
+                        "NATIVE_CMD_REDRAW",
+                        &format!("slot_ready={}, awaiting_first_frame={awaiting}", slot.is_ready()),
+                    );
                     nlog("EGL: 收到 Redraw 命令");
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
                         draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);

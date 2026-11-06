@@ -42,6 +42,25 @@ pub fn nlog(msg: &str) {
     let _ = msg;
 }
 
+pub fn tracelog(stage: &str, details: &str) {
+    #[cfg(target_os = "android")]
+    {
+        let msg = if details.is_empty() {
+            format!("(Rust) ├─ {stage}")
+        } else {
+            format!("(Rust) ├─ {stage} {details}")
+        };
+        if let (Ok(text), Ok(tag)) = (
+            std::ffi::CString::new(msg),
+            std::ffi::CString::new("SWITCH_TRACE"),
+        ) {
+            unsafe { __android_log_write(4, tag.as_ptr(), text.as_ptr()) };
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = (stage, details);
+}
+
 #[cfg(unix)]
 mod libc {
     use std::ffi::{c_int, c_long};

@@ -183,6 +183,10 @@ pub fn signal_first_frame() {
     }
     let waited_ms =
         (monotonic_ms() as u64).saturating_sub(G_LOAD_STARTED_MS.load(Ordering::Relaxed));
+    crate::tracelog(
+        "NATIVE_FIRST_FRAME_SIGNAL",
+        &format!("waited_from_start={waited_ms}ms"),
+    );
     nlog(&format!("RENDER: 首帧已上屏（start-file 之后 {waited_ms}ms）"));
 
     let Some(VmPtr(vm_ptr)) = G_VM.get() else { return };
@@ -273,11 +277,13 @@ pub fn event_thread() {
                     break;
                 }
                 MPV_EVENT_START_FILE => {
+                    crate::tracelog("NATIVE_MPV_START_FILE", "");
                     G_LOAD_STARTED_MS.store(monotonic_ms() as u64, Ordering::Relaxed);
                     G_FILE_LOADED_REACHED.store(false, Ordering::Release);
                     G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
                 }
                 MPV_EVENT_FILE_LOADED => {
+                    crate::tracelog("NATIVE_MPV_FILE_LOADED", "");
                     G_FILE_LOADED_REACHED.store(true, Ordering::Release);
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
                     call_static(env, "onEvent", "(I)V", &[JValue::Int(event_id)]);

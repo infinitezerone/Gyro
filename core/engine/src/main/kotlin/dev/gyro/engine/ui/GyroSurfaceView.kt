@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -193,6 +194,7 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        SwitchTrace.log("SURFACE_CHANGED", "view=${width}x$height buffer=${lockedWidth}x$lockedHeight")
         Log.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
         if (lockedWidth <= 0 || lockedHeight <= 0) {
             // No video dimensions have arrived yet: let the buffer follow the view so first paint
@@ -247,6 +249,7 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     private fun lockBufferSize(holder: SurfaceHolder?, w: Int, h: Int) {
         if (holder == null || w <= 0 || h <= 0) return
+        SwitchTrace.log("LOCK_BUFFER_SIZE", "${w}x$h (was ${lockedWidth}x$lockedHeight)")
         lockedWidth = w
         lockedHeight = h
         holder.setFixedSize(w, h)

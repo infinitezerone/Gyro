@@ -78,6 +78,7 @@ import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -599,10 +600,12 @@ fun PlayerScreen(
     var isShutterReady by remember(activeUri) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
     LaunchedEffect(activeUri, firstFrameRendered, geometryReady) {
+        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady")
         if (firstFrameRendered && geometryReady) {
             // Wait for one VSYNC frame after geometry & first frame are ready so Compose
             // and SurfaceFlinger have committed the new layout bounds before revealing.
             withFrameNanos { }
+            SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
             isShutterReady = true
             shutterTimedOut = false
             return@LaunchedEffect
@@ -610,6 +613,7 @@ fun PlayerScreen(
         isShutterReady = false
         delay(4_000L)
         if (!engine.firstFrameRendered.value || !engine.geometryReady.value) {
+            SwitchTrace.log("SHUTTER_TIMEOUT_EXPIRED", "firstFrame=${engine.firstFrameRendered.value}, geometry=${engine.geometryReady.value}")
             shutterTimedOut = true
             isShutterReady = true
         }
@@ -662,8 +666,15 @@ fun PlayerScreen(
                 // symmetrically for the same reason.
                 .align(Alignment.Center)
                 .onGloballyPositioned { coords ->
+                    val oldSize = videoContainerSize
                     videoContainerOrigin = coords.positionInParent()
                     videoContainerSize = coords.size
+                    if (coords.size != oldSize) {
+                        SwitchTrace.log(
+                            "CONTAINER_LAYOUT_CHANGED",
+                            "${coords.size.width}x${coords.size.height} aspect=${if (coords.size.height > 0) coords.size.width.toFloat() / coords.size.height else 0f}"
+                        )
+                    }
                 }
                 .graphicsLayer {
                     scaleX = zoomState.scale

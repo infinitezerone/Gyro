@@ -21,6 +21,7 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.shader.ShaderManager
+import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -280,12 +281,14 @@ class GyroPlayerEngine @JvmOverloads constructor(
         override fun onEvent(eventId: Int) {
             when (eventId) {
                 MpvNativeBridge.Event.FIRST_FRAME -> {
+                    SwitchTrace.log("KOTLIN_EVENT_FIRST_FRAME", "timePos=${_timePosMs.value}ms")
                     _firstFrameRendered.value = true
                     // The reported position is the cheapest proof that the frame behind the cover is
                     // the new file: a redraw of the previous file still reports that file's position.
                     Log.i(TAG, "First frame presented at ${_timePosMs.value}ms, releasing the cover")
                 }
                 MpvNativeBridge.Event.FILE_LOADED -> {
+                    SwitchTrace.log("KOTLIN_EVENT_FILE_LOADED", "")
                     fileLoaded = true
                     val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
@@ -640,6 +643,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private var currentLoadJob: kotlinx.coroutines.Job? = null
 
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
+        SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
         _currentUri.value = uri
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
@@ -647,6 +651,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         _firstFrameRendered.value = false
         _geometryReady.value = false
         _playbackState.value = PlaybackState.BUFFERING
+        SwitchTrace.log("SHUTTER_ARMED", "firstFrame=false, geometryReady=false")
 
         val fastTitle = uri.lastPathSegment ?: ""
         if (fastTitle.isNotBlank()) {
@@ -690,6 +695,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
             }
             Log.i(TAG, "loadUri: uri=$uri -> targetPath=$targetPath")
+            SwitchTrace.log("RESOLVE_PATH_DONE", "targetPath=$targetPath")
             withContext(Dispatchers.Main) {
                 load(targetPath, startPositionMs, displayName)
             }
@@ -708,6 +714,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private var pendingLoadTitle: String? = null
 
     fun load(url: String, startPositionMs: Long = 0L, displayTitle: String? = null) {
+        SwitchTrace.log("LOAD_COMMAND_ISSUED", "url=$url, isSurfaceAttached=$isSurfaceAttached")
         Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
         resetSoftwareGain()
         ensureInitialized()
@@ -833,13 +840,17 @@ class GyroPlayerEngine @JvmOverloads constructor(
         // and publish once, in the final display orientation.
         val dw = bridge.getLong("video-out-params/dw")?.toInt() ?: 0
         val dh = bridge.getLong("video-out-params/dh")?.toInt() ?: 0
-        if (dw <= 0 || dh <= 0) return
+        if (dw <= 0 || dh <= 0) {
+            SwitchTrace.log("DIMS_CHECK_FAILED", "dw=$dw, dh=$dh")
+            return
+        }
         val quarterTurn = (bridge.getLong("video-out-params/rotate") ?: 0L) % 180L != 0L
         val w = if (quarterTurn) dh else dw
         val h = if (quarterTurn) dw else dh
         _videoDimensions.value = VideoDimensions(w, h)
         _videoAspect.value = w.toFloat() / h
         _geometryReady.value = true
+        SwitchTrace.log("DIMS_PUBLISHED", "${w}x${h}, aspect=${w.toFloat() / h}")
         if (_videoFrameRate.value <= 0f) {
             bridge.getDouble("container-fps")?.let { fps ->
                 if (fps > 1.0 && fps < 1000.0) {
@@ -993,6 +1004,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun redraw() {
+        SwitchTrace.log("REDRAW_REQUESTED", "surfaceAttached=$isSurfaceAttached, fileLoaded=$fileLoaded")
         if (isSurfaceAttached) {
             bridge.redraw()
         }
