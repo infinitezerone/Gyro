@@ -20,8 +20,8 @@ use crate::logic::{
 };
 use crate::mpv::{
     mpv_handle_guarded, with_api, with_api_logged, MpvOpenGLFbo, MpvOpenGLInitParams,
-    MpvRenderFrameInfo, MpvRenderParam, G_MPVP, MPV_ERROR_SUCCESS, MPV_FORMAT_DOUBLE,
-    MPV_FORMAT_INT64, MPV_FORMAT_STRING, MPV_RENDER_FRAME_INFO_REDRAW, MPV_RENDER_PARAM_API_TYPE,
+    MpvRenderFrameInfo, MpvRenderParam, G_MPVP, MPV_ERROR_SUCCESS, MPV_FORMAT_INT64,
+    MPV_RENDER_FRAME_INFO_REDRAW, MPV_RENDER_PARAM_API_TYPE,
     MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, MPV_RENDER_PARAM_FLIP_Y,
     MPV_RENDER_PARAM_NEXT_FRAME_INFO, MPV_RENDER_PARAM_OPENGL_FBO,
     MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, MPV_RENDER_PARAM_SKIP_RENDERING, MPV_RENDER_UPDATE_FRAME,
@@ -977,96 +977,6 @@ enum DrawOutcome {
 }
 
 #[cfg(target_os = "android")]
-unsafe fn get_expected_video_dimensions(
-    api: &crate::mpv::MpvApi,
-    mpv_h: *mut c_void,
-) -> Option<(i64, i64)> {
-    if mpv_h.is_null() {
-        return None;
-    }
-    let mut count: i64 = 0;
-    let count_prop = b"track-list/count\0";
-    let rc = (api.mpv_get_property)(
-        mpv_h,
-        count_prop.as_ptr() as *const c_char,
-        MPV_FORMAT_INT64,
-        &mut count as *mut _ as *mut c_void,
-    );
-    if rc != MPV_ERROR_SUCCESS || count <= 0 {
-        return None;
-    }
-
-    for i in 0..count {
-        let type_prop = format!("track-list/{i}/type\0");
-        let mut type_ptr: *mut c_char = std::ptr::null_mut();
-        let rc = (api.mpv_get_property)(
-            mpv_h,
-            type_prop.as_ptr() as *const c_char,
-            MPV_FORMAT_STRING,
-            &mut type_ptr as *mut _ as *mut c_void,
-        );
-        if rc == MPV_ERROR_SUCCESS && !type_ptr.is_null() {
-            let is_video = {
-                let s = std::ffi::CStr::from_ptr(type_ptr).to_bytes();
-                let eq = s == b"video";
-                (api.mpv_free)(type_ptr as *mut c_void);
-                eq
-            };
-            if is_video {
-                let mut w: i64 = 0;
-                let mut h: i64 = 0;
-                let mut rot: i64 = 0;
-                let mut par: f64 = 1.0;
-                let w_prop = format!("track-list/{i}/demux-w\0");
-                let h_prop = format!("track-list/{i}/demux-h\0");
-                let rot_prop = format!("track-list/{i}/demux-rotation\0");
-                let par_prop = format!("track-list/{i}/demux-par\0");
-
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    w_prop.as_ptr() as *const c_char,
-                    MPV_FORMAT_INT64,
-                    &mut w as *mut _ as *mut c_void,
-                );
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    h_prop.as_ptr() as *const c_char,
-                    MPV_FORMAT_INT64,
-                    &mut h as *mut _ as *mut c_void,
-                );
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    rot_prop.as_ptr() as *const c_char,
-                    MPV_FORMAT_INT64,
-                    &mut rot as *mut _ as *mut c_void,
-                );
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    par_prop.as_ptr() as *const c_char,
-                    MPV_FORMAT_DOUBLE,
-                    &mut par as *mut _ as *mut c_void,
-                );
-
-                if w > 0 && h > 0 {
-                    let display_w = if par > 0.01 && (par - 1.0).abs() > 0.01 {
-                        (w as f64 * par).round() as i64
-                    } else {
-                        w
-                    };
-                    let (final_w, final_h) = if rot % 180 != 0 {
-                        (h, display_w)
-                    } else {
-                        (display_w, h)
-                    };
-                    return Some((final_w, final_h));
-                }
-            }
-        }
-    }
-    None
-}
-
-#[cfg(target_os = "android")]
 unsafe fn draw_frame_native(
     display: EGLDisplay,
     surface: EGLSurface,
@@ -1196,41 +1106,10 @@ unsafe fn draw_frame_native(
             (dwidth, dheight)
         };
 
-        let expected_dims = if awaiting_first_frame {
-            get_expected_video_dimensions(api, mpv_h)
-        } else {
-            None
-        };
-
-        let vo_stale = if let Some((ew, eh)) = expected_dims {
-            if final_w > 0 && final_h > 0 && ew > 0 && eh > 0 {
-                let vo_aspect = final_w as f64 / final_h as f64;
-                let exp_aspect = ew as f64 / eh as f64;
-                (vo_aspect / exp_aspect - 1.0).abs() > 0.08
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        let target_aspect = expected_dims
-            .map(|(ew, eh)| ew as f64 / eh as f64)
-            .or_else(|| {
-                if final_w > 0 && final_h > 0 {
-                    Some(final_w as f64 / final_h as f64)
-                } else {
-                    None
-                }
-            });
-
-        let aspect_mismatch = if let Some(t_aspect) = target_aspect {
-            if w > 0 && h > 0 {
-                let buf_aspect = w as f64 / h as f64;
-                (buf_aspect / t_aspect - 1.0).abs() > 0.08
-            } else {
-                false
-            }
+        let aspect_mismatch = if final_w > 0 && final_h > 0 && w > 0 && h > 0 {
+            let vid_aspect = final_w as f64 / final_h as f64;
+            let buf_aspect = w as f64 / h as f64;
+            (buf_aspect / vid_aspect - 1.0).abs() > 0.08
         } else {
             false
         };
@@ -1242,20 +1121,22 @@ unsafe fn draw_frame_native(
                 crate::tracelog(
                     "NATIVE_SWAP_WHILE_AWAITING",
                     &format!(
-                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}, exp={expected_dims:?}, vo_stale={vo_stale}, mismatch={aspect_mismatch}"
+                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}, mismatch={aspect_mismatch}"
                     ),
                 );
-            }
-            if awaiting_first_frame {
-                if !file_loaded || force || is_redraw || vo_stale || aspect_mismatch {
+                // Pipeline separation (Plan A):
+                // 1. Redraws (force=true) and mpv internal repaints (is_redraw=true) are NEVER first frames.
+                // 2. Demuxer must have loaded the file (file_loaded=true).
+                // 3. Buffer geometry must match video aspect (aspect_mismatch=false).
+                if file_loaded && !force && !is_redraw && !aspect_mismatch {
+                    crate::events::signal_first_frame();
+                } else {
                     crate::tracelog(
                         "NATIVE_SUPPRESS_FIRST_FRAME",
                         &format!(
-                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}, vo_stale={vo_stale}, mismatch={aspect_mismatch}"
+                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}, mismatch={aspect_mismatch}"
                         ),
                     );
-                } else {
-                    crate::events::signal_first_frame();
                 }
             }
         }
