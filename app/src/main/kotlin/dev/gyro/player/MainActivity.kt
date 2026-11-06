@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val folderViewModel: FolderManagementViewModel by viewModels()
+    private val playerViewModel: PlayerViewModel by viewModels()
     private val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -219,7 +220,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         entry<Screen.Player> { playerScreen ->
-                            val playerViewModel: PlayerViewModel = hiltViewModel()
                             PlayerScreen(
                                 engine = playerEngine,
                                 currentUri = playerScreen.uri,
