@@ -213,7 +213,9 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
         // Repaint so a paused player follows a relock. A playing one is already producing frames at
         // whatever size EGL reports, which is the number the renderer trusts.
-        target.redraw()
+        if (target.firstFrameRendered.value) {
+            target.redraw()
+        }
     }
 
     fun applyContentFrameRate(fps: Float) {

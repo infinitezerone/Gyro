@@ -858,30 +858,22 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     private fun publishVideoDimensions() {
-        if (!fileLoaded) {
-            SwitchTrace.log("DIMS_IGNORED_NOT_FILE_LOADED", "")
-            return
-        }
-
         val demuxDims = getDemuxDimensions()
 
         val dw = bridge.getLong("video-out-params/dw")?.toInt()
             ?.takeIf { it > 0 }
             ?: demuxDims?.first
-            ?: bridge.getLong("dwidth")?.toInt()
-            ?: 0
+            ?: return
         val dh = bridge.getLong("video-out-params/dh")?.toInt()
             ?.takeIf { it > 0 }
             ?: demuxDims?.second
-            ?: bridge.getLong("dheight")?.toInt()
-            ?: 0
+            ?: return
         if (dw <= 0 || dh <= 0) {
             SwitchTrace.log("DIMS_CHECK_FAILED", "dw=$dw, dh=$dh")
             return
         }
-        val rotate = bridge.getLong("video-params/rotate")
-            ?.takeIf { it != 0L }
-            ?: bridge.getLong("video-out-params/rotate")
+        val rotate = bridge.getLong("video-out-params/rotate")
+            ?: bridge.getLong("video-params/rotate")
             ?: 0L
         val quarterTurn = rotate % 180L != 0L
         val w = if (quarterTurn) dh else dw
@@ -1062,11 +1054,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun redraw() {
-        if (!fileLoaded) {
-            SwitchTrace.log("REDRAW_SUPPRESSED_NOT_FILE_LOADED", "")
-            return
-        }
-        SwitchTrace.log("REDRAW_REQUESTED", "surfaceAttached=$isSurfaceAttached, fileLoaded=$fileLoaded")
+        SwitchTrace.log("REDRAW_REQUESTED", "surfaceAttached=$isSurfaceAttached")
         if (isSurfaceAttached) {
             bridge.redraw()
         }
