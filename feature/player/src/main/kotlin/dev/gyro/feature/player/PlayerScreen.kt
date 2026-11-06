@@ -83,6 +83,7 @@ import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -514,15 +515,25 @@ fun PlayerScreen(
     // Show brief top notice if auto-resumed at a position > 2s
     val vmResumeNoticePosMs by (viewModel?.resumeNoticePosMs ?: remember { kotlinx.coroutines.flow.MutableStateFlow(null) }).collectAsState()
     LaunchedEffect(vmResumeNoticePosMs) {
-        vmResumeNoticePosMs?.let { posMs ->
+        val posMs = vmResumeNoticePosMs
+        if (posMs != null) {
             gestureHudState = GestureHudState.Notice(
                 context.getString(R.string.player_resumed_notice, formatTime(posMs))
             )
-            delay(2500L)
+            try {
+                delay(2500L)
+            } finally {
+                withContext(NonCancellable) {
+                    if (gestureHudState is GestureHudState.Notice) {
+                        gestureHudState = GestureHudState.Idle
+                    }
+                }
+            }
+            viewModel?.clearResumeNotice()
+        } else {
             if (gestureHudState is GestureHudState.Notice) {
                 gestureHudState = GestureHudState.Idle
             }
-            viewModel?.clearResumeNotice()
         }
     }
 
@@ -543,9 +554,14 @@ fun PlayerScreen(
             gestureHudState = GestureHudState.Notice(
                 context.getString(R.string.player_resumed_notice, formatTime(firstFrameAtMs))
             )
-            delay(2500L)
-            if (gestureHudState is GestureHudState.Notice) {
-                gestureHudState = GestureHudState.Idle
+            try {
+                delay(2500L)
+            } finally {
+                withContext(NonCancellable) {
+                    if (gestureHudState is GestureHudState.Notice) {
+                        gestureHudState = GestureHudState.Idle
+                    }
+                }
             }
         }
     }
