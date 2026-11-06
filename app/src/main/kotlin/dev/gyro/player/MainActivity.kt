@@ -202,14 +202,14 @@ class MainActivity : ComponentActivity() {
                                     val idx = currentList.indexOfFirst { it.uri == item.uri }
                                     playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
                                     playerEngine.notifyScreenEntry()
+                                    backStack.add(Screen.Player(item.uri))
                                     val startPos = if (settings.autoResume) {
                                         val progress = historyRepository.getProgress(item.uri)
                                         if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
                                             progress.positionMs
                                         } else 0L
                                     } else 0L
-                                    playerEngine.loadUri(item.uri, startPos, item.width, item.height)
-                                    backStack.add(Screen.Player(item.uri))
+                                    playerEngine.loadUri(item.uri, startPos)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)

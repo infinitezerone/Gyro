@@ -195,19 +195,9 @@ class GyroSurfaceView @JvmOverloads constructor(
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
         if (lockedWidth <= 0 || lockedHeight <= 0) {
-            val dims = engine?.videoDimensions?.value
-            if (dims != null && dims.width > 0 && dims.height > 0) {
-                val (displayW, displayH) = resolvePhysicalDisplaySize(context)
-                val (targetW, targetH) = computeDisplayFittedBufferSize(
-                    videoWidth = dims.width,
-                    videoHeight = dims.height,
-                    displayWidth = displayW,
-                    displayHeight = displayH
-                )
-                lockBufferSize(holder, targetW, targetH)
-            } else {
-                lockBufferSize(holder, width, height)
-            }
+            // No video dimensions have arrived yet: let the buffer follow the view so first paint
+            // has something to draw into. [lockBufferSizeToVideo] re-locks once mpv reports size.
+            lockBufferSize(holder, width, height)
         }
 
         val target = engine ?: return
