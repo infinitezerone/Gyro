@@ -7,20 +7,20 @@ import android.util.Log
 import android.view.Display
 import android.view.Surface
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.UserSettings
 import dev.gyro.engine.audio.GyroAudioFocusManager
+import dev.gyro.engine.config.MpvOptionConfigurator
 import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
-import dev.gyro.engine.media.MediaItem
 import dev.gyro.engine.media.DefaultMediaResourceResolver
+import dev.gyro.engine.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.media.ResolvedMediaSource
-import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.PlaybackSnapshot
+import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.session.PlaybackTimelineController
 import dev.gyro.engine.session.RealPlaybackTimelineController
 import dev.gyro.engine.session.RealVideoGeometryCoordinator
@@ -35,9 +35,12 @@ import dev.gyro.engine.tracks.RealTrackAndChapterManager
 import dev.gyro.engine.tracks.TrackAndChapterManager
 import dev.gyro.engine.tuning.RealSyncTuningController
 import dev.gyro.engine.tuning.SyncTuningController
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -46,15 +49,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class GyroPlayerEngine @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
     private val resolver: MediaResourceResolver = DefaultMediaResourceResolver(context),
+    private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     val shaders: ShaderController = RealShaderController(bridge, ShaderManager(context)),
     val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
     val audio: AudioEffectsController = RealAudioEffectsController(bridge),
@@ -66,15 +67,6 @@ class GyroPlayerEngine @Inject constructor(
 
     companion object {
         private const val TAG = "GyroPlayerEngine"
-
-        /** Protected keys that user mpv.conf MUST NOT override to avoid crashing native pipeline */
-        val PROTECTED_OPTION_KEYS: Set<String> = setOf(
-            "vo",
-            "idle",
-            "wid",
-            "keep-open",
-            "gpu-context"
-        )
     }
 
     private val isInitialized = AtomicBoolean(false)
@@ -279,75 +271,8 @@ class GyroPlayerEngine @Inject constructor(
                 // Pre-extract built-in shaders to POSIX filesDir
                 shaders.extractBuiltInShaders()
 
-                // =================================================================
-                // 1. INJECT USER mpv.conf (Excluding Protected Engine Keys)
-                // =================================================================
-                for ((key, value) in userOptions) {
-                    val normalizedKey = key.trim().lowercase()
-                    if (normalizedKey in PROTECTED_OPTION_KEYS) {
-                        Log.w(TAG, "Ignoring protected mpv.conf key '$key' with value '$value'")
-                        continue
-                    }
-                    val code = bridge.setOptionString(key, value)
-                    if (code != 0) {
-                        Log.w(TAG, "mpv rejected option '$key=$value' (code=$code)")
-                    }
-                }
-
-                // =================================================================
-                // 2. INJECT GUI EXPLICIT SETTINGS (Unconditionally Overrides mpv.conf)
-                // =================================================================
-                val userHwdec = settings.defaultHwdec.trim()
-                // Hardware is the default: software decoding caps a phone at 1080p H.264 and cannot
-                // play 4K HEVC at all. Failures go to mpv's own two fallbacks rather than to the
-                // default value: `mediacodec,mediacodec-copy` lets a codec that refuses the surface
-                // play through copy-back, and `hwdec-software-fallback` (set below) continues on
-                // libavcodec after N consecutive frames fail.
-                val requestedHwdec = userHwdec.ifBlank { HWDEC_HARDWARE }
-                val hwdecConfig = if (requestedHwdec == HWDEC_HARDWARE) {
-                    "$HWDEC_HARDWARE,mediacodec-copy"
-                } else {
-                    requestedHwdec
-                }
-                bridge.setOptionString("hwdec", hwdecConfig)
-                bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
-                // Set after mpv.conf so a user config cannot silently turn the fallback off.
-                bridge.setOptionString("hwdec-software-fallback", "3")
-                // `vo` only, which is mpv's recommended mode and what mpv-android runs: the video
-                // output drops the frame at the last moment, when it is known the display cannot
-                // show it. Adding `decoder` lets the decoder guess instead, and mpv documents that
-                // as "not recommended ... can produce unwatchable choppy output".
-                bridge.setOptionString("framedrop", "vo")
-
-                val subAuto = if (settings.subAutoLoad) "all" else "no"
-                bridge.setOptionString("sub-auto", subAuto)
-
-                // Enforce engine lifecycle invariant contracts
-                bridge.setOptionString("vo", "libmpv")
-                bridge.setOptionString("idle", "yes")
-                bridge.setOptionString("keep-open", "yes")
-                bridge.setOptionString("ao", "audiotrack,opensles")
-                bridge.setOptionString("volume-max", "200.0")
-                if (!userOptions.containsKey("video-sync")) {
-                    bridge.setOptionString("video-sync", "audio")
-                }
-
-                // Provide sensible defaults if not set in mpv.conf
-                if (!userOptions.containsKey("demuxer-max-bytes")) {
-                    bridge.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
-                }
-                if (!userOptions.containsKey("demuxer-max-back-bytes")) {
-                    bridge.setOptionString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
-                }
-                if (!userOptions.containsKey("sub-font-provider")) {
-                    bridge.setOptionString("sub-font-provider", "none")
-                }
-                if (!userOptions.containsKey("sub-ass-override")) {
-                    bridge.setOptionString("sub-ass-override", "no")
-                }
-                if (!userOptions.containsKey("blend-subtitles")) {
-                    bridge.setOptionString("blend-subtitles", "no")
-                }
+                // mpv only accepts options before init(); ordering lives in the configurator.
+                configurator.apply(bridge, userOptions, settings)
 
                 // =================================================================
                 // 3. INITIALIZE MPV CORE
