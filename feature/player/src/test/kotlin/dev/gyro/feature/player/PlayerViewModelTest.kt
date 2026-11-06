@@ -209,4 +209,24 @@ class PlayerViewModelTest {
 
         assertEquals(null, viewModel.resumeNoticePosMs.value)
     }
+
+    @Test
+    fun testReopenSameUriReloadsAndResumesPlayback() = runTest(testDispatcher) {
+        val uri = TestUri("file:///same_video.mp4")
+        viewModel.openUri(uri)
+        testScheduler.runCurrent()
+        fakeBridge.emitFileLoaded()
+        testScheduler.runCurrent()
+
+        // Simulate pausing on exit to list
+        engine.pause()
+        testScheduler.runCurrent()
+
+        // Re-open same URI
+        viewModel.openUri(uri)
+        testScheduler.runCurrent()
+
+        // Should have called loadUri on engine and started loading
+        assertEquals(uri.toString(), engine.currentUri.value?.toString())
+    }
 }

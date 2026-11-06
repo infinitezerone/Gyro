@@ -161,16 +161,13 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun openUri(uri: Uri, forceReload: Boolean = false) {
-        if (!forceReload && uri == engine.currentUri.value) {
-            _activeUri.value = uri
-            return
-        }
-
         _activeUri.value?.let { oldUri ->
-            val curPos = engine.timePosMs.value
-            val curDur = engine.durationMs.value
-            if (curDur > 0L) {
-                historyRepository.saveProgress(oldUri, curPos, curDur)
+            if (oldUri != uri) {
+                val curPos = engine.timePosMs.value
+                val curDur = engine.durationMs.value
+                if (curDur > 0L) {
+                    historyRepository.saveProgress(oldUri, curPos, curDur)
+                }
             }
         }
 
