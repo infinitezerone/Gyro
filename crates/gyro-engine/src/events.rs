@@ -59,7 +59,13 @@ pub fn call_static(env: &mut JNIEnv, name: &str, sig: &str, args: &[JValue]) {
             Err(_) => return,
         },
     };
-    let _ = env.call_static_method(class, name, sig, args);
+    // A failed call — e.g. NoSuchMethodError for a callback the Kotlin side has not grown yet —
+    // leaves the exception pending on this thread, and the very next JNI call here aborts the
+    // process ("JNI NewStringUTF called with pending exception"). Clear it so a missing callback
+    // really is the silent no-op the callers assume it to be.
+    if env.call_static_method(class, name, sig, args).is_err() {
+        let _ = env.exception_clear();
+    }
 }
 
 #[repr(C)]
@@ -296,11 +302,18 @@ pub fn event_thread() {
                         MPV_END_FILE_REASON_EOF
                     };
                     nlog(&format!("event_thread: 收到 MPV_EVENT_END_FILE, reason={reason}"));
+                    // Legacy path kept while Kotlin migrates: Lifecycle(END_FILE) drives the
+                    // ENDED playback state, and only EOF may produce it — STOP is the engine's
+                    // own `replace` load tearing down the previous entry.
                     if reason == MPV_END_FILE_REASON_EOF {
                         call_static(env, "onEvent", "(I)V", &[JValue::Int(MPV_EVENT_END_FILE)]);
-                    } else {
-                        nlog("event_thread: 非 EOF 结束（替换/停止），忽略 END_FILE 事件");
                     }
+                    // Reason-bearing delivery for every END_FILE. mpv rejecting a file outright
+                    // (corrupt container, no playable stream) arrives as reason=ERROR and used to
+                    // be swallowed here, which left the Kotlin session phase in Submitting with no
+                    // terminal state to show. GyroNative only answers once the Kotlin side grows
+                    // `onEndFile`; until then call_static no-ops, so this is additive.
+                    call_static(env, "onEndFile", "(I)V", &[JValue::Int(reason)]);
                 }
                 MPV_EVENT_PLAYBACK_RESTART => {
                     nlog(&format!("event_thread: 收到事件 event_id={event_id}"));

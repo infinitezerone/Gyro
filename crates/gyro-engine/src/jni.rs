@@ -7,20 +7,19 @@ use jni::sys::{jboolean, jdouble, jint, jlong, jobject, JNI_VERSION_1_6};
 use jni::{JNIEnv, JavaVM};
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
 use crate::events::{
     cache_class, event_thread, EVENT_THREAD, G_APP_CTX, G_EVENT_THREAD_EXIT, G_VM,
 };
-use crate::logic::{AckOutcome, FrameCounter, request_ack};
+use crate::logic::FrameCounter;
 use crate::mpv::{
     mpv_handle_guarded, safe_terminate_mpv, take_mpv_handle_for_teardown, with_api,
     G_MPVP, G_MPV_LIFECYCLE, HANDLE_VALID, MPV_ERROR_SUCCESS, MPV_FORMAT_DOUBLE,
     MPV_FORMAT_FLAG, MPV_FORMAT_INT64, MPV_FORMAT_STRING,
 };
 use crate::render::{
-    clear_render_thread, ensure_render_thread, render_sender, NativeWindowPtr, RenderCommand,
-    ATTACH_ACK_TIMEOUT_MS, ATTACH_WAIT_BUDGET_MS, G_GPU_RENDERER, G_ZERO_COPY_SAFE,
+    clear_render_thread, ensure_render_thread, render_sender, window_ref, NativeWindowPtr,
+    RenderCommand, G_GPU_RENDERER, G_ZERO_COPY_SAFE,
 };
 #[cfg(target_os = "android")]
 use crate::render::ANativeWindow_fromSurface;
@@ -273,31 +272,27 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_attachSurface(
             return;
         }
         ANativeWindow_acquire(win);
+        window_ref(2, "attachSurface handoff (fromSurface + acquire)");
 
         ensure_render_thread();
-        let attach_started = Instant::now();
+        // Fire-and-forget on purpose: the whole attach sequence runs on the render thread, and
+        // the caller (surfaceCreated on the UI thread) gains nothing from waiting for it. A
+        // loadfile flushed right after this call races the bind and still renders correctly —
+        // mpv pushes frames only once the render context exists — whereas the old blocking ack
+        // held the UI thread for up to its full timeout on slow drivers.
         match render_sender() {
             Some(sender) => {
-                let outcome = request_ack(
-                    &sender,
-                    |ack| RenderCommand::AttachSurface(NativeWindowPtr(win), ack),
-                    std::time::Duration::from_millis(ATTACH_ACK_TIMEOUT_MS),
-                );
-                if outcome == AckOutcome::Disconnected {
+                if sender.send(RenderCommand::AttachSurface(NativeWindowPtr(win))).is_err() {
                     nlog("attachSurface: 渲染线程已退出，归还窗口引用");
+                    window_ref(-2, "attachSurface(send failed) release handoff");
                     ANativeWindow_release(win);
-                } else {
-                    let waited = attach_started.elapsed();
-                    if waited.as_millis() > ATTACH_WAIT_BUDGET_MS {
-                        nlog(&format!(
-                            "attachSurface: 主线程阻塞 {}ms（超出 {ATTACH_WAIT_BUDGET_MS}ms 预算，outcome={outcome:?}）",
-                            waited.as_millis()
-                        ));
-                    }
+                    ANativeWindow_release(win);
                 }
             }
             None => {
                 nlog("attachSurface: 渲染线程不存在，归还窗口引用");
+                window_ref(-2, "attachSurface(no render thread) release handoff");
+                ANativeWindow_release(win);
                 ANativeWindow_release(win);
             }
         }

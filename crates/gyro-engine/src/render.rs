@@ -3,7 +3,7 @@
 #![cfg_attr(not(target_os = "android"), allow(dead_code, unused_imports))]
 
 use std::ffi::{c_char, c_int, c_void, CStr};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -75,8 +75,12 @@ pub const GL_VENDOR: u32 = 0x1F00;
 pub const GL_RENDERER: u32 = 0x1F01;
 pub const GL_EXTENSIONS: u32 = 0x1F03;
 
-pub const ATTACH_ACK_TIMEOUT_MS: u64 = 1000;
-pub const ATTACH_WAIT_BUDGET_MS: u128 = 200;
+/// Upper bound on how long the DestroyContext *caller* waits for the render thread's ack.
+///
+/// Unlike AttachSurface, teardown ordering is a real requirement here: `mpv_terminate_destroy`
+/// must not run while the render thread still holds the render context. There is no fallback
+/// path that makes a timed-out destroy safe, hence the generous bound.
+pub const DESTROY_ACK_TIMEOUT_MS: u64 = 2000;
 
 #[cfg(target_os = "android")]
 #[link(name = "EGL")]
@@ -147,10 +151,17 @@ extern "C" {
 // ---------- 原生渲染命令与常驻线程 ----------
 
 pub enum RenderCommand {
-    AttachSurface(NativeWindowPtr, std::sync::mpsc::SyncSender<()>),
+    /// Fire-and-forget: the render thread owns the whole attach sequence (window surface,
+    /// make-current, black clear, render context). Nothing on the Kotlin side requires the
+    /// surface to be bound when the JNI call returns — a loadfile may land before the bind and
+    /// mpv simply starts pushing frames once the render context exists — so a blocking ack
+    /// would only pin the UI thread for a first-paint nicety worth at most one frame.
+    AttachSurface(NativeWindowPtr),
     DetachSurface,
     Redraw,
     NotifyFrame,
+    /// Acknowledged: `safe_terminate_mpv` must not destroy the mpv handle while the render
+    /// thread still holds the render context, so the caller waits for this ack.
     DestroyContext(std::sync::mpsc::SyncSender<()>),
     Shutdown,
 }
@@ -749,6 +760,23 @@ unsafe fn clear_window_surface(display: EGLDisplay, surface: EGLSurface, context
     }
 }
 
+// ---------- ANativeWindow 引用台账 ----------
+
+/// JNI 侧到渲染线程的窗口引用余额。
+///
+/// ANativeWindow 没有读取引用计数的 API，所以泄漏只能靠自己对账。所有权规则：
+/// JNI 每次 handoff 携带恰好两个引用（`ANativeWindow_fromSurface` + `ANativeWindow_acquire`）；
+/// 渲染线程成功接管后立即退还一个，留一个给 [SurfaceSlot::detach] 退还；同窗口重绑与所有失败
+/// 路径把两个全部退还。`eglCreateWindowSurface`/`eglDestroySurface` 对窗口的那对引用在 EGL
+/// 内部自身对称，不入账。一个完整的 attach→detach 周期结束后余额必须回到 0，任何漂移都直接
+/// 指向泄漏的站点。
+pub static WINDOW_REF_BALANCE: AtomicI64 = AtomicI64::new(0);
+
+pub fn window_ref(delta: i64, site: &str) {
+    let balance = WINDOW_REF_BALANCE.fetch_add(delta, Ordering::AcqRel) + delta;
+    nlog(&format!("WINREF: {site} {delta:+} balance={balance}"));
+}
+
 #[cfg(target_os = "android")]
 struct SurfaceSlot {
     display: EGLDisplay,
@@ -789,6 +817,10 @@ impl SurfaceSlot {
         }
 
         if !self.window.is_null() && self.window == new_window && self.surface != EGL_NO_SURFACE {
+            // Same window: the slot keeps the reference it already holds, so the entire JNI
+            // handoff (fromSurface + acquire) is returned right here.
+            window_ref(-2, "attach(same-window) release handoff");
+            ANativeWindow_release(new_window);
             ANativeWindow_release(new_window);
             if eglMakeCurrent(self.display, self.surface, self.surface, context) != EGL_TRUE {
                 let err = egl_failure("eglMakeCurrent(reattach-same)");
@@ -803,6 +835,8 @@ impl SurfaceSlot {
         let surface = eglCreateWindowSurface(self.display, self.config, new_window, attribs.as_ptr());
         if surface == EGL_NO_SURFACE {
             let err = egl_failure("eglCreateWindowSurface");
+            window_ref(-2, "attach(createSurface failed) release handoff");
+            ANativeWindow_release(new_window);
             ANativeWindow_release(new_window);
             return Err(err);
         }
@@ -810,6 +844,8 @@ impl SurfaceSlot {
         if eglMakeCurrent(self.display, surface, surface, context) != EGL_TRUE {
             let err = egl_failure("eglMakeCurrent(attach)");
             eglDestroySurface(self.display, surface);
+            window_ref(-2, "attach(makeCurrent failed) release handoff");
+            ANativeWindow_release(new_window);
             ANativeWindow_release(new_window);
             return Err(err);
         }
@@ -819,6 +855,11 @@ impl SurfaceSlot {
 
         self.surface = surface;
         self.window = new_window;
+        // Ownership established: the slot keeps one reference for detach to release, and the
+        // remaining handoff reference goes back. This is the release the old pipeline was
+        // missing on this path — every fresh attach leaked one reference.
+        window_ref(-1, "attach(success) release handoff, slot keeps 1");
+        ANativeWindow_release(new_window);
         Ok(())
     }
 
@@ -832,6 +873,7 @@ impl SurfaceSlot {
             self.surface = EGL_NO_SURFACE;
         }
         if !self.window.is_null() {
+            window_ref(-1, "detach release slot reference");
             ANativeWindow_release(self.window);
             self.window = std::ptr::null_mut();
         }
@@ -1063,55 +1105,64 @@ unsafe fn draw_frame_native(
             ));
         }
 
-        let mpv_h = G_MPVP.load(Ordering::Acquire);
-        let mut dwidth: i64 = 0;
-        let mut dheight: i64 = 0;
-        let mut rotate: i64 = 0;
-        if !mpv_h.is_null() {
-            let dwidth_cstr = b"dwidth\0";
-            let dheight_cstr = b"dheight\0";
-            let rotate_cstr = b"video-params/rotate\0";
-            let _ = (api.mpv_get_property)(
-                mpv_h,
-                dwidth_cstr.as_ptr() as *const c_char,
-                MPV_FORMAT_INT64,
-                &mut dwidth as *mut _ as *mut c_void,
-            );
-            let _ = (api.mpv_get_property)(
-                mpv_h,
-                dheight_cstr.as_ptr() as *const c_char,
-                MPV_FORMAT_INT64,
-                &mut dheight as *mut _ as *mut c_void,
-            );
-            let _ = (api.mpv_get_property)(
-                mpv_h,
-                rotate_cstr.as_ptr() as *const c_char,
-                MPV_FORMAT_INT64,
-                &mut rotate as *mut _ as *mut c_void,
-            );
-            if rotate == 0 {
-                let out_rotate_cstr = b"video-out-params/rotate\0";
+        // The geometry probe only feeds the first-frame gate below: its verdict is consumed
+        // exclusively inside the `awaiting_first_frame` branch, where it keeps a redraw of the
+        // previous file's last buffer from being mistaken for the new file's first frame. During
+        // steady playback nobody reads it, so polling dwidth/dheight/rotate here would burn 3-4
+        // synchronous mpv_get_property calls per presented frame for nothing.
+        let (final_w, final_h, aspect_mismatch) = if awaiting_first_frame {
+            let mpv_h = G_MPVP.load(Ordering::Acquire);
+            let mut dwidth: i64 = 0;
+            let mut dheight: i64 = 0;
+            let mut rotate: i64 = 0;
+            if !mpv_h.is_null() {
+                let dwidth_cstr = b"dwidth\0";
+                let dheight_cstr = b"dheight\0";
+                let rotate_cstr = b"video-params/rotate\0";
                 let _ = (api.mpv_get_property)(
                     mpv_h,
-                    out_rotate_cstr.as_ptr() as *const c_char,
+                    dwidth_cstr.as_ptr() as *const c_char,
+                    MPV_FORMAT_INT64,
+                    &mut dwidth as *mut _ as *mut c_void,
+                );
+                let _ = (api.mpv_get_property)(
+                    mpv_h,
+                    dheight_cstr.as_ptr() as *const c_char,
+                    MPV_FORMAT_INT64,
+                    &mut dheight as *mut _ as *mut c_void,
+                );
+                let _ = (api.mpv_get_property)(
+                    mpv_h,
+                    rotate_cstr.as_ptr() as *const c_char,
                     MPV_FORMAT_INT64,
                     &mut rotate as *mut _ as *mut c_void,
                 );
+                if rotate == 0 {
+                    let out_rotate_cstr = b"video-out-params/rotate\0";
+                    let _ = (api.mpv_get_property)(
+                        mpv_h,
+                        out_rotate_cstr.as_ptr() as *const c_char,
+                        MPV_FORMAT_INT64,
+                        &mut rotate as *mut _ as *mut c_void,
+                    );
+                }
             }
-        }
 
-        let (final_w, final_h) = if rotate % 180 != 0 {
-            (dheight, dwidth)
+            let (fw, fh) = if rotate % 180 != 0 {
+                (dheight, dwidth)
+            } else {
+                (dwidth, dheight)
+            };
+            let mismatch = if fw > 0 && fh > 0 && w > 0 && h > 0 {
+                let vid_aspect = fw as f64 / fh as f64;
+                let buf_aspect = w as f64 / h as f64;
+                (buf_aspect / vid_aspect - 1.0).abs() > 0.08
+            } else {
+                false
+            };
+            (fw, fh, mismatch)
         } else {
-            (dwidth, dheight)
-        };
-
-        let aspect_mismatch = if final_w > 0 && final_h > 0 && w > 0 && h > 0 {
-            let vid_aspect = final_w as f64 / final_h as f64;
-            let buf_aspect = w as f64 / h as f64;
-            (buf_aspect / vid_aspect - 1.0).abs() > 0.08
-        } else {
-            false
+            (0, 0, false)
         };
 
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
@@ -1359,11 +1410,11 @@ pub fn destroy_render_context_sync() {
         let outcome = request_ack(
             &sender,
             RenderCommand::DestroyContext,
-            std::time::Duration::from_secs(2),
+            std::time::Duration::from_millis(DESTROY_ACK_TIMEOUT_MS),
         );
         if outcome != AckOutcome::Acknowledged {
             nlog(&format!(
-                "destroy_render_context_sync: 渲染线程未在 2s 内确认释放 render context ({outcome:?})，可能仍在渲染"
+                "destroy_render_context_sync: 渲染线程未在 {DESTROY_ACK_TIMEOUT_MS}ms 内确认释放 render context ({outcome:?})，可能仍在渲染"
             ));
         }
     }
@@ -1430,7 +1481,7 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
 
         while let Ok(cmd) = receiver.recv() {
             match cmd {
-                RenderCommand::AttachSurface(NativeWindowPtr(window), ack) => {
+                RenderCommand::AttachSurface(NativeWindowPtr(window)) => {
                     nlog("EGL: 收到 AttachSurface 命令");
                     let pipeline_ok = revive_dead_pipeline(&mut core, &mut mpv_render_ctx);
                     match slot.attach(window, core.context, core.context_major, core.visual_id) {
@@ -1443,13 +1494,11 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                                 slot.is_ready(),
                                 mpv_render_ctx.is_null()
                             ));
-                            let _ = ack.send(());
                         }
                         Err(err) => {
                             nlog(&format!(
                                 "EGL: attach 失败 (error=0x{err:X}) pipeline_ok={pipeline_ok}"
                             ));
-                            let _ = ack.send(());
                         }
                     }
                 }
@@ -1520,5 +1569,27 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_ref_balance_returns_to_baseline_after_a_full_handoff_cycle() {
+        let baseline = WINDOW_REF_BALANCE.load(Ordering::Acquire);
+        // A successful attach: JNI hands off two references, the render thread releases the
+        // handoff immediately and detach releases the slot's own reference later.
+        window_ref(2, "test handoff");
+        assert_eq!(baseline + 2, WINDOW_REF_BALANCE.load(Ordering::Acquire));
+        window_ref(-1, "test release handoff");
+        window_ref(-1, "test detach release");
+        assert_eq!(baseline, WINDOW_REF_BALANCE.load(Ordering::Acquire));
+
+        // A failed attach returns the whole handoff in one place.
+        window_ref(2, "test handoff");
+        window_ref(-2, "test failed-attach release");
+        assert_eq!(baseline, WINDOW_REF_BALANCE.load(Ordering::Acquire));
     }
 }
