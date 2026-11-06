@@ -19,6 +19,8 @@ import dev.gyro.engine.audio.GyroAudioFocusManager
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
+import dev.gyro.engine.effects.RealVideoEffectsController
+import dev.gyro.engine.effects.VideoEffectsController
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
@@ -46,9 +48,11 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val settingsRepository: SettingsRepository? = runCatching { SettingsRepository(context) }.getOrNull(),
     private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context),
     private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
-    private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge)
+    private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),
+    private val videoEffects: VideoEffectsController = RealVideoEffectsController(bridge)
 ) : VideoGeometryCoordinator by geometryCoordinator,
-    AudioEffectsController by audioEffects {
+    AudioEffectsController by audioEffects,
+    VideoEffectsController by videoEffects {
     companion object {
         private const val TAG = "GyroPlayerEngine"
 
@@ -208,19 +212,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _currentChapter = MutableStateFlow(-1)
     val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
-    // Audiovisual Filters (R4)
-    private val _deband = MutableStateFlow(false)
-    val deband: StateFlow<Boolean> = _deband.asStateFlow()
-
-    private val _brightness = MutableStateFlow(0)
-    val brightness: StateFlow<Int> = _brightness.asStateFlow()
-
-    private val _contrast = MutableStateFlow(0)
-    val contrast: StateFlow<Int> = _contrast.asStateFlow()
-
-    private val _saturation = MutableStateFlow(0)
-    val saturation: StateFlow<Int> = _saturation.asStateFlow()
-
     @Volatile
     private var pendingSeekMs: Long = -1L
 
@@ -313,14 +304,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 "chapter" -> {
                     _currentChapter.value = value.toInt()
                 }
-                "brightness" -> {
-                    _brightness.value = value.toInt()
-                }
-                "contrast" -> {
-                    _contrast.value = value.toInt()
-                }
-                "saturation" -> {
-                    _saturation.value = value.toInt()
+                "brightness", "contrast", "saturation" -> {
+                    videoEffects.onColorPropertyChanged(name, value.toInt())
                 }
             }
         }
@@ -378,7 +363,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     }
                 }
                 "deband" -> {
-                    _deband.value = value
+                    videoEffects.onDebandPropertyChanged(value)
                 }
             }
         }
@@ -1050,39 +1035,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
         bridge.setPropertyLong("chapter", index.toLong())
         _currentChapter.value = index
         Log.i(TAG, "seekToChapter: jumped to chapter $index (${chapterList[index].title})")
-    }
-
-    // =========================================================================
-    // Visual AV Filter Methods (R4)
-    // =========================================================================
-
-    fun setDeband(enabled: Boolean) {
-        _deband.value = enabled
-        bridge.setPropertyBoolean("deband", enabled)
-    }
-
-    fun setBrightness(value: Int) {
-        val clamped = value.coerceIn(-100, 100)
-        _brightness.value = clamped
-        bridge.setPropertyLong("brightness", clamped.toLong())
-    }
-
-    fun setContrast(value: Int) {
-        val clamped = value.coerceIn(-100, 100)
-        _contrast.value = clamped
-        bridge.setPropertyLong("contrast", clamped.toLong())
-    }
-
-    fun setSaturation(value: Int) {
-        val clamped = value.coerceIn(-100, 100)
-        _saturation.value = clamped
-        bridge.setPropertyLong("saturation", clamped.toLong())
-    }
-
-    fun resetColors() {
-        setBrightness(0)
-        setContrast(0)
-        setSaturation(0)
     }
 
     fun release() {
