@@ -645,6 +645,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
         SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
         _currentUri.value = uri
+        fileLoaded = false
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
@@ -831,26 +832,83 @@ class GyroPlayerEngine @JvmOverloads constructor(
      * of a landscape window around a portrait video. `width`/`height` remain the fallback for the
      * window before mpv has decoded a frame, where the display size is still unknown.
      */
+    private fun getDemuxDimensions(): Pair<Int, Int>? {
+        val count = bridge.getLong("track-list/count") ?: 0L
+        for (i in 0 until count) {
+            val type = bridge.getPropertyString("track-list/$i/type")
+            if (type == "video") {
+                val w = bridge.getLong("track-list/$i/demux-w")?.toInt() ?: 0
+                val h = bridge.getLong("track-list/$i/demux-h")?.toInt() ?: 0
+                val rot = bridge.getLong("track-list/$i/demux-rotation") ?: 0L
+                val par = bridge.getDouble("track-list/$i/demux-par") ?: 1.0
+                if (w > 0 && h > 0) {
+                    val displayW = if (par > 0.01 && kotlin.math.abs(par - 1.0) > 0.01) {
+                        (w * par).toInt()
+                    } else {
+                        w
+                    }
+                    val quarterTurn = rot % 180L != 0L
+                    val finalW = if (quarterTurn) h else displayW
+                    val finalH = if (quarterTurn) displayW else h
+                    return Pair(finalW, finalH)
+                }
+            }
+        }
+        return null
+    }
+
     private fun publishVideoDimensions() {
-        // mpv's property observers fire more than once per file: first with the coded shape
-        // (rotation not applied yet), then with the display shape once the VO is up. Publishing
-        // that first shape made the buffer and the layout container flash between two aspects on
-        // every opened file - the picture appeared at its raw size first and only then settled.
-        // The VO's own parameters exist exactly once rotation has been applied, so gate on them
-        // and publish once, in the final display orientation.
-        val dw = bridge.getLong("video-out-params/dw")?.toInt() ?: 0
-        val dh = bridge.getLong("video-out-params/dh")?.toInt() ?: 0
+        if (!fileLoaded) {
+            SwitchTrace.log("DIMS_IGNORED_NOT_FILE_LOADED", "")
+            return
+        }
+
+        val demuxDims = getDemuxDimensions()
+
+        val dw = bridge.getLong("video-out-params/dw")?.toInt()
+            ?.takeIf { it > 0 }
+            ?: demuxDims?.first
+            ?: bridge.getLong("dwidth")?.toInt()
+            ?: 0
+        val dh = bridge.getLong("video-out-params/dh")?.toInt()
+            ?.takeIf { it > 0 }
+            ?: demuxDims?.second
+            ?: bridge.getLong("dheight")?.toInt()
+            ?: 0
         if (dw <= 0 || dh <= 0) {
             SwitchTrace.log("DIMS_CHECK_FAILED", "dw=$dw, dh=$dh")
             return
         }
-        val quarterTurn = (bridge.getLong("video-out-params/rotate") ?: 0L) % 180L != 0L
+        val rotate = bridge.getLong("video-params/rotate")
+            ?.takeIf { it != 0L }
+            ?: bridge.getLong("video-out-params/rotate")
+            ?: 0L
+        val quarterTurn = rotate % 180L != 0L
         val w = if (quarterTurn) dh else dw
         val h = if (quarterTurn) dw else dh
-        _videoDimensions.value = VideoDimensions(w, h)
-        _videoAspect.value = w.toFloat() / h
+
+        val (finalW, finalH) = if (demuxDims != null) {
+            val demuxAspect = demuxDims.first.toFloat() / demuxDims.second
+            val voAspect = w.toFloat() / h
+            if (kotlin.math.abs(voAspect / demuxAspect - 1f) > 0.08f) {
+                // VO is still holding stale parameters from the previous file
+                SwitchTrace.log("DIMS_VO_STALE_OVERRIDDEN_BY_DEMUX", "demux=${demuxDims.first}x${demuxDims.second}, vo=${w}x$h")
+                demuxDims
+            } else {
+                Pair(w, h)
+            }
+        } else {
+            Pair(w, h)
+        }
+
+        val currentDims = _videoDimensions.value
+        if (currentDims.width == finalW && currentDims.height == finalH && _geometryReady.value) {
+            return
+        }
+        _videoDimensions.value = VideoDimensions(finalW, finalH)
+        _videoAspect.value = finalW.toFloat() / finalH
         _geometryReady.value = true
-        SwitchTrace.log("DIMS_PUBLISHED", "${w}x${h}, aspect=${w.toFloat() / h}")
+        SwitchTrace.log("DIMS_PUBLISHED", "${finalW}x${finalH}, aspect=${finalW.toFloat() / finalH}, rotate=$rotate")
         if (_videoFrameRate.value <= 0f) {
             bridge.getDouble("container-fps")?.let { fps ->
                 if (fps > 1.0 && fps < 1000.0) {
@@ -1004,6 +1062,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun redraw() {
+        if (!fileLoaded) {
+            SwitchTrace.log("REDRAW_SUPPRESSED_NOT_FILE_LOADED", "")
+            return
+        }
         SwitchTrace.log("REDRAW_REQUESTED", "surfaceAttached=$isSurfaceAttached, fileLoaded=$fileLoaded")
         if (isSurfaceAttached) {
             bridge.redraw()

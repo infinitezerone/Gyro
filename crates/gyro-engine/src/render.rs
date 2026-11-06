@@ -20,7 +20,7 @@ use crate::logic::{
 };
 use crate::mpv::{
     mpv_handle_guarded, with_api, with_api_logged, MpvOpenGLFbo, MpvOpenGLInitParams,
-    MpvRenderFrameInfo, MpvRenderParam, G_MPVP, MPV_ERROR_SUCCESS,
+    MpvRenderFrameInfo, MpvRenderParam, G_MPVP, MPV_ERROR_SUCCESS, MPV_FORMAT_INT64,
     MPV_RENDER_FRAME_INFO_REDRAW, MPV_RENDER_PARAM_API_TYPE,
     MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, MPV_RENDER_PARAM_FLIP_Y,
     MPV_RENDER_PARAM_NEXT_FRAME_INFO, MPV_RENDER_PARAM_OPENGL_FBO,
@@ -1063,15 +1063,71 @@ unsafe fn draw_frame_native(
             ));
         }
 
+        let mpv_h = G_MPVP.load(Ordering::Acquire);
+        let mut dwidth: i64 = 0;
+        let mut dheight: i64 = 0;
+        let mut rotate: i64 = 0;
+        if !mpv_h.is_null() {
+            let dwidth_cstr = b"dwidth\0";
+            let dheight_cstr = b"dheight\0";
+            let rotate_cstr = b"video-params/rotate\0";
+            let _ = (api.mpv_get_property)(
+                mpv_h,
+                dwidth_cstr.as_ptr() as *const c_char,
+                MPV_FORMAT_INT64,
+                &mut dwidth as *mut _ as *mut c_void,
+            );
+            let _ = (api.mpv_get_property)(
+                mpv_h,
+                dheight_cstr.as_ptr() as *const c_char,
+                MPV_FORMAT_INT64,
+                &mut dheight as *mut _ as *mut c_void,
+            );
+            let _ = (api.mpv_get_property)(
+                mpv_h,
+                rotate_cstr.as_ptr() as *const c_char,
+                MPV_FORMAT_INT64,
+                &mut rotate as *mut _ as *mut c_void,
+            );
+            if rotate == 0 {
+                let out_rotate_cstr = b"video-out-params/rotate\0";
+                let _ = (api.mpv_get_property)(
+                    mpv_h,
+                    out_rotate_cstr.as_ptr() as *const c_char,
+                    MPV_FORMAT_INT64,
+                    &mut rotate as *mut _ as *mut c_void,
+                );
+            }
+        }
+
+        let (final_w, final_h) = if rotate % 180 != 0 {
+            (dheight, dwidth)
+        } else {
+            (dwidth, dheight)
+        };
+
+        let aspect_mismatch = if final_w > 0 && final_h > 0 && w > 0 && h > 0 {
+            let vid_aspect = final_w as f64 / final_h as f64;
+            let buf_aspect = w as f64 / h as f64;
+            (buf_aspect / vid_aspect - 1.0).abs() > 0.08
+        } else {
+            false
+        };
+
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
             if awaiting_first_frame {
                 crate::tracelog(
                     "NATIVE_SWAP_WHILE_AWAITING",
-                    &format!("is_redraw={is_redraw}, buf={w}x{h}"),
+                    &format!("is_redraw={is_redraw}, buf={w}x{h}, vid={final_w}x{final_h}, rotate={rotate}, mismatch={aspect_mismatch}"),
                 );
             }
-            if !is_redraw {
+            if aspect_mismatch && awaiting_first_frame {
+                crate::tracelog(
+                    "NATIVE_SWAP_ASPECT_MISMATCH",
+                    &format!("buf={w}x{h}, vid={final_w}x{final_h}, rotate={rotate}, awaiting matching buffer"),
+                );
+            } else if !is_redraw {
                 crate::events::signal_first_frame();
             }
         }
@@ -1379,10 +1435,16 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                 }
                 RenderCommand::Redraw => {
                     let awaiting = G_AWAITING_FIRST_FRAME.load(Ordering::Acquire);
+                    let file_loaded = G_FILE_LOADED_REACHED.load(Ordering::Acquire);
+                    let ready = slot.is_ready();
                     crate::tracelog(
                         "NATIVE_CMD_REDRAW",
-                        &format!("slot_ready={}, awaiting_first_frame={awaiting}", slot.is_ready()),
+                        &format!("slot_ready={ready}, awaiting_first_frame={awaiting}, file_loaded={file_loaded}"),
                     );
+                    if awaiting && !file_loaded {
+                        crate::tracelog("NATIVE_REDRAW_SKIPPED_NOT_FILE_LOADED", "");
+                        continue;
+                    }
                     nlog("EGL: 收到 Redraw 命令");
                     if slot.is_ready() && !mpv_render_ctx.is_null() {
                         draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);
