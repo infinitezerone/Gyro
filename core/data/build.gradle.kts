@@ -1,5 +1,6 @@
 plugins {
     id("gyro.android.library")
+    id("gyro.android.hilt")
 }
 
 android {
@@ -12,7 +13,10 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:model"))
+    api(project(":core:common"))
+    api(project(":core:model"))
+    api(project(":core:database"))
+    api(project(":core:datastore"))
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

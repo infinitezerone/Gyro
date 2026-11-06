@@ -1,6 +1,9 @@
 package dev.gyro.core.data.repository
 
 import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gyro.core.common.dispatcher.Dispatcher
+import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.MpvConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -11,20 +14,24 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Persistent repository for custom mpv.conf file.
  * Backed by an internal application file (context.filesDir/mpv.conf)
  * and exposing reactive StateFlow for Compose UI observation.
  */
+@Singleton
 class MpvConfigRepository(
     private val configFile: File,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 
+    @Inject
     constructor(
-        context: Context,
-        ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+        @ApplicationContext context: Context,
+        @Dispatcher(GyroDispatchers.IO) ioDispatcher: CoroutineDispatcher = Dispatchers.IO
     ) : this(
         configFile = context.filesDir.resolve("mpv.conf"),
         ioDispatcher = ioDispatcher

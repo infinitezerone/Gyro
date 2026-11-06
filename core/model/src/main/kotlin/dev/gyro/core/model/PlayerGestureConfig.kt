@@ -1,5 +1,7 @@
 package dev.gyro.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Configuration for player gestures aligning with MX Player customizable gesture model:
  *
@@ -21,6 +23,7 @@ package dev.gyro.core.model
  * @property doubleTapTimeoutMs Maximum interval between taps to register as a double-tap.
  * @property singleTapDelayMs Milliseconds to wait before confirming a single tap (to avoid false single-tap during double-tap).
  */
+@Serializable
 data class PlayerGestureConfig(
     val isLocked: Boolean = false,
     val isVolumeEnabled: Boolean = true,

@@ -1,86 +1,147 @@
 package dev.gyro.core.data.repository
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.net.Uri
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gyro.core.common.dispatcher.ApplicationScope
+import dev.gyro.core.common.dispatcher.Dispatcher
+import dev.gyro.core.common.dispatcher.GyroDispatchers
+import dev.gyro.core.database.dao.PlaybackHistoryDao
+import dev.gyro.core.database.entity.PlaybackHistoryEntity
 import dev.gyro.core.model.PlaybackProgress
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
- * Ultra-fast, zero-dependency persistent repository for tracking playback progress and resume points.
+ * High-performance, Room-backed persistent repository for tracking playback progress and resume points.
+ *
+ * Architecture highlights aligned with Now in Android & BgmPlus:
+ * - Backed by Room database in `:core:database` with ACID guarantees.
+ * - Reactive in-memory state [progressMap] kept in sync with the Room DAO for zero-latency lookups.
+ * - One-time migration from legacy SharedPreferences ("gyro_playback_history") if existing records are found.
+ * - Thread-safe, Main-safe with injected [ioDispatcher] & [appScope].
  */
-class PlaybackHistoryRepository(
-    private val prefs: SharedPreferences
+@Singleton
+class PlaybackHistoryRepository @Inject constructor(
+    private val dao: PlaybackHistoryDao,
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @ApplicationScope private val appScope: CoroutineScope,
+    @ApplicationContext context: Context? = null,
 ) {
-    constructor(context: Context) : this(
-        context.getSharedPreferences("gyro_playback_history", Context.MODE_PRIVATE)
+    /**
+     * Testing constructor with custom/fake DAO.
+     */
+    constructor(
+        dao: PlaybackHistoryDao,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        appScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
+    ) : this(
+        dao = dao,
+        ioDispatcher = ioDispatcher,
+        appScope = appScope,
+        context = null,
     )
 
-    private val _progressMap = MutableStateFlow<Map<String, PlaybackProgress>>(loadAll())
+    private val _progressMap = MutableStateFlow<Map<String, PlaybackProgress>>(emptyMap())
     val progressMap: StateFlow<Map<String, PlaybackProgress>> = _progressMap.asStateFlow()
-
-    private fun loadAll(): Map<String, PlaybackProgress> {
-        val result = mutableMapOf<String, PlaybackProgress>()
-        for ((key, value) in prefs.all) {
-            if (value is String) {
-                parseRecord(key, value)?.let { record ->
-                    result[key] = record
-                }
-            }
-        }
-        return result
-    }
-
-    private fun parseRecord(uriString: String, raw: String): PlaybackProgress? {
-        val parts = raw.split(":")
-        if (parts.size >= 3) {
-            val pos = parts[0].toLongOrNull() ?: 0L
-            val dur = parts[1].toLongOrNull() ?: 0L
-            val ts = parts[2].toLongOrNull() ?: 0L
-            return PlaybackProgress(uriString, pos, dur, ts)
-        }
-        return null
-    }
-
-    /**
-     * Retrieve the last playback progress for a given media URI.
-     */
-    fun getProgress(uri: Uri): PlaybackProgress? {
-        val key = uri.toString()
-        return _progressMap.value[key]
-    }
 
     private var lastSavedTimestamp: Long = 0L
     private var lastSavedPositionMs: Long = 0L
     private var lastSavedUri: String? = null
 
-    /**
-     * Save playback position and duration.
-     * Records with duration <= 0 or position < 2000ms are ignored unless clearing.
-     */
-    fun saveProgress(uri: Uri, positionMs: Long, durationMs: Long) {
-        if (durationMs <= 0L) return
-        val key = uri.toString()
-        val timestamp = System.currentTimeMillis()
-
-        // If played within the first 2 seconds, do not record resume clutter
-        if (positionMs < 2000L) {
-            return
+    init {
+        // 1. One-time legacy SharedPreferences migration if present
+        if (context != null) {
+            migrateLegacyPrefsIfNeeded(context)
         }
 
-        lastSavedUri = key
-        lastSavedTimestamp = timestamp
+        // 2. Continuously observe Room database updates to sync in-memory cache
+        appScope.launch(ioDispatcher) {
+            dao.observeRecentHistory(500).collectLatest { entities ->
+                val map = entities.associate { it.uriString to it.toModel() }
+                _progressMap.value = map
+            }
+        }
+    }
+
+    private fun migrateLegacyPrefsIfNeeded(context: Context) {
+        val legacyPrefs = context.getSharedPreferences("gyro_playback_history", Context.MODE_PRIVATE)
+        val allEntries = legacyPrefs.all
+        if (allEntries.isNotEmpty()) {
+            appScope.launch(ioDispatcher) {
+                val migrated = mutableListOf<PlaybackHistoryEntity>()
+                val now = System.currentTimeMillis()
+                for ((key, value) in allEntries) {
+                    val str = value as? String ?: continue
+                    val parts = str.split(",")
+                    if (parts.size >= 2) {
+                        val pos = parts[0].toLongOrNull() ?: continue
+                        val dur = parts[1].toLongOrNull() ?: continue
+                        val title = if (parts.size >= 3) parts[2] else ""
+                        migrated.add(
+                            PlaybackHistoryEntity(
+                                uriString = key,
+                                positionMs = pos,
+                                durationMs = dur,
+                                updatedAt = now,
+                                title = title
+                            )
+                        )
+                    }
+                }
+                if (migrated.isNotEmpty()) {
+                    dao.upsertAll(migrated)
+                }
+                legacyPrefs.edit().clear().apply()
+            }
+        }
+    }
+
+    /**
+     * Record playback progress for a media URI.
+     * Records with duration <= 0 or position < 2000ms are ignored unless clearing.
+     */
+    fun saveProgress(uri: Uri, positionMs: Long, durationMs: Long, title: String = "") {
+        if (durationMs <= 0L) return
+        if (positionMs < 2000L) return
+
+        val uriStr = uri.toString()
+        val now = System.currentTimeMillis()
+        lastSavedUri = uriStr
+        lastSavedTimestamp = now
         lastSavedPositionMs = positionMs
 
-        val record = PlaybackProgress(key, positionMs, durationMs, timestamp)
-        val raw = "$positionMs:$durationMs:$timestamp"
-        prefs.edit().putString(key, raw).apply()
+        val progress = PlaybackProgress(
+            uriString = uriStr,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            lastPlayedTimestamp = now
+        )
 
         _progressMap.update { current ->
-            current + (key to record)
+            current + (uriStr to progress)
+        }
+
+        appScope.launch(ioDispatcher) {
+            dao.upsert(
+                PlaybackHistoryEntity(
+                    uriString = uriStr,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    updatedAt = now,
+                    title = title
+                )
+            )
         }
     }
 
@@ -93,6 +154,7 @@ class PlaybackHistoryRepository(
         uri: Uri,
         positionMs: Long,
         durationMs: Long,
+        title: String = "",
         minIntervalMs: Long = 10_000L,
         minDeltaMs: Long = 5_000L
     ): Boolean {
@@ -105,26 +167,43 @@ class PlaybackHistoryRepository(
                 return false
             }
         }
-        saveProgress(uri, positionMs, durationMs)
+        saveProgress(uri, positionMs, durationMs, title)
         return true
     }
 
     /**
-     * Clear playback history for a single URI.
+     * Retrieve the recorded progress for a media URI from in-memory cache.
+     * Guaranteed to be synchronous and non-blocking.
      */
-    fun clearProgress(uri: Uri) {
-        val key = uri.toString()
-        prefs.edit().remove(key).apply()
-        _progressMap.update { current ->
-            current - key
-        }
+    fun getProgress(uri: Uri): PlaybackProgress? {
+        return _progressMap.value[uri.toString()]
     }
 
     /**
-     * Clear all recorded playback history.
+     * Clear all playback history from in-memory cache and Room database.
      */
     fun clearAll() {
-        prefs.edit().clear().apply()
         _progressMap.value = emptyMap()
+        appScope.launch(ioDispatcher) {
+            dao.clearAll()
+        }
+    }
+
+    fun clearHistory() = clearAll()
+
+    /**
+     * Clear playback history for a single URI.
+     */
+    fun clearProgress(uri: Uri) = deleteEntry(uri)
+
+    /**
+     * Delete a single entry from history.
+     */
+    fun deleteEntry(uri: Uri) {
+        val uriStr = uri.toString()
+        _progressMap.update { current -> current - uriStr }
+        appScope.launch(ioDispatcher) {
+            dao.deleteByUri(uriStr)
+        }
     }
 }

@@ -5,16 +5,26 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gyro.core.common.dispatcher.Dispatcher
+import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class MediaRepository(private val context: Context) {
+@Singleton
+class MediaRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
 
-    val customFolderManager = CustomFolderManager(context)
+    val customFolderManager = CustomFolderManager(context, ioDispatcher)
 
-    suspend fun getVideos(): List<VideoMediaItem> = withContext(Dispatchers.IO) {
+    suspend fun getVideos(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val videoList = mutableListOf<VideoMediaItem>()
 
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

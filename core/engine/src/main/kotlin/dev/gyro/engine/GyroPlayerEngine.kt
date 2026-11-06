@@ -47,7 +47,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val context: Context,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
     private val mpvConfigRepository: MpvConfigRepository? = runCatching { MpvConfigRepository(context) }.getOrNull(),
-    private val settingsRepository: SettingsRepository? = runCatching { SettingsRepository(context) }.getOrNull(),
+    private val settingsRepository: SettingsRepository? = null,
     private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context),
     private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
     private val audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),

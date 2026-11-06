@@ -6,13 +6,17 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * 用户自定义目录扫描与持久化管理
  */
-class CustomFolderManager(private val context: Context) {
+class CustomFolderManager(
+    private val context: Context,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
 
     private val prefs = context.getSharedPreferences("gyro_custom_folders", Context.MODE_PRIVATE)
     private val keyCustomUris = "custom_tree_uris"
@@ -55,7 +59,7 @@ class CustomFolderManager(private val context: Context) {
         prefs.edit().putStringSet(keyCustomUris, current).apply()
     }
 
-    suspend fun getFolderDetails(): List<CustomFolderDetail> = withContext(Dispatchers.IO) {
+    suspend fun getFolderDetails(): List<CustomFolderDetail> = withContext(ioDispatcher) {
         val result = mutableListOf<CustomFolderDetail>()
         val uris = getSavedFolderUris()
 
@@ -81,7 +85,7 @@ class CustomFolderManager(private val context: Context) {
         result
     }
 
-    suspend fun scanCustomFolders(): List<VideoMediaItem> = withContext(Dispatchers.IO) {
+    suspend fun scanCustomFolders(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val result = mutableListOf<VideoMediaItem>()
         val uris = getSavedFolderUris()
 

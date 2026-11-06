@@ -6,11 +6,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Manages the current playlist / playback queue for continuous playback and episode switching.
  */
-class PlaylistManager {
+@Singleton
+class PlaylistManager @Inject constructor() {
 
     private val _items = MutableStateFlow<List<VideoMediaItem>>(emptyList())
     val items: StateFlow<List<VideoMediaItem>> = _items.asStateFlow()

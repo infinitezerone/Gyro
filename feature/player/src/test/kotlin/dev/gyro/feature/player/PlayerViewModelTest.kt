@@ -8,12 +8,16 @@ import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
+import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import dev.gyro.engine.GyroPlayerEngine
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -63,8 +67,13 @@ class PlayerViewModelTest {
         engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
         engine.ensureInitialized()
 
-        settingsRepo = SettingsRepository(FakeSharedPreferences())
-        historyRepo = PlaybackHistoryRepository(FakeSharedPreferences())
+        val testScope = CoroutineScope(SupervisorJob() + testDispatcher)
+        val settingsFile = File(filesDir, "user_settings.json")
+        val dataStore = UserSettingsDataStoreFactory.createForFile(settingsFile, testScope)
+        settingsRepo = SettingsRepository(dataStore, testDispatcher, testScope)
+
+        val fakeHistoryDao = FakePlaybackHistoryDao()
+        historyRepo = PlaybackHistoryRepository(fakeHistoryDao, testDispatcher, testScope)
         playlistManager = PlaylistManager()
         val fakeSubtitleRepo = object : SubtitleRepository {
             override suspend fun findCompanionSubtitles(videoUri: android.net.Uri, videoDisplayName: String?): List<String> = emptyList()

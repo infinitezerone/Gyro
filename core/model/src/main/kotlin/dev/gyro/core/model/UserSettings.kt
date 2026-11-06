@@ -1,11 +1,14 @@
 package dev.gyro.core.model
 
+import kotlinx.serialization.Serializable
+
 /** Hardware decoding. The engine appends the copy-back variant so an init failure is not fatal. */
 const val HWDEC_HARDWARE = "mediacodec"
 
 /** Software decoding, in mpv's own spelling. */
 const val HWDEC_SOFTWARE = "no"
 
+@Serializable
 data class UserSettings(
     val autoResume: Boolean = true,
     val backgroundPlayMode: String = "pip", // "pip", "audio_only", "off"
