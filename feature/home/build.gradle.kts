@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.compose.compiler)
+    id("gyro.android.feature")
+    id("gyro.android.hilt")
 }
 
 android {
@@ -10,40 +10,4 @@ android {
         consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
-    buildFeatures {
-        compose = true
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
-    }
-}
-
-dependencies {
-    implementation(project(":core:model"))
-    implementation(project(":core:data"))
-    implementation(project(":core:navigation"))
-    implementation(project(":core:designsystem"))
-
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.activity.compose)
-
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.extended)
-
-    debugImplementation(libs.androidx.compose.ui.tooling)
-    testImplementation(project(":core:testing"))
 }

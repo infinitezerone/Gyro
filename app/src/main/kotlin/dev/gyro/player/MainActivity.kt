@@ -33,6 +33,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
+import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen
@@ -48,6 +49,7 @@ import dev.gyro.feature.settings.folders.FolderManagementViewModel
 import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
 import kotlinx.coroutines.flow.MutableStateFlow
+import javax.inject.Inject
 
 // Material 3 navigation motion specs: fixed-duration tweens instead of springs — a spring
 // settles asymptotically, so its tail keeps the screen sub-pixel drifting after it looks done.
@@ -55,10 +57,11 @@ private val navSpatialSpec = tween<IntOffset>(300, easing = FastOutSlowInEasing)
 private val navSpatialFloatSpec = tween<Float>(300, easing = FastOutSlowInEasing)
 private val navEffectsSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private lateinit var playerEngine: GyroPlayerEngine
-    private val playlistManager = PlaylistManager()
+    @Inject lateinit var playerEngine: GyroPlayerEngine
+    @Inject lateinit var playlistManager: PlaylistManager
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val folderViewModel: FolderManagementViewModel by viewModels()
@@ -81,11 +84,7 @@ class MainActivity : ComponentActivity() {
         // Keep screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        playerEngine = GyroPlayerEngine(this).apply {
-            ensureInitialized()
-        }
-        PlaybackService.activeEngine = playerEngine
-        PlaybackService.activePlaylistManager = playlistManager
+        playerEngine.ensureInitialized()
 
         handleIntent(intent)
 
@@ -199,17 +198,18 @@ class MainActivity : ComponentActivity() {
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 onPlayVideo = { item, currentList ->
-                                    val idx = currentList.indexOfFirst { it.uri == item.uri }
+                                    val idx = currentList.indexOfFirst { it.uriString == item.uriString }
                                     playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
                                     playerEngine.notifyScreenEntry()
-                                    backStack.add(Screen.Player(item.uri))
+                                    val itemAndroidUri = Uri.parse(item.uriString)
+                                    backStack.add(Screen.Player(itemAndroidUri))
                                     val startPos = if (settings.autoResume) {
-                                        val progress = historyRepository.getProgress(item.uri)
+                                        val progress = historyRepository.getProgress(itemAndroidUri)
                                         if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
                                             progress.positionMs
                                         } else 0L
                                     } else 0L
-                                    playerEngine.loadUri(item.uri, startPos)
+                                    playerEngine.loadUri(itemAndroidUri, startPos)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
@@ -376,8 +376,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         if (isChangingConfigurations) return
         PlaybackService.stop(this)
-        PlaybackService.activeEngine = null
-        PlaybackService.activePlaylistManager = null
         if (::playerEngine.isInitialized) {
             playerEngine.release()
         }

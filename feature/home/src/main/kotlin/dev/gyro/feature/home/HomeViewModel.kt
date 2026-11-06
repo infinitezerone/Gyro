@@ -1,8 +1,8 @@
 package dev.gyro.feature.home
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.model.PlaybackProgress
@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 data class HomeUiState(
     val isLoading: Boolean = false,
@@ -33,10 +34,11 @@ private data class FilterState(
     val isSearching: Boolean = false
 )
 
-class HomeViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val repository = MediaRepository(application)
-    val historyRepository = PlaybackHistoryRepository(application)
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val repository: MediaRepository,
+    val historyRepository: PlaybackHistoryRepository
+) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
     private val _hasPermission = MutableStateFlow(false)

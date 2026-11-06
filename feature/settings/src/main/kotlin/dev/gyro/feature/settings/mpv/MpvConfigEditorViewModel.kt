@@ -1,8 +1,8 @@
 package dev.gyro.feature.settings.mpv
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.designsystem.R
 import kotlinx.coroutines.CancellationException
@@ -11,16 +11,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class MpvConfigEditorViewModel @JvmOverloads constructor(
-    application: Application = Application(),
-    private val repository: MpvConfigRepository = MpvConfigRepository(application)
-) : AndroidViewModel(application) {
-
-    constructor(repository: MpvConfigRepository) : this(
-        application = Application(),
-        repository = repository
-    )
+@HiltViewModel
+class MpvConfigEditorViewModel @Inject constructor(
+    private val repository: MpvConfigRepository
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         MpvConfigEditorUiState(

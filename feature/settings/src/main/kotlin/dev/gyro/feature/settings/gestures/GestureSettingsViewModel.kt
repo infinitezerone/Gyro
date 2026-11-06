@@ -1,8 +1,8 @@
 package dev.gyro.feature.settings.gestures
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.PlayerGestureConfig
 import kotlinx.coroutines.flow.SharingStarted
@@ -10,16 +10,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class GestureSettingsViewModel @JvmOverloads constructor(
-    application: Application = Application(),
-    private val repository: SettingsRepository = SettingsRepository(application)
-) : AndroidViewModel(application) {
-
-    constructor(repository: SettingsRepository) : this(
-        application = Application(),
-        repository = repository
-    )
+@HiltViewModel
+class GestureSettingsViewModel @Inject constructor(
+    private val repository: SettingsRepository
+) : ViewModel() {
 
     val uiState: StateFlow<GestureSettingsUiState> = repository.settings
         .map { GestureSettingsUiState(config = it.gestureConfig) }

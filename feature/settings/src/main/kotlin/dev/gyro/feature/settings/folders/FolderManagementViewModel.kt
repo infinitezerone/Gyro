@@ -1,24 +1,26 @@
 ﻿package dev.gyro.feature.settings.folders
 
-import android.app.Application
 import android.net.Uri
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.model.CustomFolderDetail
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 data class FolderManagementUiState(
     val isLoading: Boolean = false,
     val folders: List<CustomFolderDetail> = emptyList()
 )
 
-class FolderManagementViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val mediaRepository = MediaRepository(application)
+@HiltViewModel
+class FolderManagementViewModel @Inject constructor(
+    private val mediaRepository: MediaRepository
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FolderManagementUiState(isLoading = true))
     val uiState: StateFlow<FolderManagementUiState> = _uiState.asStateFlow()

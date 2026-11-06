@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.android.library)
+    id("gyro.android.library")
 }
 
 android {
@@ -7,15 +7,6 @@ android {
 
     defaultConfig {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -25,6 +16,5 @@ dependencies {
     api(libs.kotlinx.coroutines.test)
     api("junit:junit:4.13.2")
 
-    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
 }

@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.android.library)
+    id("gyro.android.library")
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -10,15 +10,9 @@ android {
         consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
 }
 
 dependencies {
-    implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.kotlinx.serialization.core)
 

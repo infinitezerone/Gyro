@@ -13,14 +13,20 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.view.KeyEvent
+import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.GyroPlayerEngine
+import javax.inject.Inject
 
 /**
  * Foreground service for background audio playback with lockscreen & notification media card.
  */
+@AndroidEntryPoint
 class PlaybackService : Service() {
+
+    @Inject lateinit var engine: GyroPlayerEngine
+    @Inject lateinit var playlistManager: PlaylistManager
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -39,12 +45,6 @@ class PlaybackService : Service() {
         @Volatile
         var isRunning: Boolean = false
             internal set
-
-        @Volatile
-        var activeEngine: GyroPlayerEngine? = null
-
-        @Volatile
-        var activePlaylistManager: PlaylistManager? = null
 
         fun start(context: Context) {
             val intent = Intent(context, PlaybackService::class.java)
@@ -91,10 +91,7 @@ class PlaybackService : Service() {
         Log.i(TAG, "PlaybackService created")
         createNotificationChannel()
 
-        val engine = activeEngine
-        if (engine != null) {
-            setupMediaSessionManager(engine, activePlaylistManager)
-        }
+        setupMediaSessionManager(engine, playlistManager)
     }
 
     fun setupMediaSessionManager(engine: GyroPlayerEngine, playlistManager: PlaylistManager?) {
@@ -120,8 +117,8 @@ class PlaybackService : Service() {
         Log.i(TAG, "onStartCommand: action=$action")
 
         // Lazy-connect engine if not yet attached
-        if (mediaSessionManager == null && activeEngine != null) {
-            setupMediaSessionManager(activeEngine!!, activePlaylistManager)
+        if (mediaSessionManager == null) {
+            setupMediaSessionManager(engine, playlistManager)
         }
 
         when (action) {
@@ -131,7 +128,7 @@ class PlaybackService : Service() {
             ACTION_PREV -> mediaSessionManager?.skipToPrevious()
             ACTION_NEXT -> mediaSessionManager?.skipToNext()
             ACTION_STOP -> {
-                activeEngine?.pause()
+                engine.pause()
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
@@ -157,9 +154,8 @@ class PlaybackService : Service() {
     }
 
     fun buildNotification(): Notification {
-        val engine = activeEngine
-        val isPlaying = engine?.isPlaying?.value ?: false
-        val title = engine?.mediaTitle?.value?.ifBlank { null }
+        val isPlaying = engine.isPlaying.value
+        val title = engine.mediaTitle.value.ifBlank { null }
             ?: getString(R.string.player_default_title)
         val contentText = if (isPlaying) {
             getString(R.string.notification_playing)
@@ -167,8 +163,8 @@ class PlaybackService : Service() {
             getString(R.string.notification_paused)
         }
 
-        val duration = engine?.durationMs?.value ?: 0L
-        val position = engine?.timePosMs?.value ?: 0L
+        val duration = engine.durationMs.value
+        val position = engine.timePosMs.value
 
         val mediaStyle = Notification.MediaStyle().apply {
             mediaSessionManager?.sessionToken?.let { token ->

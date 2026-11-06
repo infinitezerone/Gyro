@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.compose.compiler)
+    id("gyro.android.library")
+    id("gyro.android.compose")
 }
 
 // The native engine is compiled from crates/gyro-engine at build time: no .so is committed.
@@ -123,13 +123,11 @@ dependencies {
     api(project(":core:model"))
     implementation(project(":core:data"))
     implementation(libs.libmpv)
-    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
 
     testImplementation(project(":core:testing"))

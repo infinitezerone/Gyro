@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.android.library)
+    id("gyro.android.library")
 }
 
 android {
@@ -9,21 +9,11 @@ android {
         consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
-    }
 }
 
 dependencies {
     implementation(project(":core:model"))
 
-    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 

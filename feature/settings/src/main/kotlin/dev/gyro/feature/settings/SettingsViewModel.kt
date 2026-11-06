@@ -1,16 +1,18 @@
 ﻿package dev.gyro.feature.settings
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val repository = SettingsRepository(application)
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val repository: SettingsRepository
+) : ViewModel() {
     val settings: StateFlow<UserSettings> = repository.settings
 
     fun setAutoResume(enabled: Boolean) {
