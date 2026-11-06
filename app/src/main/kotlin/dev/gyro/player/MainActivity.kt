@@ -41,6 +41,7 @@ import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.feature.home.HomeScreen
 import dev.gyro.feature.home.HomeViewModel
 import dev.gyro.feature.player.PlayerScreen
+import dev.gyro.feature.player.PlayerViewModel
 import dev.gyro.feature.player.buildPipParams
 import dev.gyro.feature.settings.SettingsScreen
 import dev.gyro.feature.settings.SettingsViewModel
@@ -218,13 +219,16 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         entry<Screen.Player> { playerScreen ->
+                            val playerViewModel: PlayerViewModel = hiltViewModel()
                             PlayerScreen(
                                 engine = playerEngine,
                                 currentUri = playerScreen.uri,
                                 settings = settings,
                                 historyRepository = historyRepository,
                                 playlistManager = playlistManager,
+                                viewModel = playerViewModel,
                                 onBack = {
+                                    playerViewModel.saveCurrentProgress()
                                     playerEngine.pause()
                                     if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

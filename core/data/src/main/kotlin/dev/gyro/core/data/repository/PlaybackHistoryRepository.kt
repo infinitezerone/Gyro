@@ -12,9 +12,12 @@ import kotlinx.coroutines.flow.update
 /**
  * Ultra-fast, zero-dependency persistent repository for tracking playback progress and resume points.
  */
-class PlaybackHistoryRepository(context: Context) {
-
-    private val prefs: SharedPreferences = context.getSharedPreferences("gyro_playback_history", Context.MODE_PRIVATE)
+class PlaybackHistoryRepository(
+    private val prefs: SharedPreferences
+) {
+    constructor(context: Context) : this(
+        context.getSharedPreferences("gyro_playback_history", Context.MODE_PRIVATE)
+    )
 
     private val _progressMap = MutableStateFlow<Map<String, PlaybackProgress>>(loadAll())
     val progressMap: StateFlow<Map<String, PlaybackProgress>> = _progressMap.asStateFlow()

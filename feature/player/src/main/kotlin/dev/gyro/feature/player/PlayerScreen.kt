@@ -69,6 +69,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import dev.gyro.core.data.repository.CompanionSubtitleScanner
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
+import dev.gyro.core.data.repository.asAndroidUri
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
@@ -95,6 +96,7 @@ fun PlayerScreen(
     settings: UserSettings = UserSettings(),
     historyRepository: PlaybackHistoryRepository? = null,
     playlistManager: PlaylistManager? = null,
+    viewModel: PlayerViewModel? = null,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -144,11 +146,26 @@ fun PlayerScreen(
     val nightMode by engine.nightMode.collectAsState()
     val stereoDownmix by engine.stereoDownmix.collectAsState()
 
+    val vmActiveUri by (viewModel?.activeUri ?: remember { kotlinx.coroutines.flow.MutableStateFlow(null) }).collectAsState()
     val engineCurrentUri by engine.currentUri.collectAsState()
-    var activeUri by remember(currentUri) { mutableStateOf(currentUri ?: engineCurrentUri) }
+    var activeUri by remember(currentUri) { mutableStateOf(currentUri ?: vmActiveUri ?: engineCurrentUri) }
+
+    LaunchedEffect(vmActiveUri) {
+        if (vmActiveUri != null && vmActiveUri != activeUri) {
+            activeUri = vmActiveUri
+        }
+    }
     LaunchedEffect(engineCurrentUri) {
         if (engineCurrentUri != null && engineCurrentUri != activeUri) {
             activeUri = engineCurrentUri
+        }
+    }
+    LaunchedEffect(currentUri) {
+        if (currentUri != null && currentUri != activeUri) {
+            if (viewModel != null) {
+                viewModel.openUri(currentUri)
+            }
+            activeUri = currentUri
         }
     }
 
@@ -158,6 +175,11 @@ fun PlayerScreen(
     val hasNext = playlistManager?.hasNext ?: false
 
     fun openUri(uri: Uri) {
+        if (viewModel != null) {
+            viewModel.openUri(uri)
+            activeUri = uri
+            return
+        }
         activeUri?.let { oldUri ->
             val curPos = engine.timePosMs.value
             val curDur = engine.durationMs.value
@@ -176,12 +198,17 @@ fun PlayerScreen(
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        openUri(Uri.parse(item.uriString))
+        if (viewModel != null) {
+            viewModel.playMediaItem(item)
+            activeUri = item.asAndroidUri
+        } else {
+            openUri(Uri.parse(item.uriString))
+        }
     }
 
-    // Auto-advance to next video when current video completes
+    // Auto-advance to next video when current video completes (fallback if viewModel absent)
     LaunchedEffect(playbackState) {
-        if (playbackState == PlaybackState.ENDED && playlistManager != null && playlistManager.hasNext) {
+        if (viewModel == null && playbackState == PlaybackState.ENDED && playlistManager != null && playlistManager.hasNext) {
             delay(500L)
             val next = playlistManager.playNext()
             if (next != null) {
@@ -190,14 +217,16 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-load companion subtitles asynchronously on IO dispatcher to prevent UI thread drops
+    // Auto-load companion subtitles asynchronously on IO dispatcher (fallback if viewModel absent)
     LaunchedEffect(activeUri) {
-        activeUri?.let { uri ->
-            if (settings.subAutoLoad) {
-                val knownDisplayName = playlist.firstOrNull { it.uriString == uri.toString() }?.displayName
-                withContext(Dispatchers.IO) {
-                    val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri, knownDisplayName)
-                    subs.forEach { path -> engine.addSubtitle(path) }
+        if (viewModel == null) {
+            activeUri?.let { uri ->
+                if (settings.subAutoLoad) {
+                    val knownDisplayName = playlist.firstOrNull { it.uriString == uri.toString() }?.displayName
+                    withContext(Dispatchers.IO) {
+                        val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri, knownDisplayName)
+                        subs.forEach { path -> engine.addSubtitle(path) }
+                    }
                 }
             }
         }
@@ -444,9 +473,9 @@ fun PlayerScreen(
         }
     }
 
-    // Periodic progress persistence (every 4s while playing)
+    // Periodic progress persistence (fallback if viewModel absent)
     LaunchedEffect(isPlaying, activeUri, historyRepository) {
-        if (isPlaying && activeUri != null && historyRepository != null) {
+        if (viewModel == null && isPlaying && activeUri != null && historyRepository != null) {
             while (true) {
                 delay(4000L)
                 val curPos = engine.timePosMs.value
@@ -472,7 +501,7 @@ fun PlayerScreen(
     DisposableEffect(activeUri, historyRepository) {
         onDispose {
             engine.resetSoftwareGain()
-            if (activeUri != null && historyRepository != null) {
+            if (viewModel == null && activeUri != null && historyRepository != null) {
                 val curPos = engine.timePosMs.value
                 val curDur = engine.durationMs.value
                 if (curDur > 0L) {
@@ -483,9 +512,23 @@ fun PlayerScreen(
     }
 
     // Show brief top notice if auto-resumed at a position > 2s
+    val vmResumeNoticePosMs by (viewModel?.resumeNoticePosMs ?: remember { kotlinx.coroutines.flow.MutableStateFlow(null) }).collectAsState()
+    LaunchedEffect(vmResumeNoticePosMs) {
+        vmResumeNoticePosMs?.let { posMs ->
+            gestureHudState = GestureHudState.Notice(
+                context.getString(R.string.player_resumed_notice, formatTime(posMs))
+            )
+            delay(2500L)
+            if (gestureHudState is GestureHudState.Notice) {
+                gestureHudState = GestureHudState.Idle
+            }
+            viewModel?.clearResumeNotice()
+        }
+    }
+
     var hasShownResumeNotice by remember(activeUri) { mutableStateOf(false) }
     LaunchedEffect(playbackState, activeUri) {
-        if (hasShownResumeNotice || playbackState != PlaybackState.READY) return@LaunchedEffect
+        if (viewModel != null || hasShownResumeNotice || playbackState != PlaybackState.READY) return@LaunchedEffect
         // time-pos ticks at video frame rate, so it cannot be an effect key: doing so relaunched
         // this effect on every frame and recomposed the whole screen with it. The clock is read
         // through a snapshot flow instead.
