@@ -19,8 +19,8 @@ use crate::mpv::{
     MPV_FORMAT_FLAG, MPV_FORMAT_INT64, MPV_FORMAT_STRING,
 };
 use crate::render::{
-    ensure_render_thread, render_sender, NativeWindowPtr, RenderCommand, ATTACH_ACK_TIMEOUT_MS,
-    ATTACH_WAIT_BUDGET_MS, G_GPU_RENDERER, G_ZERO_COPY_SAFE,
+    clear_render_thread, ensure_render_thread, render_sender, NativeWindowPtr, RenderCommand,
+    ATTACH_ACK_TIMEOUT_MS, ATTACH_WAIT_BUDGET_MS, G_GPU_RENDERER, G_ZERO_COPY_SAFE,
 };
 #[cfg(target_os = "android")]
 use crate::render::ANativeWindow_fromSurface;
@@ -252,6 +252,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_destroy(
     if let Some(sender) = render_sender() {
         let _ = sender.send(RenderCommand::Shutdown);
     }
+    clear_render_thread();
     reset_engine_lifecycle_state();
 }
 
@@ -273,6 +274,7 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_attachSurface(
         }
         ANativeWindow_acquire(win);
 
+        ensure_render_thread();
         let attach_started = Instant::now();
         match render_sender() {
             Some(sender) => {
