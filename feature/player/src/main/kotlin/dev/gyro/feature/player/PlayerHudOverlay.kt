@@ -210,40 +210,6 @@ fun BoxScope.PlayerHudOverlay(
                 }
             }
         }
-
-        // 4. Top-Center Feedback / Resume Notice Pill
-        AnimatedVisibility(
-            visible = hudState is GestureHudState.Notice,
-            enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.92f, animationSpec = tween(150)),
-            exit = fadeOut(animationSpec = tween(300)),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            val noticeState = hudState as? GestureHudState.Notice
-            if (noticeState != null) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.8f),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.height(38.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = noticeState.message,
-                            style = TextStyle(
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White
-                            )
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 

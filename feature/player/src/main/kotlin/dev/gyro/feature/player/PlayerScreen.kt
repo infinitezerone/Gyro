@@ -512,60 +512,6 @@ fun PlayerScreen(
         }
     }
 
-    // Show brief top notice if auto-resumed at a position > 2s
-    val vmResumeNoticePosMs by (viewModel?.resumeNoticePosMs ?: remember { kotlinx.coroutines.flow.MutableStateFlow(null) }).collectAsState()
-    LaunchedEffect(vmResumeNoticePosMs) {
-        val posMs = vmResumeNoticePosMs
-        if (posMs != null) {
-            gestureHudState = GestureHudState.Notice(
-                context.getString(R.string.player_resumed_notice, formatTime(posMs))
-            )
-            try {
-                delay(2500L)
-            } finally {
-                withContext(NonCancellable) {
-                    if (gestureHudState is GestureHudState.Notice) {
-                        gestureHudState = GestureHudState.Idle
-                    }
-                }
-            }
-            viewModel?.clearResumeNotice()
-        } else {
-            if (gestureHudState is GestureHudState.Notice) {
-                gestureHudState = GestureHudState.Idle
-            }
-        }
-    }
-
-    var hasShownResumeNotice by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(playbackState, activeUri) {
-        if (viewModel != null || hasShownResumeNotice || playbackState != PlaybackState.READY) return@LaunchedEffect
-        // time-pos ticks at video frame rate, so it cannot be an effect key: doing so relaunched
-        // this effect on every frame and recomposed the whole screen with it. The clock is read
-        // through a snapshot flow instead.
-        //
-        // The trigger is the FIRST decoded position, not a threshold: a resume load (start=+X)
-        // decodes its first picture at the target timestamp, so a first frame past two minutes
-        // means a resume happened. Waiting for "position > 2s" instead would also fire on
-        // from-scratch playback the moment it reached two seconds.
-        val firstFrameAtMs = engine.timePosMs.first { it > 0L }
-        if (firstFrameAtMs > 2000L) {
-            hasShownResumeNotice = true
-            gestureHudState = GestureHudState.Notice(
-                context.getString(R.string.player_resumed_notice, formatTime(firstFrameAtMs))
-            )
-            try {
-                delay(2500L)
-            } finally {
-                withContext(NonCancellable) {
-                    if (gestureHudState is GestureHudState.Notice) {
-                        gestureHudState = GestureHudState.Idle
-                    }
-                }
-            }
-        }
-    }
-
     var priorSpeedBeforeBoost by remember { mutableStateOf<Float?>(null) }
 
     // Input depends on the layout, not on the transition: a gesture layer switched off by a lifecycle

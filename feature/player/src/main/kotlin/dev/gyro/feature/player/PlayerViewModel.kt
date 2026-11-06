@@ -59,25 +59,7 @@ class PlayerViewModel @Inject constructor(
     private val _activeUri = MutableStateFlow<Uri?>(engine.currentUri.value)
     val activeUri: StateFlow<Uri?> = _activeUri.asStateFlow()
 
-    private val _resumeNoticePosMs = MutableStateFlow<Long?>(null)
-    val resumeNoticePosMs: StateFlow<Long?> = _resumeNoticePosMs.asStateFlow()
-
-    private var hasShownResumeNotice: Boolean = false
-    private var pendingResumeNoticePosMs: Long? = null
     private var periodicSaveJob: Job? = null
-
-    private fun triggerResumeNoticeIfNeeded() {
-        val resumePos = pendingResumeNoticePosMs ?: return
-        if (!hasShownResumeNotice && engine.playbackState.value == PlaybackState.READY) {
-            hasShownResumeNotice = true
-            pendingResumeNoticePosMs = null
-            _resumeNoticePosMs.value = resumePos
-            viewModelScope.launch {
-                delay(2500L)
-                _resumeNoticePosMs.value = null
-            }
-        }
-    }
 
     init {
         // Sync engine's currentUri changes into activeUri
@@ -85,7 +67,6 @@ class PlayerViewModel @Inject constructor(
             engine.currentUri.collect { uri ->
                 if (uri != null && uri != _activeUri.value) {
                     _activeUri.value = uri
-                    hasShownResumeNotice = false
                 }
             }
         }
@@ -143,24 +124,6 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        // 4. Auto-resume position notification
-        viewModelScope.launch {
-            engine.playbackState.collect { state ->
-                if (state == PlaybackState.READY) {
-                    triggerResumeNoticeIfNeeded()
-                }
-            }
-        }
-    }
-
-    fun notifyResumedAt(positionMs: Long) {
-        if (positionMs > 2000L) {
-            _resumeNoticePosMs.value = positionMs
-            viewModelScope.launch {
-                delay(2500L)
-                _resumeNoticePosMs.value = null
-            }
-        }
     }
 
     fun openUri(uri: Uri, forceReload: Boolean = false) {
@@ -175,21 +138,13 @@ class PlayerViewModel @Inject constructor(
         }
 
         _activeUri.value = uri
-        hasShownResumeNotice = false
 
         val startPos = if (settings.value.autoResume) {
             val p = historyRepository.getProgress(uri)
             if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
         } else 0L
 
-        if (startPos > 2000L) {
-            pendingResumeNoticePosMs = startPos
-        } else {
-            pendingResumeNoticePosMs = null
-        }
-
         engine.loadUri(uri, startPos)
-        triggerResumeNoticeIfNeeded()
     }
 
     fun playMediaItem(item: VideoMediaItem) {
@@ -224,10 +179,6 @@ class PlayerViewModel @Inject constructor(
         if (curDur > 0L) {
             historyRepository.saveProgress(uri, curPos, curDur)
         }
-    }
-
-    fun clearResumeNotice() {
-        _resumeNoticePosMs.value = null
     }
 
     public override fun onCleared() {

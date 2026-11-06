@@ -214,25 +214,29 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun testResumeNoticeShownWhenResumedPastTwoSeconds() = runTest(testDispatcher) {
+    fun testAutoResumeLoadsSavedProgressSilently() = runTest(testDispatcher) {
         val uri = TestUri("file:///resumed_video.mp4")
         // Save progress at 35 seconds
         historyRepo.saveProgress(uri, 35_000L, 100_000L)
 
+        val surface = android.view.Surface(android.graphics.SurfaceTexture(0))
+        engine.attachSurface(surface)
+
         viewModel.openUri(uri)
         testScheduler.runCurrent()
 
-        // When video becomes READY, resume notice is triggered
-        fakeBridge.emitFileLoaded()
-        testScheduler.runCurrent()
+        // Wait for IO path resolution and pump testScheduler for withContext(Dispatchers.Main)
+        var loadCmd: List<String>? = null
+        for (i in 0 until 50) {
+            testScheduler.runCurrent()
+            loadCmd = fakeBridge.commands.find { it.firstOrNull() == "loadfile" }
+            if (loadCmd != null) break
+            Thread.sleep(20)
+            testScheduler.runCurrent()
+        }
 
-        assertEquals(35_000L, viewModel.resumeNoticePosMs.value)
-
-        // After 2500ms delay, notice is cleared
-        testScheduler.advanceTimeBy(2600L)
-        testScheduler.runCurrent()
-
-        assertEquals(null, viewModel.resumeNoticePosMs.value)
+        assertNotNull("Expected loadfile command to be dispatched", loadCmd)
+        assertTrue(loadCmd!!.any { it.contains("start=+35") })
     }
 
     @Test
