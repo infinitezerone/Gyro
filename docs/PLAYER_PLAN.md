@@ -179,13 +179,14 @@ flowchart TD
   - 此处状态仅表示代码迁移完成，不代表 M6 全量 E2E 验收完成。
 
 ### 3. 架构不变量 (Invariants)
-以下五条是“违反即 bug”的硬约束，用于替代无法验收的箭头图；这些约束目前尚未由架构测试强制，登记在此作为 review 清单。
+以下六条是“违反即 bug”的硬约束，用于替代无法验收的箭头图；这些约束目前尚未由架构测试强制，登记在此作为 review 清单。
 
 1. **UI 只读状态**：`:feature:*` 与 `:app` 不得直接引用 `MpvNativeBridge` / `GyroNative`，播放状态一律经 `StateFlow` 读取。
 2. **事件单向**：事件只从 `MpvNativeBridge.events` 流出；控制器之间不得新增“转发用”的回调方法。现存的 `PlaybackTimelineController → TrackAndChapterManager.onChapterPropertyChanged()` 是唯一豁免，用于章节跳转的即时反馈。
 3. **单一写点**：同一状态每次变更只有一个写入位置，禁止“命令 + 本地补写”双写。
 4. **订阅自持**：`observeProperty` 的注册与消费应落在同一控制器内；当前注册集中在 `GyroPlayerEngine.ensureInitialized()`，属于已知例外，新增属性时须同步更新 `FakeMpvNativeBridge`。
-5. **UI 单订阅**：`feature:*` 读取播放状态只经 `engine.snapshot`（`timePosMs`/`bufferedPosMs` 除外，它们按上报频率变化）。新增状态字段要先进 `PlaybackSnapshot` 再给 UI 用，避免订阅点重新发散。
+5. **UI 单订阅**：`feature:*` 读取播放状态只经 `engine.state`（`timePosMs`/`bufferedPosMs` 除外，它们按上报频率变化）。新增状态字段要先进 `PlaybackSnapshot` 再给 UI 用，避免订阅点重新发散。
+6. **单容器**：`PlaybackStore` 是唯一持有 `MutableStateFlow<PlaybackSnapshot>` 的地方；控制器通过 `store.property` 写入并暴露只读投影，禁止再自建播放状态流。例外：时间线的 `timePosMs`/`bufferedPosMs`（高频上报）与播放列表自身索引。
 
 ---
 

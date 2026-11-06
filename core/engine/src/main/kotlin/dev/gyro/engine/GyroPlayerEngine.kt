@@ -20,6 +20,8 @@ import dev.gyro.engine.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.media.ResolvedMediaSource
 import dev.gyro.engine.model.PlaybackSnapshot
+import dev.gyro.engine.model.SessionPhase
+import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.session.PlaybackTimelineController
 import dev.gyro.engine.session.RealPlaybackTimelineController
@@ -28,8 +30,6 @@ import dev.gyro.engine.session.VideoGeometryCoordinator
 import dev.gyro.engine.shader.RealShaderController
 import dev.gyro.engine.shader.ShaderController
 import dev.gyro.engine.shader.ShaderManager
-import dev.gyro.engine.snapshot.CorePlaybackInputs
-import dev.gyro.engine.snapshot.PlaybackSnapshotAggregator
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.tracks.RealTrackAndChapterManager
 import dev.gyro.engine.tracks.TrackAndChapterManager
@@ -44,9 +44,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -56,13 +54,15 @@ class GyroPlayerEngine @Inject constructor(
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
     private val resolver: MediaResourceResolver = DefaultMediaResourceResolver(context),
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
-    val shaders: ShaderController = RealShaderController(bridge, ShaderManager(context)),
-    val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
-    val audio: AudioEffectsController = RealAudioEffectsController(bridge),
-    val video: VideoEffectsController = RealVideoEffectsController(bridge),
-    val trackManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge),
-    val tuning: SyncTuningController = RealSyncTuningController(bridge),
-    private val timeline: PlaybackTimelineController = RealPlaybackTimelineController(bridge, geometry, trackManager)
+    val store: PlaybackStore = PlaybackStore(),
+    val shaders: ShaderController = RealShaderController(bridge, ShaderManager(context), store),
+    val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge, store),
+    val audio: AudioEffectsController = RealAudioEffectsController(bridge, store),
+    val video: VideoEffectsController = RealVideoEffectsController(bridge, store),
+    val trackManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge, store),
+    val tuning: SyncTuningController = RealSyncTuningController(bridge, store),
+    private val timeline: PlaybackTimelineController =
+        RealPlaybackTimelineController(bridge, geometry, trackManager, store = store)
 ) {
 
     companion object {
@@ -94,10 +94,10 @@ class GyroPlayerEngine @Inject constructor(
     )
 
     // Playback Flow states
-    private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
+    private val _playbackState = store.property({ it.playbackState }) { s, v -> s.copy(playbackState = v) }
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
-    private val _isPlaying = MutableStateFlow(false)
+    private val _isPlaying = store.property({ it.isPlaying }) { s, v -> s.copy(isPlaying = v) }
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     val timePosMs: StateFlow<Long>
@@ -109,10 +109,10 @@ class GyroPlayerEngine @Inject constructor(
     val bufferedPosMs: StateFlow<Long>
         get() = timeline.bufferedPosMs
 
-    private val _mediaTitle = MutableStateFlow("")
+    private val _mediaTitle = store.property({ it.mediaTitle }) { s, v -> s.copy(mediaTitle = v) }
     val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
 
-    private val _currentUri = MutableStateFlow<Uri?>(null)
+    private val _currentUri = store.property({ it.currentUri }) { s, v -> s.copy(currentUri = v) }
     val currentUri: StateFlow<Uri?> = _currentUri.asStateFlow()
 
     /**
@@ -125,59 +125,26 @@ class GyroPlayerEngine @Inject constructor(
     @Volatile
     private var requestedTitle: String = ""
 
-    private val _hwdecCurrent = MutableStateFlow("")
+    private val _hwdecCurrent = store.property({ it.hwdecCurrent }) { s, v -> s.copy(hwdecCurrent = v) }
     val hwdecCurrent: StateFlow<String> = _hwdecCurrent.asStateFlow()
 
-    private val _speed = MutableStateFlow(1.0f)
+    private val _speed = store.property({ it.speed }) { s, v -> s.copy(speed = v) }
     val speed: StateFlow<Float> = _speed.asStateFlow()
 
-    private val _fps = MutableStateFlow(0.0)
+    private val _fps = store.property({ it.fps }) { s, v -> s.copy(fps = v) }
     val fps: StateFlow<Double> = _fps.asStateFlow()
 
-    private val _droppedFrames = MutableStateFlow(0L)
+    private val _droppedFrames = store.property({ it.droppedFrames }) { s, v -> s.copy(droppedFrames = v) }
     val droppedFrames: StateFlow<Long> = _droppedFrames.asStateFlow()
 
     val isFileLoaded: Boolean
         get() = timeline.isFileLoaded
 
-    private val snapshotAggregator = PlaybackSnapshotAggregator(
-        core = CorePlaybackInputs(
-            playbackState = _playbackState,
-            isPlaying = _isPlaying,
-            currentUri = _currentUri,
-            mediaTitle = _mediaTitle,
-            durationMs = timeline.durationMs,
-            hwdecCurrent = _hwdecCurrent,
-            speed = _speed,
-            fps = _fps,
-            droppedFrames = _droppedFrames
-        ),
-        geometry = geometry,
-        audio = audio,
-        video = video,
-        tracks = trackManager,
-        tuning = tuning,
-        shaders = shaders
-    )
-
-    private val _snapshot = MutableStateFlow(PlaybackSnapshot())
     /**
-     * Every slow-moving playback fact in one consistent object. Read this instead of collecting the
-     * individual flows: one subscription, and no pair of fields from two different events.
-     * Position/buffered stay on their own flows, see [PlaybackSnapshot].
+     * The single source of truth for every slow-moving playback fact, shared with all controllers.
+     * UI subscribes once; position/buffered stay on their own flows, see [PlaybackSnapshot].
      */
-    val snapshot: StateFlow<PlaybackSnapshot> = _snapshot.asStateFlow()
-
-    private var snapshotJob: Job? = null
-
-    private fun startSnapshotAggregation() {
-        snapshotJob?.cancel()
-        // Unconfined + UNDISPATCHED keeps the snapshot current on the thread that changed a source,
-        // so a caller that reads `snapshot` right after a command sees its own write.
-        snapshotJob = engineScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            snapshotAggregator.flow().collect { _snapshot.value = it }
-        }
-    }
+    val state: StateFlow<PlaybackSnapshot> get() = store.state
 
     private fun observePlaybackEvents() = engineScope.launch(
         Dispatchers.Unconfined,
@@ -192,6 +159,17 @@ class GyroPlayerEngine @Inject constructor(
                     }
                     MpvNativeBridge.Event.FILE_LOADED -> {
                         SwitchTrace.log("KOTLIN_EVENT_FILE_LOADED", "")
+                        store.update { state ->
+                            val target = when (val phase = state.session) {
+                                is SessionPhase.Submitting -> phase.target
+                                is SessionPhase.AwaitingSurface -> phase.target
+                                is SessionPhase.Resolving -> phase.target
+                                is SessionPhase.Loaded -> phase.target
+                                is SessionPhase.Failed -> phase.target.orEmpty()
+                                SessionPhase.Idle -> ""
+                            }
+                            state.copy(session = SessionPhase.Loaded(target))
+                        }
                         _hwdecCurrent.value = bridge.getPropertyString("hwdec-current") ?: "none"
                         if (requestedTitle.isBlank()) {
                             bridge.getPropertyString("media-title")?.takeIf { it.isNotBlank() }?.let {
@@ -284,7 +262,6 @@ class GyroPlayerEngine @Inject constructor(
                 timeline.observeEvents(engineScope)
                 tuning.observeEvents(engineScope)
                 observePlaybackEvents()
-                startSnapshotAggregation()
                 bridge.init()
 
                 // Seed display refresh rate if available from the display subsystem
@@ -387,7 +364,13 @@ class GyroPlayerEngine @Inject constructor(
                 throw cancelled
             } catch (t: Throwable) {
                 Log.e(TAG, "load: cannot resolve ${item.uri}", t)
-                _playbackState.value = PlaybackState.ERROR
+                store.update {
+                    it.copy(
+                        session = SessionPhase.Failed(item.uri.toString(), t),
+                        error = t,
+                        playbackState = PlaybackState.ERROR
+                    )
+                }
             } finally {
                 owned?.close()
             }
@@ -402,6 +385,12 @@ class GyroPlayerEngine @Inject constructor(
      */
     private fun beginLoad(target: String, title: String?, startPositionMs: Long, uri: Uri?) {
         SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs")
+        store.update {
+            it.copy(
+                session = SessionPhase.Resolving(target, startPositionMs),
+                error = null
+            )
+        }
         if (uri != null) _currentUri.value = uri
         geometry.onSwitchStarted(target, startPositionMs)
         audio.resetSoftwareGain()
@@ -460,6 +449,9 @@ class GyroPlayerEngine @Inject constructor(
             pendingStartMs = startPositionMs
             pendingLabel = label
             _playbackState.value = PlaybackState.BUFFERING
+            store.update {
+                it.copy(session = SessionPhase.AwaitingSurface(label, startPositionMs))
+            }
             return
         }
         submit(source, startPositionMs, label)
@@ -471,6 +463,9 @@ class GyroPlayerEngine @Inject constructor(
         Log.i(TAG, "submit: url=$target, startPositionMs=$startPositionMs")
         timeline.onLoadCommandIssued()
         _playbackState.value = PlaybackState.BUFFERING
+        store.update {
+            it.copy(session = SessionPhase.Submitting(label, startPositionMs))
+        }
         // Resume positions ride the loadfile itself. Passing start= makes mpv decode its first
         // picture at the target timestamp; the old two-step (load from zero, then seek on
         // FILE_LOADED) painted frame zero for a beat before jumping, which flashed the wrong
@@ -614,6 +609,7 @@ class GyroPlayerEngine @Inject constructor(
         engineJob.cancel()
         currentLoadJob?.cancel()
         discardPending()
+        store.update { it.copy(session = SessionPhase.Idle, error = null) }
         audioFocusManager.release()
         audio.resetSoftwareGain()
         trackManager.clearChapters()

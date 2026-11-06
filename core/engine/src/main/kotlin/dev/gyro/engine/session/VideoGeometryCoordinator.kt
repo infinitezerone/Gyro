@@ -2,6 +2,7 @@ package dev.gyro.engine.session
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.trace.SwitchTrace
@@ -10,9 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -50,34 +49,35 @@ interface VideoGeometryCoordinator {
 
 @Singleton
 class RealVideoGeometryCoordinator @Inject constructor(
-    private val bridge: MpvNativeBridge
+    private val bridge: MpvNativeBridge,
+    private val store: PlaybackStore = PlaybackStore()
 ) : VideoGeometryCoordinator {
 
-    private val _sessionState = MutableStateFlow<PlaybackSessionState>(PlaybackSessionState.Idle)
+    private val _sessionState = store.property({ it.sessionState }) { s, v -> s.copy(sessionState = v) }
     override val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
 
-    private val _videoDimensions = MutableStateFlow(VideoDimensions(0, 0))
+    private val _videoDimensions = store.property({ it.videoDimensions }) { s, v -> s.copy(videoDimensions = v) }
     override val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
 
-    private val _videoAspect = MutableStateFlow(0f)
+    private val _videoAspect = store.property({ it.videoAspect }) { s, v -> s.copy(videoAspect = v) }
     override val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
 
-    private val _videoFrameRate = MutableStateFlow(0f)
+    private val _videoFrameRate = store.property({ it.videoFrameRate }) { s, v -> s.copy(videoFrameRate = v) }
     override val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
 
-    private val _geometryReady = MutableStateFlow(false)
+    private val _geometryReady = store.property({ it.geometryReady }) { s, v -> s.copy(geometryReady = v) }
     override val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
 
-    private val _firstFrameRendered = MutableStateFlow(false)
+    private val _firstFrameRendered = store.property({ it.firstFrameRendered }) { s, v -> s.copy(firstFrameRendered = v) }
     override val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
     @Volatile
     private var currentUrl = ""
 
-    private val _displayRefreshRate = MutableStateFlow(0f)
+    private val _displayRefreshRate = store.property({ it.displayRefreshRate }) { s, v -> s.copy(displayRefreshRate = v) }
     override val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
 
-    private val _resizeMode = MutableStateFlow(ResizeMode.FIT)
+    private val _resizeMode = store.property({ it.resizeMode }) { s, v -> s.copy(resizeMode = v) }
     override val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
     override fun observeEvents(scope: CoroutineScope): Job =

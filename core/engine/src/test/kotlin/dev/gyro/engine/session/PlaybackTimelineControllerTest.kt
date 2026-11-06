@@ -26,7 +26,12 @@ class PlaybackTimelineControllerTest {
         geometry = RealVideoGeometryCoordinator(bridge)
         trackManager = RealTrackAndChapterManager(bridge)
         nowMs = 10_000L
-        timeline = RealPlaybackTimelineController(bridge, geometry, trackManager) { nowMs }
+        timeline = RealPlaybackTimelineController(
+            bridge = bridge,
+            geometry = geometry,
+            trackManager = trackManager,
+            elapsedRealtimeMs = { nowMs }
+        )
     }
 
     @Test

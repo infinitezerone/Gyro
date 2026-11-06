@@ -5,9 +5,8 @@ import android.util.Log
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
 import dev.gyro.engine.MpvNativeBridge
-import kotlinx.coroutines.flow.MutableStateFlow
+import dev.gyro.engine.state.PlaybackStore
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,13 +28,14 @@ interface ShaderController {
 @Singleton
 class RealShaderController @Inject constructor(
     private val bridge: MpvNativeBridge,
-    private val shaderManager: ShaderManager
+    private val shaderManager: ShaderManager,
+    private val store: PlaybackStore = PlaybackStore()
 ) : ShaderController {
     companion object {
         private const val TAG = "ShaderController"
     }
 
-    private val _shaderState = MutableStateFlow(GlslShaderState())
+    private val _shaderState = store.property({ it.shaderState }) { s, v -> s.copy(shaderState = v) }
     override val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
 
     override fun extractBuiltInShaders(): Map<GlslShader, File> =

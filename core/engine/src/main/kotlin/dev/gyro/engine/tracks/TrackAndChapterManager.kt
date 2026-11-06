@@ -4,14 +4,13 @@ import android.util.Log
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.model.TrackInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -36,20 +35,21 @@ interface TrackAndChapterManager {
 
 @Singleton
 class RealTrackAndChapterManager @Inject constructor(
-    private val bridge: MpvNativeBridge
+    private val bridge: MpvNativeBridge,
+    private val store: PlaybackStore = PlaybackStore()
 ) : TrackAndChapterManager {
 
     companion object {
         private const val TAG = "TrackAndChapterManager"
     }
 
-    private val _tracks = MutableStateFlow<List<TrackInfo>>(emptyList())
+    private val _tracks = store.property({ it.tracks }) { s, v -> s.copy(tracks = v) }
     override val tracks: StateFlow<List<TrackInfo>> = _tracks.asStateFlow()
 
-    private val _chapters = MutableStateFlow<List<ChapterInfo>>(emptyList())
+    private val _chapters = store.property({ it.chapters }) { s, v -> s.copy(chapters = v) }
     override val chapters: StateFlow<List<ChapterInfo>> = _chapters.asStateFlow()
 
-    private val _currentChapter = MutableStateFlow(-1)
+    private val _currentChapter = store.property({ it.currentChapter }) { s, v -> s.copy(currentChapter = v) }
     override val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
     override fun observeEvents(scope: CoroutineScope): Job =

@@ -117,7 +117,7 @@ fun PlayerScreen(
     // One snapshot instead of a subscription per property: every slow-moving fact arrives as a
     // single consistent object, so `playbackState` and `isPlaying` cannot be read from two
     // different events, and a change recomposes the screen once rather than once per flow.
-    val snapshot by engine.snapshot.collectAsState()
+    val snapshot by engine.state.collectAsState()
     val playbackState = snapshot.playbackState
     val isPlaying = snapshot.isPlaying
     val durationMs = snapshot.durationMs

@@ -3,15 +3,14 @@ package dev.gyro.engine.model
 import android.net.Uri
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShaderState
+import dev.gyro.engine.session.PlaybackSessionState
 
 /**
  * One consistent view of every slow-moving playback fact the UI renders.
  *
- * Built by [dev.gyro.engine.snapshot.PlaybackSnapshotAggregator] from one `combine` chain, so each
- * emission is a coherent read of every source at a single instant: no field can be a frame behind
- * another, which a set of independent `StateFlow`s cannot promise once the UI collects them at
- * different times. It may still show a mid-handler intermediate state (two writes in one event are
- * two emissions), but every emission is at least internally truthful.
+ * Owned by [dev.gyro.engine.state.PlaybackStore] as one container. Controllers write through the
+ * store and expose only read-only projections of these fields, so there is no second source of
+ * truth and no pair of fields read from different events.
  *
  * Deliberately excluded: [dev.gyro.engine.GyroPlayerEngine.timePosMs] and
  * [dev.gyro.engine.GyroPlayerEngine.bufferedPosMs]. They change at report frequency, and folding
@@ -58,5 +57,14 @@ data class PlaybackSnapshot(
     val subtitleDelaySec: Double = 0.0,
     val audioDelaySec: Double = 0.0,
     val subtitleScale: Double = 1.0,
-    val subtitlePositionPercent: Long = 100L
+    val subtitlePositionPercent: Long = 100L,
+
+    // Fields owned by controllers that were not part of the original UI snapshot
+    val softwareVolume: Double = 100.0,
+    val displayRefreshRate: Float = 0f,
+    val sessionState: PlaybackSessionState = PlaybackSessionState.Idle,
+
+    // Our own orchestration state, not a mirror of mpv
+    val session: SessionPhase = SessionPhase.Idle,
+    val error: Throwable? = null
 )

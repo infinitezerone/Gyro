@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.state.PlaybackStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -40,14 +41,16 @@ class RealPlaybackTimelineController internal constructor(
     private val bridge: MpvNativeBridge,
     private val geometry: VideoGeometryCoordinator,
     private val trackManager: TrackAndChapterManager,
-    private val elapsedRealtimeMs: () -> Long
+    private val elapsedRealtimeMs: () -> Long,
+    private val store: PlaybackStore = PlaybackStore()
 ) : PlaybackTimelineController {
     @Inject
     constructor(
         bridge: MpvNativeBridge,
         geometry: VideoGeometryCoordinator,
-        trackManager: TrackAndChapterManager
-    ) : this(bridge, geometry, trackManager, SystemClock::elapsedRealtime)
+        trackManager: TrackAndChapterManager,
+        store: PlaybackStore
+    ) : this(bridge, geometry, trackManager, SystemClock::elapsedRealtime, store)
 
     companion object {
         private const val TAG = "PlaybackTimelineController"
@@ -59,7 +62,7 @@ class RealPlaybackTimelineController internal constructor(
     private val _timePosMs = MutableStateFlow(0L)
     override val timePosMs: StateFlow<Long> = _timePosMs.asStateFlow()
 
-    private val _durationMs = MutableStateFlow(0L)
+    private val _durationMs = store.property({ it.durationMs }) { s, v -> s.copy(durationMs = v) }
     override val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     private val _bufferedPosMs = MutableStateFlow(0L)

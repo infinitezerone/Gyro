@@ -2,13 +2,12 @@ package dev.gyro.engine.effects
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.state.PlaybackStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -36,19 +35,20 @@ interface VideoEffectsController {
 
 @Singleton
 class RealVideoEffectsController @Inject constructor(
-    private val bridge: MpvNativeBridge
+    private val bridge: MpvNativeBridge,
+    private val store: PlaybackStore = PlaybackStore()
 ) : VideoEffectsController {
 
-    private val _deband = MutableStateFlow(false)
+    private val _deband = store.property({ it.deband }) { s, v -> s.copy(deband = v) }
     override val deband: StateFlow<Boolean> = _deband.asStateFlow()
 
-    private val _brightness = MutableStateFlow(0)
+    private val _brightness = store.property({ it.brightness }) { s, v -> s.copy(brightness = v) }
     override val brightness: StateFlow<Int> = _brightness.asStateFlow()
 
-    private val _contrast = MutableStateFlow(0)
+    private val _contrast = store.property({ it.contrast }) { s, v -> s.copy(contrast = v) }
     override val contrast: StateFlow<Int> = _contrast.asStateFlow()
 
-    private val _saturation = MutableStateFlow(0)
+    private val _saturation = store.property({ it.saturation }) { s, v -> s.copy(saturation = v) }
     override val saturation: StateFlow<Int> = _saturation.asStateFlow()
 
     override fun observeEvents(scope: CoroutineScope): Job =

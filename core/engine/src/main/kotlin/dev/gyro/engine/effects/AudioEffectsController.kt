@@ -2,13 +2,12 @@ package dev.gyro.engine.effects
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.state.PlaybackStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,16 +40,17 @@ interface AudioEffectsController {
 
 @Singleton
 class RealAudioEffectsController @Inject constructor(
-    private val bridge: MpvNativeBridge
+    private val bridge: MpvNativeBridge,
+    private val store: PlaybackStore = PlaybackStore()
 ) : AudioEffectsController {
 
-    private val _softwareVolume = MutableStateFlow(100.0)
+    private val _softwareVolume = store.property({ it.softwareVolume }) { s, v -> s.copy(softwareVolume = v) }
     override val softwareVolume: StateFlow<Double> = _softwareVolume.asStateFlow()
 
-    private val _nightMode = MutableStateFlow(false)
+    private val _nightMode = store.property({ it.nightMode }) { s, v -> s.copy(nightMode = v) }
     override val nightMode: StateFlow<Boolean> = _nightMode.asStateFlow()
 
-    private val _stereoDownmix = MutableStateFlow(false)
+    private val _stereoDownmix = store.property({ it.stereoDownmix }) { s, v -> s.copy(stereoDownmix = v) }
     override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
 
     override fun observeEvents(scope: CoroutineScope): Job =

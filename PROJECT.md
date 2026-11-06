@@ -92,7 +92,8 @@ Data Flow:
 - `GyroPlayerEngine` (facade: session lifecycle + core playback only):
   - Core commands: `ensureInitialized(userOptions, settings)`, `loadUri(uri, startPositionMs, displayTitle)`, `load(item: MediaItem)`, `load(url, ...)`, `play()`, `pause()`, `togglePlayPause()`, `seekTo(ms)`, `seekRelative(ms)`, `release()`.
   - Core state: `playbackState`, `isPlaying`, `timePosMs`, `durationMs`, `bufferedPosMs`, `isFileLoaded`, `currentUri`, `mediaTitle`, `hwdecCurrent`, `speed`, `fps`, `droppedFrames`.
-  - Snapshot: `val snapshot: StateFlow<PlaybackSnapshot>` — one coherent read of every slow-moving fact across the facade and all controllers; UI subscribes once instead of per property. `timePosMs`/`bufferedPosMs` are deliberately excluded (report-frequency, scrub bar only).
+  - State: `val state: StateFlow<PlaybackSnapshot>` — the one and only playback state container, owned by `PlaybackStore` (`:core:engine.state`). Every controller writes through `store.update { }` and exposes read-only projections, so there is no second source of truth. UI subscribes once. `timePosMs`/`bufferedPosMs` stay on separate high-frequency flows (scrub bar only).
+  - `SessionPhase` (`Idle / Resolving / AwaitingSurface / Submitting / Loaded / Failed`) publishes the engine's own load progress in the state; `error` carries the failure cause.
   - Surface: `attachSurface(surface)`, `detachSurface(surface?)`, `redraw()`, `isSurfaceAttached`.
   - Domain namespaces: `audio`, `video`, `geometry`, `trackManager`, `shaders`, `tuning`.
 - `AudioEffectsController` (`engine.audio`): `nightMode`, `stereoDownmix`, `softwareVolume`; `setSoftwareVolume`, `resetSoftwareGain`, `setNightMode`, `setStereoDownmix`.

@@ -2,13 +2,12 @@ package dev.gyro.engine.tuning
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.state.PlaybackStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,7 +35,8 @@ interface SyncTuningController {
 
 @Singleton
 class RealSyncTuningController @Inject constructor(
-    private val bridge: MpvNativeBridge
+    private val bridge: MpvNativeBridge,
+    private val store: PlaybackStore = PlaybackStore()
 ) : SyncTuningController {
 
     companion object {
@@ -47,16 +47,16 @@ class RealSyncTuningController @Inject constructor(
         private val SUB_POS_RANGE = 0L..100L
     }
 
-    private val _subtitleDelaySec = MutableStateFlow(0.0)
+    private val _subtitleDelaySec = store.property({ it.subtitleDelaySec }) { s, v -> s.copy(subtitleDelaySec = v) }
     override val subtitleDelaySec: StateFlow<Double> = _subtitleDelaySec.asStateFlow()
 
-    private val _audioDelaySec = MutableStateFlow(0.0)
+    private val _audioDelaySec = store.property({ it.audioDelaySec }) { s, v -> s.copy(audioDelaySec = v) }
     override val audioDelaySec: StateFlow<Double> = _audioDelaySec.asStateFlow()
 
-    private val _subtitleScale = MutableStateFlow(1.0)
+    private val _subtitleScale = store.property({ it.subtitleScale }) { s, v -> s.copy(subtitleScale = v) }
     override val subtitleScale: StateFlow<Double> = _subtitleScale.asStateFlow()
 
-    private val _subtitlePositionPercent = MutableStateFlow(100L)
+    private val _subtitlePositionPercent = store.property({ it.subtitlePositionPercent }) { s, v -> s.copy(subtitlePositionPercent = v) }
     override val subtitlePositionPercent: StateFlow<Long> = _subtitlePositionPercent.asStateFlow()
 
     override fun observeEvents(scope: CoroutineScope): Job =

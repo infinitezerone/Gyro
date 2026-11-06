@@ -43,7 +43,7 @@ class PlaybackSnapshotTest {
     @Test
     fun snapshotIsAvailableBeforeInitialization() {
         val uninitialized = GyroPlayerEngine(context = context(), bridge = FakeMpvNativeBridge())
-        val snapshot = uninitialized.snapshot.value
+        val snapshot = uninitialized.state.value
         assertEquals(PlaybackState.IDLE, snapshot.playbackState)
         assertFalse(snapshot.isPlaying)
         assertEquals(1.0f, snapshot.speed, 0f)
@@ -57,7 +57,7 @@ class PlaybackSnapshotTest {
         engine.geometry.setResizeMode(ResizeMode.CROP)
         engine.video.setBrightness(30)
 
-        val snapshot = engine.snapshot.value
+        val snapshot = engine.state.value
         assertEquals(1.3, snapshot.subtitleDelaySec, 0.0)
         assertEquals(1.4, snapshot.subtitleScale, 0.0)
         assertEquals(ResizeMode.CROP, snapshot.resizeMode)
@@ -72,7 +72,7 @@ class PlaybackSnapshotTest {
 
         engine.geometry.setResizeMode(ResizeMode.STRETCH)
 
-        val snapshot = engine.snapshot.value
+        val snapshot = engine.state.value
         assertEquals(ResizeMode.STRETCH, snapshot.resizeMode)
         assertEquals(2.0, snapshot.subtitleDelaySec, 0.0)
         assertEquals(-40, snapshot.saturation)
@@ -82,10 +82,10 @@ class PlaybackSnapshotTest {
     @Test
     fun playbackLifecycleFieldsMoveTogether() {
         fakeBridge.emitEvent(MpvNativeBridge.Event.FILE_LOADED)
-        assertEquals(PlaybackState.READY, engine.snapshot.value.playbackState)
+        assertEquals(PlaybackState.READY, engine.state.value.playbackState)
 
         fakeBridge.emitEvent(MpvNativeBridge.Event.END_FILE)
-        val ended = engine.snapshot.value
+        val ended = engine.state.value
         assertEquals(PlaybackState.ENDED, ended.playbackState)
         assertFalse(ended.isPlaying)
     }
@@ -97,6 +97,6 @@ class PlaybackSnapshotTest {
         // documents the decision next to the snapshot's other assertions.
         engine.seekTo(30_000L)
         assertTrue(engine.timePosMs.value >= 0L)
-        assertEquals(0L, engine.snapshot.value.durationMs)
+        assertEquals(0L, engine.state.value.durationMs)
     }
 }
