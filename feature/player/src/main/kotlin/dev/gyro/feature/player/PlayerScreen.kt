@@ -161,8 +161,8 @@ fun PlayerScreen(
         }
     }
     LaunchedEffect(currentUri) {
-        if (currentUri != null && currentUri != activeUri) {
-            if (viewModel != null) {
+        if (currentUri != null) {
+            if (viewModel != null && viewModel.activeUri.value != currentUri) {
                 viewModel.openUri(currentUri)
             }
             activeUri = currentUri

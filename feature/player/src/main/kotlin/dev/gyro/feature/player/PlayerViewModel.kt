@@ -67,7 +67,21 @@ class PlayerViewModel @Inject constructor(
     val resumeNoticePosMs: StateFlow<Long?> = _resumeNoticePosMs.asStateFlow()
 
     private var hasShownResumeNotice: Boolean = false
+    private var pendingResumeNoticePosMs: Long? = null
     private var periodicSaveJob: Job? = null
+
+    private fun triggerResumeNoticeIfNeeded() {
+        val resumePos = pendingResumeNoticePosMs ?: return
+        if (!hasShownResumeNotice && engine.playbackState.value == PlaybackState.READY) {
+            hasShownResumeNotice = true
+            pendingResumeNoticePosMs = null
+            _resumeNoticePosMs.value = resumePos
+            viewModelScope.launch {
+                delay(2500L)
+                _resumeNoticePosMs.value = null
+            }
+        }
+    }
 
     init {
         // Sync engine's currentUri changes into activeUri
@@ -129,16 +143,19 @@ class PlayerViewModel @Inject constructor(
         // 4. Auto-resume position notification
         viewModelScope.launch {
             engine.playbackState.collect { state ->
-                val uri = _activeUri.value
-                if (state == PlaybackState.READY && uri != null && !hasShownResumeNotice) {
-                    val firstFrameAtMs = runCatching { engine.timePosMs.first { it > 0L } }.getOrDefault(0L)
-                    if (firstFrameAtMs > 2000L) {
-                        hasShownResumeNotice = true
-                        _resumeNoticePosMs.value = firstFrameAtMs
-                        delay(2500L)
-                        _resumeNoticePosMs.value = null
-                    }
+                if (state == PlaybackState.READY) {
+                    triggerResumeNoticeIfNeeded()
                 }
+            }
+        }
+    }
+
+    fun notifyResumedAt(positionMs: Long) {
+        if (positionMs > 2000L) {
+            _resumeNoticePosMs.value = positionMs
+            viewModelScope.launch {
+                delay(2500L)
+                _resumeNoticePosMs.value = null
             }
         }
     }
@@ -165,7 +182,14 @@ class PlayerViewModel @Inject constructor(
             if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
         } else 0L
 
+        if (startPos > 2000L) {
+            pendingResumeNoticePosMs = startPos
+        } else {
+            pendingResumeNoticePosMs = null
+        }
+
         engine.loadUri(uri, startPos)
+        triggerResumeNoticeIfNeeded()
     }
 
     fun playMediaItem(item: VideoMediaItem) {

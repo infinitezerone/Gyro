@@ -186,4 +186,26 @@ class PlayerViewModelTest {
         testScheduler.runCurrent()
         assertEquals(0, playlistManager.currentIndex.value)
     }
+
+    @Test
+    fun testResumeNoticeShownWhenResumedPastTwoSeconds() = runTest(testDispatcher) {
+        val uri = TestUri("file:///resumed_video.mp4")
+        // Save progress at 35 seconds
+        historyRepo.saveProgress(uri, 35_000L, 100_000L)
+
+        viewModel.openUri(uri)
+        testScheduler.runCurrent()
+
+        // When video becomes READY, resume notice is triggered
+        fakeBridge.emitFileLoaded()
+        testScheduler.runCurrent()
+
+        assertEquals(35_000L, viewModel.resumeNoticePosMs.value)
+
+        // After 2500ms delay, notice is cleared
+        testScheduler.advanceTimeBy(2600L)
+        testScheduler.runCurrent()
+
+        assertEquals(null, viewModel.resumeNoticePosMs.value)
+    }
 }

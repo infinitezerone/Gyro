@@ -109,13 +109,7 @@ class MainActivity : ComponentActivity() {
                     }
                     playerEngine.notifyScreenEntry()
                     backStack.add(Screen.Player(uri))
-                    val startPos = if (settings.autoResume) {
-                        val progress = historyRepository.getProgress(uri)
-                        if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
-                            progress.positionMs
-                        } else 0L
-                    } else 0L
-                    playerEngine.loadUri(uri, startPos)
+                    playerViewModel.openUri(uri)
                 }
             }
 
@@ -205,13 +199,7 @@ class MainActivity : ComponentActivity() {
                                     playerEngine.notifyScreenEntry()
                                     val itemAndroidUri = Uri.parse(item.uriString)
                                     backStack.add(Screen.Player(itemAndroidUri))
-                                    val startPos = if (settings.autoResume) {
-                                        val progress = historyRepository.getProgress(itemAndroidUri)
-                                        if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) {
-                                            progress.positionMs
-                                        } else 0L
-                                    } else 0L
-                                    playerEngine.loadUri(itemAndroidUri, startPos)
+                                    playerViewModel.openUri(itemAndroidUri)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
