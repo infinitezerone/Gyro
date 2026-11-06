@@ -130,21 +130,21 @@ flowchart TD
 
     subgraph EngineFacade ["现代化 GyroPlayerEngine 门面"]
         direction TB
-        CorePlay["最小核心核: load / play / pause / seekTo / release"]
+        CorePlay["最小核心核: load / play / pause / seek / release\n+ 核心状态 (position, duration, playbackState)"]
 
         subgraph DomainControllers ["显式领域控制器 (Domain Controllers)"]
             AudioCtrl["engine.audio: AudioEffectsController\n(volume, nightMode, limiter, downmix)"]
             VideoCtrl["engine.video: VideoEffectsController\n(brightness, contrast, saturation, deband)"]
-            GeomCtrl["engine.geometry: VideoGeometryCoordinator\n(dimensions, aspect, framerate, sessions)"]
+            GeomCtrl["engine.geometry: VideoGeometryCoordinator\n(dimensions, aspect, framerate, refreshRate, resizeMode)"]
             TrackCtrl["engine.trackManager: TrackAndChapterManager\n(tracks, subtitles, chapters)"]
             ShaderCtrl["engine.shaders: ShaderController\n(CAS, Anime4K, custom shaders)"]
+            TuningCtrl["engine.tuning: SyncTuningController\n(sub/audio delay, sub scale & position)"]
         end
-
-        Bus["单向响应式事件流: SharedFlow&lt;MpvEvent&gt;"]
     end
 
     subgraph NativeCore ["底层 Native 核心驱动"]
         Bridge["MpvNativeBridge (mpv c-api)"]
+        Bus["MpvEventBus: SharedFlow&lt;MpvEvent&gt;\n(进程级, 归 GyroNative 所有)"]
     end
 
     VM -->|"清晰命名空间"| DomainControllers
@@ -153,8 +153,8 @@ flowchart TD
 
     CorePlay --> Bridge
     DomainControllers --> Bridge
-    Bridge -->|"Native 事件"| Bus
-    Bus -->|"单向订阅"| DomainControllers
+    Bridge -->|"JNI 回调"| Bus
+    Bus -->|"单向订阅 observeEvents"| DomainControllers
 ```
 
 ### 1. 已落地重构项 (Phase 1 Completed)
@@ -168,13 +168,24 @@ flowchart TD
   - 抽离独立 `ShaderController`，负责 GLSL 资源管理与管线热插拔；
   - `loadUri` 支持显式透传 `displayTitle`，阻断引擎层对 `ContentResolver.query` 的越界强耦合。
 
-### 2. 下一阶段推进路线图 (Next Steps)
-- **Phase 2: 表现层全量调用点平滑迁移**：
-  - 将 `PlayerScreen`、`PlayerViewModel`、`PlayerControlsOverlay` 中遗留的直接扁平调用迁移为命名空间式调用（例如 `engine.setNightMode` -> `engine.audio.setNightMode`；`engine.tracks` -> `engine.trackManager.tracks`）。
-- **Phase 3: 完全拔除上帝类委托 (`by`)**：
-  - 待调用点全部切至领域控制器后，彻底移除 `GyroPlayerEngine` 声明处的 `by audio, by video, by geometry, by trackManager` 4 重类委托，消除上帝类。
-- **Phase 4: 单向响应式事件总线 (Reactive Event Bus)**：
-  - `MpvNativeBridge` 提供基于 Flow 的单向事件流广播，子控制器自主订阅生命周期事件，彻底拆除 `GyroPlayerEngine.nativeListener` 中的中心化网状转发代码。
+### 2. 后续迁移阶段 (Phase 2–4 Completed)
+- **Phase 2: 表现层全量调用点迁移 — 已完成**：
+  - 音频、视频、几何、轨道与 Shader 调用均经显式领域命名空间访问，包含自定义 Shader 导入与列表查询；媒体标题由数据层查询或播放列表提供，再透传给引擎。
+- **Phase 3: 移除四重类委托 — 已完成**：
+  - `GyroPlayerEngine` 不再使用 `by audio, by video, by geometry, by trackManager`；删除旧 Shader 扁平代理、轨道别名及兼容构造，调用方和测试同步迁移。
+- **Phase 4: 单向响应式事件总线 — 已完成**：
+  - `MpvNativeBridge.events` 暴露 `SharedFlow<MpvEvent>`，Native 与测试桥接统一发布类型化事件；音频、视频、轨道、几何、时间线与音画校准控制器独立订阅，无旧事件重放，生命周期事件通过背压保留。
+  - 删除 `GyroPlayerEngine.nativeListener` 及跨领域事件转发，引擎仅订阅自身播放状态；订阅随引擎作用域取消、重新初始化时重建，延迟跳转不依赖几何控制器的订阅顺序。
+  - 此处状态仅表示代码迁移完成，不代表 M6 全量 E2E 验收完成。
+
+### 3. 架构不变量 (Invariants)
+以下五条是“违反即 bug”的硬约束，用于替代无法验收的箭头图；这些约束目前尚未由架构测试强制，登记在此作为 review 清单。
+
+1. **UI 只读状态**：`:feature:*` 与 `:app` 不得直接引用 `MpvNativeBridge` / `GyroNative`，播放状态一律经 `StateFlow` 读取。
+2. **事件单向**：事件只从 `MpvNativeBridge.events` 流出；控制器之间不得新增“转发用”的回调方法。现存的 `PlaybackTimelineController → TrackAndChapterManager.onChapterPropertyChanged()` 是唯一豁免，用于章节跳转的即时反馈。
+3. **单一写点**：同一状态每次变更只有一个写入位置，禁止“命令 + 本地补写”双写。
+4. **订阅自持**：`observeProperty` 的注册与消费应落在同一控制器内；当前注册集中在 `GyroPlayerEngine.ensureInitialized()`，属于已知例外，新增属性时须同步更新 `FakeMpvNativeBridge`。
+5. **UI 单订阅**：`feature:*` 读取播放状态只经 `engine.snapshot`（`timePosMs`/`bufferedPosMs` 除外，它们按上报频率变化）。新增状态字段要先进 `PlaybackSnapshot` 再给 UI 用，避免订阅点重新发散。
 
 ---
 

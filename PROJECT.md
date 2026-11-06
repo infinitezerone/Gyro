@@ -21,7 +21,7 @@ Native Engine Build:
 
 Data Flow:
 - User Preferences & Configurations: `SettingsRepository` & `MpvConfigRepository` (persisted in internal files & prefs) -> `UserSettings` / `MpvConfig` -> injected into `GyroPlayerEngine` and observed by Feature ViewModels.
-- Playback & Audio Pipeline: `GyroPlayerEngine` coordinates mpv native core via `MpvNativeBridge`, driving audio filters (`alimiter`, `dynaudnorm`, stereo downmix), shader hotplugging (`glsl-shaders`), and chapter tracking.
+- Playback & Audio Pipeline: domain controllers subscribe to `MpvNativeBridge.events` and own their mpv properties (`engine.audio` → `alimiter`/`dynaudnorm`/downmix, `engine.video` → color & deband, `engine.shaders` → `glsl-shaders`, `engine.trackManager` → tracks & chapters, `engine.tuning` → A/V delay & subtitle scale/position); `GyroPlayerEngine` keeps session lifecycle and core playback state only.
 - Audio Overdrive Flow: Gestures split travel at 100%: 0~100% adjusts Android `AudioManager.STREAM_MUSIC`; 101~200% adjusts internal mpv software gain with dynamic `alimiter` anti-clipping filter and amber HUD. Auto-reset to 100% on track change/exit.
 
 ## Feature Inventory
@@ -88,13 +88,29 @@ Data Flow:
   - Granular and bulk update methods for `PlayerGestureConfig` and `UserSettings`.
 
 ### `:core:engine` ↔ `:feature:player` & `:app`
-- `MpvNativeBridge`: Interface abstracting all `GyroNative` calls (`command`, `setOptionString`, `getProperty*`, `setProperty*`, `observeProperty`).
-- `GyroPlayerEngine`:
-  - Shader API: `val shaderState: StateFlow<GlslShaderState>`, `fun setShader(shader: GlslShader, customPath: String? = null)`, `fun clearShader()`.
-  - Chapter API: `val chapters: StateFlow<List<ChapterInfo>>`, `val currentChapter: StateFlow<Int>`, `fun seekToChapter(index: Int)`.
-  - Volume Overdrive & Limiter API: `fun setSoftwareVolume(gain: Double)`, `fun resetSoftwareGain()`.
-  - Audiovisual Filter API: `fun setDeband(enabled: Boolean)`, `fun setBrightness(value: Int)`, `fun setContrast(value: Int)`, `fun setSaturation(value: Int)`, `fun resetColors()`, `fun setNightMode(enabled: Boolean)`, `fun setStereoDownmix(enabled: Boolean)`.
-  - Surface Control: `fun attachSurface(surface: Surface)`, `fun detachSurface()`.
+- `MpvNativeBridge`: Interface abstracting all `GyroNative` calls (`command`, `setOptionString`, `getProperty*`, `setProperty*`, `observeProperty`) plus the typed native event stream `events: SharedFlow<MpvEvent>`.
+- `GyroPlayerEngine` (facade: session lifecycle + core playback only):
+  - Core commands: `ensureInitialized(userOptions, settings)`, `loadUri(uri, startPositionMs, displayTitle)`, `load(url, ...)`, `play()`, `pause()`, `togglePlayPause()`, `seekTo(ms)`, `seekRelative(ms)`, `release()`.
+  - Core state: `playbackState`, `isPlaying`, `timePosMs`, `durationMs`, `bufferedPosMs`, `isFileLoaded`, `currentUri`, `mediaTitle`, `hwdecCurrent`, `speed`, `fps`, `droppedFrames`.
+  - Snapshot: `val snapshot: StateFlow<PlaybackSnapshot>` — one coherent read of every slow-moving fact across the facade and all controllers; UI subscribes once instead of per property. `timePosMs`/`bufferedPosMs` are deliberately excluded (report-frequency, scrub bar only).
+  - Surface: `attachSurface(surface)`, `detachSurface(surface?)`, `redraw()`, `isSurfaceAttached`.
+  - Domain namespaces: `audio`, `video`, `geometry`, `trackManager`, `shaders`, `tuning`.
+- `AudioEffectsController` (`engine.audio`): `nightMode`, `stereoDownmix`, `softwareVolume`; `setSoftwareVolume`, `resetSoftwareGain`, `setNightMode`, `setStereoDownmix`.
+- `VideoEffectsController` (`engine.video`): `deband`, `brightness`, `contrast`, `saturation`; setters + `resetColors`.
+- `VideoGeometryCoordinator` (`engine.geometry`): `videoDimensions`, `videoAspect`, `videoFrameRate`, `displayRefreshRate`, `resizeMode`, `geometryReady`, `firstFrameRendered`; `updateDisplayRefreshRate`, `setResizeMode`, `setZoomAndPan`, `resetZoomAndPan`.
+- `TrackAndChapterManager` (`engine.trackManager`): `tracks`, `chapters`, `currentChapter`; `selectTrack`, `addSubtitle`, `refreshTracks`, `seekToChapter` via `engine.seekToChapter`.
+- `ShaderController` (`engine.shaders`): `shaderState`; `setShader`, `clearShader`, `importAndSetCustomShader`, `getCustomShaders`.
+- `SyncTuningController` (`engine.tuning`): `subtitleDelaySec`, `audioDelaySec`, `subtitleScale`, `subtitlePositionPercent`; corresponding setters, clamping owned by the controller.
+- Event stream: `MpvEventBus` (owned by `GyroNative`, surfaced as `MpvNativeBridge.events`) publishes `MpvEvent`; every domain controller subscribes through `observeEvents(scope)`. No replay, publish applies backpressure on the native event thread.
+- `PlaybackTimelineController` is intentionally not a public namespace: it is the engine's own time/seek implementation.
+
+### `:core:data` ↔ `:feature:settings`
+- `MpvConfigRepository`:
+  - `suspend fun loadConfig(): String`
+  - `suspend fun saveConfig(content: String)`
+  - `suspend fun resetToDefault(): String`
+  - `suspend fun getParsedOptions(): Map<String, String>`
+
 
 ### `:core:navigation` ↔ `:feature:settings` & `:app`
 - `Screen.MpvConfigEditor : Screen`
