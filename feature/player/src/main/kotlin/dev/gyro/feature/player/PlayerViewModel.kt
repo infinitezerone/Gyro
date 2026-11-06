@@ -1,22 +1,19 @@
 package dev.gyro.feature.player
 
-import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.gyro.core.data.repository.CompanionSubtitleScanner
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.data.repository.asAndroidUri
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +26,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -37,17 +33,17 @@ import javax.inject.Inject
  *
  * Hoists core playback side-effects out of Composable lifecycle:
  * - Auto-advancing playlist playback upon completion
- * - Companion subtitle scanning and attaching
- * - Periodic progress persistence and dismissal save
+ * - Companion subtitle scanning via [SubtitleRepository] (main-safe)
+ * - Event-driven & throttled progress persistence
  * - Auto-resume detection and notice dispatch
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
     val engine: GyroPlayerEngine,
     private val settingsRepository: SettingsRepository,
     val historyRepository: PlaybackHistoryRepository,
-    val playlistManager: PlaylistManager
+    val playlistManager: PlaylistManager,
+    private val subtitleRepository: SubtitleRepository
 ) : ViewModel() {
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
@@ -107,32 +103,39 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        // 2. Auto-load companion subtitles asynchronously on IO dispatcher
+        // 2. Auto-load companion subtitles asynchronously via SubtitleRepository (main-safe)
         viewModelScope.launch {
             _activeUri.collectLatest { uri ->
                 if (uri != null && settings.value.subAutoLoad) {
                     val knownDisplayName = playlistManager.items.value
                         .firstOrNull { it.uriString == uri.toString() }?.displayName
-                    withContext(Dispatchers.IO) {
-                        val subs = CompanionSubtitleScanner.findCompanionSubtitles(context, uri, knownDisplayName)
-                        subs.forEach { path -> engine.addSubtitle(path) }
-                    }
+                    val subs = subtitleRepository.findCompanionSubtitles(uri, knownDisplayName)
+                    subs.forEach { path -> engine.addSubtitle(path) }
                 }
             }
         }
 
-        // 3. Periodic progress persistence (every 4s while playing)
+        // 3. Event-driven progress persistence on pause
+        viewModelScope.launch {
+            engine.isPlaying.collect { playing ->
+                if (!playing) {
+                    saveCurrentProgress()
+                }
+            }
+        }
+
+        // 4. Periodic throttled checkpoint while playing (10s interval, prevents progress loss on kill)
         periodicSaveJob = viewModelScope.launch {
             engine.isPlaying.collectLatest { playing ->
                 if (playing) {
                     while (isActive) {
-                        delay(4000L)
+                        delay(10_000L)
                         val uri = _activeUri.value
                         if (uri != null) {
                             val curPos = engine.timePosMs.value
                             val curDur = engine.durationMs.value
                             if (curDur > 0L) {
-                                historyRepository.saveProgress(uri, curPos, curDur)
+                                historyRepository.saveProgressThrottled(uri, curPos, curDur)
                             }
                         }
                     }

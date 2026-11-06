@@ -7,6 +7,7 @@ import dev.gyro.core.data.repository.AndroidUriParser
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
@@ -65,13 +66,16 @@ class PlayerViewModelTest {
         settingsRepo = SettingsRepository(FakeSharedPreferences())
         historyRepo = PlaybackHistoryRepository(FakeSharedPreferences())
         playlistManager = PlaylistManager()
+        val fakeSubtitleRepo = object : SubtitleRepository {
+            override suspend fun findCompanionSubtitles(videoUri: android.net.Uri, videoDisplayName: String?): List<String> = emptyList()
+        }
 
         viewModel = PlayerViewModel(
-            context = testContext,
             engine = engine,
             settingsRepository = settingsRepo,
             historyRepository = historyRepo,
-            playlistManager = playlistManager
+            playlistManager = playlistManager,
+            subtitleRepository = fakeSubtitleRepo
         )
     }
 
@@ -114,8 +118,8 @@ class PlayerViewModelTest {
         fakeBridge.emitPropertyFlag("pause", false) // isPlaying = true
         testScheduler.runCurrent()
 
-        // Advance 4500ms for periodic save loop (4s interval)
-        testScheduler.advanceTimeBy(4500L)
+        // Advance 10500ms for periodic throttled save loop (10s interval)
+        testScheduler.advanceTimeBy(10500L)
         testScheduler.runCurrent()
 
         val progress = historyRepo.getProgress(uri)
@@ -126,6 +130,27 @@ class PlayerViewModelTest {
         // Pause to stop the periodic loop
         fakeBridge.emitPropertyFlag("pause", true)
         testScheduler.runCurrent()
+    }
+
+    @Test
+    fun testPauseSavesProgressImmediately() = runTest(testDispatcher) {
+        val uri = TestUri("file:///video_pause.mp4")
+        viewModel.openUri(uri)
+        testScheduler.runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        fakeBridge.emitPropertyDouble("duration", 300.0)
+        fakeBridge.emitPropertyDouble("time-pos", 45.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        testScheduler.runCurrent()
+
+        // Before any periodic timer, pause immediately triggers save
+        fakeBridge.emitPropertyFlag("pause", true)
+        testScheduler.runCurrent()
+
+        val progress = historyRepo.getProgress(uri)
+        assertNotNull(progress)
+        assertEquals(45_000L, progress?.positionMs)
     }
 
     @Test

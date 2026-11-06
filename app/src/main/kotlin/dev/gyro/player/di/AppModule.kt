@@ -6,11 +6,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.gyro.core.data.repository.DefaultSubtitleRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PlaylistManager
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.RealMpvNativeBridge
 import dev.gyro.engine.shader.ShaderManager
@@ -50,6 +52,12 @@ object AppModule {
     fun providePlaybackHistoryRepository(
         @ApplicationContext context: Context,
     ): PlaybackHistoryRepository = PlaybackHistoryRepository(context)
+
+    @Provides
+    @Singleton
+    fun provideSubtitleRepository(
+        @ApplicationContext context: Context
+    ): SubtitleRepository = DefaultSubtitleRepository(context)
 
     @Provides
     @Singleton

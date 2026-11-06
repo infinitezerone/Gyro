@@ -53,6 +53,10 @@ class PlaybackHistoryRepository(
         return _progressMap.value[key]
     }
 
+    private var lastSavedTimestamp: Long = 0L
+    private var lastSavedPositionMs: Long = 0L
+    private var lastSavedUri: String? = null
+
     /**
      * Save playback position and duration.
      * Records with duration <= 0 or position < 2000ms are ignored unless clearing.
@@ -67,6 +71,10 @@ class PlaybackHistoryRepository(
             return
         }
 
+        lastSavedUri = key
+        lastSavedTimestamp = timestamp
+        lastSavedPositionMs = positionMs
+
         val record = PlaybackProgress(key, positionMs, durationMs, timestamp)
         val raw = "$positionMs:$durationMs:$timestamp"
         prefs.edit().putString(key, raw).apply()
@@ -74,6 +82,31 @@ class PlaybackHistoryRepository(
         _progressMap.update { current ->
             current + (key to record)
         }
+    }
+
+    /**
+     * Saves progress only if at least [minIntervalMs] has elapsed since the last write AND
+     * the playback position has moved by at least [minDeltaMs].
+     * Avoids excessive disk I/O while video is playing smoothly.
+     */
+    fun saveProgressThrottled(
+        uri: Uri,
+        positionMs: Long,
+        durationMs: Long,
+        minIntervalMs: Long = 10_000L,
+        minDeltaMs: Long = 5_000L
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val key = uri.toString()
+        if (key == lastSavedUri) {
+            val elapsed = now - lastSavedTimestamp
+            val delta = kotlin.math.abs(positionMs - lastSavedPositionMs)
+            if (elapsed < minIntervalMs || delta < minDeltaMs) {
+                return false
+            }
+        }
+        saveProgress(uri, positionMs, durationMs)
+        return true
     }
 
     /**
