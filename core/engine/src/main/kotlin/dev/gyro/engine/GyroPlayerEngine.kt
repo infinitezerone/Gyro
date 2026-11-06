@@ -22,6 +22,9 @@ import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.shader.ShaderManager
 import dev.gyro.engine.trace.SwitchTrace
+import dev.gyro.engine.session.PlaybackSessionState
+import dev.gyro.engine.session.RealVideoGeometryCoordinator
+import dev.gyro.engine.session.VideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,8 +42,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
     private val mpvConfigRepository: MpvConfigRepository? = runCatching { MpvConfigRepository(context) }.getOrNull(),
     private val settingsRepository: SettingsRepository? = runCatching { SettingsRepository(context) }.getOrNull(),
-    private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context)
-) {
+    private val shaderManager: ShaderManager = ShaderManager(context.applicationContext ?: context),
+    private val geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge)
+) : VideoGeometryCoordinator by geometryCoordinator {
     companion object {
         private const val TAG = "GyroPlayerEngine"
 
@@ -143,20 +147,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private val _bufferedPosMs = MutableStateFlow(0L)
     val bufferedPosMs: StateFlow<Long> = _bufferedPosMs.asStateFlow()
 
-    /**
-     * Aspect ratio the picture is actually shown at, rotation included.
-     *
-     * Neither `dwidth`/`dheight` nor `video-params/aspect` apply the rotation flag on this mpv
-     * build, so a portrait clip stored as 1920x1080 plus `rotate=90` reports 1.78 while being
-     * displayed at 0.5625. Everything that lays the picture out - the PiP window, the letterbox
-     * maths - needs the rotated ratio.
-     */
-    private val _videoAspect = MutableStateFlow(0f)
-    val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
-
-    private val _videoDimensions = MutableStateFlow(VideoDimensions())
-    val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
-
     private val _mediaTitle = MutableStateFlow("")
     val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
 
@@ -175,38 +165,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     private val _hwdecCurrent = MutableStateFlow("")
     val hwdecCurrent: StateFlow<String> = _hwdecCurrent.asStateFlow()
-
-    /**
-     * True once the first frame of the current file has been presented.
-     *
-     * The window keeps showing the previous file's last buffer until then - the surface owns
-     * that buffer, mpv cannot take it back - so the player puts a cover over the surface while
-     * this is false and fades it out here.
-     */
-    private val _firstFrameRendered = MutableStateFlow(false)
-    val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
-
-    /**
-     * True once the video dimensions of the current file have been published, so the buffer lock
-     * and the layout container have - or are about to - take the new file's shape.
-     *
-     * The measured gap between the first presented frame and the dimension update is ~40ms, and
-     * releasing the cover inside that gap lets the surface geometry transition happen in the open:
-     * on an aspect change the picture visibly slides in from a corner. The cover stays down until
-     * the geometry matches the file it is about to reveal.
-     */
-    private val _geometryReady = MutableStateFlow(false)
-    val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
-
-    /**
-     * Frame rate of the current file, 0 when unknown.
-     *
-     * The player hands this to the platform via `Surface.setFrameRate`. Without it the system
-     * composites the surface at its default rate, so a 75 or 90fps file is decimated to 60 with an
-     * irregular cadence - which reads as smearing, not as dropped frames.
-     */
-    private val _videoFrameRate = MutableStateFlow(0f)
-    val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
 
     private val _displayRefreshRate = MutableStateFlow(0f)
     val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
@@ -274,25 +232,22 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     @Volatile
     private var pendingSeekMs: Long = -1L
-    @Volatile
-    private var fileLoaded: Boolean = false
-    @Volatile
-    private var fileSwitchPending: Boolean = false
+
+    val isFileLoaded: Boolean
+        get() = sessionState.value is PlaybackSessionState.Demuxed || sessionState.value is PlaybackSessionState.Presenting
 
     private val nativeListener = object : MpvNativeBridge.EventListener {
         override fun onEvent(eventId: Int) {
             when (eventId) {
                 MpvNativeBridge.Event.FIRST_FRAME -> {
                     SwitchTrace.log("KOTLIN_EVENT_FIRST_FRAME", "timePos=${_timePosMs.value}ms")
-                    _firstFrameRendered.value = true
+                    geometryCoordinator.onFirstFramePresented()
                     // The reported position is the cheapest proof that the frame behind the cover is
                     // the new file: a redraw of the previous file still reports that file's position.
                     Log.i(TAG, "First frame presented at ${_timePosMs.value}ms, releasing the cover")
                 }
                 MpvNativeBridge.Event.FILE_LOADED -> {
                     SwitchTrace.log("KOTLIN_EVENT_FILE_LOADED", "")
-                    fileLoaded = true
-                    fileSwitchPending = false
                     val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
                     if (requestedTitle.isBlank()) {
@@ -306,25 +261,11 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     // while mpv keeps pause=false, so the next load fires no `pause` change and the
                     // controls would sit on "play" over a playing video. Mirror it on every load.
                     bridge.getBoolean("pause")?.let { paused -> _isPlaying.value = !paused }
-                    // Read the size here instead of relying on the property observers: observing
-                    // `width`/`height`/`dwidth`/`dheight` never delivers a change event on this mpv
-                    // build, so the dimensions stayed at zero and every consumer silently fell back
-                    // to track-list data or to 16:9.
-                    publishVideoDimensions()
-                    val containerFps = bridge.getDouble("container-fps")
-                    Log.i(TAG, "FILE_LOADED: container-fps=$containerFps")
-                    if (containerFps != null && containerFps > 1.0 && containerFps < 1000.0) {
-                        _videoFrameRate.value = containerFps.toFloat()
-                    }
+
+                    val hasVideo = bridge.getPropertyString("video") != "no"
+                    geometryCoordinator.onFileLoaded(_currentUri.value?.toString().orEmpty(), hasVideo)
+
                     refreshTracks()
-                    // An audio-only file never presents a frame, so waiting for the first-frame
-                    // signal would hold the cover until the UI timeout. There is no picture to hold
-                    // back in that case.
-                    if (bridge.getPropertyString("video") == "no") {
-                        _firstFrameRendered.value = true
-                        // No picture means no dimension update will ever come to arm the gate.
-                        _geometryReady.value = true
-                    }
                     refreshChapters()
                     Log.i(TAG, "File loaded, active hwdec=$hwdec")
 
@@ -338,8 +279,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     refreshTracks()
                 }
                 MpvNativeBridge.Event.END_FILE -> {
-                    fileLoaded = false
-                    fileSwitchPending = false
+                    geometryCoordinator.onSessionEnded()
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.ENDED
                     _chapters.value = emptyList()
@@ -347,8 +287,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     resetSoftwareGain()
                 }
                 MpvNativeBridge.Event.SHUTDOWN -> {
-                    fileLoaded = false
-                    fileSwitchPending = false
+                    geometryCoordinator.onSessionEnded()
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.IDLE
                     _chapters.value = emptyList()
@@ -367,19 +306,13 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 "chapter-list" -> refreshChapters()
                 // `video-params` flips once the decoder knows the real stream parameters, which is
                 // the earliest point where dwidth/dheight carry the rotated (displayed) size.
-                "video-params", "video-out-params" -> publishVideoDimensions()
+                "video-params", "video-out-params" -> geometryCoordinator.onVoParamsChanged()
             }
         }
 
         override fun onPropertyLong(name: String, value: Long) {
             when (name) {
-                "width" -> publishVideoDimensions()
-                "height" -> publishVideoDimensions()
-                // dwidth/dheight already account for rotation and sample aspect ratio, and they are
-                // what the picture is actually laid out with: a portrait recording is stored as
-                // 1920x1080 plus a 90 degree rotation, so `width`/`height` alone would hand callers a
-                // landscape size and give PiP a landscape window around a portrait picture.
-                "dwidth", "dheight" -> publishVideoDimensions()
+                "width", "height", "dwidth", "dheight" -> geometryCoordinator.onVoParamsChanged()
                 "frame-drop-count" -> {
                     _droppedFrames.value = value
                 }
@@ -419,23 +352,12 @@ class GyroPlayerEngine @JvmOverloads constructor(
                     _speed.value = value.toFloat()
                 }
                 "container-fps" -> {
-                    Log.i(TAG, "onPropertyDouble container-fps=$value (current _videoFrameRate=${_videoFrameRate.value})")
-                    if (value > 1.0 && value < 1000.0) {
-                        _videoFrameRate.value = value.toFloat()
-                    }
+                    geometryCoordinator.onFpsUpdated(value.toFloat(), isEstimated = false)
                 }
                 "estimated-vf-fps" -> {
                     _fps.value = value
                     val normalized = dev.gyro.engine.ui.normalizeContentFps(value.toFloat())
-                    Log.i(TAG, "onPropertyDouble estimated-vf-fps=$value (normalized=$normalized, current _videoFrameRate=${_videoFrameRate.value})")
-                    if (value > 1.0 && value < 1000.0) {
-                        // Seed videoFrameRate if no container-fps was available.
-                        // Normalize startup estimation noise so transient 87.35fps snaps to 90.0fps.
-                        // Once established, do not let continuous running estimation jitter overwrite it.
-                        if (_videoFrameRate.value <= 0f) {
-                            _videoFrameRate.value = normalized
-                        }
-                    }
+                    geometryCoordinator.onFpsUpdated(normalized, isEstimated = true)
                 }
                 "sub-delay" -> {
                     _subDelay.value = value
@@ -650,13 +572,10 @@ class GyroPlayerEngine @JvmOverloads constructor(
     fun loadUri(uri: Uri, startPositionMs: Long = 0L) {
         SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
         _currentUri.value = uri
-        fileLoaded = false
-        fileSwitchPending = true
+        geometryCoordinator.onSwitchStarted(uri.toString(), startPositionMs)
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
-        _firstFrameRendered.value = false
-        _geometryReady.value = false
         _playbackState.value = PlaybackState.BUFFERING
         SwitchTrace.log("SHUTTER_ARMED", "firstFrame=false, geometryReady=false")
 
@@ -727,17 +646,12 @@ class GyroPlayerEngine @JvmOverloads constructor(
         ensureInitialized()
         // A new file invalidates any in-flight seek of the previous one.
         pendingSeekTargetMs = null
-        // Until mpv presents a frame from the new file the surface still holds the old one.
-        _firstFrameRendered.value = false
+        geometryCoordinator.onSwitchStarted(url, startPositionMs)
         // The property watchers keep reporting the previous file's position and duration until the
         // new file's first events arrive; anything reading them in that window (the controls, the
         // progress bar) would show the old movie's time against the new one's picture.
         _timePosMs.value = startPositionMs.coerceAtLeast(0L)
         _durationMs.value = 0L
-        // The buffer and layout still carry the previous file's shape; the cover stays until the
-        // new file's dimensions have been published and the geometry has followed.
-        _geometryReady.value = false
-        _videoFrameRate.value = 0f
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {
@@ -759,8 +673,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
             return
         }
         pendingLoadUrl = null
-        fileLoaded = false
-        fileSwitchPending = true
         pendingSeekMs = -1L
         _playbackState.value = PlaybackState.BUFFERING
         // Resume positions ride the loadfile itself. Passing start= makes mpv decode its first
@@ -807,7 +719,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun seekTo(positionMs: Long) {
-        if (!fileLoaded) {
+        if (!isFileLoaded) {
             pendingSeekMs = positionMs
             return
         }
@@ -817,7 +729,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     fun seekRelative(offsetMs: Long) {
-        if (!fileLoaded) return
+        if (!isFileLoaded) return
         // Chained relative seeks build on the position currently displayed (which during a pending
         // seek is the previous target), not on mpv's lagging report.
         val targetMs = (_timePosMs.value + offsetMs).coerceAtLeast(0L)
@@ -828,93 +740,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     fun setSpeed(speed: Float) {
         bridge.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
-    }
-
-    /**
-     * Publishes the size the picture is actually presented at.
-     *
-     * `dwidth`/`dheight` have rotation and the sample aspect ratio applied, so a portrait recording
-     * stored as 1920x1080 plus a 90 degree rotation reports 1080x1920 here. That is the size callers
-     * lay out with, and the one that gives picture in picture a window matching the picture instead
-     * of a landscape window around a portrait video. `width`/`height` remain the fallback for the
-     * window before mpv has decoded a frame, where the display size is still unknown.
-     */
-    private fun getDemuxDimensions(): Pair<Int, Int>? {
-        val count = bridge.getLong("track-list/count") ?: 0L
-        for (i in 0 until count) {
-            val type = bridge.getPropertyString("track-list/$i/type")
-            if (type == "video") {
-                val w = bridge.getLong("track-list/$i/demux-w")?.toInt() ?: 0
-                val h = bridge.getLong("track-list/$i/demux-h")?.toInt() ?: 0
-                val rot = bridge.getLong("track-list/$i/demux-rotation") ?: 0L
-                val par = bridge.getDouble("track-list/$i/demux-par") ?: 1.0
-                if (w > 0 && h > 0) {
-                    val displayW = if (par > 0.01 && kotlin.math.abs(par - 1.0) > 0.01) {
-                        (w * par).toInt()
-                    } else {
-                        w
-                    }
-                    val quarterTurn = rot % 180L != 0L
-                    val finalW = if (quarterTurn) h else displayW
-                    val finalH = if (quarterTurn) displayW else h
-                    return Pair(finalW, finalH)
-                }
-            }
-        }
-        return null
-    }
-
-    private fun publishVideoDimensions() {
-        if (fileSwitchPending) {
-            SwitchTrace.log("DIMS_IGNORED_SWITCH_PENDING", "")
-            return
-        }
-
-        val demuxDims = getDemuxDimensions()
-
-        // 1. VO parameters (active display output):
-        val voW = bridge.getLong("video-out-params/dw")?.toInt()?.takeIf { it > 0 }
-        val voH = bridge.getLong("video-out-params/dh")?.toInt()?.takeIf { it > 0 }
-        val voRotate = bridge.getLong("video-out-params/rotate")
-            ?: bridge.getLong("video-params/rotate")
-            ?: 0L
-        val voQuarterTurn = voRotate % 180L != 0L
-        val voFinalDims = if (voW != null && voH != null) {
-            if (voQuarterTurn) Pair(voH, voW) else Pair(voW, voH)
-        } else {
-            null
-        }
-
-        // 2. Selection:
-        // During file loading / before first frame: VO may still carry the previous file's parameters.
-        // demuxDims reflects the new file immediately upon FILE_LOADED, so prioritize it.
-        // Once playback is active (firstFrameRendered is true): VO is authoritative for dynamic ABR changes.
-        val (finalW, finalH) = if (!_firstFrameRendered.value && demuxDims != null) {
-            demuxDims
-        } else {
-            voFinalDims ?: demuxDims ?: return
-        }
-
-        if (finalW <= 0 || finalH <= 0) {
-            SwitchTrace.log("DIMS_CHECK_FAILED", "w=$finalW, h=$finalH")
-            return
-        }
-
-        val currentDims = _videoDimensions.value
-        if (currentDims.width == finalW && currentDims.height == finalH && _geometryReady.value) {
-            return
-        }
-        _videoDimensions.value = VideoDimensions(finalW, finalH)
-        _videoAspect.value = finalW.toFloat() / finalH
-        _geometryReady.value = true
-        SwitchTrace.log("DIMS_PUBLISHED", "${finalW}x${finalH}, aspect=${finalW.toFloat() / finalH}, voRotate=$voRotate")
-        if (_videoFrameRate.value <= 0f) {
-            bridge.getDouble("container-fps")?.let { fps ->
-                if (fps > 1.0 && fps < 1000.0) {
-                    _videoFrameRate.value = fps.toFloat()
-                }
-            }
-        }
     }
 
     fun refreshTracks() {
@@ -1069,7 +894,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
 
     fun queryMediaInfo(fallbackTitle: String = "", fallbackUri: String = "", fallbackSize: Long = 0L): MediaInfo {
         val title = _mediaTitle.value.ifBlank { fallbackTitle }
-        val dims = _videoDimensions.value
+        val dims = videoDimensions.value
         val resStr = if (dims.width > 0 && dims.height > 0) "${dims.width} x ${dims.height}" else ""
         val format = bridge.getPropertyString("file-format") ?: ""
         val vCodec = bridge.getPropertyString("video-codec") ?: bridge.getPropertyString("video-format") ?: ""
@@ -1225,7 +1050,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
             return
         }
 
-        if (!fileLoaded) {
+        if (!isFileLoaded) {
             pendingSeekMs = chapterList[index].timeMs
             return
         }
@@ -1342,9 +1167,6 @@ class GyroPlayerEngine @JvmOverloads constructor(
         _playbackState.value = PlaybackState.IDLE
         _isPlaying.value = false
         _currentUri.value = null
-        _videoDimensions.value = VideoDimensions()
-        _videoAspect.value = 0f
-        _firstFrameRendered.value = false
-        _geometryReady.value = false
+        geometryCoordinator.reset()
     }
 }
