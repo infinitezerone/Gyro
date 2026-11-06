@@ -276,6 +276,8 @@ class GyroPlayerEngine @JvmOverloads constructor(
     private var pendingSeekMs: Long = -1L
     @Volatile
     private var fileLoaded: Boolean = false
+    @Volatile
+    private var fileSwitchPending: Boolean = false
 
     private val nativeListener = object : MpvNativeBridge.EventListener {
         override fun onEvent(eventId: Int) {
@@ -290,6 +292,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 MpvNativeBridge.Event.FILE_LOADED -> {
                     SwitchTrace.log("KOTLIN_EVENT_FILE_LOADED", "")
                     fileLoaded = true
+                    fileSwitchPending = false
                     val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
                     _hwdecCurrent.value = hwdec
                     if (requestedTitle.isBlank()) {
@@ -336,6 +339,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
                 MpvNativeBridge.Event.END_FILE -> {
                     fileLoaded = false
+                    fileSwitchPending = false
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.ENDED
                     _chapters.value = emptyList()
@@ -344,6 +348,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
                 }
                 MpvNativeBridge.Event.SHUTDOWN -> {
                     fileLoaded = false
+                    fileSwitchPending = false
                     _isPlaying.value = false
                     _playbackState.value = PlaybackState.IDLE
                     _chapters.value = emptyList()
@@ -646,6 +651,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
         _currentUri.value = uri
         fileLoaded = false
+        fileSwitchPending = true
         resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
@@ -754,6 +760,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         }
         pendingLoadUrl = null
         fileLoaded = false
+        fileSwitchPending = true
         pendingSeekMs = -1L
         _playbackState.value = PlaybackState.BUFFERING
         // Resume positions ride the loadfile itself. Passing start= makes mpv decode its first
@@ -858,39 +865,39 @@ class GyroPlayerEngine @JvmOverloads constructor(
     }
 
     private fun publishVideoDimensions() {
-        val demuxDims = getDemuxDimensions()
-
-        val dw = bridge.getLong("video-out-params/dw")?.toInt()
-            ?.takeIf { it > 0 }
-            ?: demuxDims?.first
-            ?: return
-        val dh = bridge.getLong("video-out-params/dh")?.toInt()
-            ?.takeIf { it > 0 }
-            ?: demuxDims?.second
-            ?: return
-        if (dw <= 0 || dh <= 0) {
-            SwitchTrace.log("DIMS_CHECK_FAILED", "dw=$dw, dh=$dh")
+        if (fileSwitchPending) {
+            SwitchTrace.log("DIMS_IGNORED_SWITCH_PENDING", "")
             return
         }
-        val rotate = bridge.getLong("video-out-params/rotate")
+
+        val demuxDims = getDemuxDimensions()
+
+        // 1. VO parameters (active display output):
+        val voW = bridge.getLong("video-out-params/dw")?.toInt()?.takeIf { it > 0 }
+        val voH = bridge.getLong("video-out-params/dh")?.toInt()?.takeIf { it > 0 }
+        val voRotate = bridge.getLong("video-out-params/rotate")
             ?: bridge.getLong("video-params/rotate")
             ?: 0L
-        val quarterTurn = rotate % 180L != 0L
-        val w = if (quarterTurn) dh else dw
-        val h = if (quarterTurn) dw else dh
-
-        val (finalW, finalH) = if (demuxDims != null) {
-            val demuxAspect = demuxDims.first.toFloat() / demuxDims.second
-            val voAspect = w.toFloat() / h
-            if (kotlin.math.abs(voAspect / demuxAspect - 1f) > 0.08f) {
-                // VO is still holding stale parameters from the previous file
-                SwitchTrace.log("DIMS_VO_STALE_OVERRIDDEN_BY_DEMUX", "demux=${demuxDims.first}x${demuxDims.second}, vo=${w}x$h")
-                demuxDims
-            } else {
-                Pair(w, h)
-            }
+        val voQuarterTurn = voRotate % 180L != 0L
+        val voFinalDims = if (voW != null && voH != null) {
+            if (voQuarterTurn) Pair(voH, voW) else Pair(voW, voH)
         } else {
-            Pair(w, h)
+            null
+        }
+
+        // 2. Selection:
+        // During file loading / before first frame: VO may still carry the previous file's parameters.
+        // demuxDims reflects the new file immediately upon FILE_LOADED, so prioritize it.
+        // Once playback is active (firstFrameRendered is true): VO is authoritative for dynamic ABR changes.
+        val (finalW, finalH) = if (!_firstFrameRendered.value && demuxDims != null) {
+            demuxDims
+        } else {
+            voFinalDims ?: demuxDims ?: return
+        }
+
+        if (finalW <= 0 || finalH <= 0) {
+            SwitchTrace.log("DIMS_CHECK_FAILED", "w=$finalW, h=$finalH")
+            return
         }
 
         val currentDims = _videoDimensions.value
@@ -900,7 +907,7 @@ class GyroPlayerEngine @JvmOverloads constructor(
         _videoDimensions.value = VideoDimensions(finalW, finalH)
         _videoAspect.value = finalW.toFloat() / finalH
         _geometryReady.value = true
-        SwitchTrace.log("DIMS_PUBLISHED", "${finalW}x${finalH}, aspect=${finalW.toFloat() / finalH}, rotate=$rotate")
+        SwitchTrace.log("DIMS_PUBLISHED", "${finalW}x${finalH}, aspect=${finalW.toFloat() / finalH}, voRotate=$voRotate")
         if (_videoFrameRate.value <= 0f) {
             bridge.getDouble("container-fps")?.let { fps ->
                 if (fps > 1.0 && fps < 1000.0) {
