@@ -1,9 +1,16 @@
 package dev.gyro.engine.effects
 
+import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,6 +23,7 @@ interface AudioEffectsController {
     val nightMode: StateFlow<Boolean>
     val stereoDownmix: StateFlow<Boolean>
 
+    fun observeEvents(scope: CoroutineScope): Job
     fun setSoftwareVolume(gain: Double)
     fun resetSoftwareGain()
     fun setNightMode(enabled: Boolean)
@@ -44,6 +52,17 @@ class RealAudioEffectsController @Inject constructor(
 
     private val _stereoDownmix = MutableStateFlow(false)
     override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
+
+    override fun observeEvents(scope: CoroutineScope): Job =
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            bridge.events.collect { event ->
+                if (event is MpvEvent.Lifecycle) {
+                    when (event.id) {
+                        MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> resetSoftwareGain()
+                    }
+                }
+            }
+        }
 
     @Synchronized
     override fun setSoftwareVolume(gain: Double) {

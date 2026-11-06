@@ -109,7 +109,7 @@ class GyroNativeStressTest {
 
         // Wait up to 5 seconds for video resolution & hwdec to become available
         val dimensions = withTimeoutOrNull(5000L) {
-            engine.videoDimensions.first { it.width > 0 && it.height > 0 }
+            engine.geometry.videoDimensions.first { it.width > 0 && it.height > 0 }
         }
         assertNotNull("Video dimensions should be detected within 5s", dimensions)
         assertEquals("Width must be 1920", 1920, dimensions?.width)

@@ -160,7 +160,7 @@ class GyroSurfaceView @JvmOverloads constructor(
             if (displayId == myDisplay.displayId) {
                 val refreshRate = myDisplay.refreshRate
                 Log.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
-                engine?.updateDisplayRefreshRate(refreshRate)
+                engine?.geometry?.updateDisplayRefreshRate(refreshRate)
             }
         }
     }
@@ -213,7 +213,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
         // Repaint so a paused player follows a relock. A playing one is already producing frames at
         // whatever size EGL reports, which is the number the renderer trusts.
-        if (target.firstFrameRendered.value) {
+        if (target.geometry.firstFrameRendered.value) {
             target.redraw()
         }
     }
@@ -263,7 +263,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         attachedSurface = surface
         val rate = display?.refreshRate
         if (rate != null) {
-            engine?.updateDisplayRefreshRate(rate)
+            engine?.geometry?.updateDisplayRefreshRate(rate)
         }
         // A fresh surface starts at the platform default rate; re-apply the content rate that
         // was published before it existed.
@@ -297,7 +297,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         dm?.registerDisplayListener(displayListener, handler)
         val rate = display?.refreshRate ?: dm?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
         if (rate != null) {
-            engine?.updateDisplayRefreshRate(rate)
+            engine?.geometry?.updateDisplayRefreshRate(rate)
         }
         val surface = holder.surface
         if (surface != null && surface.isValid && attachedSurface !== surface) {
@@ -356,7 +356,7 @@ fun GyroPlayerSurface(
         }
     }
 
-    val frameRate by (engine?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
+    val frameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
     LaunchedEffect(frameRate) {
         Log.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$frameRate), engine=$engine")
         surfaceView.applyContentFrameRate(frameRate)
@@ -366,7 +366,7 @@ fun GyroPlayerSurface(
     // From then on window resizes (including PiP entry/exit) never touch the BufferQueue again;
     // low-res videos still get full screen-resolution FBOs for Anime4K shaders and ASS subtitles,
     // while same-aspect playlist switches reuse the exact same BufferQueue without re-locking.
-    val videoDimensions by (engine?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
+    val videoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
     LaunchedEffect(videoDimensions.width, videoDimensions.height) {
         if (videoDimensions.width <= 0 || videoDimensions.height <= 0) return@LaunchedEffect
         val (displayW, displayH) = resolvePhysicalDisplaySize(context)

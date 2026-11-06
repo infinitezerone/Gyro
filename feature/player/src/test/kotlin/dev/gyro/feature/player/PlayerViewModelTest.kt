@@ -3,6 +3,7 @@ package dev.gyro.feature.player
 import android.content.Context
 import android.content.ContextWrapper
 import android.net.TestUri
+import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -10,6 +11,7 @@ import kotlinx.coroutines.test.TestScope
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
+import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.engine.playlist.PlaylistManager
 import dev.gyro.core.data.repository.DefaultSettingsRepository
@@ -21,7 +23,10 @@ import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import dev.gyro.engine.GyroPlayerEngine
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +41,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -56,6 +62,8 @@ class PlayerViewModelTest {
     private lateinit var engine: GyroPlayerEngine
     private lateinit var settingsRepo: SettingsRepository
     private lateinit var historyRepo: PlaybackHistoryRepository
+    private lateinit var historyLookup: suspend (Uri) -> PlaybackProgress?
+    private lateinit var mediaRepo: FakeMediaRepository
     private lateinit var playlistManager: PlaylistManager
     private lateinit var viewModel: PlayerViewModel
     private lateinit var testScope: CoroutineScope
@@ -81,7 +89,12 @@ class PlayerViewModelTest {
         settingsRepo = DefaultSettingsRepository(dataStore)
 
         val fakeHistoryDao = FakePlaybackHistoryDao()
-        historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
+        val backingHistoryRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
+        historyLookup = backingHistoryRepo::getProgress
+        historyRepo = object : PlaybackHistoryRepository by backingHistoryRepo {
+            override suspend fun getProgress(uri: Uri): PlaybackProgress? = historyLookup(uri)
+        }
+        mediaRepo = FakeMediaRepository()
         playlistManager = PlaylistManager()
         val fakeSubtitleRepo = object : SubtitleRepository {
             override suspend fun findCompanionSubtitles(videoUri: android.net.Uri, videoDisplayName: String?): List<String> = emptyList()
@@ -93,7 +106,8 @@ class PlayerViewModelTest {
             historyRepository = historyRepo,
             playlistManager = playlistManager,
             subtitleRepository = fakeSubtitleRepo,
-            uriParser = UriParser { TestUri(it) }
+            uriParser = UriParser { TestUri(it) },
+            mediaRepository = mediaRepo,
         )
     }
 
@@ -137,6 +151,209 @@ class PlayerViewModelTest {
             withContext(Dispatchers.Default) { Thread.sleep(5) }
         }
         return null
+    }
+
+    @Test
+    fun testExplicitTitleWinsOverPlaylistWithoutQueryingProvider() = runPlayerTest {
+        val uri = TestUri("content://videos/explicit")
+        playlistManager.setSingle(uri, "Playlist title")
+
+        viewModel.openUri(uri, forceReload = true, displayTitle = "Explicit title")
+        runCurrent()
+
+        assertEquals(uri, engine.currentUri.value)
+        assertEquals("Explicit title", engine.mediaTitle.value)
+        assertTrue(mediaRepo.queriedUris.isEmpty())
+    }
+
+    @Test
+    fun testOpenUriFindsKnownTitleEvenWhenItemIsNotCurrent() = runPlayerTest {
+        val current = VideoMediaItem(1L, "file:///current.mp4", "Current", 1000L, 100L, 0, 0, 0L, "F")
+        val target = VideoMediaItem(2L, "file:///target.mp4", "Known target", 1000L, 100L, 0, 0, 0L, "F")
+        playlistManager.setPlaylist(listOf(current, target), 0)
+
+        viewModel.openUri(TestUri(target.uriString))
+        runCurrent()
+
+        assertEquals("Known target", engine.mediaTitle.value)
+        assertTrue(mediaRepo.queriedUris.isEmpty())
+    }
+
+    @Test
+    fun testPlayMediaItemPassesItsTitleWithoutPlaylistMembership() = runPlayerTest {
+        val item = VideoMediaItem(1L, "file:///standalone.mp4", "Standalone", 1000L, 100L, 0, 0, 0L, "F")
+
+        viewModel.playMediaItem(item)
+        runCurrent()
+
+        assertEquals(item.uriString, engine.currentUri.value?.toString())
+        assertEquals(item.displayName, engine.mediaTitle.value)
+        assertTrue(mediaRepo.queriedUris.isEmpty())
+    }
+
+    @Test
+    fun testUnknownTitleQueriesMediaRepository() = runPlayerTest {
+        val uri = TestUri("content://videos/unknown")
+        mediaRepo.displayNameLookup = { "Provider title.mkv" }
+
+        viewModel.openUri(uri)
+        runCurrent()
+
+        assertEquals(listOf(uri), mediaRepo.queriedUris)
+        assertEquals("Provider title.mkv", engine.mediaTitle.value)
+    }
+
+    @Test
+    fun testBlankExplicitAndPlaylistTitlesFallBackToQuery() = runPlayerTest {
+        val uri = TestUri("content://videos/blank")
+        playlistManager.setSingle(uri, " ")
+        mediaRepo.displayNameLookup = { "Provider title.mp4" }
+
+        viewModel.openUri(uri, displayTitle = " ")
+        runCurrent()
+
+        assertEquals(listOf(uri), mediaRepo.queriedUris)
+        assertEquals("Provider title.mp4", engine.mediaTitle.value)
+    }
+
+    @Test
+    fun testUnavailableProviderTitleLeavesUriFallbackToEngine() = runPlayerTest {
+        val uri = TestUri("content://videos/no-name")
+        mediaRepo.displayNameLookup = { null }
+
+        viewModel.openUri(uri)
+        runCurrent()
+
+        assertEquals(listOf(uri), mediaRepo.queriedUris)
+        assertEquals(uri, engine.currentUri.value)
+        assertEquals(uri.lastPathSegment, engine.mediaTitle.value)
+    }
+
+    @Test
+    fun testNewOpenCancelsSuspendedTitleLookup() = runPlayerTest {
+        val oldUri = TestUri("content://videos/old")
+        val newUri = TestUri("content://videos/new")
+        var lookupCancelled = false
+        mediaRepo.displayNameLookup = {
+            try {
+                awaitCancellation()
+            } finally {
+                lookupCancelled = true
+            }
+        }
+
+        viewModel.openUri(oldUri)
+        runCurrent()
+        assertEquals(listOf(oldUri), mediaRepo.queriedUris)
+        assertNull(engine.currentUri.value)
+
+        viewModel.openUri(newUri, displayTitle = "New title")
+        runCurrent()
+
+        assertTrue(lookupCancelled)
+        assertEquals(newUri, engine.currentUri.value)
+        assertEquals(newUri, viewModel.activeUri.value)
+        assertEquals("New title", engine.mediaTitle.value)
+    }
+
+    @Test
+    fun testLateTitleCannotOverwriteForcedReloadOfSameUri() = runPlayerTest {
+        val uri = TestUri("content://videos/same")
+        val oldTitle = CompletableDeferred<String?>()
+        var lookupReturned = false
+        var historyReads = 0
+        mediaRepo.displayNameLookup = {
+            // Model a provider that returns a result even after its caller is cancelled.
+            val title = withContext(NonCancellable) { oldTitle.await() }
+            lookupReturned = true
+            title
+        }
+        historyLookup = {
+            historyReads++
+            null
+        }
+
+        try {
+            viewModel.openUri(uri)
+            runCurrent()
+            assertEquals(listOf(uri), mediaRepo.queriedUris)
+            assertNull(engine.currentUri.value)
+
+            viewModel.openUri(uri, forceReload = true, displayTitle = "Latest title")
+            runCurrent()
+            assertEquals("Latest title", engine.mediaTitle.value)
+
+            oldTitle.complete("Stale title")
+            runCurrent()
+
+            assertTrue(lookupReturned)
+            assertEquals(1, historyReads)
+            assertEquals(uri, engine.currentUri.value)
+            assertEquals("Latest title", engine.mediaTitle.value)
+        } finally {
+            oldTitle.complete(null)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun testLateHistoryCannotLoadAnOlderUri() = runPlayerTest {
+        val oldUri = TestUri("content://videos/old-history")
+        val newUri = TestUri("content://videos/new-history")
+        val oldProgress = CompletableDeferred<PlaybackProgress?>()
+        var oldLookupStarted = false
+        var oldLookupReturned = false
+        historyLookup = { uri ->
+            if (uri == oldUri) {
+                oldLookupStarted = true
+                val progress = withContext(NonCancellable) { oldProgress.await() }
+                oldLookupReturned = true
+                progress
+            } else null
+        }
+
+        try {
+            viewModel.openUri(oldUri, displayTitle = "Old title")
+            runCurrent()
+            assertTrue(oldLookupStarted)
+            assertNull(engine.currentUri.value)
+
+            viewModel.openUri(newUri, displayTitle = "New title")
+            runCurrent()
+            assertEquals(newUri, engine.currentUri.value)
+
+            oldProgress.complete(null)
+            runCurrent()
+
+            assertTrue(oldLookupReturned)
+            assertEquals(newUri, engine.currentUri.value)
+            assertEquals(newUri, viewModel.activeUri.value)
+            assertEquals("New title", engine.mediaTitle.value)
+            assertTrue(mediaRepo.queriedUris.isEmpty())
+        } finally {
+            oldProgress.complete(null)
+            runCurrent()
+        }
+    }
+
+    @Test
+    fun testClearingViewModelCancelsPendingTitleLookup() = runPlayerTest {
+        var lookupCancelled = false
+        mediaRepo.displayNameLookup = {
+            try {
+                awaitCancellation()
+            } finally {
+                lookupCancelled = true
+            }
+        }
+        viewModel.openUri(TestUri("content://videos/pending"))
+        runCurrent()
+
+        viewModel.onCleared()
+        runCurrent()
+
+        assertTrue(lookupCancelled)
+        assertNull(engine.currentUri.value)
     }
 
     @Test
@@ -315,5 +532,17 @@ class PlayerViewModelTest {
 
         // Should have called loadUri on engine and started loading
         assertEquals(uri.toString(), engine.currentUri.value?.toString())
+    }
+
+    private class FakeMediaRepository : MediaRepository {
+        val queriedUris = mutableListOf<Uri>()
+        var displayNameLookup: suspend (Uri) -> String? = { null }
+
+        override suspend fun getVideos(): List<VideoMediaItem> = emptyList()
+
+        override suspend fun getDisplayName(uri: Uri): String? {
+            queriedUris += uri
+            return displayNameLookup(uri)
+        }
     }
 }

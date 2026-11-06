@@ -2,11 +2,18 @@ package dev.gyro.engine.tracks
 
 import android.util.Log
 import dev.gyro.core.model.ChapterInfo
+import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.TrackInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +25,7 @@ interface TrackAndChapterManager {
     val chapters: StateFlow<List<ChapterInfo>>
     val currentChapter: StateFlow<Int>
 
+    fun observeEvents(scope: CoroutineScope): Job
     fun refreshTracks()
     fun selectTrack(type: String, id: Int)
     fun addSubtitle(path: String)
@@ -43,6 +51,30 @@ class RealTrackAndChapterManager @Inject constructor(
 
     private val _currentChapter = MutableStateFlow(-1)
     override val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
+
+    override fun observeEvents(scope: CoroutineScope): Job =
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            bridge.events.collect { event ->
+                when (event) {
+                    is MpvEvent.Lifecycle -> when (event.id) {
+                        MpvNativeBridge.Event.FILE_LOADED -> {
+                            refreshTracks()
+                            refreshChapters()
+                        }
+                        MpvNativeBridge.Event.TRACKS_CHANGED -> refreshTracks()
+                        MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> clearChapters()
+                    }
+                    is MpvEvent.PropertyChanged -> when (event.name) {
+                        "track-list" -> refreshTracks()
+                        "chapter-list" -> refreshChapters()
+                    }
+                    is MpvEvent.LongProperty -> {
+                        if (event.name == "chapter") onChapterPropertyChanged(event.value.toInt())
+                    }
+                    else -> Unit
+                }
+            }
+        }
 
     override fun refreshTracks() {
         try {

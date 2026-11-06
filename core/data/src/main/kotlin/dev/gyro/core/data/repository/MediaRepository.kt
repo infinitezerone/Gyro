@@ -5,10 +5,12 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.VideoMediaItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,6 +27,9 @@ interface MediaRepository {
      * Retrieves all accessible videos sorted by modification date descending.
      */
     suspend fun getVideos(): List<VideoMediaItem>
+
+    /** Returns the provider's display name, or null when unavailable. Cancellation is propagated. */
+    suspend fun getDisplayName(uri: Uri): String?
 }
 
 class DefaultMediaRepository @Inject constructor(
@@ -32,6 +37,27 @@ class DefaultMediaRepository @Inject constructor(
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val customFolderRepository: CustomFolderRepository,
 ) : MediaRepository {
+
+    override suspend fun getDisplayName(uri: Uri): String? = withContext(ioDispatcher) {
+        try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column < 0) null else cursor.getString(column)?.takeIf { it.isNotBlank() }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Missing providers, revoked grants and unsupported metadata must not prevent playback.
+            null
+        }
+    }
 
     override suspend fun getVideos(): List<VideoMediaItem> = withContext(ioDispatcher) {
         val videoList = mutableListOf<VideoMediaItem>()

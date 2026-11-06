@@ -2,6 +2,7 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.view.Surface
+import kotlinx.coroutines.flow.SharedFlow
 
 /**
  * Abstraction bridge over libmpv native operations, decoupling [GyroPlayerEngine]
@@ -9,22 +10,7 @@ import android.view.Surface
  */
 interface MpvNativeBridge {
 
-    /**
-     * Listener interface for mpv events and property change notifications.
-     */
-    interface EventListener {
-        fun onEvent(eventId: Int)
-        fun onProperty(name: String)
-        fun onPropertyLong(name: String, value: Long)
-        fun onPropertyDouble(name: String, value: Double)
-        fun onPropertyFlag(name: String, value: Boolean)
-        fun onPropertyString(name: String, value: String)
-    }
-
-    /**
-     * Active event listener registered to receive native callbacks.
-     */
-    var eventListener: EventListener?
+    val events: SharedFlow<MpvEvent>
 
     // ---------- Lifecycle Operations ----------
 

@@ -196,7 +196,7 @@ class MediaSessionManager(
     fun skipToNext(): Boolean {
         val next = playlistManager.playNext()
         return if (next != null) {
-            engine.loadUri(uriParser(next.uriString))
+            engine.loadUri(uriParser(next.uriString), displayTitle = next.displayName)
             true
         } else {
             false
@@ -206,7 +206,7 @@ class MediaSessionManager(
     fun skipToPrevious(): Boolean {
         val prev = playlistManager.playPrevious()
         return if (prev != null) {
-            engine.loadUri(uriParser(prev.uriString))
+            engine.loadUri(uriParser(prev.uriString), displayTitle = prev.displayName)
             true
         } else {
             false

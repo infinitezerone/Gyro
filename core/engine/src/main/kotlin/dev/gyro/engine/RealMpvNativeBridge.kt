@@ -14,11 +14,8 @@ open class RealMpvNativeBridge @Inject constructor() : MpvNativeBridge {
 
     companion object : RealMpvNativeBridge()
 
-    override var eventListener: MpvNativeBridge.EventListener?
-        get() = GyroNative.eventListener
-        set(value) {
-            GyroNative.eventListener = value
-        }
+    override val events
+        get() = GyroNative.events
 
     override fun create(appctx: Context) {
         GyroNative.create(appctx)

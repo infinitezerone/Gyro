@@ -159,16 +159,16 @@ class GyroPlayerEngineAdversarialStressTest {
                         when (rng.nextInt(4)) {
                             0 -> {
                                 val gain = 100.0 + rng.nextDouble(0.0, 100.0)
-                                engine.setSoftwareVolume(gain)
+                                engine.audio.setSoftwareVolume(gain)
                             }
                             1 -> {
-                                engine.resetSoftwareGain()
+                                engine.audio.resetSoftwareGain()
                             }
                             2 -> {
-                                engine.setNightMode(rng.nextBoolean())
+                                engine.audio.setNightMode(rng.nextBoolean())
                             }
                             3 -> {
-                                engine.setStereoDownmix(rng.nextBoolean())
+                                engine.audio.setStereoDownmix(rng.nextBoolean())
                             }
                         }
                     }
@@ -198,15 +198,15 @@ class GyroPlayerEngineAdversarialStressTest {
         }
 
         // Verify quiescent state consistency
-        val finalDownmix = engine.stereoDownmix.value
-        val finalNightMode = engine.nightMode.value
-        val finalVolume = engine.softwareVolume.value
+        val finalDownmix = engine.audio.stereoDownmix.value
+        val finalNightMode = engine.audio.nightMode.value
+        val finalVolume = engine.audio.softwareVolume.value
         val finalAf = threadSafeBridge.getPropertyString("af") ?: ""
 
         val expectedFilters = mutableListOf<String>()
-        if (finalDownmix) expectedFilters.add(GyroPlayerEngine.FILTER_STEREO_DOWNMIX)
-        if (finalNightMode) expectedFilters.add(GyroPlayerEngine.FILTER_DYNAUDNORM)
-        if (finalVolume > 100.0) expectedFilters.add(GyroPlayerEngine.FILTER_ALIMITER)
+        if (finalDownmix) expectedFilters.add(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX)
+        if (finalNightMode) expectedFilters.add(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM)
+        if (finalVolume > 100.0) expectedFilters.add(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER)
         val expectedAf = expectedFilters.joinToString(",")
 
         assertEquals("Quiescent state AF chain mismatch", expectedAf, finalAf)
@@ -231,30 +231,30 @@ class GyroPlayerEngineAdversarialStressTest {
         )
 
         for ((downmix, night, volume) in states) {
-            engine.setStereoDownmix(downmix)
-            engine.setNightMode(night)
-            engine.setSoftwareVolume(volume)
+            engine.audio.setStereoDownmix(downmix)
+            engine.audio.setNightMode(night)
+            engine.audio.setSoftwareVolume(volume)
 
             val af = threadSafeBridge.getPropertyString("af") ?: ""
             assertFilterOrderingInvariant(af, "State ($downmix, $night, $volume)")
 
             val components = if (af.isEmpty()) emptyList() else af.split(",")
             if (downmix) {
-                assertTrue("Missing pan filter in state ($downmix, $night, $volume)", components.contains(GyroPlayerEngine.FILTER_STEREO_DOWNMIX))
+                assertTrue("Missing pan filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX))
             } else {
-                assertFalse("Unexpected pan filter in state ($downmix, $night, $volume)", components.contains(GyroPlayerEngine.FILTER_STEREO_DOWNMIX))
+                assertFalse("Unexpected pan filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX))
             }
 
             if (night) {
-                assertTrue("Missing dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(GyroPlayerEngine.FILTER_DYNAUDNORM))
+                assertTrue("Missing dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM))
             } else {
-                assertFalse("Unexpected dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(GyroPlayerEngine.FILTER_DYNAUDNORM))
+                assertFalse("Unexpected dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM))
             }
 
             if (volume > 100.0) {
-                assertTrue("Missing alimiter filter in state ($downmix, $night, $volume)", components.contains(GyroPlayerEngine.FILTER_ALIMITER))
+                assertTrue("Missing alimiter filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
             } else {
-                assertFalse("Unexpected alimiter filter in state ($downmix, $night, $volume)", components.contains(GyroPlayerEngine.FILTER_ALIMITER))
+                assertFalse("Unexpected alimiter filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
             }
         }
     }
@@ -270,15 +270,15 @@ class GyroPlayerEngineAdversarialStressTest {
             when (rng.nextInt(3)) {
                 0 -> {
                     currentDownmix = rng.nextBoolean()
-                    engine.setStereoDownmix(currentDownmix)
+                    engine.audio.setStereoDownmix(currentDownmix)
                 }
                 1 -> {
                     currentNight = rng.nextBoolean()
-                    engine.setNightMode(currentNight)
+                    engine.audio.setNightMode(currentNight)
                 }
                 2 -> {
                     currentVolume = if (rng.nextBoolean()) 100.0 else (100.0 + rng.nextDouble(0.1, 100.0))
-                    engine.setSoftwareVolume(currentVolume)
+                    engine.audio.setSoftwareVolume(currentVolume)
                 }
             }
 
@@ -294,43 +294,43 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testLimiterDynamics_exactBoundaryThreshold() {
         // Below boundary: 100.0
-        engine.setSoftwareVolume(100.0)
+        engine.audio.setSoftwareVolume(100.0)
         assertFalse("Limiter should be absent at 100.0", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Sub-100 clamping
-        engine.setSoftwareVolume(99.999)
-        assertEquals(100.0, engine.softwareVolume.value, 0.0001)
+        engine.audio.setSoftwareVolume(99.999)
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.0001)
         assertFalse("Limiter should be absent at clamped 100.0", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Just above boundary: 100.00001
-        engine.setSoftwareVolume(100.00001)
+        engine.audio.setSoftwareVolume(100.00001)
         assertTrue("Limiter MUST be present at 100.00001", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Boundary toggle back to 100.0
-        engine.setSoftwareVolume(100.0)
+        engine.audio.setSoftwareVolume(100.0)
         assertFalse("Limiter MUST be purged when returning to 100.0", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
         assertEquals("", threadSafeBridge.getPropertyString("af"))
 
         // Maximum boundary: 200.0
-        engine.setSoftwareVolume(200.0)
+        engine.audio.setSoftwareVolume(200.0)
         assertTrue("Limiter MUST be present at 200.0", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Over-maximum clamping: 200.001 -> clamped to 200.0
-        engine.setSoftwareVolume(250.0)
-        assertEquals(200.0, engine.softwareVolume.value, 0.0001)
+        engine.audio.setSoftwareVolume(250.0)
+        assertEquals(200.0, engine.audio.softwareVolume.value, 0.0001)
         assertTrue("Limiter MUST be present at clamped 200.0", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
 
     @Test
     fun testLimiterDynamics_repeatedCycleStress() {
         for (i in 1..50) {
-            engine.setSoftwareVolume(100.0 + i * 2.0)
+            engine.audio.setSoftwareVolume(100.0 + i * 2.0)
             val activeAf = threadSafeBridge.getPropertyString("af") ?: ""
-            assertTrue("Limiter missing at cycle $i", activeAf.contains(GyroPlayerEngine.FILTER_ALIMITER))
+            assertTrue("Limiter missing at cycle $i", activeAf.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
 
-            engine.setSoftwareVolume(100.0)
+            engine.audio.setSoftwareVolume(100.0)
             val clearedAf = threadSafeBridge.getPropertyString("af") ?: ""
-            assertFalse("Limiter not cleared at cycle $i", clearedAf.contains(GyroPlayerEngine.FILTER_ALIMITER))
+            assertFalse("Limiter not cleared at cycle $i", clearedAf.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
             assertEquals("Dangling characters after limiter purge at cycle $i", "", clearedAf)
         }
     }
@@ -338,25 +338,25 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testLimiterDynamics_nanAndInfinityRobustness() {
         // Positive infinity clamps to 200.0
-        engine.setSoftwareVolume(Double.POSITIVE_INFINITY)
-        assertEquals(200.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(Double.POSITIVE_INFINITY)
+        assertEquals(200.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Negative infinity clamps to 100.0
-        engine.setSoftwareVolume(Double.NEGATIVE_INFINITY)
-        assertEquals(100.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(Double.NEGATIVE_INFINITY)
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.001)
         assertFalse(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Double.NaN input should not crash engine
-        engine.setSoftwareVolume(Double.NaN)
+        engine.audio.setSoftwareVolume(Double.NaN)
         // NaN.coerceIn returns NaN in Kotlin standard library
-        val current = engine.softwareVolume.value
+        val current = engine.audio.softwareVolume.value
         // Verify engine survives and limiter logic handles current state without throwing
         assertFalse("Limiter must not be active for NaN", current > 100.0 && threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Can recover safely to 100.0
-        engine.resetSoftwareGain()
-        assertEquals(100.0, engine.softwareVolume.value, 0.001)
+        engine.audio.resetSoftwareGain()
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals("", threadSafeBridge.getPropertyString("af"))
     }
 
@@ -367,15 +367,15 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testSafetyAutoReset_acrossLoad() {
         // Arm overdrive with active limiter
-        engine.setSoftwareVolume(175.0)
-        assertEquals(175.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(175.0)
+        assertEquals(175.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Trigger load
         engine.load("http://test.server/stream.mp4")
 
         // Assert auto-reset
-        assertEquals("softwareVolume must reset to 100.0 on load()", 100.0, engine.softwareVolume.value, 0.001)
+        assertEquals("softwareVolume must reset to 100.0 on load()", 100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals("mpv volume must reset to 100.0 on load()", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
         assertFalse("alimiter must be purged on load()", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
@@ -383,8 +383,8 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testSafetyAutoReset_acrossLoadUri() {
         // Arm overdrive with active limiter
-        engine.setSoftwareVolume(185.0)
-        assertEquals(185.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(185.0)
+        assertEquals(185.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Trigger loadUri
@@ -392,7 +392,7 @@ class GyroPlayerEngineAdversarialStressTest {
         engine.loadUri(testUri)
 
         // Assert auto-reset
-        assertEquals("softwareVolume must reset to 100.0 on loadUri()", 100.0, engine.softwareVolume.value, 0.001)
+        assertEquals("softwareVolume must reset to 100.0 on loadUri()", 100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals("mpv volume must reset to 100.0 on loadUri()", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
         assertFalse("alimiter must be purged on loadUri()", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
@@ -400,15 +400,15 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testSafetyAutoReset_acrossRelease() {
         // Arm overdrive with active limiter
-        engine.setSoftwareVolume(190.0)
-        assertEquals(190.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(190.0)
+        assertEquals(190.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Trigger release
         engine.release()
 
         // Assert auto-reset
-        assertEquals("softwareVolume must reset to 100.0 on release()", 100.0, engine.softwareVolume.value, 0.001)
+        assertEquals("softwareVolume must reset to 100.0 on release()", 100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals("mpv volume must reset to 100.0 on release()", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
         assertFalse("alimiter must be purged on release()", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
@@ -416,15 +416,15 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testSafetyAutoReset_acrossEndFileEvent() {
         // Arm overdrive with active limiter
-        engine.setSoftwareVolume(165.0)
-        assertEquals(165.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(165.0)
+        assertEquals(165.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Trigger END_FILE
         threadSafeBridge.getDelegateBridge().emitEndFile()
 
         // Assert auto-reset
-        assertEquals("softwareVolume must reset to 100.0 on END_FILE", 100.0, engine.softwareVolume.value, 0.001)
+        assertEquals("softwareVolume must reset to 100.0 on END_FILE", 100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals("mpv volume must reset to 100.0 on END_FILE", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
         assertFalse("alimiter must be purged on END_FILE", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
@@ -432,15 +432,15 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testSafetyAutoReset_acrossShutdownEvent() {
         // Arm overdrive with active limiter
-        engine.setSoftwareVolume(145.0)
-        assertEquals(145.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(145.0)
+        assertEquals(145.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
         // Trigger SHUTDOWN
         threadSafeBridge.getDelegateBridge().emitShutdown()
 
         // Assert auto-reset
-        assertEquals("softwareVolume must reset to 100.0 on SHUTDOWN", 100.0, engine.softwareVolume.value, 0.001)
+        assertEquals("softwareVolume must reset to 100.0 on SHUTDOWN", 100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals("mpv volume must reset to 100.0 on SHUTDOWN", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
         assertFalse("alimiter must be purged on SHUTDOWN", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
@@ -448,21 +448,21 @@ class GyroPlayerEngineAdversarialStressTest {
     @Test
     fun testSafetyAutoReset_preservesConcurrentNightModeAndDownmix() {
         // Enable persistent filters
-        engine.setNightMode(true)
-        engine.setStereoDownmix(true)
-        engine.setSoftwareVolume(170.0)
+        engine.audio.setNightMode(true)
+        engine.audio.setStereoDownmix(true)
+        engine.audio.setSoftwareVolume(170.0)
 
-        val fullChain = "${GyroPlayerEngine.FILTER_STEREO_DOWNMIX},${GyroPlayerEngine.FILTER_DYNAUDNORM},${GyroPlayerEngine.FILTER_ALIMITER}"
+        val fullChain = "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM},${dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(fullChain, threadSafeBridge.getPropertyString("af"))
 
         // Trigger safety reset
-        engine.resetSoftwareGain()
+        engine.audio.resetSoftwareGain()
 
         // Verify limiter purged, but user nightMode and downmix filters strictly preserved!
-        val remainingChain = "${GyroPlayerEngine.FILTER_STEREO_DOWNMIX},${GyroPlayerEngine.FILTER_DYNAUDNORM}"
+        val remainingChain = "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM}"
         assertEquals(remainingChain, threadSafeBridge.getPropertyString("af"))
-        assertTrue(engine.nightMode.value)
-        assertTrue(engine.stereoDownmix.value)
+        assertTrue(engine.audio.nightMode.value)
+        assertTrue(engine.audio.stereoDownmix.value)
     }
 
     // =========================================================================
@@ -483,7 +483,7 @@ class GyroPlayerEngineAdversarialStressTest {
 
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
 
-        val chapters = engine.chapters.value
+        val chapters = engine.trackManager.chapters.value
         assertEquals(3, chapters.size)
         assertEquals(0L, chapters[0].timeMs)
         assertEquals(0L, chapters[1].timeMs)
@@ -505,7 +505,7 @@ class GyroPlayerEngineAdversarialStressTest {
         // Must not throw arithmetic exceptions
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
 
-        val chapters = engine.chapters.value
+        val chapters = engine.trackManager.chapters.value
         assertEquals(3, chapters.size)
         assertEquals(0L, chapters[0].timeMs)
         assertEquals(0L, chapters[1].timeMs)
@@ -529,7 +529,7 @@ class GyroPlayerEngineAdversarialStressTest {
         for (invalid in invalidIndices) {
             engine.seekToChapter(invalid)
             assertEquals("Chapter property should not mutate on invalid seek index $invalid", 0L, threadSafeBridge.getPropertyLong("chapter"))
-            assertEquals("Engine currentChapter state should not change on invalid seek index $invalid", 0, engine.currentChapter.value)
+            assertEquals("Engine currentChapter state should not change on invalid seek index $invalid", 0, engine.trackManager.currentChapter.value)
         }
     }
 
@@ -538,8 +538,8 @@ class GyroPlayerEngineAdversarialStressTest {
         // Zero count
         threadSafeBridge.setPropertyLong("chapter-list/count", 0L)
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
-        assertTrue("Chapters should be empty on count=0", engine.chapters.value.isEmpty())
-        assertEquals(-1, engine.currentChapter.value)
+        assertTrue("Chapters should be empty on count=0", engine.trackManager.chapters.value.isEmpty())
+        assertEquals(-1, engine.trackManager.currentChapter.value)
 
         // Out of bounds seek on empty list
         engine.seekToChapter(0)
@@ -548,8 +548,8 @@ class GyroPlayerEngineAdversarialStressTest {
         // Negative count
         threadSafeBridge.setPropertyLong("chapter-list/count", -5L)
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
-        assertTrue("Chapters should be empty on count < 0", engine.chapters.value.isEmpty())
-        assertEquals(-1, engine.currentChapter.value)
+        assertTrue("Chapters should be empty on count < 0", engine.trackManager.chapters.value.isEmpty())
+        assertEquals(-1, engine.trackManager.currentChapter.value)
     }
 
     @Test
@@ -572,7 +572,7 @@ class GyroPlayerEngineAdversarialStressTest {
 
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
 
-        val chapters = engine.chapters.value
+        val chapters = engine.trackManager.chapters.value
         assertEquals(5, chapters.size)
         assertEquals("Chapter 1", chapters[0].title)
         assertEquals("Chapter 2", chapters[1].title)
@@ -618,9 +618,9 @@ class GyroPlayerEngineAdversarialStressTest {
 
         // 2. Verify all tokens are recognized filters
         val validFilters = setOf(
-            GyroPlayerEngine.FILTER_STEREO_DOWNMIX,
-            GyroPlayerEngine.FILTER_DYNAUDNORM,
-            GyroPlayerEngine.FILTER_ALIMITER
+            dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX,
+            dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM,
+            dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER
         )
         for (token in filters) {
             assertTrue("Unrecognized filter token '$token' in '$af' ($context)", validFilters.contains(token))
@@ -631,9 +631,9 @@ class GyroPlayerEngineAdversarialStressTest {
         assertEquals("Duplicate filters detected in '$af' ($context)", distinctFilters.size, filters.size)
 
         // 4. Verify relative ordering invariant: pan < dynaudnorm < alimiter
-        val downmixIdx = filters.indexOf(GyroPlayerEngine.FILTER_STEREO_DOWNMIX)
-        val dynaudnormIdx = filters.indexOf(GyroPlayerEngine.FILTER_DYNAUDNORM)
-        val alimiterIdx = filters.indexOf(GyroPlayerEngine.FILTER_ALIMITER)
+        val downmixIdx = filters.indexOf(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX)
+        val dynaudnormIdx = filters.indexOf(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM)
+        val alimiterIdx = filters.indexOf(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER)
 
         if (downmixIdx != -1 && dynaudnormIdx != -1) {
             assertTrue(

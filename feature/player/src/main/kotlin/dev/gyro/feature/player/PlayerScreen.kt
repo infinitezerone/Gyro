@@ -114,41 +114,45 @@ fun PlayerScreen(
     }
 
     // 1. Engine & Playback States
-    val playbackState by engine.playbackState.collectAsState()
-    val isPlaying by engine.isPlaying.collectAsState()
-    val durationMs by engine.durationMs.collectAsState()
+    // One snapshot instead of a subscription per property: every slow-moving fact arrives as a
+    // single consistent object, so `playbackState` and `isPlaying` cannot be read from two
+    // different events, and a change recomposes the screen once rather than once per flow.
+    val snapshot by engine.snapshot.collectAsState()
+    val playbackState = snapshot.playbackState
+    val isPlaying = snapshot.isPlaying
+    val durationMs = snapshot.durationMs
     // Collected as State<Long> (without `by` delegation) so PlayerScreen itself does not read
     // `.value` and never recomposes on 10Hz time-pos ticks; only PlayerBottomBar reads `.value`
     // via the deferred lambda while the bottom bar is visible.
     val timePosState = engine.timePosMs.collectAsState()
     val bufferedPosState = engine.bufferedPosMs.collectAsState()
-    val hwdecCurrent by engine.hwdecCurrent.collectAsState()
-    val videoFrameRate by engine.videoFrameRate.collectAsState()
-    val speed by engine.speed.collectAsState()
-    val tracks by engine.tracks.collectAsState()
-    val resizeMode by engine.resizeMode.collectAsState()
-    val subDelaySec by engine.subDelay.collectAsState()
-    val audioDelaySec by engine.audioDelay.collectAsState()
-    val subScale by engine.subScale.collectAsState()
-    val subPos by engine.subPos.collectAsState()
-    val videoDimensions by engine.videoDimensions.collectAsState()
+    val hwdecCurrent = snapshot.hwdecCurrent
+    val videoFrameRate = snapshot.videoFrameRate
+    val speed = snapshot.speed
+    val tracks = snapshot.tracks
+    val resizeMode = snapshot.resizeMode
+    val subDelaySec = snapshot.subtitleDelaySec
+    val audioDelaySec = snapshot.audioDelaySec
+    val subScale = snapshot.subtitleScale
+    val subPos = snapshot.subtitlePositionPercent
+    val videoDimensions = snapshot.videoDimensions
     // Rotation-aware: `videoDimensions` is the coded size, which is landscape for a portrait clip
     // that carries a 90 degree rotation flag. The PiP window and the letterbox maths need the shape
     // the viewer actually sees, otherwise a portrait video gets a landscape window.
-    val videoAspect by engine.videoAspect.collectAsState()
-    val mediaTitle by engine.mediaTitle.collectAsState()
-    val chapters by engine.chapters.collectAsState()
-    val currentChapter by engine.currentChapter.collectAsState()
-    val shaderState by engine.shaderState.collectAsState()
-    val deband by engine.deband.collectAsState()
-    val brightness by engine.brightness.collectAsState()
-    val contrast by engine.contrast.collectAsState()
-    val saturation by engine.saturation.collectAsState()
-    val nightMode by engine.nightMode.collectAsState()
-    val stereoDownmix by engine.stereoDownmix.collectAsState()
+    val videoAspect = snapshot.videoAspect
+    val mediaTitle = snapshot.mediaTitle
+    val chapters = snapshot.chapters
+    val currentChapter = snapshot.currentChapter
+    val shaderState = snapshot.shaderState
+    val deband = snapshot.deband
+    val brightness = snapshot.brightness
+    val contrast = snapshot.contrast
+    val saturation = snapshot.saturation
+    val nightMode = snapshot.nightMode
+    val stereoDownmix = snapshot.stereoDownmix
 
     val vmActiveUri by viewModel.activeUri.collectAsState()
-    val engineCurrentUri by engine.currentUri.collectAsState()
+    val engineCurrentUri = snapshot.currentUri
     var activeUri by remember(currentUri) { mutableStateOf(currentUri ?: vmActiveUri ?: engineCurrentUri) }
 
     LaunchedEffect(vmActiveUri) {
@@ -190,7 +194,7 @@ fun PlayerScreen(
 
     // Clear any residual MPV native video-zoom
     LaunchedEffect(Unit) {
-        engine.resetVideoZoomAndPan()
+        engine.geometry.resetZoomAndPan()
     }
 
     // 2. Picture-in-Picture (PiP) Architecture (Aligned with MiniBgm)
@@ -299,7 +303,7 @@ fun PlayerScreen(
     // Nav3 reuses a popped entry's composition when the same route re-enters, so `remember` state
     // survives the round trip: without this keyed reset, re-entering a video whose controls were
     // auto-hidden on the way out comes back with them still hidden.
-    val screenEntryEpoch by engine.screenEntryEpoch.collectAsState()
+    val screenEntryEpoch by viewModel.screenEntryEpoch.collectAsState()
     LaunchedEffect(screenEntryEpoch) {
         showControls = true
     }
@@ -380,7 +384,7 @@ fun PlayerScreen(
     ) { uri: Uri? ->
         uri?.let {
             val path = it.path ?: it.toString()
-            engine.addSubtitle(path)
+            engine.trackManager.addSubtitle(path)
         }
     }
 
@@ -396,7 +400,7 @@ fun PlayerScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            engine.importAndSetCustomShader(it)
+            engine.shaders.importAndSetCustomShader(it)
         }
     }
 
@@ -469,7 +473,7 @@ fun PlayerScreen(
     // software gain so the next screen does not inherit an overdriven volume.
     DisposableEffect(activeUri) {
         onDispose {
-            engine.resetSoftwareGain()
+            engine.audio.resetSoftwareGain()
         }
     }
 
@@ -541,10 +545,10 @@ fun PlayerScreen(
                 gestureHudState = newState
             },
             onSoftwareVolumeChange = { gain ->
-                engine.setSoftwareVolume(gain)
+                engine.audio.setSoftwareVolume(gain)
             },
             getSoftwareVolume = {
-                engine.softwareVolume.value
+                engine.audio.softwareVolume.value
             },
             config = gestureConfig
         )
@@ -556,11 +560,11 @@ fun PlayerScreen(
     // previous video until mpv presents its first frame - 290ms for a local 1080p file, seconds for
     // a remote one. Cover it while that is true. The surface is composited behind the window, so
     // an ordinary Composable sits on top of it; this is the same role as ExoPlayer's shutter.
-    val firstFrameRendered by engine.firstFrameRendered.collectAsState()
+    val firstFrameRendered = snapshot.firstFrameRendered
     // Releasing the cover before the buffer and layout have taken the new file's shape lets the
     // surface geometry transition play in the open - on an aspect change the picture visibly
     // slides in from a corner. Both gates must be open.
-    val geometryReady by engine.geometryReady.collectAsState()
+    val geometryReady = snapshot.geometryReady
     // A signal that never arrives must not leave a permanent black screen: the timeout covers a
     // slow open and recovers on its own if the native side ever stops reporting.
     var isShutterReady by remember(activeUri) { mutableStateOf(false) }
@@ -578,8 +582,8 @@ fun PlayerScreen(
         }
         isShutterReady = false
         delay(4_000L)
-        if (!engine.firstFrameRendered.value || !engine.geometryReady.value) {
-            SwitchTrace.log("SHUTTER_TIMEOUT_EXPIRED", "firstFrame=${engine.firstFrameRendered.value}, geometry=${engine.geometryReady.value}")
+        if (!engine.geometry.firstFrameRendered.value || !engine.geometry.geometryReady.value) {
+            SwitchTrace.log("SHUTTER_TIMEOUT_EXPIRED", "firstFrame=${engine.geometry.firstFrameRendered.value}, geometry=${engine.geometry.geometryReady.value}")
             shutterTimedOut = true
             isShutterReady = true
         }
@@ -821,8 +825,8 @@ fun PlayerScreen(
         activeSheetTab?.let { tab ->
             if (!isPipLayout && !hideChrome) {
                 val timePosMs by engine.timePosMs.collectAsState()
-                val fps by engine.fps.collectAsState()
-                val droppedFrames by engine.droppedFrames.collectAsState()
+                val fps = snapshot.fps
+                val droppedFrames = snapshot.droppedFrames
                 val currentMediaInfo = remember(activeSheetTab, activeUri) {
                     engine.queryMediaInfo(
                         fallbackTitle = mediaTitle,
@@ -851,7 +855,7 @@ fun PlayerScreen(
                     powerMetrics = powerMetrics,
                     mediaInfo = currentMediaInfo,
                     shaderState = shaderState,
-                    customShaders = remember(shaderState) { engine.getCustomShaders() },
+                    customShaders = remember(shaderState) { engine.shaders.getCustomShaders() },
                     deband = deband,
                     brightness = brightness,
                     contrast = contrast,
@@ -867,28 +871,28 @@ fun PlayerScreen(
                         engine.seekToChapter(idx)
                         activeSheetTab = null
                     },
-                    onSelectShader = { shader -> engine.setShader(shader) },
-                    onClearShader = { engine.clearShader() },
+                    onSelectShader = { shader -> engine.shaders.setShader(shader) },
+                    onClearShader = { engine.shaders.clearShader() },
                     onSelectCustomShaderFile = { file ->
-                        engine.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
+                        engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
                     },
                     onImportCustomShader = {
                         shaderPicker.launch(arrayOf("*/*"))
                     },
-                    onSetDeband = { enabled -> engine.setDeband(enabled) },
-                    onSetBrightness = { value -> engine.setBrightness(value) },
-                    onSetContrast = { value -> engine.setContrast(value) },
-                    onSetSaturation = { value -> engine.setSaturation(value) },
-                    onResetColors = { engine.resetColors() },
-                    onSetNightMode = { enabled -> engine.setNightMode(enabled) },
-                    onSetStereoDownmix = { enabled -> engine.setStereoDownmix(enabled) },
-                    onSelectTrack = { type, id -> engine.selectTrack(type, id) },
-                    onSelectResizeMode = { mode -> engine.setResizeMode(mode) },
+                    onSetDeband = { enabled -> engine.video.setDeband(enabled) },
+                    onSetBrightness = { value -> engine.video.setBrightness(value) },
+                    onSetContrast = { value -> engine.video.setContrast(value) },
+                    onSetSaturation = { value -> engine.video.setSaturation(value) },
+                    onResetColors = { engine.video.resetColors() },
+                    onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
+                    onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
+                    onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
+                    onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
                     onSelectSpeed = { sp -> engine.setSpeed(sp) },
-                    onSetSubDelay = { delay -> engine.setSubtitleDelay(delay) },
-                    onSetAudioDelay = { delay -> engine.setAudioDelay(delay) },
-                    onSetSubScale = { scale -> engine.setSubtitleScale(scale) },
-                    onSetSubPos = { pos -> engine.setSubtitlePosition(pos) },
+                    onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
+                    onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
+                    onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
+                    onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
                     onToggleHwdec = { engine.toggleHwdec() },
                     onAddExternalSubtitle = {
                         subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))

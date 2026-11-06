@@ -44,7 +44,7 @@ class GyroPlayerEngineTest {
     fun testEnsureInitialized_callsCreateAndInit() {
         assertEquals(1, fakeBridge.createCount)
         assertEquals(1, fakeBridge.initCount)
-        assertTrue(fakeBridge.eventListener != null)
+        assertTrue(fakeBridge.eventSubscriberCount > 0)
     }
 
     @Test
@@ -104,7 +104,7 @@ class GyroPlayerEngineTest {
 
         fakeBridge.emitProperty("track-list")
 
-        val tracks = engine.tracks.value
+        val tracks = engine.trackManager.tracks.value
         assertEquals(2, tracks.size)
         assertEquals(1, tracks[0].id)
         assertEquals("audio", tracks[0].type)
@@ -115,34 +115,34 @@ class GyroPlayerEngineTest {
         assertEquals("sub", tracks[1].type)
         assertFalse(tracks[1].isSelected)
 
-        engine.selectTrack("audio", 1)
+        engine.trackManager.selectTrack("audio", 1)
         assertEquals("1", fakeBridge.properties["aid"])
 
-        engine.selectTrack("sub", 0)
+        engine.trackManager.selectTrack("sub", 0)
         assertEquals("no", fakeBridge.properties["sid"])
     }
 
     @Test
     fun testResizeMode() {
-        engine.setResizeMode(ResizeMode.CROP)
-        assertEquals(ResizeMode.CROP, engine.resizeMode.value)
+        engine.geometry.setResizeMode(ResizeMode.CROP)
+        assertEquals(ResizeMode.CROP, engine.geometry.resizeMode.value)
         assertEquals(1.0, fakeBridge.properties["panscan"] as Double, 0.001)
         assertEquals("-1", fakeBridge.properties["video-aspect-override"])
 
-        engine.setResizeMode(ResizeMode.ASPECT_16_9)
-        assertEquals(ResizeMode.ASPECT_16_9, engine.resizeMode.value)
+        engine.geometry.setResizeMode(ResizeMode.ASPECT_16_9)
+        assertEquals(ResizeMode.ASPECT_16_9, engine.geometry.resizeMode.value)
         assertEquals(0.0, fakeBridge.properties["panscan"] as Double, 0.001)
         assertEquals("16:9", fakeBridge.properties["video-aspect-override"])
     }
 
     @Test
     fun testSubtitleAndAudioDelay() {
-        engine.setSubtitleDelay(1.25)
-        assertEquals(1.3, engine.subDelay.value, 0.001)
+        engine.tuning.setSubtitleDelay(1.25)
+        assertEquals(1.3, engine.tuning.subtitleDelaySec.value, 0.001)
         assertEquals(1.3, fakeBridge.properties["sub-delay"] as Double, 0.001)
 
-        engine.setAudioDelay(-0.8)
-        assertEquals(-0.8, engine.audioDelay.value, 0.001)
+        engine.tuning.setAudioDelay(-0.8)
+        assertEquals(-0.8, engine.tuning.audioDelaySec.value, 0.001)
         assertEquals(-0.8, fakeBridge.properties["audio-delay"] as Double, 0.001)
     }
 
@@ -194,6 +194,77 @@ class GyroPlayerEngineTest {
     }
 
     @Test
+    fun testTimelineProperties_updatePublicFlowsAndMediaInfo() {
+        fakeBridge.emitPropertyDouble("time-pos", 12.5)
+        fakeBridge.emitPropertyDouble("duration", 180.25)
+        fakeBridge.emitPropertyDouble("demuxer-cache-time", 30.0)
+
+        assertEquals(12500L, engine.timePosMs.value)
+        assertEquals(180250L, engine.durationMs.value)
+        assertEquals(30000L, engine.bufferedPosMs.value)
+        assertEquals(180250L, engine.queryMediaInfo().durationMs)
+
+        fakeBridge.emitPropertyDouble("demuxer-cache-time", 2.0)
+        assertEquals(12500L, engine.bufferedPosMs.value)
+
+        engine.load("file:///tmp/next.mp4", startPositionMs = 4000L)
+        assertEquals(4000L, engine.timePosMs.value)
+        assertEquals(0L, engine.durationMs.value)
+    }
+
+    @Test
+    fun testSeekWhileLoading_executesOnceAfterFileLoaded() {
+        engine.attachSurface(Surface(android.graphics.SurfaceTexture(0)))
+        engine.load("file:///tmp/video.mp4")
+        assertFalse(engine.isFileLoaded)
+
+        engine.seekTo(15000L)
+        engine.seekTo(25000L)
+        assertFalse(fakeBridge.commands.any { it.first() == "seek" })
+
+        fakeBridge.emitFileLoaded()
+        assertTrue(engine.isFileLoaded)
+        assertEquals(25000L, engine.timePosMs.value)
+        assertEquals(listOf(listOf("seek", "25.0", "absolute")),
+            fakeBridge.commands.filter { it.first() == "seek" })
+
+        fakeBridge.emitFileLoaded()
+        assertEquals(1, fakeBridge.commands.count { it.first() == "seek" })
+    }
+
+    @Test
+    fun testNewLoad_discardsPreviousDeferredSeekAndUsesResumeOption() {
+        engine.seekTo(90000L)
+        engine.attachSurface(Surface(android.graphics.SurfaceTexture(0)))
+        engine.load("file:///tmp/next.mp4", startPositionMs = 12000L)
+        fakeBridge.emitFileLoaded()
+
+        assertEquals(12000L, engine.timePosMs.value)
+        assertFalse(fakeBridge.commands.any { it.first() == "seek" })
+        val loadCommand = fakeBridge.commands.single { it.first() == "loadfile" }
+        assertEquals(listOf("loadfile", "file:///tmp/next.mp4", "replace", "0"), loadCommand.take(4))
+        assertEquals("start=+${"%.3f".format(12.0)}", loadCommand[4])
+    }
+
+    @Test
+    fun testChapterSeek_updatesDisplayedPositionAndFiltersStaleReports() {
+        fakeBridge.properties["chapter-list/count"] = 2L
+        fakeBridge.properties["chapter-list/0/time"] = 0.0
+        fakeBridge.properties["chapter-list/1/time"] = 60.0
+        fakeBridge.emitFileLoaded()
+
+        engine.seekToChapter(1)
+        assertEquals(60000L, engine.timePosMs.value)
+        assertEquals(1, engine.trackManager.currentChapter.value)
+        assertEquals(1L, fakeBridge.properties["chapter"])
+
+        fakeBridge.emitPropertyDouble("time-pos", 10.0)
+        assertEquals(60000L, engine.timePosMs.value)
+        fakeBridge.emitPropertyDouble("time-pos", 60.1)
+        assertEquals(60100L, engine.timePosMs.value)
+    }
+
+    @Test
     fun testRedraw_onlyDispatchesWhenSurfaceAttached() {
         assertEquals(0, fakeBridge.redrawCount)
         // 未 attach surface 时调用 redraw 不触发
@@ -218,14 +289,66 @@ class GyroPlayerEngineTest {
 
         engine.release()
         assertEquals(1, fakeBridge.destroyCount)
-        assertEquals(null, fakeBridge.eventListener)
+        assertEquals(0, fakeBridge.eventSubscriberCount)
         assertEquals(PlaybackState.IDLE, engine.playbackState.value)
         assertFalse(engine.isPlaying.value)
         assertNull(engine.currentUri.value)
-        assertEquals(VideoDimensions(), engine.videoDimensions.value)
-        assertEquals(0f, engine.videoAspect.value, 0.0001f)
-        assertFalse(engine.firstFrameRendered.value)
-        assertFalse(engine.geometryReady.value)
+        assertEquals(VideoDimensions(), engine.geometry.videoDimensions.value)
+        assertEquals(0f, engine.geometry.videoAspect.value, 0.0001f)
+        assertFalse(engine.geometry.firstFrameRendered.value)
+        assertFalse(engine.geometry.geometryReady.value)
+    }
+
+    @Test
+    fun testEventSubscriptions_areCancelledAndRecreatedOnce() {
+        val subscribers = fakeBridge.eventSubscriberCount
+        assertTrue(subscribers > 1)
+        engine.ensureInitialized()
+        assertEquals(subscribers, fakeBridge.eventSubscriberCount)
+        fakeBridge.emitPropertyDouble("speed", 1.5)
+        assertEquals(1.5f, engine.speed.value, 0.001f)
+
+        engine.release()
+        assertEquals(0, fakeBridge.eventSubscriberCount)
+        fakeBridge.emitPropertyDouble("speed", 3.0)
+        assertEquals(1.5f, engine.speed.value, 0.001f)
+
+        engine.ensureInitialized()
+        assertEquals(subscribers, fakeBridge.eventSubscriberCount)
+        fakeBridge.emitPropertyDouble("speed", 2.0)
+        assertEquals(2.0f, engine.speed.value, 0.001f)
+        engine.release()
+        assertEquals(0, fakeBridge.eventSubscriberCount)
+    }
+
+    @Test
+    fun testFailedInitialization_cancelsEventSubscriptionsBeforeRetry() {
+        val failingBridge = FakeMpvNativeBridge()
+        var attempts = 0
+        val bridge = object : MpvNativeBridge by failingBridge {
+            override fun init() {
+                attempts += 1
+                if (attempts == 1) error("init failed")
+                failingBridge.init()
+            }
+        }
+        val retryEngine = GyroPlayerEngine(testContext, bridge)
+        retryEngine.ensureInitialized()
+        assertEquals(0, failingBridge.eventSubscriberCount)
+
+        retryEngine.ensureInitialized()
+        assertEquals(fakeBridge.eventSubscriberCount, failingBridge.eventSubscriberCount)
+        failingBridge.emitFileLoaded()
+        assertEquals(PlaybackState.READY, retryEngine.playbackState.value)
+        retryEngine.release()
+        assertEquals(0, failingBridge.eventSubscriberCount)
+    }
+
+    @Test
+    fun testLoadUri_usesCallerSuppliedDisplayTitle() {
+        engine.loadUri(TestUri("content://media/external/video/media/123"), displayTitle = "Named Movie.mkv")
+        assertEquals("Named Movie.mkv", engine.mediaTitle.value)
+        engine.release()
     }
 
     @Test
@@ -242,9 +365,9 @@ class GyroPlayerEngineTest {
 
         fakeBridge.emitProperty("video-out-params")
 
-        assertEquals(VideoDimensions(1080, 1920), engine.videoDimensions.value)
-        assertEquals(1080f / 1920f, engine.videoAspect.value, 0.0001f)
-        assertTrue(engine.geometryReady.value)
+        assertEquals(VideoDimensions(1080, 1920), engine.geometry.videoDimensions.value)
+        assertEquals(1080f / 1920f, engine.geometry.videoAspect.value, 0.0001f)
+        assertTrue(engine.geometry.geometryReady.value)
     }
 
     @Test
@@ -256,8 +379,8 @@ class GyroPlayerEngineTest {
 
         fakeBridge.emitProperty("video-params")
 
-        assertEquals(VideoDimensions(), engine.videoDimensions.value)
-        assertFalse(engine.geometryReady.value)
+        assertEquals(VideoDimensions(), engine.geometry.videoDimensions.value)
+        assertFalse(engine.geometry.geometryReady.value)
 
         // Once video-out-params becomes available, it publishes once in final display orientation
         fakeBridge.properties["video-out-params/dw"] = 1920L
@@ -266,9 +389,9 @@ class GyroPlayerEngineTest {
 
         fakeBridge.emitProperty("video-out-params")
 
-        assertEquals(VideoDimensions(1920, 1080), engine.videoDimensions.value)
-        assertEquals(1920f / 1080f, engine.videoAspect.value, 0.0001f)
-        assertTrue(engine.geometryReady.value)
+        assertEquals(VideoDimensions(1920, 1080), engine.geometry.videoDimensions.value)
+        assertEquals(1920f / 1080f, engine.geometry.videoAspect.value, 0.0001f)
+        assertTrue(engine.geometry.geometryReady.value)
     }
 
     @Test
@@ -278,17 +401,17 @@ class GyroPlayerEngineTest {
         fakeBridge.emitProperty("video-out-params")
         fakeBridge.emitEvent(MpvNativeBridge.Event.FIRST_FRAME)
 
-        assertEquals(VideoDimensions(1920, 1080), engine.videoDimensions.value)
-        assertEquals(1920f / 1080f, engine.videoAspect.value, 0.0001f)
-        assertTrue(engine.firstFrameRendered.value)
-        assertTrue(engine.geometryReady.value)
+        assertEquals(VideoDimensions(1920, 1080), engine.geometry.videoDimensions.value)
+        assertEquals(1920f / 1080f, engine.geometry.videoAspect.value, 0.0001f)
+        assertTrue(engine.geometry.firstFrameRendered.value)
+        assertTrue(engine.geometry.geometryReady.value)
 
         engine.load("file:///tmp/another.mp4")
 
-        assertEquals(VideoDimensions(1920, 1080), engine.videoDimensions.value)
-        assertEquals(1920f / 1080f, engine.videoAspect.value, 0.0001f)
-        assertFalse(engine.firstFrameRendered.value)
-        assertFalse(engine.geometryReady.value)
+        assertEquals(VideoDimensions(1920, 1080), engine.geometry.videoDimensions.value)
+        assertEquals(1920f / 1080f, engine.geometry.videoAspect.value, 0.0001f)
+        assertFalse(engine.geometry.firstFrameRendered.value)
+        assertFalse(engine.geometry.geometryReady.value)
     }
 
     @Test
@@ -353,8 +476,8 @@ class GyroPlayerEngineTest {
 
     @Test
     fun testUpdateDisplayRefreshRate_setsPropertiesOnBridge() {
-        engine.updateDisplayRefreshRate(120.0f)
-        assertEquals(120.0f, engine.displayRefreshRate.value, 0.001f)
+        engine.geometry.updateDisplayRefreshRate(120.0f)
+        assertEquals(120.0f, engine.geometry.displayRefreshRate.value, 0.001f)
         assertEquals(120.0, fakeBridge.properties["display-fps-override"] as Double, 0.001)
         assertEquals(120.0, fakeBridge.properties["display-fps"] as Double, 0.001)
     }
@@ -362,9 +485,9 @@ class GyroPlayerEngineTest {
     @Test
     fun testVideoFrameRate_publishedWhenContainerFpsArrivesAfterFileLoaded() {
         assertTrue(fakeBridge.isPropertyObserved("container-fps", MpvNativeBridge.Format.DOUBLE))
-        assertEquals(0f, engine.videoFrameRate.value, 0.001f)
+        assertEquals(0f, engine.geometry.videoFrameRate.value, 0.001f)
 
         fakeBridge.emitPropertyDouble("container-fps", 90.0)
-        assertEquals(90.0f, engine.videoFrameRate.value, 0.01f)
+        assertEquals(90.0f, engine.geometry.videoFrameRate.value, 0.01f)
     }
 }

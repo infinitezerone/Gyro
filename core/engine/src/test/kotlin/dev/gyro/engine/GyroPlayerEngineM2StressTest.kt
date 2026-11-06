@@ -260,10 +260,10 @@ class GyroPlayerEngineM2StressTest {
                     startGate.await(5, TimeUnit.SECONDS)
                     for (i in 0 until iterationsPerThread) {
                         when (threadId % 4) {
-                            0 -> engine.setSoftwareVolume(100.0 + (i % 100))
-                            1 -> engine.resetSoftwareGain()
-                            2 -> engine.setNightMode(i % 2 == 0)
-                            3 -> engine.setStereoDownmix(i % 2 == 1)
+                            0 -> engine.audio.setSoftwareVolume(100.0 + (i % 100))
+                            1 -> engine.audio.resetSoftwareGain()
+                            2 -> engine.audio.setNightMode(i % 2 == 0)
+                            3 -> engine.audio.setStereoDownmix(i % 2 == 1)
                         }
                     }
                 } catch (e: Throwable) {
@@ -489,10 +489,10 @@ class GyroPlayerEngineM2StressTest {
         assertEquals("0.5", fakeBridge.options["speed"])
 
         // Runtime mutations via GUI controls
-        engine.setDeband(true)
+        engine.video.setDeband(true)
         assertEquals(true, fakeBridge.properties["deband"])
 
-        engine.resetColors()
+        engine.video.resetColors()
         assertEquals(0L, fakeBridge.properties["brightness"])
         assertEquals(0L, fakeBridge.properties["contrast"])
         assertEquals(0L, fakeBridge.properties["saturation"])
@@ -500,7 +500,7 @@ class GyroPlayerEngineM2StressTest {
         engine.setSpeed(1.25f)
         assertEquals(1.25, fakeBridge.properties["speed"] as Double, 0.001)
 
-        engine.setSoftwareVolume(150.0)
+        engine.audio.setSoftwareVolume(150.0)
         assertEquals(150.0, fakeBridge.properties["volume"] as Double, 0.001)
         assertTrue((fakeBridge.properties["af"] as String).contains("alimiter"))
     }
@@ -520,14 +520,14 @@ class GyroPlayerEngineM2StressTest {
 
         engine.release()
         assertEquals(1, fakeBridge.destroyCount)
-        assertNull(fakeBridge.eventListener)
+        assertEquals(0, fakeBridge.eventSubscriberCount)
         assertEquals(PlaybackState.IDLE, engine.playbackState.value)
 
         // 2nd cycle (re-initialization after release)
         engine.ensureInitialized()
         assertEquals(2, fakeBridge.createCount)
         assertEquals(2, fakeBridge.initCount)
-        assertTrue(fakeBridge.eventListener != null)
+        assertTrue(fakeBridge.eventSubscriberCount > 0)
     }
 
     private fun createTestSurface(): Surface {
@@ -579,23 +579,23 @@ class GyroPlayerEngineM2StressTest {
         engine.ensureInitialized()
 
         // Set overdrive volume
-        engine.setSoftwareVolume(180.0)
-        assertEquals(180.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(180.0)
+        assertEquals(180.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue((fakeBridge.properties["af"] as String).contains("alimiter"))
 
         // Simulate video load -> auto reset
         engine.load("next_video.mp4")
-        assertEquals(100.0, engine.softwareVolume.value, 0.001)
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(100.0, fakeBridge.properties["volume"] as Double, 0.001)
         assertFalse((fakeBridge.properties["af"] as String).contains("alimiter"))
 
         // Set overdrive volume again
-        engine.setSoftwareVolume(160.0)
-        assertEquals(160.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(160.0)
+        assertEquals(160.0, engine.audio.softwareVolume.value, 0.001)
 
         // Simulate END_FILE event -> auto reset
         fakeBridge.emitEndFile()
-        assertEquals(100.0, engine.softwareVolume.value, 0.001)
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(100.0, fakeBridge.properties["volume"] as Double, 0.001)
         assertFalse((fakeBridge.properties["af"] as String).contains("alimiter"))
     }

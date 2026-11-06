@@ -4,10 +4,18 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.SurfaceTexture
 import android.view.Surface
+import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -25,18 +33,26 @@ import java.util.concurrent.atomic.AtomicInteger
  * 1. 16-thread multi-threaded concurrency stress testing with 0 commands or counters dropped
  * 2. Lifecycle atomic counters (`createCount`, `initCount`, `destroyCount`, `attachSurfaceCount`, `detachSurfaceCount`)
  * 3. Property stores, getters/setters, type conversions, nullability, and options handling
- * 4. Event and property change simulation helpers with registered and null listeners
+ * 4. Event and property change simulation helpers with and without flow subscribers
  * 5. Query helpers (`hasCommand`, `lastCommand`, `findCommands`) and thread-safe [FakeMpvNativeBridge.reset]
  */
 class FakeMpvNativeBridgeTest {
 
     private lateinit var fakeBridge: FakeMpvNativeBridge
     private lateinit var testContext: Context
+    private lateinit var eventScope: CoroutineScope
 
     @Before
     fun setUp() {
         fakeBridge = FakeMpvNativeBridge()
+        eventScope = CoroutineScope(Job() + Dispatchers.Unconfined)
         testContext = object : ContextWrapper(null) {}
+    }
+
+    @After
+    fun tearDown() {
+        eventScope.cancel()
+        assertEquals("All event collectors must be cancelled", 0, fakeBridge.eventSubscriberCount)
     }
 
     private fun createTestSurface(): Surface {
@@ -65,7 +81,7 @@ class FakeMpvNativeBridgeTest {
         assertTrue("Initial observedProperties must be empty", fakeBridge.observedProperties.isEmpty())
         assertTrue("Initial attachedSurfaces must be empty", fakeBridge.attachedSurfaces.isEmpty())
 
-        assertNull("Initial eventListener must be null", fakeBridge.eventListener)
+        assertEquals("Initial eventSubscriberCount must be 0", 0, fakeBridge.eventSubscriberCount)
         assertTrue("Initial isZeroCopySafe must be true", fakeBridge.isZeroCopySafe())
         assertEquals("Initial getGpuRenderer default", "Adreno (TM) 750", fakeBridge.getGpuRenderer())
     }
@@ -287,60 +303,42 @@ class FakeMpvNativeBridgeTest {
     // 3. Event & Property Simulation Helpers
     // =========================================================================
 
-    private class RecordingEventListener : MpvNativeBridge.EventListener {
-        val events = CopyOnWriteArrayList<Int>()
-        val propChanges = CopyOnWriteArrayList<String>()
-        val propLongs = CopyOnWriteArrayList<Pair<String, Long>>()
-        val propDoubles = CopyOnWriteArrayList<Pair<String, Double>>()
-        val propFlags = CopyOnWriteArrayList<Pair<String, Boolean>>()
-        val propStrings = CopyOnWriteArrayList<Pair<String, String>>()
-
-        override fun onEvent(eventId: Int) {
-            events.add(eventId)
+    private fun recordEvents(onEvent: (MpvEvent) -> Unit = {}): CopyOnWriteArrayList<MpvEvent> {
+        val events = CopyOnWriteArrayList<MpvEvent>()
+        // Non-suspending handlers run inline so blocking publish never waits on a test scheduler.
+        eventScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            fakeBridge.events.collect { event ->
+                events.add(event)
+                onEvent(event)
+            }
         }
-
-        override fun onProperty(name: String) {
-            propChanges.add(name)
-        }
-
-        override fun onPropertyLong(name: String, value: Long) {
-            propLongs.add(name to value)
-        }
-
-        override fun onPropertyDouble(name: String, value: Double) {
-            propDoubles.add(name to value)
-        }
-
-        override fun onPropertyFlag(name: String, value: Boolean) {
-            propFlags.add(name to value)
-        }
-
-        override fun onPropertyString(name: String, value: String) {
-            propStrings.add(name to value)
-        }
+        return events
     }
 
-    @Test
-    fun testEventSimulation_dispatchesToRegisteredListener() {
-        val listener = RecordingEventListener()
-        fakeBridge.eventListener = listener
+    @Test(timeout = 5_000)
+    fun testEventSimulation_dispatchesToAllSubscribers() {
+        val events = recordEvents()
+        val otherEvents = recordEvents()
+        assertEquals(2, fakeBridge.eventSubscriberCount)
 
         fakeBridge.emitEvent(MpvNativeBridge.Event.PLAYBACK_RESTART)
         fakeBridge.emitTracksChanged()
         fakeBridge.emitEndFile()
         fakeBridge.emitShutdown()
 
-        assertEquals(4, listener.events.size)
-        assertEquals(MpvNativeBridge.Event.PLAYBACK_RESTART, listener.events[0])
-        assertEquals(MpvNativeBridge.Event.TRACKS_CHANGED, listener.events[1])
-        assertEquals(MpvNativeBridge.Event.END_FILE, listener.events[2])
-        assertEquals(MpvNativeBridge.Event.SHUTDOWN, listener.events[3])
+        val expected = listOf(
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.PLAYBACK_RESTART),
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.TRACKS_CHANGED),
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE),
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.SHUTDOWN)
+        )
+        assertEquals(expected, events)
+        assertEquals(expected, otherEvents)
     }
 
-    @Test
-    fun testEventSimulation_nullListenerDoesNotThrow() {
-        fakeBridge.eventListener = null
-        // None of these should throw NullPointerException
+    @Test(timeout = 5_000)
+    fun testEventSimulation_withoutSubscribersDoesNotThrowOrBlock() {
+        assertEquals(0, fakeBridge.eventSubscriberCount)
         fakeBridge.emitEvent(MpvNativeBridge.Event.PLAYBACK_RESTART)
         fakeBridge.emitTracksChanged()
         fakeBridge.emitEndFile()
@@ -351,51 +349,84 @@ class FakeMpvNativeBridgeTest {
         fakeBridge.emitPropertyDouble("test", 1.0)
         fakeBridge.emitPropertyFlag("test", true)
         fakeBridge.emitPropertyString("test", "val")
+
+        assertEquals("val", fakeBridge.getPropertyString("test"))
+        assertEquals("Test Video", fakeBridge.getPropertyString("media-title"))
+        assertEquals("mediacodec", fakeBridge.getPropertyString("hwdec-current"))
+        assertEquals(0, fakeBridge.eventSubscriberCount)
+        assertTrue("Past events must not be replayed", recordEvents().isEmpty())
     }
 
-    @Test
+    @Test(timeout = 5_000)
     fun testEmitFileLoaded_updatesPropertiesAndFiresEvent() {
-        val listener = RecordingEventListener()
-        fakeBridge.eventListener = listener
+        val propertiesAtEmission = CopyOnWriteArrayList<Pair<String?, String?>>()
+        val events = recordEvents {
+            propertiesAtEmission.add(
+                fakeBridge.getPropertyString("media-title") to
+                    fakeBridge.getPropertyString("hwdec-current")
+            )
+        }
 
         // Default parameters
         fakeBridge.emitFileLoaded()
         assertEquals("Test Video", fakeBridge.getPropertyString("media-title"))
         assertEquals("mediacodec", fakeBridge.getPropertyString("hwdec-current"))
-        assertEquals(1, listener.events.size)
-        assertEquals(MpvNativeBridge.Event.FILE_LOADED, listener.events[0])
+        assertEquals(1, events.size)
+        assertEquals(MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED), events[0])
 
         // Custom parameters
         fakeBridge.emitFileLoaded(mediaTitle = "4K HDR Video", hwdec = "mediacodec-copy")
         assertEquals("4K HDR Video", fakeBridge.getPropertyString("media-title"))
         assertEquals("mediacodec-copy", fakeBridge.getPropertyString("hwdec-current"))
-        assertEquals(2, listener.events.size)
-        assertEquals(MpvNativeBridge.Event.FILE_LOADED, listener.events[1])
+        assertEquals(2, events.size)
+        assertEquals(MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED), events[1])
+        assertEquals(
+            listOf("Test Video" to "mediacodec", "4K HDR Video" to "mediacodec-copy"),
+            propertiesAtEmission
+        )
     }
 
-    @Test
+    @Test(timeout = 5_000)
     fun testEmitPropertyChanges_updatesStoreAndDispatches() {
-        val listener = RecordingEventListener()
-        fakeBridge.eventListener = listener
+        val propertiesAtEmission = CopyOnWriteArrayList<Any?>()
+        val events = recordEvents { event ->
+            propertiesAtEmission.add(
+                when (event) {
+                    is MpvEvent.PropertyChanged -> fakeBridge.properties[event.name]
+                    is MpvEvent.LongProperty -> fakeBridge.getPropertyLong(event.name)
+                    is MpvEvent.DoubleProperty -> fakeBridge.getPropertyDouble(event.name)
+                    is MpvEvent.FlagProperty -> fakeBridge.getPropertyBoolean(event.name)
+                    is MpvEvent.StringProperty -> fakeBridge.getPropertyString(event.name)
+                    is MpvEvent.Lifecycle -> null
+                }
+            )
+        }
 
         fakeBridge.emitProperty("pause")
-        assertEquals(listOf("pause"), listener.propChanges)
+        assertEquals(listOf(MpvEvent.PropertyChanged("pause")), events)
 
         fakeBridge.emitPropertyLong("time-pos", 12345L)
         assertEquals(12345L, fakeBridge.getPropertyLong("time-pos"))
-        assertEquals(listOf("time-pos" to 12345L), listener.propLongs)
 
         fakeBridge.emitPropertyDouble("speed", 1.75)
         assertEquals(1.75, fakeBridge.getPropertyDouble("speed")!!, 0.001)
-        assertEquals(listOf("speed" to 1.75), listener.propDoubles)
 
         fakeBridge.emitPropertyFlag("eof-reached", true)
         assertEquals(true, fakeBridge.getPropertyBoolean("eof-reached"))
-        assertEquals(listOf("eof-reached" to true), listener.propFlags)
 
         fakeBridge.emitPropertyString("audio-codec-name", "aac")
         assertEquals("aac", fakeBridge.getPropertyString("audio-codec-name"))
-        assertEquals(listOf("audio-codec-name" to "aac"), listener.propStrings)
+        assertEquals(
+            listOf(
+                MpvEvent.PropertyChanged("pause"),
+                MpvEvent.LongProperty("time-pos", 12345L),
+                MpvEvent.DoubleProperty("speed", 1.75),
+                MpvEvent.FlagProperty("eof-reached", true),
+                MpvEvent.StringProperty("audio-codec-name", "aac")
+            ),
+            events
+        )
+        assertEquals(listOf(null, 12345L, 1.75, true, "aac"), propertiesAtEmission)
     }
 
     @Test
@@ -468,8 +499,11 @@ class FakeMpvNativeBridgeTest {
         assertTrue(unknownCommands.isEmpty())
     }
 
-    @Test
+    @Test(timeout = 5_000)
     fun testReset_clearsAllStateAndCounters() {
+        val events = recordEvents()
+        assertEquals(1, fakeBridge.eventSubscriberCount)
+
         // Populate state
         fakeBridge.create(testContext)
         fakeBridge.init()
@@ -519,6 +553,11 @@ class FakeMpvNativeBridgeTest {
         assertNull(fakeBridge.lastCommand())
         assertFalse(fakeBridge.hasCommand("loadfile"))
         assertTrue(fakeBridge.findCommands("loadfile").isEmpty())
+
+        // Reset owns recorded state, not the lifetime of external collectors.
+        assertEquals(1, fakeBridge.eventSubscriberCount)
+        fakeBridge.emitTracksChanged()
+        assertEquals(listOf(MpvEvent.Lifecycle(MpvNativeBridge.Event.TRACKS_CHANGED)), events)
     }
 
     // =========================================================================
@@ -669,8 +708,10 @@ class FakeMpvNativeBridgeTest {
         val startGate = CountDownLatch(1)
         val doneGate = CountDownLatch(threadCount)
         val errors = AtomicInteger(0)
-        val listener = RecordingEventListener()
-        fakeBridge.eventListener = listener
+        val expectedEventCount = (threadCount / 4) * iterations * 2
+        val receivedEvents = CountDownLatch(expectedEventCount)
+        val events = recordEvents { receivedEvents.countDown() }
+        assertEquals(1, fakeBridge.eventSubscriberCount)
         val surface = createTestSurface()
 
         for (t in 0 until threadCount) {
@@ -719,11 +760,21 @@ class FakeMpvNativeBridgeTest {
             }
         }
 
-        startGate.countDown()
-        assertTrue("Timeout awaiting heterogeneous stress threads", doneGate.await(15, TimeUnit.SECONDS))
-        executor.shutdown()
+        try {
+            startGate.countDown()
+            assertTrue("Timeout awaiting heterogeneous stress threads", doneGate.await(15, TimeUnit.SECONDS))
 
-        assertEquals("Zero errors expected under heterogeneous concurrent stress", 0, errors.get())
+            assertEquals("Zero errors expected under heterogeneous concurrent stress", 0, errors.get())
+            assertTrue("Timeout awaiting flow events", receivedEvents.await(5, TimeUnit.SECONDS))
+            assertEquals(expectedEventCount, events.size)
+            assertEquals(expectedEventCount / 2, events.filterIsInstance<MpvEvent.LongProperty>().size)
+            assertEquals(
+                List(expectedEventCount / 2) { MpvEvent.Lifecycle(MpvNativeBridge.Event.PROPERTY_CHANGE) },
+                events.filterIsInstance<MpvEvent.Lifecycle>()
+            )
+        } finally {
+            executor.shutdownNow()
+        }
     }
 
     @Test

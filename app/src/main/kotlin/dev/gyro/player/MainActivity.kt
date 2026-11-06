@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
                         if (top.uri == uri) return@LaunchedEffect
                         backStack.removeAt(backStack.lastIndex)
                     }
-                    playerEngine.notifyScreenEntry()
+                    playerViewModel.notifyScreenEntry()
                     backStack.add(Screen.Player(uri))
                     playerViewModel.openUri(uri)
                 }
@@ -216,7 +216,7 @@ class MainActivity : ComponentActivity() {
                                 onPlayVideo = { item, currentList ->
                                     val idx = currentList.indexOfFirst { it.uriString == item.uriString }
                                     playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
-                                    playerEngine.notifyScreenEntry()
+                                    playerViewModel.notifyScreenEntry()
                                     val itemAndroidUri = item.uriString.toUri()
                                     backStack.add(Screen.Player(itemAndroidUri))
                                     playerViewModel.openUri(itemAndroidUri)

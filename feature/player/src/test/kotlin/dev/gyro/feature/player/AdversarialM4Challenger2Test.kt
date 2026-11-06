@@ -262,7 +262,7 @@ class AdversarialM4Challenger2Test {
         engine.attachSurface(android.view.Surface(android.graphics.SurfaceTexture(0)))
         engine.load("http://example.com/test.mp4")
         fakeBridge.emitProperty("duration")
-        fakeBridge.eventListener?.onEvent(dev.gyro.engine.MpvNativeBridge.Event.FILE_LOADED)
+        fakeBridge.emitEvent(dev.gyro.engine.MpvNativeBridge.Event.FILE_LOADED)
 
         // Seek forward 10 seconds
         engine.seekRelative(10_000L)
@@ -300,8 +300,8 @@ class AdversarialM4Challenger2Test {
         )
 
         for ((input, expected) in testCases) {
-            engine.setBrightness(input)
-            assertEquals("Brightness StateFlow must clamp to $expected for input $input", expected.toInt(), engine.brightness.value)
+            engine.video.setBrightness(input)
+            assertEquals("Brightness StateFlow must clamp to $expected for input $input", expected.toInt(), engine.video.brightness.value)
             assertEquals("Bridge property brightness must clamp to $expected", expected, fakeBridge.properties["brightness"])
         }
     }
@@ -319,8 +319,8 @@ class AdversarialM4Challenger2Test {
         )
 
         for ((input, expected) in testCases) {
-            engine.setContrast(input)
-            assertEquals("Contrast StateFlow must clamp to $expected for input $input", expected.toInt(), engine.contrast.value)
+            engine.video.setContrast(input)
+            assertEquals("Contrast StateFlow must clamp to $expected for input $input", expected.toInt(), engine.video.contrast.value)
             assertEquals("Bridge property contrast must clamp to $expected", expected, fakeBridge.properties["contrast"])
         }
     }
@@ -336,8 +336,8 @@ class AdversarialM4Challenger2Test {
         )
 
         for ((input, expected) in testCases) {
-            engine.setSaturation(input)
-            assertEquals("Saturation StateFlow must clamp to $expected for input $input", expected.toInt(), engine.saturation.value)
+            engine.video.setSaturation(input)
+            assertEquals("Saturation StateFlow must clamp to $expected for input $input", expected.toInt(), engine.video.saturation.value)
             assertEquals("Bridge property saturation must clamp to $expected", expected, fakeBridge.properties["saturation"])
         }
     }
@@ -345,26 +345,26 @@ class AdversarialM4Challenger2Test {
     @Test
     fun testResetColors_setsAllSlidersToZero() {
         // Set all to non-zero values
-        engine.setBrightness(45)
-        engine.setContrast(-80)
-        engine.setSaturation(90)
+        engine.video.setBrightness(45)
+        engine.video.setContrast(-80)
+        engine.video.setSaturation(90)
 
-        assertEquals(45, engine.brightness.value)
-        assertEquals(-80, engine.contrast.value)
-        assertEquals(90, engine.saturation.value)
+        assertEquals(45, engine.video.brightness.value)
+        assertEquals(-80, engine.video.contrast.value)
+        assertEquals(90, engine.video.saturation.value)
 
         // Trigger Reset Colors
-        engine.resetColors()
+        engine.video.resetColors()
 
-        assertEquals(0, engine.brightness.value)
-        assertEquals(0, engine.contrast.value)
-        assertEquals(0, engine.saturation.value)
+        assertEquals(0, engine.video.brightness.value)
+        assertEquals(0, engine.video.contrast.value)
+        assertEquals(0, engine.video.saturation.value)
         assertEquals(0L, fakeBridge.properties["brightness"])
         assertEquals(0L, fakeBridge.properties["contrast"])
         assertEquals(0L, fakeBridge.properties["saturation"])
 
         // Test hasColorModifications predicate
-        val hasColorModifications = engine.brightness.value != 0 || engine.contrast.value != 0 || engine.saturation.value != 0
+        val hasColorModifications = engine.video.brightness.value != 0 || engine.video.contrast.value != 0 || engine.video.saturation.value != 0
         assertFalse("hasColorModifications must be false after resetColors", hasColorModifications)
     }
 
@@ -374,40 +374,40 @@ class AdversarialM4Challenger2Test {
 
     @Test
     fun testDebandToggle() {
-        assertFalse(engine.deband.value)
+        assertFalse(engine.video.deband.value)
 
-        engine.setDeband(true)
-        assertTrue(engine.deband.value)
+        engine.video.setDeband(true)
+        assertTrue(engine.video.deband.value)
         assertEquals(true, fakeBridge.properties["deband"])
 
-        engine.setDeband(false)
-        assertFalse(engine.deband.value)
+        engine.video.setDeband(false)
+        assertFalse(engine.video.deband.value)
         assertEquals(false, fakeBridge.properties["deband"])
     }
 
     @Test
     fun testAudioFilters_nightModeAndStereoDownmixPipeline() {
-        assertFalse(engine.nightMode.value)
-        assertFalse(engine.stereoDownmix.value)
+        assertFalse(engine.audio.nightMode.value)
+        assertFalse(engine.audio.stereoDownmix.value)
 
         // 1. Stereo Downmix only
-        engine.setStereoDownmix(true)
-        assertTrue(engine.stereoDownmix.value)
+        engine.audio.setStereoDownmix(true)
+        assertTrue(engine.audio.stereoDownmix.value)
         val afDownmix = fakeBridge.properties["af"] as String
         assertTrue("af must contain pan downmix filter", afDownmix.contains("pan="))
         assertFalse("af must not contain dynaudnorm", afDownmix.contains("dynaudnorm"))
         assertFalse("af must not contain alimiter", afDownmix.contains("alimiter"))
 
         // 2. Night Mode + Stereo Downmix
-        engine.setNightMode(true)
-        assertTrue(engine.nightMode.value)
+        engine.audio.setNightMode(true)
+        assertTrue(engine.audio.nightMode.value)
         val afBoth = fakeBridge.properties["af"] as String
         assertTrue("Stage 1 must be pan", afBoth.contains("pan="))
         assertTrue("Stage 2 must be dynaudnorm", afBoth.contains("dynaudnorm="))
         assertFalse("alimiter not yet active", afBoth.contains("alimiter"))
 
         // 3. Night Mode + Stereo Downmix + 200% Software Volume Overdrive (Limiter active)
-        engine.setSoftwareVolume(150.0)
+        engine.audio.setSoftwareVolume(150.0)
         val afAll3 = fakeBridge.properties["af"] as String
         val stages = afAll3.split(",")
         assertEquals("Must have exactly 3 stages in filter chain", 3, stages.size)
@@ -416,14 +416,14 @@ class AdversarialM4Challenger2Test {
         assertTrue("Stage 3 alimiter", stages[2].contains("alimiter="))
 
         // 4. Reset software volume -> Limiter removed, pan + dynaudnorm remain
-        engine.resetSoftwareGain()
+        engine.audio.resetSoftwareGain()
         val afGainReset = fakeBridge.properties["af"] as String
         assertEquals(2, afGainReset.split(",").size)
         assertFalse(afGainReset.contains("alimiter"))
 
         // 5. Disable all -> empty filter string
-        engine.setNightMode(false)
-        engine.setStereoDownmix(false)
+        engine.audio.setNightMode(false)
+        engine.audio.setStereoDownmix(false)
         assertEquals("", fakeBridge.properties["af"])
     }
 }

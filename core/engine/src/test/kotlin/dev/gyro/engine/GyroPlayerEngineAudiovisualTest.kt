@@ -61,7 +61,7 @@ class GyroPlayerEngineAudiovisualTest {
 
         fakeBridge.emitProperty("chapter-list")
 
-        val chapters = engine.chapters.value
+        val chapters = engine.trackManager.chapters.value
         assertEquals(3, chapters.size)
         assertEquals("Prologue", chapters[0].title)
         assertEquals(0L, chapters[0].timeMs)
@@ -69,7 +69,7 @@ class GyroPlayerEngineAudiovisualTest {
         assertEquals(125500L, chapters[1].timeMs)
         assertEquals("Credits", chapters[2].title)
         assertEquals(600000L, chapters[2].timeMs)
-        assertEquals(0, engine.currentChapter.value)
+        assertEquals(0, engine.trackManager.currentChapter.value)
     }
 
     @Test
@@ -77,8 +77,8 @@ class GyroPlayerEngineAudiovisualTest {
         fakeBridge.properties["chapter-list/count"] = 0L
         fakeBridge.emitProperty("chapter-list")
 
-        assertTrue(engine.chapters.value.isEmpty())
-        assertEquals(-1, engine.currentChapter.value)
+        assertTrue(engine.trackManager.chapters.value.isEmpty())
+        assertEquals(-1, engine.trackManager.currentChapter.value)
     }
 
     @Test
@@ -91,7 +91,7 @@ class GyroPlayerEngineAudiovisualTest {
 
         fakeBridge.emitProperty("chapter-list")
 
-        val chapters = engine.chapters.value
+        val chapters = engine.trackManager.chapters.value
         assertEquals(2, chapters.size)
         assertEquals("Chapter 1", chapters[0].title)
         assertEquals("Chapter 2", chapters[1].title)
@@ -112,7 +112,7 @@ class GyroPlayerEngineAudiovisualTest {
         engine.seekToChapter(1)
 
         assertEquals(1L, fakeBridge.properties["chapter"])
-        assertEquals(1, engine.currentChapter.value)
+        assertEquals(1, engine.trackManager.currentChapter.value)
     }
 
     @Test
@@ -140,12 +140,12 @@ class GyroPlayerEngineAudiovisualTest {
         fakeBridge.properties["chapter-list/0/title"] = "Intro"
         fakeBridge.properties["chapter-list/0/time"] = 0.0
         fakeBridge.emitProperty("chapter-list")
-        assertEquals(1, engine.chapters.value.size)
+        assertEquals(1, engine.trackManager.chapters.value.size)
 
         fakeBridge.emitEndFile()
 
-        assertTrue(engine.chapters.value.isEmpty())
-        assertEquals(-1, engine.currentChapter.value)
+        assertTrue(engine.trackManager.chapters.value.isEmpty())
+        assertEquals(-1, engine.trackManager.currentChapter.value)
     }
 
     // =========================================================================
@@ -154,41 +154,41 @@ class GyroPlayerEngineAudiovisualTest {
 
     @Test
     fun testVolumeOverdrive_setsGainAndActivatesLimiter() {
-        engine.setSoftwareVolume(150.0)
+        engine.audio.setSoftwareVolume(150.0)
 
-        assertEquals(150.0, engine.softwareVolume.value, 0.001)
+        assertEquals(150.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(150.0, fakeBridge.properties["volume"] as Double, 0.001)
-        assertEquals(GyroPlayerEngine.FILTER_ALIMITER, fakeBridge.properties["af"])
+        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER, fakeBridge.properties["af"])
     }
 
     @Test
     fun testVolumeOverdrive_clamping() {
-        engine.setSoftwareVolume(250.0)
-        assertEquals(200.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(250.0)
+        assertEquals(200.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(200.0, fakeBridge.properties["volume"] as Double, 0.001)
 
-        engine.setSoftwareVolume(50.0)
-        assertEquals(100.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(50.0)
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(100.0, fakeBridge.properties["volume"] as Double, 0.001)
     }
 
     @Test
     fun testVolumeOverdrive_limiterRemovedAt100() {
-        engine.setSoftwareVolume(175.0)
-        assertEquals(GyroPlayerEngine.FILTER_ALIMITER, fakeBridge.properties["af"])
+        engine.audio.setSoftwareVolume(175.0)
+        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER, fakeBridge.properties["af"])
 
-        engine.setSoftwareVolume(100.0)
+        engine.audio.setSoftwareVolume(100.0)
         assertEquals("", fakeBridge.properties["af"])
     }
 
     @Test
     fun testVolumeOverdrive_resetSoftwareGainSafety() {
-        engine.setSoftwareVolume(180.0)
-        assertEquals(180.0, engine.softwareVolume.value, 0.001)
+        engine.audio.setSoftwareVolume(180.0)
+        assertEquals(180.0, engine.audio.softwareVolume.value, 0.001)
 
-        engine.resetSoftwareGain()
+        engine.audio.resetSoftwareGain()
 
-        assertEquals(100.0, engine.softwareVolume.value, 0.001)
+        assertEquals(100.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(100.0, fakeBridge.properties["volume"] as Double, 0.001)
         assertEquals("", fakeBridge.properties["af"])
     }
@@ -199,35 +199,35 @@ class GyroPlayerEngineAudiovisualTest {
 
     @Test
     fun testDebandToggle() {
-        assertFalse(engine.deband.value)
+        assertFalse(engine.video.deband.value)
 
-        engine.setDeband(true)
-        assertTrue(engine.deband.value)
+        engine.video.setDeband(true)
+        assertTrue(engine.video.deband.value)
         assertEquals(true, fakeBridge.properties["deband"])
 
-        engine.setDeband(false)
-        assertFalse(engine.deband.value)
+        engine.video.setDeband(false)
+        assertFalse(engine.video.deband.value)
         assertEquals(false, fakeBridge.properties["deband"])
     }
 
     @Test
     fun testColorAdjustments_clampingAndReset() {
-        engine.setBrightness(25)
-        assertEquals(25, engine.brightness.value)
+        engine.video.setBrightness(25)
+        assertEquals(25, engine.video.brightness.value)
         assertEquals(25L, fakeBridge.properties["brightness"])
 
-        engine.setContrast(120) // Clamps to 100
-        assertEquals(100, engine.contrast.value)
+        engine.video.setContrast(120) // Clamps to 100
+        assertEquals(100, engine.video.contrast.value)
         assertEquals(100L, fakeBridge.properties["contrast"])
 
-        engine.setSaturation(-150) // Clamps to -100
-        assertEquals(-100, engine.saturation.value)
+        engine.video.setSaturation(-150) // Clamps to -100
+        assertEquals(-100, engine.video.saturation.value)
         assertEquals(-100L, fakeBridge.properties["saturation"])
 
-        engine.resetColors()
-        assertEquals(0, engine.brightness.value)
-        assertEquals(0, engine.contrast.value)
-        assertEquals(0, engine.saturation.value)
+        engine.video.resetColors()
+        assertEquals(0, engine.video.brightness.value)
+        assertEquals(0, engine.video.contrast.value)
+        assertEquals(0, engine.video.saturation.value)
         assertEquals(0L, fakeBridge.properties["brightness"])
         assertEquals(0L, fakeBridge.properties["contrast"])
         assertEquals(0L, fakeBridge.properties["saturation"])
@@ -243,33 +243,33 @@ class GyroPlayerEngineAudiovisualTest {
         assertEquals(null, fakeBridge.properties["af"])
 
         // 2. Enable night mode
-        engine.setNightMode(true)
-        assertEquals(GyroPlayerEngine.FILTER_DYNAUDNORM, fakeBridge.properties["af"])
+        engine.audio.setNightMode(true)
+        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM, fakeBridge.properties["af"])
 
         // 3. Enable stereo downmixing -> pan MUST precede dynaudnorm
-        engine.setStereoDownmix(true)
+        engine.audio.setStereoDownmix(true)
         val expectedDownmixAndNight =
-            "${GyroPlayerEngine.FILTER_STEREO_DOWNMIX},${GyroPlayerEngine.FILTER_DYNAUDNORM}"
+            "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM}"
         assertEquals(expectedDownmixAndNight, fakeBridge.properties["af"])
 
         // 4. Boost volume into overdrive -> alimiter MUST follow dynaudnorm
-        engine.setSoftwareVolume(160.0)
+        engine.audio.setSoftwareVolume(160.0)
         val expectedAllThree =
-            "${GyroPlayerEngine.FILTER_STEREO_DOWNMIX},${GyroPlayerEngine.FILTER_DYNAUDNORM},${GyroPlayerEngine.FILTER_ALIMITER}"
+            "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM},${dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(expectedAllThree, fakeBridge.properties["af"])
 
         // 5. Disable night mode -> pan and alimiter remain
-        engine.setNightMode(false)
+        engine.audio.setNightMode(false)
         val expectedDownmixAndLimiter =
-            "${GyroPlayerEngine.FILTER_STEREO_DOWNMIX},${GyroPlayerEngine.FILTER_ALIMITER}"
+            "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(expectedDownmixAndLimiter, fakeBridge.properties["af"])
 
         // 6. Reset software gain -> only pan remains
-        engine.resetSoftwareGain()
-        assertEquals(GyroPlayerEngine.FILTER_STEREO_DOWNMIX, fakeBridge.properties["af"])
+        engine.audio.resetSoftwareGain()
+        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX, fakeBridge.properties["af"])
 
         // 7. Disable stereo downmixing -> chain becomes empty
-        engine.setStereoDownmix(false)
+        engine.audio.setStereoDownmix(false)
         assertEquals("", fakeBridge.properties["af"])
     }
 }

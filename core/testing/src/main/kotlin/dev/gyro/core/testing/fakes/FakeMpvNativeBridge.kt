@@ -2,6 +2,8 @@ package dev.gyro.core.testing.fakes
 
 import android.content.Context
 import android.view.Surface
+import dev.gyro.engine.MpvEvent
+import dev.gyro.engine.MpvEventBus
 import dev.gyro.engine.MpvNativeBridge
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -33,8 +35,9 @@ class FakeMpvNativeBridge(
     @Volatile var gpuRendererResult: String = "Adreno (TM) 750"
 ) : MpvNativeBridge {
 
-    @Volatile
-    override var eventListener: MpvNativeBridge.EventListener? = null
+    private val bus = MpvEventBus()
+    override val events = bus.events
+    val eventSubscriberCount: Int get() = bus.subscriptionCount.value
 
     // Call counters backed by AtomicInteger for thread-safety
     private val _createCount = AtomicInteger(0)
@@ -187,10 +190,10 @@ class FakeMpvNativeBridge(
     fun isPropertyObserved(name: String, format: Int): Boolean = observedProperties[name] == format
 
     /**
-     * Dispatches an mpv lifecycle event to the registered listener.
+     * Publishes an mpv lifecycle event to active flow subscribers.
      */
     fun emitEvent(eventId: Int) {
-        eventListener?.onEvent(eventId)
+        bus.publish(MpvEvent.Lifecycle(eventId))
     }
 
     /**
@@ -227,7 +230,7 @@ class FakeMpvNativeBridge(
      * Emits a property name change notification (Format.NONE).
      */
     fun emitProperty(name: String) {
-        eventListener?.onProperty(name)
+        bus.publish(MpvEvent.PropertyChanged(name))
     }
 
     /**
@@ -235,7 +238,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyLong(name: String, value: Long) {
         properties[name] = value
-        eventListener?.onPropertyLong(name, value)
+        bus.publish(MpvEvent.LongProperty(name, value))
     }
 
     /**
@@ -243,7 +246,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyDouble(name: String, value: Double) {
         properties[name] = value
-        eventListener?.onPropertyDouble(name, value)
+        bus.publish(MpvEvent.DoubleProperty(name, value))
     }
 
     /**
@@ -251,7 +254,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyFlag(name: String, value: Boolean) {
         properties[name] = value
-        eventListener?.onPropertyFlag(name, value)
+        bus.publish(MpvEvent.FlagProperty(name, value))
     }
 
     /**
@@ -259,7 +262,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyString(name: String, value: String) {
         properties[name] = value
-        eventListener?.onPropertyString(name, value)
+        bus.publish(MpvEvent.StringProperty(name, value))
     }
 
     // ---------- Query & Verification Helpers ----------

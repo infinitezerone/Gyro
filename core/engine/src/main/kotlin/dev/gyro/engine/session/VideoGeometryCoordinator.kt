@@ -1,11 +1,20 @@
 package dev.gyro.engine.session
 
+import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.trace.SwitchTrace
+import dev.gyro.engine.ui.normalizeContentFps
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -22,7 +31,14 @@ interface VideoGeometryCoordinator {
     val videoFrameRate: StateFlow<Float>
     val geometryReady: StateFlow<Boolean>
     val firstFrameRendered: StateFlow<Boolean>
+    val displayRefreshRate: StateFlow<Float>
+    val resizeMode: StateFlow<ResizeMode>
 
+    fun observeEvents(scope: CoroutineScope): Job
+    fun updateDisplayRefreshRate(rate: Float)
+    fun setResizeMode(mode: ResizeMode)
+    fun setZoomAndPan(zoom: Double, panX: Double, panY: Double)
+    fun resetZoomAndPan()
     fun onSwitchStarted(url: String, startPositionMs: Long = 0L)
     fun onFileLoaded(url: String, hasVideo: Boolean)
     fun onFirstFramePresented()
@@ -55,7 +71,43 @@ class RealVideoGeometryCoordinator @Inject constructor(
     private val _firstFrameRendered = MutableStateFlow(false)
     override val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
+    @Volatile
+    private var currentUrl = ""
+
+    private val _displayRefreshRate = MutableStateFlow(0f)
+    override val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
+
+    private val _resizeMode = MutableStateFlow(ResizeMode.FIT)
+    override val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
+
+    override fun observeEvents(scope: CoroutineScope): Job =
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            bridge.events.collect { event ->
+                when (event) {
+                    is MpvEvent.Lifecycle -> when (event.id) {
+                        MpvNativeBridge.Event.FILE_LOADED ->
+                            onFileLoaded(currentUrl, bridge.getPropertyString("video") != "no")
+                        MpvNativeBridge.Event.FIRST_FRAME -> onFirstFramePresented()
+                        MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> onSessionEnded()
+                    }
+                    is MpvEvent.PropertyChanged -> when (event.name) {
+                        "video-params", "video-out-params" -> onVoParamsChanged()
+                    }
+                    is MpvEvent.LongProperty -> when (event.name) {
+                        "width", "height", "dwidth", "dheight" -> onVoParamsChanged()
+                    }
+                    is MpvEvent.DoubleProperty -> when (event.name) {
+                        "container-fps" -> onFpsUpdated(event.value.toFloat(), isEstimated = false)
+                        "estimated-vf-fps" ->
+                            onFpsUpdated(normalizeContentFps(event.value.toFloat()), isEstimated = true)
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
     override fun onSwitchStarted(url: String, startPositionMs: Long) {
+        currentUrl = url
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false
         _geometryReady.value = false
@@ -167,12 +219,66 @@ class RealVideoGeometryCoordinator @Inject constructor(
     }
 
     override fun reset() {
+        currentUrl = ""
         _sessionState.value = PlaybackSessionState.Idle
         _firstFrameRendered.value = false
         _geometryReady.value = false
         _videoFrameRate.value = 0f
         _videoDimensions.value = VideoDimensions(0, 0)
         _videoAspect.value = 0f
+    }
+
+    /**
+     * Updates the panel rate mpv paces against.
+     *
+     * Runtime callers (surface availability, display switch) can fire before the native core
+     * exists, where the property write is a no-op; [dev.gyro.engine.GyroPlayerEngine] applies the
+     * rate explicitly once the core is up, so an early measurement is not lost.
+     */
+    override fun updateDisplayRefreshRate(rate: Float) {
+        if (rate !in 20f..300f) return
+        if (abs(_displayRefreshRate.value - rate) < 0.1f) return
+        _displayRefreshRate.value = rate
+        bridge.setPropertyDouble("display-fps-override", rate.toDouble())
+        bridge.setPropertyDouble("display-fps", rate.toDouble())
+    }
+
+    override fun setResizeMode(mode: ResizeMode) {
+        _resizeMode.value = mode
+        when (mode) {
+            ResizeMode.FIT -> {
+                bridge.setPropertyDouble("panscan", 0.0)
+                bridge.setPropertyString("video-aspect-override", "-1")
+            }
+            ResizeMode.CROP -> {
+                bridge.setPropertyDouble("panscan", 1.0)
+                bridge.setPropertyString("video-aspect-override", "-1")
+            }
+            ResizeMode.STRETCH -> {
+                bridge.setPropertyDouble("panscan", 0.0)
+                bridge.setPropertyString("video-aspect-override", "no")
+            }
+            ResizeMode.ASPECT_16_9 -> {
+                bridge.setPropertyDouble("panscan", 0.0)
+                bridge.setPropertyString("video-aspect-override", "16:9")
+            }
+            ResizeMode.ASPECT_21_9 -> {
+                bridge.setPropertyDouble("panscan", 0.0)
+                bridge.setPropertyString("video-aspect-override", "21:9")
+            }
+        }
+    }
+
+    override fun setZoomAndPan(zoom: Double, panX: Double, panY: Double) {
+        bridge.setPropertyDouble("video-zoom", zoom)
+        bridge.setPropertyDouble("video-pan-x", panX)
+        bridge.setPropertyDouble("video-pan-y", panY)
+    }
+
+    override fun resetZoomAndPan() {
+        bridge.setPropertyDouble("video-zoom", 0.0)
+        bridge.setPropertyDouble("video-pan-x", 0.0)
+        bridge.setPropertyDouble("video-pan-y", 0.0)
     }
 
     private fun getDemuxDimensions(): Pair<Int, Int>? {

@@ -10,7 +10,7 @@ import android.view.Surface
  * All rendering loops and frame synchronization are sunk completely into Rust:
  * - [attachSurface]: passes ANativeWindow to native render thread (EGLContext is persistent)
  * - [detachSurface]: signals native render thread to swap to EGL_NO_SURFACE without destroying EGLContext
- * - Native callbacks dispatch directly to [eventListener]
+ * - Native callbacks publish typed [events] to independent domain subscribers.
  */
 internal object GyroNative {
     private const val TAG = "GyroNative"
@@ -23,10 +23,8 @@ internal object GyroNative {
         }
     }
 
-    typealias EventListener = MpvNativeBridge.EventListener
-
-    @Volatile
-    var eventListener: MpvNativeBridge.EventListener? = null
+    private val eventBus = MpvEventBus()
+    val events = eventBus.events
 
     // ---------- JNI Native Methods ----------
 
@@ -65,32 +63,32 @@ internal object GyroNative {
 
     @JvmStatic
     fun onEvent(eventId: Int) {
-        eventListener?.onEvent(eventId)
+        eventBus.publish(MpvEvent.Lifecycle(eventId))
     }
 
     @JvmStatic
     fun onPropertyNone(name: String) {
-        eventListener?.onProperty(name)
+        eventBus.publish(MpvEvent.PropertyChanged(name))
     }
 
     @JvmStatic
     fun onPropertyLong(name: String, value: Long) {
-        eventListener?.onPropertyLong(name, value)
+        eventBus.publish(MpvEvent.LongProperty(name, value))
     }
 
     @JvmStatic
     fun onPropertyDouble(name: String, value: Double) {
-        eventListener?.onPropertyDouble(name, value)
+        eventBus.publish(MpvEvent.DoubleProperty(name, value))
     }
 
     @JvmStatic
     fun onPropertyFlag(name: String, value: Boolean) {
-        eventListener?.onPropertyFlag(name, value)
+        eventBus.publish(MpvEvent.FlagProperty(name, value))
     }
 
     @JvmStatic
     fun onPropertyString(name: String, value: String) {
-        eventListener?.onPropertyString(name, value)
+        eventBus.publish(MpvEvent.StringProperty(name, value))
     }
 
     // ---------- Format & Event Constants ----------

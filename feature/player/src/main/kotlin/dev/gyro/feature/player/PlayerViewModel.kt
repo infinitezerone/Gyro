@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
@@ -15,7 +16,9 @@ import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.playlist.PlaylistManager
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -47,7 +50,8 @@ class PlayerViewModel @Inject constructor(
     val historyRepository: PlaybackHistoryRepository,
     val playlistManager: PlaylistManager,
     private val subtitleRepository: SubtitleRepository,
-    private val uriParser: UriParser
+    private val uriParser: UriParser,
+    private val mediaRepository: MediaRepository,
 ) : ViewModel() {
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
@@ -64,7 +68,20 @@ class PlayerViewModel @Inject constructor(
     private val _activeUri = MutableStateFlow<Uri?>(engine.currentUri.value)
     val activeUri: StateFlow<Uri?> = _activeUri.asStateFlow()
 
+    /**
+     * Bumped on every playback request. The player screen composes through Nav3, which can reuse a
+     * popped entry's composition when the same route re-enters, so `remember` state survives;
+     * anything the screen must reset per-entry (like the controls visibility) keys off this.
+     */
+    private val _screenEntryEpoch = MutableStateFlow(0)
+    val screenEntryEpoch: StateFlow<Int> = _screenEntryEpoch.asStateFlow()
+
+    fun notifyScreenEntry() {
+        _screenEntryEpoch.value += 1
+    }
+
     private var periodicSaveJob: Job? = null
+    private var loadJob: Job? = null
 
     // Checkpoint bookkeeping lives in the ViewModel, not in the repository: it is session state,
     // and a singleton repository would keep it alive across player sessions.
@@ -104,7 +121,7 @@ class PlayerViewModel @Inject constructor(
                     val knownDisplayName = playlistManager.items.value
                         .firstOrNull { it.uriString == uri.toString() }?.displayName
                     val subs = subtitleRepository.findCompanionSubtitles(uri, knownDisplayName)
-                    subs.forEach { path -> engine.addSubtitle(path) }
+                    subs.forEach { path -> engine.trackManager.addSubtitle(path) }
                 }
             }
         }
@@ -142,7 +159,8 @@ class PlayerViewModel @Inject constructor(
 
     }
 
-    fun openUri(uri: Uri, forceReload: Boolean = false) {
+    fun openUri(uri: Uri, forceReload: Boolean = false, displayTitle: String? = null) {
+        loadJob?.cancel()
         _activeUri.value?.let { oldUri ->
             if (oldUri != uri) {
                 val curPos = engine.timePosMs.value
@@ -155,19 +173,25 @@ class PlayerViewModel @Inject constructor(
 
         _activeUri.value = uri
 
-        // getProgress is a suspend read now that the repository is stateless, so the load is
-        // dispatched instead of blocking the caller for a database round trip.
-        viewModelScope.launch {
+        val knownTitle = displayTitle?.takeIf { it.isNotBlank() }
+            ?: playlistManager.items.value.firstOrNull { it.uriString == uri.toString() }
+                ?.displayName?.takeIf { it.isNotBlank() }
+
+        // A provider may ignore cancellation; reject its stale result before touching the engine.
+        loadJob = viewModelScope.launch {
+            val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(uri)
+            currentCoroutineContext().ensureActive()
             val startPos = if (settings.value.autoResume) {
                 val p = historyRepository.getProgress(uri)
                 if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
             } else 0L
-            engine.loadUri(uri, startPos)
+            currentCoroutineContext().ensureActive()
+            engine.loadUri(uri, startPos, resolvedTitle)
         }
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        openUri(uriParser.parse(item.uriString))
+        openUri(uriParser.parse(item.uriString), displayTitle = item.displayName)
     }
 
     fun playNext(): Boolean {
@@ -191,7 +215,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun saveCurrentProgress() {
-        engine.resetSoftwareGain()
+        engine.audio.resetSoftwareGain()
         val uri = _activeUri.value ?: return
         val curPos = engine.timePosMs.value
         val curDur = engine.durationMs.value
@@ -202,6 +226,7 @@ class PlayerViewModel @Inject constructor(
 
     public override fun onCleared() {
         super.onCleared()
+        loadJob?.cancel()
         periodicSaveJob?.cancel()
         saveCurrentProgress()
     }

@@ -1,9 +1,16 @@
 package dev.gyro.engine.effects
 
+import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,6 +23,7 @@ interface VideoEffectsController {
     val contrast: StateFlow<Int>
     val saturation: StateFlow<Int>
 
+    fun observeEvents(scope: CoroutineScope): Job
     fun setDeband(enabled: Boolean)
     fun setBrightness(value: Int)
     fun setContrast(value: Int)
@@ -42,6 +50,22 @@ class RealVideoEffectsController @Inject constructor(
 
     private val _saturation = MutableStateFlow(0)
     override val saturation: StateFlow<Int> = _saturation.asStateFlow()
+
+    override fun observeEvents(scope: CoroutineScope): Job =
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            bridge.events.collect { event ->
+                when (event) {
+                    is MpvEvent.FlagProperty -> {
+                        if (event.name == "deband") onDebandPropertyChanged(event.value)
+                    }
+                    is MpvEvent.LongProperty -> when (event.name) {
+                        "brightness", "contrast", "saturation" ->
+                            onColorPropertyChanged(event.name, event.value.toInt())
+                    }
+                    else -> Unit
+                }
+            }
+        }
 
     override fun setDeband(enabled: Boolean) {
         _deband.value = enabled

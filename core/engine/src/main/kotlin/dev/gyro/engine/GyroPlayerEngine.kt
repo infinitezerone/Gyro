@@ -3,46 +3,44 @@ package dev.gyro.engine
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.net.Uri
-import android.os.SystemClock
-import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Display
 import android.view.Surface
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.gyro.core.model.ChapterInfo
-import dev.gyro.core.model.GlslShader
-import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.UserSettings
 import dev.gyro.engine.audio.GyroAudioFocusManager
-import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
-import dev.gyro.engine.tracks.RealTrackAndChapterManager
-import dev.gyro.engine.tracks.TrackAndChapterManager
-import dev.gyro.engine.model.ResizeMode
-import dev.gyro.engine.model.TrackInfo
-import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.model.PlaybackState
+import dev.gyro.engine.model.PlaybackSnapshot
+import dev.gyro.engine.session.PlaybackTimelineController
+import dev.gyro.engine.session.RealPlaybackTimelineController
+import dev.gyro.engine.session.RealVideoGeometryCoordinator
+import dev.gyro.engine.session.VideoGeometryCoordinator
 import dev.gyro.engine.shader.RealShaderController
 import dev.gyro.engine.shader.ShaderController
 import dev.gyro.engine.shader.ShaderManager
+import dev.gyro.engine.snapshot.CorePlaybackInputs
+import dev.gyro.engine.snapshot.PlaybackSnapshotAggregator
 import dev.gyro.engine.trace.SwitchTrace
-import dev.gyro.engine.session.PlaybackSessionState
-import dev.gyro.engine.session.RealVideoGeometryCoordinator
-import dev.gyro.engine.session.VideoGeometryCoordinator
+import dev.gyro.engine.tracks.RealTrackAndChapterManager
+import dev.gyro.engine.tracks.TrackAndChapterManager
+import dev.gyro.engine.tuning.RealSyncTuningController
+import dev.gyro.engine.tuning.SyncTuningController
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -55,41 +53,13 @@ class GyroPlayerEngine @Inject constructor(
     val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
     val audio: AudioEffectsController = RealAudioEffectsController(bridge),
     val video: VideoEffectsController = RealVideoEffectsController(bridge),
-    val trackManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge)
-) : VideoGeometryCoordinator by geometry,
-    AudioEffectsController by audio,
-    VideoEffectsController by video,
-    TrackAndChapterManager by trackManager {
+    val trackManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge),
+    val tuning: SyncTuningController = RealSyncTuningController(bridge),
+    private val timeline: PlaybackTimelineController = RealPlaybackTimelineController(bridge, geometry, trackManager)
+) {
 
-    // Backwards-compatible secondary constructor for tests passing legacy coordinators/managers
-    constructor(
-        context: Context,
-        bridge: MpvNativeBridge = RealMpvNativeBridge,
-        shaderManager: ShaderManager,
-        geometryCoordinator: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge),
-        audioEffects: AudioEffectsController = RealAudioEffectsController(bridge),
-        videoEffects: VideoEffectsController = RealVideoEffectsController(bridge),
-        trackAndChapterManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge)
-    ) : this(
-        context = context,
-        bridge = bridge,
-        shaders = RealShaderController(bridge, shaderManager),
-        geometry = geometryCoordinator,
-        audio = audioEffects,
-        video = videoEffects,
-        trackManager = trackAndChapterManager
-    )
-
-    val trackController: TrackAndChapterManager
-        get() = trackManager
     companion object {
         private const val TAG = "GyroPlayerEngine"
-
-        /** mpv may land on a neighbouring keyframe, so "arrived" is not required to be exact. */
-        private const val SEEK_SETTLE_TOLERANCE_MS = 1500L
-
-        /** A seek that reports nothing within this window stops filtering reported positions. */
-        private const val SEEK_SETTLE_TIMEOUT_MS = 2500L
 
         /** Protected keys that user mpv.conf MUST NOT override to avoid crashing native pipeline */
         val PROTECTED_OPTION_KEYS: Set<String> = setOf(
@@ -99,10 +69,6 @@ class GyroPlayerEngine @Inject constructor(
             "keep-open",
             "gpu-context"
         )
-
-        const val FILTER_STEREO_DOWNMIX = AudioEffectsController.FILTER_STEREO_DOWNMIX
-        const val FILTER_DYNAUDNORM = AudioEffectsController.FILTER_DYNAUDNORM
-        const val FILTER_ALIMITER = AudioEffectsController.FILTER_ALIMITER
     }
 
     private val isInitialized = AtomicBoolean(false)
@@ -130,59 +96,20 @@ class GyroPlayerEngine @Inject constructor(
     )
 
     // Playback Flow states
-    /**
-     * Bumped on every playback request. The player screen composes through Nav3, which can reuse
-     * a popped entry's composition when the same route re-enters, so `remember` state survives;
-     * anything the screen must reset per-entry (like the controls visibility) keys off this.
-     */
-    private val _screenEntryEpoch = MutableStateFlow(0)
-    val screenEntryEpoch: StateFlow<Int> = _screenEntryEpoch.asStateFlow()
-
-    fun notifyScreenEntry() {
-        _screenEntryEpoch.value += 1
-    }
-
     private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private val _timePosMs = MutableStateFlow(0L)
-    val timePosMs: StateFlow<Long> = _timePosMs.asStateFlow()
+    val timePosMs: StateFlow<Long>
+        get() = timeline.timePosMs
 
-    /**
-     * Target of an in-flight seek, or null. While set, reported `time-pos` values that are not at
-     * the target are pre-seek leftovers: mpv keeps reporting the old spot until the seek lands, and
-     * publishing them makes every position consumer jump back for a beat. Positions at the target
-     * (or after the settle timeout) are accepted and the pending state clears.
-     */
-    private var pendingSeekTargetMs: Long? = null
-    private var pendingSeekIssuedElapsedMs = 0L
+    val durationMs: StateFlow<Long>
+        get() = timeline.durationMs
 
-    private fun beginPendingSeek(targetMs: Long) {
-        pendingSeekTargetMs = targetMs.coerceAtLeast(0L)
-        pendingSeekIssuedElapsedMs = SystemClock.elapsedRealtime()
-        // The seeked position is the truth from the moment the user asks for it.
-        _timePosMs.value = pendingSeekTargetMs!!
-    }
-
-    /** Returns true when a reported position may be published. */
-    private fun acceptReportedPosition(positionMs: Long): Boolean {
-        val target = pendingSeekTargetMs ?: return true
-        val reached = kotlin.math.abs(positionMs - target) <= SEEK_SETTLE_TOLERANCE_MS
-        val stale = SystemClock.elapsedRealtime() - pendingSeekIssuedElapsedMs >= SEEK_SETTLE_TIMEOUT_MS
-        if (reached || stale) {
-            pendingSeekTargetMs = null
-        }
-        return pendingSeekTargetMs == null
-    }
-
-    private val _durationMs = MutableStateFlow(0L)
-    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
-
-    private val _bufferedPosMs = MutableStateFlow(0L)
-    val bufferedPosMs: StateFlow<Long> = _bufferedPosMs.asStateFlow()
+    val bufferedPosMs: StateFlow<Long>
+        get() = timeline.bufferedPosMs
 
     private val _mediaTitle = MutableStateFlow("")
     val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
@@ -203,14 +130,8 @@ class GyroPlayerEngine @Inject constructor(
     private val _hwdecCurrent = MutableStateFlow("")
     val hwdecCurrent: StateFlow<String> = _hwdecCurrent.asStateFlow()
 
-    private val _displayRefreshRate = MutableStateFlow(0f)
-    val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
-
     private val _speed = MutableStateFlow(1.0f)
     val speed: StateFlow<Float> = _speed.asStateFlow()
-
-    private val _resizeMode = MutableStateFlow(ResizeMode.FIT)
-    val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
     private val _fps = MutableStateFlow(0.0)
     val fps: StateFlow<Double> = _fps.asStateFlow()
@@ -218,182 +139,110 @@ class GyroPlayerEngine @Inject constructor(
     private val _droppedFrames = MutableStateFlow(0L)
     val droppedFrames: StateFlow<Long> = _droppedFrames.asStateFlow()
 
-    private val _subDelay = MutableStateFlow(0.0)
-    val subDelay: StateFlow<Double> = _subDelay.asStateFlow()
-
-    private val _audioDelay = MutableStateFlow(0.0)
-    val audioDelay: StateFlow<Double> = _audioDelay.asStateFlow()
-
-    private val _subScale = MutableStateFlow(1.0)
-    val subScale: StateFlow<Double> = _subScale.asStateFlow()
-
-    private val _subPos = MutableStateFlow(100L)
-    val subPos: StateFlow<Long> = _subPos.asStateFlow()
-
-    // Shader Management (R1)
-    val shaderState: StateFlow<GlslShaderState>
-        get() = shaders.shaderState
-
-    @Volatile
-    private var pendingSeekMs: Long = -1L
-
     val isFileLoaded: Boolean
-        get() = sessionState.value is PlaybackSessionState.Demuxed || sessionState.value is PlaybackSessionState.Presenting
+        get() = timeline.isFileLoaded
 
-    private val nativeListener = object : MpvNativeBridge.EventListener {
-        override fun onEvent(eventId: Int) {
-            when (eventId) {
-                MpvNativeBridge.Event.FIRST_FRAME -> {
-                    SwitchTrace.log("KOTLIN_EVENT_FIRST_FRAME", "timePos=${_timePosMs.value}ms")
-                    geometry.onFirstFramePresented()
-                    // The reported position is the cheapest proof that the frame behind the cover is
-                    // the new file: a redraw of the previous file still reports that file's position.
-                    Log.i(TAG, "First frame presented at ${_timePosMs.value}ms, releasing the cover")
+    private val snapshotAggregator = PlaybackSnapshotAggregator(
+        core = CorePlaybackInputs(
+            playbackState = _playbackState,
+            isPlaying = _isPlaying,
+            currentUri = _currentUri,
+            mediaTitle = _mediaTitle,
+            durationMs = timeline.durationMs,
+            hwdecCurrent = _hwdecCurrent,
+            speed = _speed,
+            fps = _fps,
+            droppedFrames = _droppedFrames
+        ),
+        geometry = geometry,
+        audio = audio,
+        video = video,
+        tracks = trackManager,
+        tuning = tuning,
+        shaders = shaders
+    )
+
+    private val _snapshot = MutableStateFlow(PlaybackSnapshot())
+    /**
+     * Every slow-moving playback fact in one consistent object. Read this instead of collecting the
+     * individual flows: one subscription, and no pair of fields from two different events.
+     * Position/buffered stay on their own flows, see [PlaybackSnapshot].
+     */
+    val snapshot: StateFlow<PlaybackSnapshot> = _snapshot.asStateFlow()
+
+    private var snapshotJob: Job? = null
+
+    private fun startSnapshotAggregation() {
+        snapshotJob?.cancel()
+        // Unconfined + UNDISPATCHED keeps the snapshot current on the thread that changed a source,
+        // so a caller that reads `snapshot` right after a command sees its own write.
+        snapshotJob = engineScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            snapshotAggregator.flow().collect { _snapshot.value = it }
+        }
+    }
+
+    private fun observePlaybackEvents() = engineScope.launch(
+        Dispatchers.Unconfined,
+        start = CoroutineStart.UNDISPATCHED
+    ) {
+        bridge.events.collect { event ->
+            when (event) {
+                is MpvEvent.Lifecycle -> when (event.id) {
+                    MpvNativeBridge.Event.FIRST_FRAME -> {
+                        SwitchTrace.log("KOTLIN_EVENT_FIRST_FRAME", "timePos=${timePosMs.value}ms")
+                        Log.i(TAG, "First frame presented at ${timePosMs.value}ms")
+                    }
+                    MpvNativeBridge.Event.FILE_LOADED -> {
+                        SwitchTrace.log("KOTLIN_EVENT_FILE_LOADED", "")
+                        _hwdecCurrent.value = bridge.getPropertyString("hwdec-current") ?: "none"
+                        if (requestedTitle.isBlank()) {
+                            bridge.getPropertyString("media-title")?.takeIf { it.isNotBlank() }?.let {
+                                _mediaTitle.value = it
+                            }
+                        }
+                        _playbackState.value = PlaybackState.READY
+                        // Consecutive unpaused files need not produce another pause property event.
+                        bridge.getBoolean("pause")?.let { _isPlaying.value = !it }
+                    }
+                    MpvNativeBridge.Event.END_FILE -> {
+                        _isPlaying.value = false
+                        _playbackState.value = PlaybackState.ENDED
+                    }
+                    MpvNativeBridge.Event.SHUTDOWN -> {
+                        _isPlaying.value = false
+                        _playbackState.value = PlaybackState.IDLE
+                    }
+                    MpvNativeBridge.Event.PLAYBACK_RESTART -> _playbackState.value = PlaybackState.READY
                 }
-                MpvNativeBridge.Event.FILE_LOADED -> {
-                    SwitchTrace.log("KOTLIN_EVENT_FILE_LOADED", "")
-                    val hwdec = bridge.getPropertyString("hwdec-current") ?: "none"
-                    _hwdecCurrent.value = hwdec
-                    if (requestedTitle.isBlank()) {
-                        val title = bridge.getPropertyString("media-title")
-                        if (!title.isNullOrBlank()) {
-                            _mediaTitle.value = title
+                is MpvEvent.LongProperty -> when (event.name) {
+                    "frame-drop-count" -> _droppedFrames.value = event.value
+                }
+                is MpvEvent.DoubleProperty -> when (event.name) {
+                    "speed" -> _speed.value = event.value.toFloat()
+                    "estimated-vf-fps" -> _fps.value = event.value
+                }
+                is MpvEvent.FlagProperty -> when (event.name) {
+                    "pause" -> {
+                        _isPlaying.value = !event.value
+                        if (!event.value && _playbackState.value != PlaybackState.BUFFERING) {
+                            _playbackState.value = PlaybackState.READY
                         }
                     }
-                    _playbackState.value = PlaybackState.READY
-                    // mpv owns the paused state. After a file ends the engine marks itself stopped
-                    // while mpv keeps pause=false, so the next load fires no `pause` change and the
-                    // controls would sit on "play" over a playing video. Mirror it on every load.
-                    bridge.getBoolean("pause")?.let { paused -> _isPlaying.value = !paused }
-
-                    val hasVideo = bridge.getPropertyString("video") != "no"
-                    geometry.onFileLoaded(_currentUri.value?.toString().orEmpty(), hasVideo)
-
-                    refreshTracks()
-                    refreshChapters()
-                    Log.i(TAG, "File loaded, active hwdec=$hwdec")
-
-                    if (pendingSeekMs >= 0L) {
-                        val target = pendingSeekMs
-                        pendingSeekMs = -1L
-                        seekTo(target)
+                    "paused-for-cache" -> {
+                        if (event.value) {
+                            _playbackState.value = PlaybackState.BUFFERING
+                        } else if (_isPlaying.value) {
+                            _playbackState.value = PlaybackState.READY
+                        }
                     }
                 }
-                MpvNativeBridge.Event.TRACKS_CHANGED -> {
-                    refreshTracks()
-                }
-                MpvNativeBridge.Event.END_FILE -> {
-                    geometry.onSessionEnded()
-                    _isPlaying.value = false
-                    _playbackState.value = PlaybackState.ENDED
-                    clearChapters()
-                    resetSoftwareGain()
-                }
-                MpvNativeBridge.Event.SHUTDOWN -> {
-                    geometry.onSessionEnded()
-                    _isPlaying.value = false
-                    _playbackState.value = PlaybackState.IDLE
-                    clearChapters()
-                    resetSoftwareGain()
-                }
-                MpvNativeBridge.Event.PLAYBACK_RESTART -> {
-                    _playbackState.value = PlaybackState.READY
-                }
-            }
-        }
-
-        override fun onProperty(name: String) {
-            when (name) {
-                "track-list" -> refreshTracks()
-                "chapter-list" -> refreshChapters()
-                // `video-params` flips once the decoder knows the real stream parameters, which is
-                // the earliest point where dwidth/dheight carry the rotated (displayed) size.
-                "video-params", "video-out-params" -> geometry.onVoParamsChanged()
-            }
-        }
-
-        override fun onPropertyLong(name: String, value: Long) {
-            when (name) {
-                "width", "height", "dwidth", "dheight" -> geometry.onVoParamsChanged()
-                "frame-drop-count" -> {
-                    _droppedFrames.value = value
-                }
-                "sub-pos" -> {
-                    _subPos.value = value
-                }
-                "chapter" -> {
-                    trackManager.onChapterPropertyChanged(value.toInt())
-                }
-                "brightness", "contrast", "saturation" -> {
-                    video.onColorPropertyChanged(name, value.toInt())
-                }
-            }
-        }
-
-        override fun onPropertyDouble(name: String, value: Double) {
-            when (name) {
-                "time-pos" -> {
-                    val positionMs = (value * 1000.0).toLong().coerceAtLeast(0L)
-                    if (acceptReportedPosition(positionMs)) {
-                        _timePosMs.value = positionMs
+                is MpvEvent.StringProperty -> when (event.name) {
+                    "hwdec-current" -> _hwdecCurrent.value = event.value
+                    "media-title" -> if (event.value.isNotBlank() && requestedTitle.isBlank()) {
+                        _mediaTitle.value = event.value
                     }
                 }
-                "duration" -> {
-                    _durationMs.value = (value * 1000.0).toLong().coerceAtLeast(0L)
-                }
-                "demuxer-cache-time" -> {
-                    _bufferedPosMs.value = (value * 1000.0).toLong().coerceAtLeast(_timePosMs.value)
-                }
-                "speed" -> {
-                    _speed.value = value.toFloat()
-                }
-                "container-fps" -> {
-                    geometry.onFpsUpdated(value.toFloat(), isEstimated = false)
-                }
-                "estimated-vf-fps" -> {
-                    _fps.value = value
-                    val normalized = dev.gyro.engine.ui.normalizeContentFps(value.toFloat())
-                    geometry.onFpsUpdated(normalized, isEstimated = true)
-                }
-                "sub-delay" -> {
-                    _subDelay.value = value
-                }
-                "audio-delay" -> {
-                    _audioDelay.value = value
-                }
-                "sub-scale" -> {
-                    _subScale.value = value
-                }
-            }
-        }
-
-        override fun onPropertyFlag(name: String, value: Boolean) {
-            when (name) {
-                "pause" -> {
-                    _isPlaying.value = !value
-                    if (!value && _playbackState.value != PlaybackState.BUFFERING) {
-                        _playbackState.value = PlaybackState.READY
-                    }
-                }
-                "paused-for-cache" -> {
-                    if (value) {
-                        _playbackState.value = PlaybackState.BUFFERING
-                    } else if (_isPlaying.value) {
-                        _playbackState.value = PlaybackState.READY
-                    }
-                }
-                "deband" -> {
-                    video.onDebandPropertyChanged(value)
-                }
-            }
-        }
-
-        override fun onPropertyString(name: String, value: String) {
-            when (name) {
-                "hwdec-current" -> _hwdecCurrent.value = value
-                "media-title" -> if (value.isNotBlank() && requestedTitle.isBlank()) {
-                    _mediaTitle.value = value
-                }
+                is MpvEvent.PropertyChanged -> Unit
             }
         }
     }
@@ -497,13 +346,23 @@ class GyroPlayerEngine @Inject constructor(
                 // =================================================================
                 // 3. INITIALIZE MPV CORE
                 // =================================================================
+                audio.observeEvents(engineScope)
+                video.observeEvents(engineScope)
+                trackManager.observeEvents(engineScope)
+                geometry.observeEvents(engineScope)
+                timeline.observeEvents(engineScope)
+                tuning.observeEvents(engineScope)
+                observePlaybackEvents()
+                startSnapshotAggregation()
                 bridge.init()
-                bridge.eventListener = nativeListener
 
                 // Seed display refresh rate if available from the display subsystem
                 val initialDisplayFps = displayRefreshRate()
                 if (initialDisplayFps != null && initialDisplayFps in 20f..300f) {
-                    _displayRefreshRate.value = initialDisplayFps
+                    geometry.updateDisplayRefreshRate(initialDisplayFps)
+                    // Applied explicitly as well: a surface callback may have measured this rate
+                    // before the core existed, where the property write was dropped, and the
+                    // dedupe in the coordinator would skip the re-apply.
                     bridge.setPropertyDouble("display-fps-override", initialDisplayFps.toDouble())
                     bridge.setPropertyDouble("display-fps", initialDisplayFps.toDouble())
                     Log.i(TAG, "Initialized display-fps-override -> $initialDisplayFps")
@@ -545,6 +404,7 @@ class GyroPlayerEngine @Inject constructor(
                 Log.i(TAG, "GyroPlayerEngine initialized successfully")
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to initialize GyroPlayerEngine", t)
+                engineJob.cancel()
                 isInitialized.set(false)
             }
         }
@@ -558,22 +418,6 @@ class GyroPlayerEngine @Inject constructor(
         return rate.takeIf { it in 20f..300f }
     }
 
-    /**
-     * Updates mpv's display-fps and display-fps-override with the active hardware refresh rate.
-     * Essential for `video-sync=display-resample` under `vo=libmpv` to synchronize frame pacing
-     * with Android SurfaceFlinger VSync without buffer starvation or dropped frames.
-     */
-    fun updateDisplayRefreshRate(rate: Float) {
-        if (rate !in 20f..300f) return
-        if (kotlin.math.abs(_displayRefreshRate.value - rate) < 0.1f) return
-        _displayRefreshRate.value = rate
-        Log.i(TAG, "updateDisplayRefreshRate: $rate Hz")
-        if (isInitialized.get()) {
-            bridge.setPropertyDouble("display-fps-override", rate.toDouble())
-            bridge.setPropertyDouble("display-fps", rate.toDouble())
-        }
-    }
-
     @Volatile
     private var currentLoadJob: kotlinx.coroutines.Job? = null
 
@@ -581,41 +425,17 @@ class GyroPlayerEngine @Inject constructor(
         SwitchTrace.start("LOAD_URI", "uri=$uri, startPos=$startPositionMs")
         _currentUri.value = uri
         geometry.onSwitchStarted(uri.toString(), startPositionMs)
-        resetSoftwareGain()
+        audio.resetSoftwareGain()
         // Synchronously arm the shutter and buffering state on the main thread
         // so UI never exposes the stale frame of the previous video during async I/O.
         _playbackState.value = PlaybackState.BUFFERING
         SwitchTrace.log("SHUTTER_ARMED", "firstFrame=false, geometryReady=false")
 
-        val fastTitle = displayTitle ?: uri.lastPathSegment ?: ""
-        if (fastTitle.isNotBlank()) {
-            _mediaTitle.value = fastTitle
-        }
+        val resolvedTitle = displayTitle?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment.orEmpty()
+        _mediaTitle.value = resolvedTitle
 
         currentLoadJob?.cancel()
         currentLoadJob = engineScope.launch(Dispatchers.IO) {
-            val resolvedTitle = if (!displayTitle.isNullOrBlank()) {
-                displayTitle
-            } else {
-                runCatching {
-                    context.contentResolver.query(
-                        uri,
-                        arrayOf(OpenableColumns.DISPLAY_NAME),
-                        null,
-                        null,
-                        null
-                    )?.use { cursor ->
-                        if (cursor.moveToFirst()) {
-                            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                            if (idx >= 0) cursor.getString(idx) else null
-                        } else null
-                    }
-                }.getOrNull() ?: fastTitle
-            }
-            if (resolvedTitle.isNotBlank()) {
-                _mediaTitle.value = resolvedTitle
-            }
-
             val targetPath = try {
                 val pfd = context.contentResolver.openFileDescriptor(uri, "r")
                 val fd = pfd?.detachFd() ?: -1
@@ -644,6 +464,7 @@ class GyroPlayerEngine @Inject constructor(
     @Volatile
     var isSurfaceAttached = false
         private set
+
     @Volatile
     private var pendingLoadUrl: String? = null
     @Volatile
@@ -654,16 +475,10 @@ class GyroPlayerEngine @Inject constructor(
     fun load(url: String, startPositionMs: Long = 0L, displayTitle: String? = null) {
         SwitchTrace.log("LOAD_COMMAND_ISSUED", "url=$url, isSurfaceAttached=$isSurfaceAttached")
         Log.i(TAG, "load: url=$url, startPositionMs=$startPositionMs, surfaceAttached=$isSurfaceAttached")
-        resetSoftwareGain()
+        audio.resetSoftwareGain()
         ensureInitialized()
-        // A new file invalidates any in-flight seek of the previous one.
-        pendingSeekTargetMs = null
         geometry.onSwitchStarted(url, startPositionMs)
-        // The property watchers keep reporting the previous file's position and duration until the
-        // new file's first events arrive; anything reading them in that window (the controls, the
-        // progress bar) would show the old movie's time against the new one's picture.
-        _timePosMs.value = startPositionMs.coerceAtLeast(0L)
-        _durationMs.value = 0L
+        timeline.onLoadStarted(startPositionMs)
 
         requestedTitle = displayTitle?.trim().orEmpty()
         val resolvedTitle = requestedTitle.ifBlank {
@@ -685,7 +500,7 @@ class GyroPlayerEngine @Inject constructor(
             return
         }
         pendingLoadUrl = null
-        pendingSeekMs = -1L
+        timeline.onLoadCommandIssued()
         _playbackState.value = PlaybackState.BUFFERING
         // Resume positions ride the loadfile itself. Passing start= makes mpv decode its first
         // picture at the target timestamp; the old two-step (load from zero, then seek on
@@ -730,52 +545,12 @@ class GyroPlayerEngine @Inject constructor(
         }
     }
 
-    fun seekTo(positionMs: Long) {
-        if (!isFileLoaded) {
-            pendingSeekMs = positionMs
-            return
-        }
-        beginPendingSeek(positionMs)
-        val seconds = positionMs / 1000.0
-        bridge.command(arrayOf("seek", "$seconds", "absolute"))
-    }
+    fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
 
-    fun seekRelative(offsetMs: Long) {
-        if (!isFileLoaded) return
-        // Chained relative seeks build on the position currently displayed (which during a pending
-        // seek is the previous target), not on mpv's lagging report.
-        val targetMs = (_timePosMs.value + offsetMs).coerceAtLeast(0L)
-        beginPendingSeek(targetMs)
-        val seconds = offsetMs / 1000.0
-        bridge.command(arrayOf("seek", "$seconds", "relative"))
-    }
+    fun seekRelative(offsetMs: Long) = timeline.seekRelative(offsetMs)
 
     fun setSpeed(speed: Float) {
         bridge.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
-    }
-
-    fun setSubtitleDelay(delaySec: Double) {
-        val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(-10.0, 10.0)
-        _subDelay.value = clamped
-        bridge.setPropertyDouble("sub-delay", clamped)
-    }
-
-    fun setAudioDelay(delaySec: Double) {
-        val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(-5.0, 5.0)
-        _audioDelay.value = clamped
-        bridge.setPropertyDouble("audio-delay", clamped)
-    }
-
-    fun setSubtitleScale(scale: Double) {
-        val clamped = (Math.round(scale * 100.0) / 100.0).coerceIn(0.5, 3.0)
-        _subScale.value = clamped
-        bridge.setPropertyDouble("sub-scale", clamped)
-    }
-
-    fun setSubtitlePosition(posPercent: Long) {
-        val clamped = posPercent.coerceIn(0L, 100L)
-        _subPos.value = clamped
-        bridge.setPropertyLong("sub-pos", clamped)
     }
 
     fun toggleHwdec() {
@@ -784,44 +559,6 @@ class GyroPlayerEngine @Inject constructor(
         val target = if (isHw) "no" else (if (bridge.isZeroCopySafe()) "mediacodec,mediacodec-copy" else "mediacodec-copy")
         bridge.setPropertyString("hwdec", target)
         _hwdecCurrent.value = target
-    }
-
-    fun setResizeMode(mode: ResizeMode) {
-        _resizeMode.value = mode
-        when (mode) {
-            ResizeMode.FIT -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "-1")
-            }
-            ResizeMode.CROP -> {
-                bridge.setPropertyDouble("panscan", 1.0)
-                bridge.setPropertyString("video-aspect-override", "-1")
-            }
-            ResizeMode.STRETCH -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "no")
-            }
-            ResizeMode.ASPECT_16_9 -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "16:9")
-            }
-            ResizeMode.ASPECT_21_9 -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "21:9")
-            }
-        }
-    }
-
-    fun setVideoZoomAndPan(zoom: Double, panX: Double, panY: Double) {
-        bridge.setPropertyDouble("video-zoom", zoom)
-        bridge.setPropertyDouble("video-pan-x", panX)
-        bridge.setPropertyDouble("video-pan-y", panY)
-    }
-
-    fun resetVideoZoomAndPan() {
-        bridge.setPropertyDouble("video-zoom", 0.0)
-        bridge.setPropertyDouble("video-pan-x", 0.0)
-        bridge.setPropertyDouble("video-pan-y", 0.0)
     }
 
     private var attachedSurfaceRef: Surface? = null
@@ -862,7 +599,7 @@ class GyroPlayerEngine @Inject constructor(
 
     fun queryMediaInfo(fallbackTitle: String = "", fallbackUri: String = "", fallbackSize: Long = 0L): MediaInfo {
         val title = _mediaTitle.value.ifBlank { fallbackTitle }
-        val dims = videoDimensions.value
+        val dims = geometry.videoDimensions.value
         val resStr = if (dims.width > 0 && dims.height > 0) "${dims.width} x ${dims.height}" else ""
         val format = bridge.getPropertyString("file-format") ?: ""
         val vCodec = bridge.getPropertyString("video-codec") ?: bridge.getPropertyString("video-format") ?: ""
@@ -878,7 +615,7 @@ class GyroPlayerEngine @Inject constructor(
             pathOrUri = fallbackUri,
             containerFormat = format,
             fileSize = size,
-            durationMs = _durationMs.value,
+            durationMs = durationMs.value,
             videoCodec = vCodec,
             videoResolution = resStr,
             videoFps = _fps.value,
@@ -893,58 +630,10 @@ class GyroPlayerEngine @Inject constructor(
     }
 
     // =========================================================================
-    // Shader Control Methods (R1) - Delegated to ShaderController
-    // =========================================================================
-
-    /**
-     * Hot-swaps the active GLSL shader profile.
-     */
-    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) {
-        ensureInitialized()
-        shaders.setShader(shader, customPath, customName)
-    }
-
-    /**
-     * Clears all active shaders.
-     */
-    fun clearShader() {
-        ensureInitialized()
-        shaders.clearShader()
-    }
-
-    /**
-     * Convenience method to cache and apply a user-selected SAF custom shader.
-     */
-    fun importAndSetCustomShader(uri: Uri): Result<String> {
-        return shaders.importAndSetCustomShader(uri)
-    }
-
-    /**
-     * Returns list of currently cached custom shaders.
-     */
-    fun getCustomShaders(): List<File> = shaders.getCustomShaders()
-
-    // =========================================================================
     // Chapter Methods (R3)
     // =========================================================================
 
-    fun seekToChapter(index: Int) {
-        val chapterList = chapters.value
-        if (index !in chapterList.indices) {
-            Log.w(TAG, "seekToChapter: index $index out of bounds (0..${chapterList.size - 1})")
-            return
-        }
-
-        if (!isFileLoaded) {
-            pendingSeekMs = chapterList[index].timeMs
-            return
-        }
-
-        beginPendingSeek(chapterList[index].timeMs)
-        bridge.setPropertyLong("chapter", index.toLong())
-        trackManager.onChapterPropertyChanged(index)
-        Log.i(TAG, "seekToChapter: jumped to chapter $index (${chapterList[index].title})")
-    }
+    fun seekToChapter(index: Int) = timeline.seekToChapter(index)
 
     fun abandonAudioFocus() {
         audioFocusManager.abandon()
@@ -953,10 +642,9 @@ class GyroPlayerEngine @Inject constructor(
     fun release() {
         engineJob.cancel()
         audioFocusManager.release()
-        resetSoftwareGain()
-        clearChapters()
+        audio.resetSoftwareGain()
+        trackManager.clearChapters()
         isInitialized.set(false)
-        bridge.eventListener = null
         bridge.destroy()
         _playbackState.value = PlaybackState.IDLE
         _isPlaying.value = false
