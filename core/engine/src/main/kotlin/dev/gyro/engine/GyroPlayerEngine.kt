@@ -99,6 +99,9 @@ class GyroPlayerEngine @JvmOverloads constructor(
             override fun onPauseRequested() {
                 bridge.setPropertyBoolean("pause", true)
             }
+
+            override val isPlaying: Boolean
+                get() = _isPlaying.value
         }
     )
 
@@ -964,9 +967,13 @@ class GyroPlayerEngine @JvmOverloads constructor(
         Log.i(TAG, "seekToChapter: jumped to chapter $index (${chapterList[index].title})")
     }
 
+    fun abandonAudioFocus() {
+        audioFocusManager.abandon()
+    }
+
     fun release() {
         engineJob.cancel()
-        audioFocusManager.abandon()
+        audioFocusManager.release()
         resetSoftwareGain()
         clearChapters()
         isInitialized.set(false)

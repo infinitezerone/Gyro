@@ -130,6 +130,7 @@ class MainActivity : ComponentActivity() {
                             val popped = backStack.removeLast()
                             if (popped is Screen.Player) {
                                 playerEngine.pause()
+                                playerEngine.abandonAudioFocus()
                                 if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                                     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                 }
@@ -224,6 +225,7 @@ class MainActivity : ComponentActivity() {
                                 onBack = {
                                     playerViewModel.saveCurrentProgress()
                                     playerEngine.pause()
+                                    playerEngine.abandonAudioFocus()
                                     if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                     }

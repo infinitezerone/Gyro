@@ -43,6 +43,9 @@ class GyroAudioFocusManager(
         /** Playback must stop producing sound right now. Never calls back into focus handling. */
         fun onPauseRequested()
 
+        /** Checks if the player is currently playing when focus is lost. */
+        val isPlaying: Boolean get() = false
+
         /** The system stream was lowered; software gain is untouched. Optional UI hook. */
         fun onDucked() {}
 
@@ -153,10 +156,8 @@ class GyroAudioFocusManager(
         unduck()
     }
 
-    /** Releases focus, unregisters the receiver and restores a ducked volume. Safe to call twice. */
+    /** Releases focus, unregisters the receiver and restores a ducked volume. Safe to call repeatedly. */
     fun abandon() {
-        if (released) return
-        released = true
         pendingPlay = false
         pausedBy = PAUSED_BY_NONE
         unduck()
@@ -170,6 +171,12 @@ class GyroAudioFocusManager(
         hasFocus = false
     }
 
+    /** Releases focus and permanently shuts down the manager until [reset] is called. */
+    fun release() {
+        abandon()
+        released = true
+    }
+
     /** Resets the abandoned state so the manager can accept requests upon engine re-initialization. */
     fun reset() {
         released = false
@@ -179,7 +186,7 @@ class GyroAudioFocusManager(
         focusUnavailableLogged = false
     }
 
-    private fun handleFocusChange(change: Int) {
+    internal fun handleFocusChange(change: Int) {
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 hasFocus = false
@@ -191,12 +198,17 @@ class GyroAudioFocusManager(
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                val wasPlaying = listener.isPlaying
                 hasFocus = false
                 pendingPlay = false
-                pausedBy = PAUSED_BY_TRANSIENT
+                pausedBy = if (wasPlaying) PAUSED_BY_TRANSIENT else PAUSED_BY_NONE
                 unduck()
-                Log.i(TAG, "Focus lost transiently, pausing and arming auto-resume")
-                listener.onPauseRequested()
+                if (wasPlaying) {
+                    Log.i(TAG, "Focus lost transiently while playing, pausing and arming auto-resume")
+                    listener.onPauseRequested()
+                } else {
+                    Log.i(TAG, "Focus lost transiently while already paused, staying paused")
+                }
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
