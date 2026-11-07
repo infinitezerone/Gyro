@@ -17,7 +17,7 @@ import androidx.core.content.IntentCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.session.MediaSessionManager
 import dev.gyro.player.MainActivity
 import javax.inject.Inject

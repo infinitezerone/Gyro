@@ -40,7 +40,7 @@ import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.MpvConfigRepository
-import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen

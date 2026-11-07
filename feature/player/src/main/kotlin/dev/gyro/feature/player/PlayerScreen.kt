@@ -60,7 +60,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
-import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem

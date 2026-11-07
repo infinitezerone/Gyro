@@ -9,7 +9,7 @@ import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
-import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.media.PlaylistManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope

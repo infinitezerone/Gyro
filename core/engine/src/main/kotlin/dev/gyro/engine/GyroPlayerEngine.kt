@@ -15,7 +15,7 @@ import dev.gyro.engine.effects.AudioEffectsController
 import dev.gyro.engine.effects.RealAudioEffectsController
 import dev.gyro.engine.effects.RealVideoEffectsController
 import dev.gyro.engine.effects.VideoEffectsController
-import dev.gyro.engine.info.MediaInfoExtractor
+import dev.gyro.engine.media.MediaInfoExtractor
 import dev.gyro.engine.media.DefaultMediaResourceResolver
 import dev.gyro.engine.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver

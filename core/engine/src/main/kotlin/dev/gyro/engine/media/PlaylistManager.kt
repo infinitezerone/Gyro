@@ -1,4 +1,4 @@
-package dev.gyro.engine.playlist
+package dev.gyro.engine.media
 
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow

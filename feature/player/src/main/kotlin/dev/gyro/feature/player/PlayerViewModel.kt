@@ -14,7 +14,7 @@ import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
-import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.media.PlaylistManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay

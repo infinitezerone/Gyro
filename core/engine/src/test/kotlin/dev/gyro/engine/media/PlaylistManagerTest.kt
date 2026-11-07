@@ -1,4 +1,4 @@
-package dev.gyro.engine.playlist
+package dev.gyro.engine.media
 
 import android.net.TestUri
 import dev.gyro.core.model.VideoMediaItem

@@ -13,7 +13,7 @@ import androidx.core.content.IntentCompat
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
-import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

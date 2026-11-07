@@ -1,4 +1,4 @@
-package dev.gyro.engine.info
+package dev.gyro.engine.media
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.model.VideoDimensions
