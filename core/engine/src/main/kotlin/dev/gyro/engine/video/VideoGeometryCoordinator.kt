@@ -150,16 +150,26 @@ class VideoGeometryCoordinator(
     }
     fun onFirstFramePresented() {
         val current = _sessionState.value
-        val dims = _videoDimensions.value
-        val aspect = _videoAspect.value
+        var dims = _videoDimensions.value
+        var aspect = _videoAspect.value
         val url = when (current) {
             is PlaybackSessionState.Switching -> current.url
             is PlaybackSessionState.Demuxed -> current.url
             is PlaybackSessionState.Presenting -> current.url
             else -> ""
         }
+        if (dims.width <= 0 || dims.height <= 0) {
+            val fallback = getVoDimensions() ?: getDemuxDimensions()
+            if (fallback != null && fallback.first > 0 && fallback.second > 0) {
+                dims = VideoDimensions(fallback.first, fallback.second)
+                aspect = fallback.first.toFloat() / fallback.second
+                _videoDimensions.value = dims
+                _videoAspect.value = aspect
+            }
+        }
         _sessionState.value = PlaybackSessionState.Presenting(url, dims, aspect)
         _firstFrameRendered.value = true
+        _geometryReady.value = true
     }
     fun onVoParamsChanged() {
         when (val state = _sessionState.value) {

@@ -523,9 +523,9 @@ fun PlayerScreen(
     val geometryReady = snapshot.geometryReady
     var isShutterReady by remember(activeUri) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, firstFrameRendered, geometryReady) {
-        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady")
-        if (firstFrameRendered && geometryReady) {
+    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, playbackState) {
+        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, state=$playbackState")
+        if ((firstFrameRendered && geometryReady) || (firstFrameRendered && videoDimensions.width > 0)) {
             withFrameNanos { }
             SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
             isShutterReady = true
@@ -533,7 +533,7 @@ fun PlayerScreen(
             return@LaunchedEffect
         }
         isShutterReady = false
-        delay(4_000L)
+        delay(1_000L)
         if (!engine.state.value.firstFrameRendered || !engine.state.value.geometryReady) {
             SwitchTrace.log("SHUTTER_TIMEOUT_EXPIRED", "firstFrame=${engine.state.value.firstFrameRendered}, geometry=${engine.state.value.geometryReady}")
             shutterTimedOut = true
