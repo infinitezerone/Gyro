@@ -24,7 +24,9 @@ for candidate in python python3 py; do
 done
 
 if [ -n "$PYTHON_BIN" ] && [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/scripts/validate_commits.py" ]; then
-    if ! "$PYTHON_BIN" "$REPO_ROOT/scripts/validate_commits.py" --scan-file "$COMMIT_MSG_FILE"; then
+    # Pipe the message through stdin instead of handing the script a filesystem
+    # path: a path argument would turn the script into an arbitrary-file reader.
+    if ! "$PYTHON_BIN" "$REPO_ROOT/scripts/validate_commits.py" --scan-stdin < "$COMMIT_MSG_FILE"; then
         echo "========================================================================"
         echo "❌ COMMIT REJECTED: NON-ENGLISH CHARACTERS DETECTED"
         echo "========================================================================"

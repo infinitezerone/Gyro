@@ -17,7 +17,7 @@ symbols and emoji.
 
 Two entry points:
     validate_commits.py [rev-range]        validate commits in a range
-    validate_commits.py --scan-file PATH   validate a single message file
+    validate_commits.py --scan-stdin       validate a message piped via stdin
 
 Git output is decoded as UTF-8 explicitly: the default on Windows is the console
 code page, which mangles non-ASCII bytes into replacement characters and turns a
@@ -146,10 +146,24 @@ def resolve_range(rev_range: str) -> str:
         return "HEAD~1..HEAD"
 
 
-def scan_file(path: str) -> int:
-    """Character rule only, for the commit-msg hook. Format is checked there."""
-    with open(path, encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
+def scan_stdin() -> int:
+    """Character rule only, for the commit-msg hook. Format is checked there.
+
+    The hook pipes the message in via stdin instead of passing a filesystem path:
+    a path argument would make this script an arbitrary-file reader when invoked
+    by hand (argv straight into open()).
+    """
+    text = sys.stdin.read()
+    if not text:
+        print("--scan-stdin received an empty message")
+        return 2
+    hit = first_offending(text)
+    if hit is None:
+        return 0
+    print("Non-English character in commit message:")
+    print(f"   - {describe(*hit, text)}")
+    print("Messages must be written in English, with English punctuation only.")
+    return 1
     hit = first_offending(text)
     if hit is None:
         return 0
@@ -160,12 +174,8 @@ def scan_file(path: str) -> int:
 
 
 def main(argv) -> int:
-    if "--scan-file" in argv:
-        position = argv.index("--scan-file")
-        if position + 1 >= len(argv):
-            print("--scan-file requires a path")
-            return 2
-        return scan_file(argv[position + 1])
+    if "--scan-stdin" in argv:
+        return scan_stdin()
 
     rev_range = resolve_range(argv[1] if len(argv) > 1 else "origin/master..HEAD")
     try:
