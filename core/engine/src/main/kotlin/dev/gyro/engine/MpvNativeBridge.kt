@@ -16,8 +16,12 @@ interface MpvNativeBridge {
 
     /**
      * Creates and initializes the underlying mpv instance context.
+     *
+     * No default for [appctx]: a silent null would only surface as a runtime failure inside
+     * [RealMpvNativeBridge], invisible to the compiler. Call sites without a context
+     * (headless tests against fakes) pass null explicitly.
      */
-    fun create(appctx: Context? = null)
+    fun create(appctx: Context?)
 
     /**
      * Initializes the mpv core after setting pre-init options.

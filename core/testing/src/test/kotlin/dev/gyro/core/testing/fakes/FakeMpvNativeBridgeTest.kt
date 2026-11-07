@@ -90,7 +90,7 @@ class FakeMpvNativeBridgeTest {
     fun testLifecycleCounters_sequentialInvocationsIncrementIndependently() {
         fakeBridge.create(testContext)
         fakeBridge.create(testContext)
-        fakeBridge.create()
+        fakeBridge.create(null)
         assertEquals("createCount must be 3", 3, fakeBridge.createCount)
         assertEquals("initCount must remain 0", 0, fakeBridge.initCount)
         assertEquals("destroyCount must remain 0", 0, fakeBridge.destroyCount)

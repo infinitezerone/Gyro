@@ -204,7 +204,8 @@ class GyroPlayerEngine(
                 engineScope = CoroutineScope(engineJob + Dispatchers.Default)
             }
             try {
-                bridge.create()
+                // The real bridge requires the application context; only fakes accept null.
+                bridge.create(context)
                 configurator.applyInitial(bridge, configurator.currentState.userOptions, configurator.currentState.settings)
                 displayRefreshRateProvider()?.let { rate ->
                     geometry.updateDisplayRefreshRate(rate)
