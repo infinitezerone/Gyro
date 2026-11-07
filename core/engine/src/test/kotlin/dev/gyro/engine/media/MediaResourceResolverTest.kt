@@ -2,13 +2,12 @@ package dev.gyro.engine.media
 
 import android.net.TestUri
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
 
 class MediaResourceResolverTest {
 
-    // TestUri reports scheme "content", which is the only branch a JVM test can drive: the file and
-    // bare-path branches depend on real Uri parsing and are covered end to end in LoadRequestTest.
     private val resolver = DefaultMediaResourceResolver(HostileContext())
 
     @Test(timeout = 5_000)
@@ -19,6 +18,16 @@ class MediaResourceResolverTest {
         } catch (expected: MediaResourceResolver.MediaOpenException) {
             // The engine turns this into PlaybackState.ERROR instead of a black screen.
         }
+    }
+
+    @Test(timeout = 5_000)
+    fun fileUriAndBarePath_resolveToPosixPathWithoutContext() = runBlocking {
+        val pureResolver = DefaultMediaResourceResolver()
+        val fromFileScheme = pureResolver.resolve(MediaItem(target = "file:///sdcard/Movies/ep1.mkv"))
+        assertEquals("/sdcard/Movies/ep1.mkv", fromFileScheme.takeTargetUrl())
+
+        val fromBarePath = pureResolver.resolve(MediaItem(target = "/sdcard/Movies/ep2.mkv"))
+        assertEquals("/sdcard/Movies/ep2.mkv", fromBarePath.takeTargetUrl())
     }
 
     /** A context whose base is null, so every content resolver access throws. */

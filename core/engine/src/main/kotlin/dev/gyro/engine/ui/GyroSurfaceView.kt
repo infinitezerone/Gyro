@@ -4,7 +4,6 @@ import android.content.Context
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.util.AttributeSet
-import android.util.Log
 import android.view.Display
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -21,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.abs
@@ -159,7 +159,7 @@ class GyroSurfaceView @JvmOverloads constructor(
             val myDisplay = display ?: return
             if (displayId == myDisplay.displayId) {
                 val refreshRate = myDisplay.refreshRate
-                Log.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
+                EngineLog.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
                 engine?.geometry?.updateDisplayRefreshRate(refreshRate)
             }
         }
@@ -189,13 +189,13 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        Log.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
+        EngineLog.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
         attach(holder.surface)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         SwitchTrace.log("SURFACE_CHANGED", "view=${width}x$height buffer=${lockedWidth}x$lockedHeight")
-        Log.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
+        EngineLog.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
         if (lockedWidth <= 0 || lockedHeight <= 0) {
             // No video dimensions have arrived yet: let the buffer follow the view so first paint
             // has something to draw into. [lockBufferSizeToVideo] re-locks once mpv reports size.
@@ -207,7 +207,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         // ran, no `surfaceCreated` followed because the view was reused, and drawing silently stops
         // while audio keeps playing. Re-bind before deciding whether a repaint is needed.
         if (!target.isSurfaceAttached && holder.surface?.isValid == true) {
-            Log.i(TAG, "surfaceChanged -> re-attach unbound surface")
+            EngineLog.i(TAG, "surfaceChanged -> re-attach unbound surface")
             attach(holder.surface)
             return
         }
@@ -219,7 +219,7 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     fun applyContentFrameRate(fps: Float) {
-        Log.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
+        EngineLog.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
         contentFrameRate = fps
         val requested = if (fps > 1f && fps < 1000f) fps else 0f
         val normalized = normalizeContentFps(requested)
@@ -243,8 +243,8 @@ class GyroSurfaceView @JvmOverloads constructor(
                             Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
                         )
                     }
-                    Log.i(TAG, "setFrameRate: vote=$normalized (compat=DEFAULT, SEAMLESS)")
-                }.onFailure { Log.w(TAG, "setFrameRate($normalized) failed: ${it.message}") }
+                    EngineLog.i(TAG, "setFrameRate: vote=$normalized (compat=DEFAULT, SEAMLESS)")
+                }.onFailure { EngineLog.w(TAG, "setFrameRate($normalized) failed: ${it.message}") }
             }
         }
     }
@@ -255,7 +255,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         lockedWidth = w
         lockedHeight = h
         holder.setFixedSize(w, h)
-        Log.i(TAG, "lockBufferSize: ${w}x$h")
+        EngineLog.i(TAG, "lockBufferSize: ${w}x$h")
     }
 
     private fun attach(surface: Surface?) {
@@ -301,7 +301,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
         val surface = holder.surface
         if (surface != null && surface.isValid && attachedSurface !== surface) {
-            Log.i(TAG, "onAttachedToWindow -> re-attach existing surface")
+            EngineLog.i(TAG, "onAttachedToWindow -> re-attach existing surface")
             attach(surface)
         }
     }
@@ -318,14 +318,14 @@ class GyroSurfaceView @JvmOverloads constructor(
         // down the fresh surface: the picture freezes while audio keeps playing.
         val current = attachedSurface
         if (current != null && current !== holder.surface) {
-            Log.i(TAG, "surfaceDestroyed ignored: surface is no longer the attached one")
+            EngineLog.i(TAG, "surfaceDestroyed ignored: surface is no longer the attached one")
             return
         }
         val surfaceToDetach = current ?: holder.surface
         attachedSurface = null
         lockedWidth = 0
         lockedHeight = 0
-        Log.i(TAG, "surfaceDestroyed -> detachSurface")
+        EngineLog.i(TAG, "surfaceDestroyed -> detachSurface")
         if (surfaceToDetach != null) {
             engine?.detachSurface(surfaceToDetach)
         }
@@ -340,7 +340,9 @@ class GyroSurfaceView @JvmOverloads constructor(
 @Composable
 fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
-    engine: GyroPlayerEngine? = null
+    engine: GyroPlayerEngine? = null,
+    videoDimensions: VideoDimensions? = null,
+    videoFrameRate: Float? = null
 ) {
     val context = LocalContext.current
     val surfaceView = remember {
@@ -356,23 +358,25 @@ fun GyroPlayerSurface(
         }
     }
 
-    val frameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
-    LaunchedEffect(frameRate) {
-        Log.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$frameRate), engine=$engine")
-        surfaceView.applyContentFrameRate(frameRate)
+    val observedFrameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
+    val effectiveFrameRate = videoFrameRate ?: observedFrameRate
+    LaunchedEffect(effectiveFrameRate) {
+        EngineLog.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$effectiveFrameRate), engine=$engine")
+        surfaceView.applyContentFrameRate(effectiveFrameRate)
     }
 
     // Pin the buffer to the physical display resolution fitted to the video's aspect ratio.
     // From then on window resizes (including PiP entry/exit) never touch the BufferQueue again;
     // low-res videos still get full screen-resolution FBOs for Anime4K shaders and ASS subtitles,
     // while same-aspect playlist switches reuse the exact same BufferQueue without re-locking.
-    val videoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
-    LaunchedEffect(videoDimensions.width, videoDimensions.height) {
-        if (videoDimensions.width <= 0 || videoDimensions.height <= 0) return@LaunchedEffect
+    val observedDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
+    val effectiveDimensions = videoDimensions ?: observedDimensions
+    LaunchedEffect(effectiveDimensions.width, effectiveDimensions.height) {
+        if (effectiveDimensions.width <= 0 || effectiveDimensions.height <= 0) return@LaunchedEffect
         val (displayW, displayH) = resolvePhysicalDisplaySize(context)
         val (targetW, targetH) = computeDisplayFittedBufferSize(
-            videoWidth = videoDimensions.width,
-            videoHeight = videoDimensions.height,
+            videoWidth = effectiveDimensions.width,
+            videoHeight = effectiveDimensions.height,
             displayWidth = displayW,
             displayHeight = displayH
         )

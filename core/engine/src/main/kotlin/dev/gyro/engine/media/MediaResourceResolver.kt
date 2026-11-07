@@ -2,8 +2,8 @@ package dev.gyro.engine.media
 
 import android.content.ContentResolver
 import android.content.Context
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,6 +21,22 @@ interface MediaResourceResolver {
     suspend fun resolve(item: MediaItem): ResolvedMediaSource
 
     class MediaOpenException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+    /**
+     * Pure JVM / direct path resolver that resolves non-content targets directly and fails loudly
+     * on `content://` URIs when no Android ContentResolver is present.
+     */
+    object Direct : MediaResourceResolver {
+        override suspend fun resolve(item: MediaItem): ResolvedMediaSource {
+            val rawTarget = item.target.ifBlank { item.uri?.toString().orEmpty() }
+            if (rawTarget.startsWith("content://") || item.uri?.scheme == ContentResolver.SCHEME_CONTENT) {
+                throw MediaOpenException("Cannot open a descriptor for $rawTarget without ContentResolver")
+            }
+            val resolvedPath = item.uri?.path
+                ?: if (rawTarget.startsWith("file://")) rawTarget.removePrefix("file://") else rawTarget
+            return ResolvedMediaSource(resolvedPath)
+        }
+    }
 }
 
 /**
@@ -29,9 +45,15 @@ interface MediaResourceResolver {
  * instead of leaking it. Every other scheme is handed over as a path: mpv opens those itself.
  */
 @Singleton
-class DefaultMediaResourceResolver @Inject constructor(
-    @ApplicationContext private val context: Context
+class DefaultMediaResourceResolver private constructor(
+    private val context: Context?,
+    @Suppress("UNUSED_PARAMETER") marker: Unit
 ) : MediaResourceResolver {
+
+    @Inject
+    constructor(@ApplicationContext context: Context) : this(context, Unit)
+
+    constructor() : this(null, Unit)
 
     companion object {
         private const val TAG = "MediaResourceResolver"
@@ -39,19 +61,27 @@ class DefaultMediaResourceResolver @Inject constructor(
 
     override suspend fun resolve(item: MediaItem): ResolvedMediaSource = withContext(Dispatchers.IO) {
         val uri = item.uri
-        if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
+        val rawTarget = item.target.ifBlank { uri?.toString().orEmpty() }
+        val isContent = uri?.scheme == ContentResolver.SCHEME_CONTENT || rawTarget.startsWith("content://")
+        if (isContent) {
             val descriptor = try {
-                context.contentResolver?.openFileDescriptor(uri, "r")
+                if (uri != null && context != null) {
+                    context.contentResolver?.openFileDescriptor(uri, "r")
+                } else {
+                    null
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (t: Throwable) {
-                Log.w(TAG, "cannot open a descriptor for $uri", t)
+                EngineLog.w(TAG, "cannot open a descriptor for $rawTarget", t)
                 null
-            } ?: throw MediaResourceResolver.MediaOpenException("Cannot open a descriptor for $uri")
+            } ?: throw MediaResourceResolver.MediaOpenException("Cannot open a descriptor for $rawTarget")
 
-            ResolvedMediaSource(uri.toString(), descriptor)
+            ResolvedMediaSource(rawTarget, descriptor)
         } else {
-            ResolvedMediaSource(uri.path ?: uri.toString())
+            val path = uri?.path
+                ?: if (rawTarget.startsWith("file://")) rawTarget.removePrefix("file://") else rawTarget
+            ResolvedMediaSource(path)
         }
     }
 }

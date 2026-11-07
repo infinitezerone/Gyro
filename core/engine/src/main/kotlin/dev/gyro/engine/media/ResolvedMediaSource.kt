@@ -3,6 +3,14 @@ package dev.gyro.engine.media
 import android.os.ParcelFileDescriptor
 
 /**
+ * Platform-neutral handle for a detachable native POSIX file descriptor.
+ */
+fun interface NativeFileDescriptor : AutoCloseable {
+    fun detachFd(): Int
+    override fun close() {}
+}
+
+/**
  * A target mpv can load, plus what must be released if the hand-off never happens.
  *
  * Ownership: the descriptor stays on this side until [takeTargetUrl] runs. mpv's `fdclose://`
@@ -12,8 +20,19 @@ import android.os.ParcelFileDescriptor
  */
 class ResolvedMediaSource(
     private val targetPathOrUri: String,
-    private val descriptor: ParcelFileDescriptor? = null
+    private val descriptor: NativeFileDescriptor? = null
 ) : AutoCloseable {
+
+    constructor(
+        targetPathOrUri: String,
+        parcelDescriptor: ParcelFileDescriptor
+    ) : this(
+        targetPathOrUri = targetPathOrUri,
+        descriptor = object : NativeFileDescriptor {
+            override fun detachFd(): Int = parcelDescriptor.detachFd()
+            override fun close() = parcelDescriptor.close()
+        }
+    )
 
     /** Target as resolved, before any descriptor is detached. Safe to log. */
     val targetDescription: String = targetPathOrUri

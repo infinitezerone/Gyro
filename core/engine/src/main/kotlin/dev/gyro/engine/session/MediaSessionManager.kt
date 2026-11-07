@@ -7,14 +7,14 @@ import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
-import android.os.Build
 import android.os.SystemClock
-import android.util.Log
 import android.view.KeyEvent
 import androidx.core.content.IntentCompat
+import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import dev.gyro.engine.playlist.PlaylistManager
+import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,6 +72,7 @@ class MediaSessionManager(
 
     var onPlaybackStateChanged: ((isPlaying: Boolean) -> Unit)? = null
     var onStopRequested: (() -> Unit)? = null
+    var onPlayMediaItemRequested: ((VideoMediaItem) -> Unit)? = null
 
     private val sessionCallback = object : MediaSession.Callback() {
         override fun onPlay() {
@@ -122,7 +123,7 @@ class MediaSessionManager(
             session.isActive = true
             mediaSession = session
         } catch (t: Throwable) {
-            Log.w(TAG, "MediaSession initialization skipped or failed: ${t.message}")
+            EngineLog.w(TAG, "MediaSession initialization skipped or failed: ${t.message}")
         }
 
         startObservingEngine()
@@ -131,14 +132,34 @@ class MediaSessionManager(
     private fun startObservingEngine() {
         coroutineScope.launch {
             launch {
-                engine.isPlaying.collect { playing ->
-                    updatePlaybackState()
-                    onPlaybackStateChanged?.invoke(playing)
-                }
-            }
-            launch {
-                engine.playbackState.collect {
-                    updatePlaybackState()
+                var lastIsPlaying: Boolean? = null
+                var lastState: EnginePlaybackState? = null
+                var lastSpeed: Float? = null
+                var lastTitle: String? = null
+                var lastDurationMs: Long? = null
+
+                engine.state.collect { snapshot ->
+                    val playingChanged = snapshot.isPlaying != lastIsPlaying
+                    val stateChanged =
+                        playingChanged || snapshot.playbackState != lastState || snapshot.speed != lastSpeed
+                    val metadataChanged =
+                        snapshot.mediaTitle != lastTitle || snapshot.durationMs != lastDurationMs
+
+                    lastIsPlaying = snapshot.isPlaying
+                    lastState = snapshot.playbackState
+                    lastSpeed = snapshot.speed
+                    lastTitle = snapshot.mediaTitle
+                    lastDurationMs = snapshot.durationMs
+
+                    if (stateChanged) {
+                        updatePlaybackState()
+                    }
+                    if (playingChanged) {
+                        onPlaybackStateChanged?.invoke(snapshot.isPlaying)
+                    }
+                    if (metadataChanged) {
+                        updateMetadata()
+                    }
                 }
             }
             var lastReportedPos = 0L
@@ -147,26 +168,11 @@ class MediaSessionManager(
                     // Android's PlaybackState automatically extrapolates playback position based on
                     // updateTime and speed when STATE_PLAYING. Updating on every 50ms progress tick
                     // floods system_server Binder IPC. Only update on large position discontinuities (seeks)
-                    // or periodic low-frequency sync (every 5 seconds).
+                    // or periodic low-frequency sync.
                     if (kotlin.math.abs(pos - lastReportedPos) >= 2000L) {
                         lastReportedPos = pos
                         updatePlaybackState()
                     }
-                }
-            }
-            launch {
-                engine.speed.collect {
-                    updatePlaybackState()
-                }
-            }
-            launch {
-                engine.mediaTitle.collect {
-                    updateMetadata()
-                }
-            }
-            launch {
-                engine.durationMs.collect {
-                    updateMetadata()
                 }
             }
         }
@@ -193,10 +199,19 @@ class MediaSessionManager(
         engine.seekTo(positionMs)
     }
 
+    private fun dispatchMediaItem(item: VideoMediaItem) {
+        val delegate = onPlayMediaItemRequested ?: playlistManager.mediaItemLauncher
+        if (delegate != null) {
+            delegate(item)
+        } else {
+            engine.load(uriParser(item.uriString), displayTitle = item.displayName)
+        }
+    }
+
     fun skipToNext(): Boolean {
         val next = playlistManager.playNext()
         return if (next != null) {
-            engine.loadUri(uriParser(next.uriString), displayTitle = next.displayName)
+            dispatchMediaItem(next)
             true
         } else {
             false
@@ -206,7 +221,7 @@ class MediaSessionManager(
     fun skipToPrevious(): Boolean {
         val prev = playlistManager.playPrevious()
         return if (prev != null) {
-            engine.loadUri(uriParser(prev.uriString), displayTitle = prev.displayName)
+            dispatchMediaItem(prev)
             true
         } else {
             false
@@ -251,10 +266,11 @@ class MediaSessionManager(
     }
 
     fun getPlaybackStateSnapshot(): PlaybackStateSnapshot {
-        val isPlaying = engine.isPlaying.value
+        val snapshot = engine.state.value
+        val isPlaying = snapshot.isPlaying
         val pos = engine.timePosMs.value
-        val speed = engine.speed.value
-        val engineState = engine.playbackState.value
+        val speed = snapshot.speed
+        val engineState = snapshot.playbackState
 
         val state = when {
             engineState == EnginePlaybackState.BUFFERING -> PlaybackState.STATE_BUFFERING
@@ -291,16 +307,17 @@ class MediaSessionManager(
             }
             state
         } catch (t: Throwable) {
-            Log.w(TAG, "updatePlaybackState error: ${t.message}")
+            EngineLog.w(TAG, "updatePlaybackState error: ${t.message}")
             null
         }
     }
 
     fun getMediaMetadataSnapshot(): MediaMetadataSnapshot {
+        val snapshot = engine.state.value
         return MediaMetadataSnapshot(
-            title = engine.mediaTitle.value,
+            title = snapshot.mediaTitle,
             artist = "Gyro Player",
-            durationMs = engine.durationMs.value
+            durationMs = snapshot.durationMs
         )
     }
 
@@ -325,7 +342,7 @@ class MediaSessionManager(
             }
             metadata
         } catch (t: Throwable) {
-            Log.w(TAG, "updateMetadata error: ${t.message}")
+            EngineLog.w(TAG, "updateMetadata error: ${t.message}")
             null
         }
     }
@@ -337,7 +354,7 @@ class MediaSessionManager(
             mediaSession?.release()
             mediaSession = null
         } catch (t: Throwable) {
-            Log.w(TAG, "release MediaSession error: ${t.message}")
+            EngineLog.w(TAG, "release MediaSession error: ${t.message}")
         }
     }
 }

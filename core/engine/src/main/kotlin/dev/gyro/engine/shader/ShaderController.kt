@@ -1,11 +1,11 @@
 package dev.gyro.engine.shader
 
 import android.net.Uri
-import android.util.Log
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.state.PlaybackStore
+import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import javax.inject.Inject
@@ -28,7 +28,7 @@ interface ShaderController {
 @Singleton
 class RealShaderController @Inject constructor(
     private val bridge: MpvNativeBridge,
-    private val shaderManager: ShaderManager,
+    private val shaderManager: ShaderManager = ShaderManager(),
     private val store: PlaybackStore = PlaybackStore()
 ) : ShaderController {
     companion object {
@@ -63,9 +63,9 @@ class RealShaderController @Inject constructor(
                         currentPath = file.absolutePath,
                         displayName = "AMD FidelityFX CAS"
                     )
-                    Log.i(TAG, "Applied CAS shader: ${file.absolutePath}")
+                    EngineLog.i(TAG, "Applied CAS shader: ${file.absolutePath}")
                 } else {
-                    Log.e(TAG, "Failed to apply CAS shader: file missing")
+                    EngineLog.e(TAG, "Failed to apply CAS shader: file missing")
                 }
             }
             GlslShader.ANIME4K -> {
@@ -77,9 +77,9 @@ class RealShaderController @Inject constructor(
                         currentPath = file.absolutePath,
                         displayName = "Anime4K Lite"
                     )
-                    Log.i(TAG, "Applied Anime4K Lite shader: ${file.absolutePath}")
+                    EngineLog.i(TAG, "Applied Anime4K Lite shader: ${file.absolutePath}")
                 } else {
-                    Log.e(TAG, "Failed to apply Anime4K Lite shader: file missing")
+                    EngineLog.e(TAG, "Failed to apply Anime4K Lite shader: file missing")
                 }
             }
             GlslShader.CUSTOM -> {
@@ -91,9 +91,9 @@ class RealShaderController @Inject constructor(
                         currentPath = customPath,
                         displayName = displayName
                     )
-                    Log.i(TAG, "Applied custom shader: $customPath ($displayName)")
+                    EngineLog.i(TAG, "Applied custom shader: $customPath ($displayName)")
                 } else {
-                    Log.w(TAG, "Custom shader path invalid or file does not exist: $customPath")
+                    EngineLog.w(TAG, "Custom shader path invalid or file does not exist: $customPath")
                 }
             }
         }
@@ -106,7 +106,7 @@ class RealShaderController @Inject constructor(
             currentPath = null,
             displayName = null
         )
-        Log.i(TAG, "Cleared glsl-shaders")
+        EngineLog.i(TAG, "Cleared glsl-shaders")
     }
 
     override fun importAndSetCustomShader(uri: Uri): Result<String> {

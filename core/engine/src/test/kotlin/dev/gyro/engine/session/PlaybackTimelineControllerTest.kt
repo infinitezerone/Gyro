@@ -254,7 +254,7 @@ class PlaybackTimelineControllerTest {
     }
 
     @Test
-    fun loadStarted_resetsPositionDurationAndInFlightSeekButKeepsBuffer() {
+    fun loadStarted_resetsPositionDurationAndBufferPreventingStaleBufferLeak() {
         fileLoaded()
         timeline.onDurationChanged(100.0)
         timeline.onBufferedPositionChanged(50.0)
@@ -264,12 +264,12 @@ class PlaybackTimelineControllerTest {
         timeline.onLoadStarted(4000L)
         assertEquals(4000L, timeline.timePosMs.value)
         assertEquals(0L, timeline.durationMs.value)
-        assertEquals(50_000L, timeline.bufferedPosMs.value)
+        assertEquals(4000L, timeline.bufferedPosMs.value)
         timeline.onPositionChanged(1.0)
         assertEquals(1000L, timeline.timePosMs.value)
         timeline.onLoadStarted(-500L)
         assertEquals(0L, timeline.timePosMs.value)
-        assertEquals(50_000L, timeline.bufferedPosMs.value)
+        assertEquals(0L, timeline.bufferedPosMs.value)
         assertEquals(1, bridge.commands.size)
     }
 

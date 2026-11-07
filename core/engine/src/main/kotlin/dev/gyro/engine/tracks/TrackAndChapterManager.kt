@@ -1,11 +1,11 @@
 package dev.gyro.engine.tracks
 
-import android.util.Log
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
-import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.model.TrackInfo
+import dev.gyro.engine.state.PlaybackStore
+import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -19,11 +19,14 @@ import javax.inject.Singleton
 /**
  * Manages audio, video, and subtitle tracks as well as chapter parsing and selection.
  */
-interface TrackAndChapterManager {
+interface TrackAndChapterManager : dev.gyro.engine.EngineSubsystem {
     val tracks: StateFlow<List<TrackInfo>>
     val chapters: StateFlow<List<ChapterInfo>>
     val currentChapter: StateFlow<Int>
 
+    override fun registerObservers() {}
+    override fun onEvent(event: MpvEvent) {}
+    override fun reset() { clearChapters() }
     fun observeEvents(scope: CoroutineScope): Job
     fun refreshTracks()
     fun selectTrack(type: String, id: Int)
@@ -52,28 +55,41 @@ class RealTrackAndChapterManager @Inject constructor(
     private val _currentChapter = store.property({ it.currentChapter }) { s, v -> s.copy(currentChapter = v) }
     override val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
+    override fun registerObservers() {
+        bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
+        bridge.observeProperty("chapter-list", MpvNativeBridge.Format.NONE)
+        bridge.observeProperty("chapter", MpvNativeBridge.Format.INT64)
+    }
+
+    override fun onEvent(event: MpvEvent) {
+        when (event) {
+            is MpvEvent.Lifecycle -> when (event.id) {
+                MpvNativeBridge.Event.FILE_LOADED -> {
+                    refreshTracks()
+                    refreshChapters()
+                }
+                MpvNativeBridge.Event.TRACKS_CHANGED -> refreshTracks()
+                MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> clearChapters()
+            }
+            is MpvEvent.EndFile -> when (event.reason) {
+                MpvNativeBridge.EndReason.EOF,
+                MpvNativeBridge.EndReason.QUIT,
+                MpvNativeBridge.EndReason.ERROR -> clearChapters()
+            }
+            is MpvEvent.PropertyChanged -> when (event.name) {
+                "track-list" -> refreshTracks()
+                "chapter-list" -> refreshChapters()
+            }
+            is MpvEvent.LongProperty -> {
+                if (event.name == "chapter") onChapterPropertyChanged(event.value.toInt())
+            }
+            else -> Unit
+        }
+    }
+
     override fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            bridge.events.collect { event ->
-                when (event) {
-                    is MpvEvent.Lifecycle -> when (event.id) {
-                        MpvNativeBridge.Event.FILE_LOADED -> {
-                            refreshTracks()
-                            refreshChapters()
-                        }
-                        MpvNativeBridge.Event.TRACKS_CHANGED -> refreshTracks()
-                        MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> clearChapters()
-                    }
-                    is MpvEvent.PropertyChanged -> when (event.name) {
-                        "track-list" -> refreshTracks()
-                        "chapter-list" -> refreshChapters()
-                    }
-                    is MpvEvent.LongProperty -> {
-                        if (event.name == "chapter") onChapterPropertyChanged(event.value.toInt())
-                    }
-                    else -> Unit
-                }
-            }
+            bridge.events.collect(::onEvent)
         }
 
     override fun refreshTracks() {
@@ -89,9 +105,9 @@ class RealTrackAndChapterManager @Inject constructor(
                 trackList.add(TrackInfo(id, type, title, lang, selected))
             }
             _tracks.value = trackList
-            Log.i(TAG, "Refreshed tracks: count=$count, tracks=$trackList")
+            EngineLog.i(TAG, "Refreshed tracks: count=$count, tracks=$trackList")
         } catch (t: Throwable) {
-            Log.w(TAG, "Failed to refresh tracks: ${t.message}")
+            EngineLog.w(TAG, "Failed to refresh tracks: ${t.message}")
         }
     }
 
@@ -141,9 +157,9 @@ class RealTrackAndChapterManager @Inject constructor(
 
             val activeChapter = bridge.getLong("chapter")?.toInt() ?: -1
             _currentChapter.value = activeChapter
-            Log.i(TAG, "Refreshed chapters: count=$count, activeChapter=$activeChapter")
+            EngineLog.i(TAG, "Refreshed chapters: count=$count, activeChapter=$activeChapter")
         } catch (t: Throwable) {
-            Log.w(TAG, "Failed to refresh chapters: ${t.message}")
+            EngineLog.w(TAG, "Failed to refresh chapters: ${t.message}")
         }
     }
 

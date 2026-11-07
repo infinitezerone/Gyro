@@ -7,8 +7,8 @@ import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.util.Log
 import androidx.core.content.ContextCompat
+import dev.gyro.engine.trace.EngineLog
 
 /**
  * Owns the Android audio focus contract on behalf of the player.
@@ -36,7 +36,7 @@ class GyroAudioFocusManager(
     private val context: Context,
     private val listener: Listener,
     private val audioManager: AudioManager? = resolveAudioManager(context)
-) {
+) : AudioFocusController {
 
     interface Listener {
         /** Playback may start or continue: first grant, delayed grant landing, or recovery from a transient loss. */
@@ -107,14 +107,14 @@ class GyroAudioFocusManager(
      * denied; in the deferred case [Listener.onPlayRequested] fires once the grant arrives, so the
      * caller must not start playback on its own.
      */
-    fun requestPlay(): Boolean {
+    override fun requestPlay(): Boolean {
         if (released) return false
         val manager = audioManager
         val request = focusRequest
         if (manager == null || request == null) {
             if (!focusUnavailableLogged) {
                 focusUnavailableLogged = true
-                Log.w(TAG, "Audio focus unavailable on this runtime, playing without focus")
+                EngineLog.w(TAG, "Audio focus unavailable on this runtime, playing without focus")
             }
             return true
         }
@@ -130,14 +130,14 @@ class GyroAudioFocusManager(
             AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
                 hasFocus = false
                 pendingPlay = true
-                Log.i(TAG, "Audio focus deferred, waiting for gain before starting playback")
+                EngineLog.i(TAG, "Audio focus deferred, waiting for gain before starting playback")
                 false
             }
 
             else -> {
                 hasFocus = false
                 pendingPlay = false
-                Log.w(TAG, "Audio focus request denied, playback suppressed")
+                EngineLog.w(TAG, "Audio focus request denied, playback suppressed")
                 false
             }
         }
@@ -149,14 +149,14 @@ class GyroAudioFocusManager(
      * Focus is retained so resuming stays instant, but any pending auto-resume is cancelled and a
      * duck in progress is lifted: the user paused, so the volume they set should come back.
      */
-    fun notifyUserPaused() {
+    override fun notifyUserPaused() {
         pendingPlay = false
         pausedBy = PAUSED_BY_NONE
         unduck()
     }
 
     /** Releases focus, unregisters the receiver and restores a ducked volume. Safe to call repeatedly. */
-    fun abandon() {
+    override fun abandon() {
         pendingPlay = false
         pausedBy = PAUSED_BY_NONE
         unduck()
@@ -165,19 +165,19 @@ class GyroAudioFocusManager(
         val request = focusRequest
         if (hasFocus && manager != null && request != null) {
             runCatching { manager.abandonAudioFocusRequest(request) }
-                .onFailure { Log.w(TAG, "abandonAudioFocusRequest failed: ${it.message}") }
+                .onFailure { EngineLog.w(TAG, "abandonAudioFocusRequest failed: ${it.message}") }
         }
         hasFocus = false
     }
 
     /** Releases focus and permanently shuts down the manager until [reset] is called. */
-    fun release() {
+    override fun release() {
         abandon()
         released = true
     }
 
     /** Resets the abandoned state so the manager can accept requests upon engine re-initialization. */
-    fun reset() {
+    override fun reset() {
         released = false
         hasFocus = false
         pendingPlay = false
@@ -192,7 +192,7 @@ class GyroAudioFocusManager(
                 pendingPlay = false
                 pausedBy = PAUSED_BY_NONE
                 unduck()
-                Log.i(TAG, "Focus lost permanently, pausing without auto-resume")
+                EngineLog.i(TAG, "Focus lost permanently, pausing without auto-resume")
                 listener.onPauseRequested()
             }
 
@@ -203,15 +203,15 @@ class GyroAudioFocusManager(
                 pausedBy = if (wasPlaying) PAUSED_BY_TRANSIENT else PAUSED_BY_NONE
                 unduck()
                 if (wasPlaying) {
-                    Log.i(TAG, "Focus lost transiently while playing, pausing and arming auto-resume")
+                    EngineLog.i(TAG, "Focus lost transiently while playing, pausing and arming auto-resume")
                     listener.onPauseRequested()
                 } else {
-                    Log.i(TAG, "Focus lost transiently while already paused, staying paused")
+                    EngineLog.i(TAG, "Focus lost transiently while already paused, staying paused")
                 }
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                Log.i(TAG, "Focus duckable, lowering system stream")
+                EngineLog.i(TAG, "Focus duckable, lowering system stream")
                 duck()
             }
 
@@ -222,17 +222,17 @@ class GyroAudioFocusManager(
                     pendingPlay -> {
                         pendingPlay = false
                         pausedBy = PAUSED_BY_NONE
-                        Log.i(TAG, "Deferred focus granted, starting playback")
+                        EngineLog.i(TAG, "Deferred focus granted, starting playback")
                         listener.onPlayRequested()
                     }
 
                     pausedBy == PAUSED_BY_TRANSIENT -> {
                         pausedBy = PAUSED_BY_NONE
-                        Log.i(TAG, "Focus regained after transient loss, resuming")
+                        EngineLog.i(TAG, "Focus regained after transient loss, resuming")
                         listener.onPlayRequested()
                     }
 
-                    else -> Log.i(TAG, "Focus regained, staying paused")
+                    else -> EngineLog.i(TAG, "Focus regained, staying paused")
                 }
             }
         }
@@ -247,14 +247,14 @@ class GyroAudioFocusManager(
             .getOrDefault(0)
         val target = AudioDuckPolicy.duckTarget(current, max)
         if (target >= current) {
-            Log.d(TAG, "Duck skipped: current=$current max=$max has no headroom")
+            EngineLog.d(TAG, "Duck skipped: current=$current max=$max has no headroom")
             return
         }
         val applied = runCatching {
             manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
         }.isSuccess
         if (!applied) {
-            Log.w(TAG, "setStreamVolume failed, duck not applied")
+            EngineLog.w(TAG, "setStreamVolume failed, duck not applied")
             return
         }
         duckedFromVolume = current
@@ -272,12 +272,12 @@ class GyroAudioFocusManager(
         val current = runCatching { manager.getStreamVolume(AudioManager.STREAM_MUSIC) }
             .getOrDefault(-1)
         if (!AudioDuckPolicy.shouldRestoreVolume(current, to)) {
-            Log.d(TAG, "Duck restore skipped: volume changed externally (current=$current, ducked=$to)")
+            EngineLog.d(TAG, "Duck restore skipped: volume changed externally (current=$current, ducked=$to)")
             return
         }
         runCatching { manager.setStreamVolume(AudioManager.STREAM_MUSIC, from, 0) }
             .onSuccess { listener.onUnducked() }
-            .onFailure { Log.w(TAG, "Restoring ducked volume failed: ${it.message}") }
+            .onFailure { EngineLog.w(TAG, "Restoring ducked volume failed: ${it.message}") }
     }
 
     private fun registerNoisyReceiver() {
@@ -285,7 +285,7 @@ class GyroAudioFocusManager(
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
-                Log.i(TAG, "Audio becoming noisy, pausing without auto-resume")
+                EngineLog.i(TAG, "Audio becoming noisy, pausing without auto-resume")
                 pendingPlay = false
                 pausedBy = PAUSED_BY_NONE
                 listener.onPauseRequested()
@@ -301,14 +301,14 @@ class GyroAudioFocusManager(
         }.onSuccess {
             noisyReceiver = receiver
         }.onFailure {
-            Log.w(TAG, "Failed to register becoming-noisy receiver: ${it.message}")
+            EngineLog.w(TAG, "Failed to register becoming-noisy receiver: ${it.message}")
         }
     }
 
     private fun unregisterNoisyReceiver() {
         noisyReceiver?.let { receiver ->
             runCatching { context.unregisterReceiver(receiver) }
-                .onFailure { Log.w(TAG, "Failed to unregister noisy receiver: ${it.message}") }
+                .onFailure { EngineLog.w(TAG, "Failed to unregister noisy receiver: ${it.message}") }
         }
         noisyReceiver = null
     }

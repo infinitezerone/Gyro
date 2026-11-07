@@ -85,4 +85,21 @@ class SyncTuningControllerTest {
         assertEquals(1.4, controller.subtitleScale.value, 0.0)
         assertEquals(88L, controller.subtitlePositionPercent.value)
     }
+
+    @Test
+    fun resetDelays_zerosSubtitleAndAudioDelayWhilePreservingScaleAndPosition() {
+        controller.setSubtitleDelay(2.4)
+        controller.setAudioDelay(-1.2)
+        controller.setSubtitleScale(1.5)
+        controller.setSubtitlePosition(85L)
+
+        controller.resetDelays()
+
+        assertEquals(0.0, controller.subtitleDelaySec.value, 0.0)
+        assertEquals(0.0, controller.audioDelaySec.value, 0.0)
+        assertEquals(0.0, bridge.properties["sub-delay"] as Double, 0.0)
+        assertEquals(0.0, bridge.properties["audio-delay"] as Double, 0.0)
+        assertEquals(1.5, controller.subtitleScale.value, 0.0)
+        assertEquals(85L, controller.subtitlePositionPercent.value)
+    }
 }

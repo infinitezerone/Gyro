@@ -2,9 +2,9 @@ package dev.gyro.engine.session
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
-import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.normalizeContentFps
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +23,7 @@ import kotlin.math.abs
  * Guarantees that container layout adapts immediately on [PlaybackSessionState.Demuxed]
  * without waiting for decoder warmup, while isolating stale VO properties during [PlaybackSessionState.Switching].
  */
-interface VideoGeometryCoordinator {
+interface VideoGeometryCoordinator : dev.gyro.engine.EngineSubsystem {
     val sessionState: StateFlow<PlaybackSessionState>
     val videoDimensions: StateFlow<VideoDimensions>
     val videoAspect: StateFlow<Float>
@@ -33,10 +33,11 @@ interface VideoGeometryCoordinator {
     val displayRefreshRate: StateFlow<Float>
     val resizeMode: StateFlow<ResizeMode>
 
+    override fun registerObservers() {}
+    override fun onEvent(event: MpvEvent) {}
     fun observeEvents(scope: CoroutineScope): Job
     fun updateDisplayRefreshRate(rate: Float)
     fun setResizeMode(mode: ResizeMode)
-    fun setZoomAndPan(zoom: Double, panX: Double, panY: Double)
     fun resetZoomAndPan()
     fun onSwitchStarted(url: String, startPositionMs: Long = 0L)
     fun onFileLoaded(url: String, hasVideo: Boolean)
@@ -44,7 +45,7 @@ interface VideoGeometryCoordinator {
     fun onVoParamsChanged()
     fun onFpsUpdated(fps: Float, isEstimated: Boolean = false)
     fun onSessionEnded()
-    fun reset()
+    override fun reset()
 }
 
 @Singleton
@@ -80,30 +81,48 @@ class RealVideoGeometryCoordinator @Inject constructor(
     private val _resizeMode = store.property({ it.resizeMode }) { s, v -> s.copy(resizeMode = v) }
     override val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
+    override fun registerObservers() {
+        bridge.observeProperty("dwidth", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("dheight", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("width", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("height", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("container-fps", MpvNativeBridge.Format.DOUBLE)
+        bridge.observeProperty("estimated-vf-fps", MpvNativeBridge.Format.DOUBLE)
+        bridge.observeProperty("video-params", MpvNativeBridge.Format.NONE)
+        bridge.observeProperty("video-out-params", MpvNativeBridge.Format.NONE)
+    }
+
+    override fun onEvent(event: MpvEvent) {
+        when (event) {
+            is MpvEvent.Lifecycle -> when (event.id) {
+                MpvNativeBridge.Event.FILE_LOADED ->
+                    onFileLoaded(currentUrl, bridge.getPropertyString("video") != "no")
+                MpvNativeBridge.Event.FIRST_FRAME -> onFirstFramePresented()
+                MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> onSessionEnded()
+            }
+            is MpvEvent.EndFile -> when (event.reason) {
+                MpvNativeBridge.EndReason.EOF,
+                MpvNativeBridge.EndReason.QUIT,
+                MpvNativeBridge.EndReason.ERROR -> onSessionEnded()
+            }
+            is MpvEvent.PropertyChanged -> when (event.name) {
+                "video-params", "video-out-params" -> onVoParamsChanged()
+            }
+            is MpvEvent.LongProperty -> when (event.name) {
+                "width", "height", "dwidth", "dheight" -> onVoParamsChanged()
+            }
+            is MpvEvent.DoubleProperty -> when (event.name) {
+                "container-fps" -> onFpsUpdated(event.value.toFloat(), isEstimated = false)
+                "estimated-vf-fps" ->
+                    onFpsUpdated(normalizeContentFps(event.value.toFloat()), isEstimated = true)
+            }
+            else -> Unit
+        }
+    }
+
     override fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            bridge.events.collect { event ->
-                when (event) {
-                    is MpvEvent.Lifecycle -> when (event.id) {
-                        MpvNativeBridge.Event.FILE_LOADED ->
-                            onFileLoaded(currentUrl, bridge.getPropertyString("video") != "no")
-                        MpvNativeBridge.Event.FIRST_FRAME -> onFirstFramePresented()
-                        MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> onSessionEnded()
-                    }
-                    is MpvEvent.PropertyChanged -> when (event.name) {
-                        "video-params", "video-out-params" -> onVoParamsChanged()
-                    }
-                    is MpvEvent.LongProperty -> when (event.name) {
-                        "width", "height", "dwidth", "dheight" -> onVoParamsChanged()
-                    }
-                    is MpvEvent.DoubleProperty -> when (event.name) {
-                        "container-fps" -> onFpsUpdated(event.value.toFloat(), isEstimated = false)
-                        "estimated-vf-fps" ->
-                            onFpsUpdated(normalizeContentFps(event.value.toFloat()), isEstimated = true)
-                    }
-                    else -> Unit
-                }
-            }
+            bridge.events.collect(::onEvent)
         }
 
     override fun onSwitchStarted(url: String, startPositionMs: Long) {
@@ -267,12 +286,6 @@ class RealVideoGeometryCoordinator @Inject constructor(
                 bridge.setPropertyString("video-aspect-override", "21:9")
             }
         }
-    }
-
-    override fun setZoomAndPan(zoom: Double, panX: Double, panY: Double) {
-        bridge.setPropertyDouble("video-zoom", zoom)
-        bridge.setPropertyDouble("video-pan-x", panX)
-        bridge.setPropertyDouble("video-pan-y", panY)
     }
 
     override fun resetZoomAndPan() {

@@ -8,10 +8,10 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
-
 
 /**
  * A/V sync calibration: the four mpv properties the tuning sheet reads and writes.
@@ -20,17 +20,21 @@ import javax.inject.Singleton
  * restored preference and a gesture all converge on the same result. All four properties are
  * observed, so a value changed outside this controller still reaches [StateFlow] listeners.
  */
-interface SyncTuningController {
+interface SyncTuningController : dev.gyro.engine.EngineSubsystem {
     val subtitleDelaySec: StateFlow<Double>
     val audioDelaySec: StateFlow<Double>
     val subtitleScale: StateFlow<Double>
     val subtitlePositionPercent: StateFlow<Long>
 
+    override fun registerObservers() {}
+    override fun onEvent(event: MpvEvent) {}
+    override fun reset() { resetDelays() }
     fun observeEvents(scope: CoroutineScope): Job
     fun setSubtitleDelay(delaySec: Double)
     fun setAudioDelay(delaySec: Double)
     fun setSubtitleScale(scale: Double)
     fun setSubtitlePosition(percent: Long)
+    fun resetDelays()
 }
 
 @Singleton
@@ -59,21 +63,30 @@ class RealSyncTuningController @Inject constructor(
     private val _subtitlePositionPercent = store.property({ it.subtitlePositionPercent }) { s, v -> s.copy(subtitlePositionPercent = v) }
     override val subtitlePositionPercent: StateFlow<Long> = _subtitlePositionPercent.asStateFlow()
 
+    override fun registerObservers() {
+        bridge.observeProperty("sub-delay", MpvNativeBridge.Format.DOUBLE)
+        bridge.observeProperty("audio-delay", MpvNativeBridge.Format.DOUBLE)
+        bridge.observeProperty("sub-scale", MpvNativeBridge.Format.DOUBLE)
+        bridge.observeProperty("sub-pos", MpvNativeBridge.Format.INT64)
+    }
+
+    override fun onEvent(event: MpvEvent) {
+        when (event) {
+            is MpvEvent.DoubleProperty -> when (event.name) {
+                "sub-delay" -> _subtitleDelaySec.value = event.value
+                "audio-delay" -> _audioDelaySec.value = event.value
+                "sub-scale" -> _subtitleScale.value = event.value
+            }
+            is MpvEvent.LongProperty -> when (event.name) {
+                "sub-pos" -> _subtitlePositionPercent.value = event.value
+            }
+            else -> Unit
+        }
+    }
+
     override fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            bridge.events.collect { event ->
-                when (event) {
-                    is MpvEvent.DoubleProperty -> when (event.name) {
-                        "sub-delay" -> _subtitleDelaySec.value = event.value
-                        "audio-delay" -> _audioDelaySec.value = event.value
-                        "sub-scale" -> _subtitleScale.value = event.value
-                    }
-                    is MpvEvent.LongProperty -> when (event.name) {
-                        "sub-pos" -> _subtitlePositionPercent.value = event.value
-                    }
-                    else -> Unit
-                }
-            }
+            bridge.events.collect(::onEvent)
         }
 
     override fun setSubtitleDelay(delaySec: Double) {
@@ -98,5 +111,12 @@ class RealSyncTuningController @Inject constructor(
         val clamped = percent.coerceIn(SUB_POS_RANGE)
         _subtitlePositionPercent.value = clamped
         bridge.setPropertyLong("sub-pos", clamped)
+    }
+
+    override fun resetDelays() {
+        _subtitleDelaySec.value = 0.0
+        _audioDelaySec.value = 0.0
+        bridge.setPropertyDouble("sub-delay", 0.0)
+        bridge.setPropertyDouble("audio-delay", 0.0)
     }
 }

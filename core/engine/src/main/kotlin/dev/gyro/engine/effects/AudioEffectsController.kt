@@ -17,11 +17,14 @@ import javax.inject.Singleton
  * Manages audio filtering, 0-200% volume overdrive, anti-clipping limiter,
  * speech normalization (night mode), and stereo downmixing.
  */
-interface AudioEffectsController {
+interface AudioEffectsController : dev.gyro.engine.EngineSubsystem {
     val softwareVolume: StateFlow<Double>
     val nightMode: StateFlow<Boolean>
     val stereoDownmix: StateFlow<Boolean>
 
+    override fun registerObservers() {}
+    override fun onEvent(event: MpvEvent) {}
+    override fun reset() { resetSoftwareGain() }
     fun observeEvents(scope: CoroutineScope): Job
     fun setSoftwareVolume(gain: Double)
     fun resetSoftwareGain()
@@ -53,15 +56,23 @@ class RealAudioEffectsController @Inject constructor(
     private val _stereoDownmix = store.property({ it.stereoDownmix }) { s, v -> s.copy(stereoDownmix = v) }
     override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
 
+    override fun onEvent(event: MpvEvent) {
+        when (event) {
+            is MpvEvent.Lifecycle -> when (event.id) {
+                MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> resetSoftwareGain()
+            }
+            is MpvEvent.EndFile -> when (event.reason) {
+                MpvNativeBridge.EndReason.EOF,
+                MpvNativeBridge.EndReason.QUIT,
+                MpvNativeBridge.EndReason.ERROR -> resetSoftwareGain()
+            }
+            else -> Unit
+        }
+    }
+
     override fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            bridge.events.collect { event ->
-                if (event is MpvEvent.Lifecycle) {
-                    when (event.id) {
-                        MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> resetSoftwareGain()
-                    }
-                }
-            }
+            bridge.events.collect(::onEvent)
         }
 
     @Synchronized

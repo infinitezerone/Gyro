@@ -3,9 +3,9 @@ package dev.gyro.engine.shader
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.model.GlslShader
+import dev.gyro.engine.trace.EngineLog
 import java.io.File
 import java.io.IOException
 import javax.inject.Inject
@@ -16,8 +16,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class ShaderManager(
-    private val context: Context,
-    private val baseDir: File = runCatching { context.filesDir }.getOrNull()
+    private val context: Context? = null,
+    private val baseDir: File = runCatching { context?.filesDir }.getOrNull()
         ?: File(System.getProperty("java.io.tmpdir"), "gyro_shaders")
 ) {
     @Inject
@@ -28,6 +28,7 @@ class ShaderManager(
         baseDir = runCatching { context.filesDir }.getOrNull()
             ?: File(System.getProperty("java.io.tmpdir"), "gyro_shaders")
     )
+
     companion object {
         private const val TAG = "ShaderManager"
         const val BUILT_IN_DIR = "shaders/built_in"
@@ -55,15 +56,18 @@ class ShaderManager(
         for ((shader, assetName) in BUILT_IN_ASSET_NAMES) {
             val targetFile = File(builtInDir, assetName)
             if (!targetFile.exists() || targetFile.length() == 0L) {
-                try {
-                    context.assets.open("shaders/$assetName").use { input ->
-                        targetFile.outputStream().use { output ->
-                            input.copyTo(output)
+                val ctx = context
+                if (ctx != null) {
+                    try {
+                        ctx.assets.open("shaders/$assetName").use { input ->
+                            targetFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
                         }
+                        EngineLog.i(TAG, "Extracted built-in shader $assetName to ${targetFile.absolutePath}")
+                    } catch (e: Exception) {
+                        EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName", e)
                     }
-                    Log.i(TAG, "Extracted built-in shader $assetName to ${targetFile.absolutePath}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to extract built-in shader asset $assetName", e)
                 }
             }
             if (targetFile.exists() && targetFile.length() > 0L) {
@@ -80,14 +84,15 @@ class ShaderManager(
         val assetName = BUILT_IN_ASSET_NAMES[shader] ?: return null
         val targetFile = File(builtInDir, assetName)
         if (!targetFile.exists() || targetFile.length() == 0L) {
+            val ctx = context ?: return null
             try {
-                context.assets.open("shaders/$assetName").use { input ->
+                ctx.assets.open("shaders/$assetName").use { input ->
                     targetFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to extract built-in shader asset $assetName on demand", e)
+                EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName on demand", e)
                 return null
             }
         }
@@ -99,11 +104,12 @@ class ShaderManager(
      * Sanitizes file name against directory traversal.
      */
     fun importCustomShader(uri: Uri): Result<File> = runCatching {
-        val displayName = queryDisplayName(uri) ?: "custom_${System.currentTimeMillis()}.glsl"
+        val ctx = context ?: throw IOException("Context is required to import custom shader from URI: $uri")
+        val displayName = queryDisplayName(ctx, uri) ?: "custom_${System.currentTimeMillis()}.glsl"
         val safeName = sanitizeFileName(displayName)
         val targetFile = File(customDir, safeName)
 
-        val resolver = context.contentResolver
+        val resolver = ctx.contentResolver
         val bytesCopied = resolver.openInputStream(uri)?.use { input ->
             targetFile.outputStream().use { output ->
                 input.copyTo(output)
@@ -115,7 +121,7 @@ class ShaderManager(
             throw IOException("Imported shader file is empty: $safeName")
         }
 
-        Log.i(TAG, "Imported custom shader to ${targetFile.absolutePath} ($bytesCopied bytes)")
+        EngineLog.i(TAG, "Imported custom shader to ${targetFile.absolutePath} ($bytesCopied bytes)")
         targetFile
     }
 
@@ -138,9 +144,9 @@ class ShaderManager(
         } else false
     }
 
-    private fun queryDisplayName(uri: Uri): String? {
+    private fun queryDisplayName(ctx: Context, uri: Uri): String? {
         return runCatching {
-            context.contentResolver.query(
+            ctx.contentResolver.query(
                 uri,
                 arrayOf(OpenableColumns.DISPLAY_NAME),
                 null,

@@ -1,6 +1,5 @@
 package dev.gyro.engine.playlist
 
-import android.net.Uri
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +21,14 @@ class PlaylistManager @Inject constructor() {
 
     private val _currentIndex = MutableStateFlow(-1)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+
+    /**
+     * Optional session-level launcher registered by the active orchestrator (e.g. `PlayerViewModel`)
+     * so background transport controls (`MediaSessionManager` / `PlaybackService`) route through
+     * the same progress-saving, auto-resume, and companion-subtitle pipeline as foreground switches.
+     */
+    @Volatile
+    var mediaItemLauncher: ((VideoMediaItem) -> Unit)? = null
 
     fun setPlaylist(newItems: List<VideoMediaItem>, startIndex: Int) {
         _items.value = newItems
@@ -64,10 +71,10 @@ class PlaylistManager @Inject constructor() {
         return list[index]
     }
 
-    fun setSingle(uri: Uri, displayName: String) {
+    fun setSingle(uriString: String, displayName: String) {
         val item = VideoMediaItem(
             id = System.currentTimeMillis(),
-            uriString = uri.toString(),
+            uriString = uriString,
             displayName = displayName,
             durationMs = 0L,
             sizeBytes = 0L,
@@ -79,4 +86,6 @@ class PlaylistManager @Inject constructor() {
         _items.value = listOf(item)
         _currentIndex.value = 0
     }
+
+    fun setSingle(uri: Any, displayName: String) = setSingle(uri.toString(), displayName)
 }

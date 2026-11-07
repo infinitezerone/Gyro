@@ -4,12 +4,15 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.net.TestUri
 import android.view.Surface
+import dev.gyro.core.model.UserSettings
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.model.VideoDimensions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -44,7 +47,7 @@ class GyroPlayerEngineTest {
     fun testEnsureInitialized_callsCreateAndInit() {
         assertEquals(1, fakeBridge.createCount)
         assertEquals(1, fakeBridge.initCount)
-        assertTrue(fakeBridge.eventSubscriberCount > 0)
+        assertEquals(1, fakeBridge.eventSubscriberCount)
     }
 
     @Test
@@ -243,7 +246,8 @@ class GyroPlayerEngineTest {
         assertFalse(fakeBridge.commands.any { it.first() == "seek" })
         val loadCommand = fakeBridge.commands.single { it.first() == "loadfile" }
         assertEquals(listOf("loadfile", "file:///tmp/next.mp4", "replace", "0"), loadCommand.take(4))
-        assertEquals("start=+${"%.3f".format(12.0)}", loadCommand[4])
+        // Production formats with Locale.US; assert the literal so this test is locale-independent.
+        assertEquals("start=+12.000", loadCommand[4])
     }
 
     @Test
@@ -302,7 +306,7 @@ class GyroPlayerEngineTest {
     @Test
     fun testEventSubscriptions_areCancelledAndRecreatedOnce() {
         val subscribers = fakeBridge.eventSubscriberCount
-        assertTrue(subscribers > 1)
+        assertEquals(1, subscribers)
         engine.ensureInitialized()
         assertEquals(subscribers, fakeBridge.eventSubscriberCount)
         fakeBridge.emitPropertyDouble("speed", 1.5)
@@ -489,5 +493,81 @@ class GyroPlayerEngineTest {
 
         fakeBridge.emitPropertyDouble("container-fps", 90.0)
         assertEquals(90.0f, engine.geometry.videoFrameRate.value, 0.01f)
+    }
+
+    @Test
+    fun testEndFileErrorReason_transitionsSessionToFailedAndPlaybackStateToError() {
+        engine.attachSurface()
+        engine.load("file:///tmp/corrupt.mkv")
+        assertTrue(engine.state.value.session is SessionPhase.Submitting)
+        assertEquals(PlaybackState.BUFFERING, engine.playbackState.value)
+
+        // Simulate STOP from previous file teardown: must NOT clobber Submitting
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.STOP)
+        assertTrue(engine.state.value.session is SessionPhase.Submitting)
+        assertEquals(PlaybackState.BUFFERING, engine.playbackState.value)
+
+        // Simulate ERROR from mpv failing to demux/decode corrupt.mkv
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        val failed = engine.state.value.session as SessionPhase.Failed
+        assertEquals("file:///tmp/corrupt.mkv", failed.target)
+        assertNotNull(engine.state.value.error)
+        assertEquals(PlaybackState.ERROR, engine.playbackState.value)
+        assertFalse(engine.isPlaying.value)
+    }
+
+    @Test
+    fun testEnsureInitialized_preservesUserConfigAcrossBeginLoadAndReinit() {
+        val pureBridge = FakeMpvNativeBridge()
+        val pureEngine = GyroPlayerEngine(bridge = pureBridge)
+
+        // 1. If load() runs before explicit ensureInitialized(userOptions, settings),
+        // subsequent ensureInitialized(userOptions, settings) still applies options.
+        pureEngine.load("file:///tmp/early.mp4")
+        pureEngine.ensureInitialized(
+            userOptions = mapOf("demuxer-max-bytes" to "104857600"),
+            settings = UserSettings(defaultHwdec = "mediacodec-copy", subAutoLoad = false)
+        )
+        assertEquals("104857600", pureBridge.options["demuxer-max-bytes"])
+        assertEquals("mediacodec-copy", pureBridge.options["hwdec"])
+        assertEquals("no", pureBridge.options["sub-auto"])
+
+        // 2. After release(), a subsequent load() re-initializes with the cached config
+        pureEngine.release()
+        pureBridge.options.clear()
+        pureEngine.load("file:///tmp/after_release.mp4")
+        assertEquals("104857600", pureBridge.options["demuxer-max-bytes"])
+        assertEquals("mediacodec-copy", pureBridge.options["hwdec"])
+        assertEquals("no", pureBridge.options["sub-auto"])
+        pureEngine.release()
+    }
+
+    @Test
+    fun testLoad_resetsSubtitleAndAudioDelaysWhilePreservingSubtitleScale() {
+        engine.tuning.setSubtitleDelay(1.8)
+        engine.tuning.setAudioDelay(-0.6)
+        engine.tuning.setSubtitleScale(1.4)
+
+        engine.load("file:///tmp/next_episode.mkv")
+
+        assertEquals(0.0, engine.tuning.subtitleDelaySec.value, 0.001)
+        assertEquals(0.0, engine.tuning.audioDelaySec.value, 0.001)
+        assertEquals(0.0, fakeBridge.properties["sub-delay"] as Double, 0.001)
+        assertEquals(0.0, fakeBridge.properties["audio-delay"] as Double, 0.001)
+        assertEquals(1.4, engine.tuning.subtitleScale.value, 0.001)
+    }
+
+    @Test
+    fun testUpdateSettings_hotReloadsOptionsAndRuntimeProperties() {
+        engine.updateSettings(
+            settings = UserSettings(defaultHwdec = "no", subAutoLoad = false),
+            userOptions = mapOf("deband-iterations" to "3", "vo" to "gpu")
+        )
+
+        assertEquals("no", fakeBridge.properties["hwdec"])
+        assertEquals("no", fakeBridge.options["hwdec"])
+        assertEquals("no", fakeBridge.properties["sub-auto"])
+        assertEquals("3", fakeBridge.properties["deband-iterations"])
+        assertEquals("libmpv", fakeBridge.options["vo"])
     }
 }

@@ -16,12 +16,15 @@ import javax.inject.Singleton
 /**
  * Manages video post-processing adjustments (deband, brightness, contrast, saturation).
  */
-interface VideoEffectsController {
+interface VideoEffectsController : dev.gyro.engine.EngineSubsystem {
     val deband: StateFlow<Boolean>
     val brightness: StateFlow<Int>
     val contrast: StateFlow<Int>
     val saturation: StateFlow<Int>
 
+    override fun registerObservers() {}
+    override fun onEvent(event: MpvEvent) {}
+    override fun reset() { resetColors() }
     fun observeEvents(scope: CoroutineScope): Job
     fun setDeband(enabled: Boolean)
     fun setBrightness(value: Int)
@@ -51,20 +54,29 @@ class RealVideoEffectsController @Inject constructor(
     private val _saturation = store.property({ it.saturation }) { s, v -> s.copy(saturation = v) }
     override val saturation: StateFlow<Int> = _saturation.asStateFlow()
 
+    override fun registerObservers() {
+        bridge.observeProperty("deband", MpvNativeBridge.Format.FLAG)
+        bridge.observeProperty("brightness", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("contrast", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("saturation", MpvNativeBridge.Format.INT64)
+    }
+
+    override fun onEvent(event: MpvEvent) {
+        when (event) {
+            is MpvEvent.FlagProperty -> {
+                if (event.name == "deband") onDebandPropertyChanged(event.value)
+            }
+            is MpvEvent.LongProperty -> when (event.name) {
+                "brightness", "contrast", "saturation" ->
+                    onColorPropertyChanged(event.name, event.value.toInt())
+            }
+            else -> Unit
+        }
+    }
+
     override fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            bridge.events.collect { event ->
-                when (event) {
-                    is MpvEvent.FlagProperty -> {
-                        if (event.name == "deband") onDebandPropertyChanged(event.value)
-                    }
-                    is MpvEvent.LongProperty -> when (event.name) {
-                        "brightness", "contrast", "saturation" ->
-                            onColorPropertyChanged(event.name, event.value.toInt())
-                    }
-                    else -> Unit
-                }
-            }
+            bridge.events.collect(::onEvent)
         }
 
     override fun setDeband(enabled: Boolean) {
