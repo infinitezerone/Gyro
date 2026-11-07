@@ -7,6 +7,7 @@ import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.tracks.TrackAndChapterManager
+import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers

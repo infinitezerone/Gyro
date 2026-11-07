@@ -1,4 +1,4 @@
-package dev.gyro.engine.shader
+package dev.gyro.engine.video
 
 import android.content.ContentResolver
 import android.content.Context

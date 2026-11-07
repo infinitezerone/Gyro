@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.engine.shader.ShaderManager
+import dev.gyro.engine.video.ShaderManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -44,7 +44,7 @@ class GyroPlayerEngineShaderTest {
         engine = GyroPlayerEngine(
             context = testContext,
             bridge = fakeBridge,
-            shaders = dev.gyro.engine.shader.RealShaderController(fakeBridge, shaderManager)
+            shaders = dev.gyro.engine.video.RealShaderController(fakeBridge, shaderManager)
         )
         engine.ensureInitialized()
     }

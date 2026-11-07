@@ -1,4 +1,4 @@
-package dev.gyro.engine.effects
+package dev.gyro.engine.video
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import org.junit.Assert.assertEquals

@@ -158,7 +158,7 @@ class GyroPlayerEngineAudiovisualTest {
 
         assertEquals(150.0, engine.audio.softwareVolume.value, 0.001)
         assertEquals(150.0, fakeBridge.properties["volume"] as Double, 0.001)
-        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER, fakeBridge.properties["af"])
+        assertEquals(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER, fakeBridge.properties["af"])
     }
 
     @Test
@@ -175,7 +175,7 @@ class GyroPlayerEngineAudiovisualTest {
     @Test
     fun testVolumeOverdrive_limiterRemovedAt100() {
         engine.audio.setSoftwareVolume(175.0)
-        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER, fakeBridge.properties["af"])
+        assertEquals(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER, fakeBridge.properties["af"])
 
         engine.audio.setSoftwareVolume(100.0)
         assertEquals("", fakeBridge.properties["af"])
@@ -244,29 +244,29 @@ class GyroPlayerEngineAudiovisualTest {
 
         // 2. Enable night mode
         engine.audio.setNightMode(true)
-        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM, fakeBridge.properties["af"])
+        assertEquals(dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM, fakeBridge.properties["af"])
 
         // 3. Enable stereo downmixing -> pan MUST precede dynaudnorm
         engine.audio.setStereoDownmix(true)
         val expectedDownmixAndNight =
-            "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM}"
+            "${dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM}"
         assertEquals(expectedDownmixAndNight, fakeBridge.properties["af"])
 
         // 4. Boost volume into overdrive -> alimiter MUST follow dynaudnorm
         engine.audio.setSoftwareVolume(160.0)
         val expectedAllThree =
-            "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM},${dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER}"
+            "${dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM},${dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(expectedAllThree, fakeBridge.properties["af"])
 
         // 5. Disable night mode -> pan and alimiter remain
         engine.audio.setNightMode(false)
         val expectedDownmixAndLimiter =
-            "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER}"
+            "${dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(expectedDownmixAndLimiter, fakeBridge.properties["af"])
 
         // 6. Reset software gain -> only pan remains
         engine.audio.resetSoftwareGain()
-        assertEquals(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX, fakeBridge.properties["af"])
+        assertEquals(dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX, fakeBridge.properties["af"])
 
         // 7. Disable stereo downmixing -> chain becomes empty
         engine.audio.setStereoDownmix(false)

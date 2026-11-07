@@ -1,4 +1,4 @@
-package dev.gyro.engine.effects
+package dev.gyro.engine.video
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge

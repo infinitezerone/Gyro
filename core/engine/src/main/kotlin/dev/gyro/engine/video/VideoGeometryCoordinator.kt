@@ -1,9 +1,10 @@
-package dev.gyro.engine.session
+package dev.gyro.engine.video
 
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.session.PlaybackSessionState
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.normalizeContentFps

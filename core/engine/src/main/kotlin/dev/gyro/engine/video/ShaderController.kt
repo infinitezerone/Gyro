@@ -1,4 +1,4 @@
-package dev.gyro.engine.shader
+package dev.gyro.engine.video
 
 import android.net.Uri
 import dev.gyro.core.model.GlslShader

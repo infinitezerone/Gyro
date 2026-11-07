@@ -3,7 +3,7 @@ package dev.gyro.engine.session
 import android.net.Uri
 import android.view.Surface
 import dev.gyro.engine.MpvNativeBridge
-import dev.gyro.engine.effects.AudioEffectsController
+import dev.gyro.engine.audio.AudioEffectsController
 import dev.gyro.engine.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.media.ResolvedMediaSource
@@ -13,6 +13,7 @@ import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.tuning.SyncTuningController
+import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

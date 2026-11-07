@@ -204,9 +204,9 @@ class GyroPlayerEngineAdversarialStressTest {
         val finalAf = threadSafeBridge.getPropertyString("af") ?: ""
 
         val expectedFilters = mutableListOf<String>()
-        if (finalDownmix) expectedFilters.add(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX)
-        if (finalNightMode) expectedFilters.add(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM)
-        if (finalVolume > 100.0) expectedFilters.add(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER)
+        if (finalDownmix) expectedFilters.add(dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX)
+        if (finalNightMode) expectedFilters.add(dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM)
+        if (finalVolume > 100.0) expectedFilters.add(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER)
         val expectedAf = expectedFilters.joinToString(",")
 
         assertEquals("Quiescent state AF chain mismatch", expectedAf, finalAf)
@@ -240,21 +240,21 @@ class GyroPlayerEngineAdversarialStressTest {
 
             val components = if (af.isEmpty()) emptyList() else af.split(",")
             if (downmix) {
-                assertTrue("Missing pan filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX))
+                assertTrue("Missing pan filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX))
             } else {
-                assertFalse("Unexpected pan filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX))
+                assertFalse("Unexpected pan filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX))
             }
 
             if (night) {
-                assertTrue("Missing dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM))
+                assertTrue("Missing dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM))
             } else {
-                assertFalse("Unexpected dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM))
+                assertFalse("Unexpected dynaudnorm filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM))
             }
 
             if (volume > 100.0) {
-                assertTrue("Missing alimiter filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
+                assertTrue("Missing alimiter filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER))
             } else {
-                assertFalse("Unexpected alimiter filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
+                assertFalse("Unexpected alimiter filter in state ($downmix, $night, $volume)", components.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER))
             }
         }
     }
@@ -326,11 +326,11 @@ class GyroPlayerEngineAdversarialStressTest {
         for (i in 1..50) {
             engine.audio.setSoftwareVolume(100.0 + i * 2.0)
             val activeAf = threadSafeBridge.getPropertyString("af") ?: ""
-            assertTrue("Limiter missing at cycle $i", activeAf.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
+            assertTrue("Limiter missing at cycle $i", activeAf.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER))
 
             engine.audio.setSoftwareVolume(100.0)
             val clearedAf = threadSafeBridge.getPropertyString("af") ?: ""
-            assertFalse("Limiter not cleared at cycle $i", clearedAf.contains(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER))
+            assertFalse("Limiter not cleared at cycle $i", clearedAf.contains(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER))
             assertEquals("Dangling characters after limiter purge at cycle $i", "", clearedAf)
         }
     }
@@ -452,14 +452,14 @@ class GyroPlayerEngineAdversarialStressTest {
         engine.audio.setStereoDownmix(true)
         engine.audio.setSoftwareVolume(170.0)
 
-        val fullChain = "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM},${dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER}"
+        val fullChain = "${dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM},${dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(fullChain, threadSafeBridge.getPropertyString("af"))
 
         // Trigger safety reset
         engine.audio.resetSoftwareGain()
 
         // Verify limiter purged, but user nightMode and downmix filters strictly preserved!
-        val remainingChain = "${dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM}"
+        val remainingChain = "${dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX},${dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM}"
         assertEquals(remainingChain, threadSafeBridge.getPropertyString("af"))
         assertTrue(engine.audio.nightMode.value)
         assertTrue(engine.audio.stereoDownmix.value)
@@ -567,7 +567,7 @@ class GyroPlayerEngineAdversarialStressTest {
         threadSafeBridge.setPropertyString("chapter-list/3/title", "  Trimmed Intro  ")
         threadSafeBridge.setPropertyDouble("chapter-list/3/time", 30.0)
 
-        threadSafeBridge.setPropertyString("chapter-list/4/title", "第5章: 終幕 🌸 (Final)")
+        threadSafeBridge.setPropertyString("chapter-list/4/title", "�?�? 終幕 🌸 (Final)")
         threadSafeBridge.setPropertyDouble("chapter-list/4/time", 40.0)
 
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
@@ -578,7 +578,7 @@ class GyroPlayerEngineAdversarialStressTest {
         assertEquals("Chapter 2", chapters[1].title)
         assertEquals("Chapter 3", chapters[2].title)
         assertEquals("Trimmed Intro", chapters[3].title)
-        assertEquals("第5章: 終幕 🌸 (Final)", chapters[4].title)
+        assertEquals("�?�? 終幕 🌸 (Final)", chapters[4].title)
     }
 
     @Test
@@ -618,9 +618,9 @@ class GyroPlayerEngineAdversarialStressTest {
 
         // 2. Verify all tokens are recognized filters
         val validFilters = setOf(
-            dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX,
-            dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM,
-            dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER
+            dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX,
+            dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM,
+            dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER
         )
         for (token in filters) {
             assertTrue("Unrecognized filter token '$token' in '$af' ($context)", validFilters.contains(token))
@@ -631,9 +631,9 @@ class GyroPlayerEngineAdversarialStressTest {
         assertEquals("Duplicate filters detected in '$af' ($context)", distinctFilters.size, filters.size)
 
         // 4. Verify relative ordering invariant: pan < dynaudnorm < alimiter
-        val downmixIdx = filters.indexOf(dev.gyro.engine.effects.AudioEffectsController.FILTER_STEREO_DOWNMIX)
-        val dynaudnormIdx = filters.indexOf(dev.gyro.engine.effects.AudioEffectsController.FILTER_DYNAUDNORM)
-        val alimiterIdx = filters.indexOf(dev.gyro.engine.effects.AudioEffectsController.FILTER_ALIMITER)
+        val downmixIdx = filters.indexOf(dev.gyro.engine.audio.AudioEffectsController.FILTER_STEREO_DOWNMIX)
+        val dynaudnormIdx = filters.indexOf(dev.gyro.engine.audio.AudioEffectsController.FILTER_DYNAUDNORM)
+        val alimiterIdx = filters.indexOf(dev.gyro.engine.audio.AudioEffectsController.FILTER_ALIMITER)
 
         if (downmixIdx != -1 && dynaudnormIdx != -1) {
             assertTrue(

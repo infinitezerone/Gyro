@@ -1,12 +1,12 @@
 package dev.gyro.engine
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.engine.effects.AudioEffectsController
-import dev.gyro.engine.effects.RealAudioEffectsController
-import dev.gyro.engine.effects.RealVideoEffectsController
+import dev.gyro.engine.audio.AudioEffectsController
+import dev.gyro.engine.audio.RealAudioEffectsController
+import dev.gyro.engine.video.RealVideoEffectsController
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.session.PlaybackSessionState
-import dev.gyro.engine.session.RealVideoGeometryCoordinator
+import dev.gyro.engine.video.RealVideoGeometryCoordinator
 import dev.gyro.engine.tracks.RealTrackAndChapterManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

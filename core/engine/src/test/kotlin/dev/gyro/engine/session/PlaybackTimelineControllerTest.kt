@@ -2,6 +2,7 @@ package dev.gyro.engine.session
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.tracks.RealTrackAndChapterManager
+import dev.gyro.engine.video.RealVideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
