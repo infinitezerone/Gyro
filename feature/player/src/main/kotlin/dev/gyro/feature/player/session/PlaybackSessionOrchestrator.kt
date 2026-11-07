@@ -6,7 +6,6 @@ import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.UriParser
-import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState
@@ -19,11 +18,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -70,9 +68,6 @@ class PlaybackSessionOrchestrator(
     )
 
     val orchestratorScope: CoroutineScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-
-    val settings: StateFlow<UserSettings> = settingsRepository.settings
-        .stateIn(orchestratorScope, SharingStarted.Eagerly, UserSettings())
 
     private val _activeUri = MutableStateFlow<Uri?>(engine.currentUri.value)
     val activeUri: StateFlow<Uri?> = _activeUri.asStateFlow()
@@ -121,7 +116,7 @@ class PlaybackSessionOrchestrator(
         // 3. Auto-load companion subtitles asynchronously via SubtitleRepository
         orchestratorScope.launch {
             _activeUri.collectLatest { uri ->
-                if (uri != null && settings.value.subAutoLoad) {
+                if (uri != null && settingsRepository.settings.first().subAutoLoad) {
                     val knownDisplayName = playlist.items.value
                         .firstOrNull { it.uriString == uri.toString() }?.displayName
                     val subs = subtitleRepository.findCompanionSubtitles(uri, knownDisplayName)
@@ -182,7 +177,11 @@ class PlaybackSessionOrchestrator(
         val job = orchestratorScope.launch {
             val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(uri)
             currentCoroutineContext().ensureActive()
-            val progress = if (settings.value.autoResume) historyRepository.getProgress(uri) else null
+            // Read through to the repository instead of the stateIn projection: a cold-start
+            // deep link can reach here before DataStore's first emission lands, and deciding
+            // auto-resume from the UserSettings() default would resume when the user turned it off.
+            val autoResume = settingsRepository.settings.first().autoResume
+            val progress = if (autoResume) historyRepository.getProgress(uri) else null
             val startPos = if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) progress.positionMs else 0L
             val initialDuration = progress?.durationMs ?: 0L
             currentCoroutineContext().ensureActive()
