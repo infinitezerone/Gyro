@@ -45,6 +45,9 @@
     <string name="player_default_title">Gyro Player</string>
     <string name="player_empty_title">暂无播放内容</string>
     <string name="player_empty_desc">请从媒体库选择或打开视频文件</string>
+    <string name="player_error_title">无法播放此视频</string>
+    <string name="player_error_desc">文件可能已损坏或格式不受支持</string>
+    <string name="action_retry">重试</string>
     <string name="player_resumed_notice">已恢复至 %s</string>
     <string name="player_auto_next_notice">自动播放下一集: %s</string>
 

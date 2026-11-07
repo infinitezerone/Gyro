@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -539,6 +541,7 @@ fun PlayerScreen(
         }
     }
     val showShutter = !isPipLayout && playbackState != PlaybackState.IDLE &&
+        playbackState != PlaybackState.ERROR &&
         !isShutterReady && !shutterTimedOut
 
     Box(
@@ -602,6 +605,55 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .background(Color.Black)
             )
+        }
+
+        // A3. Playback error card - a failed load must be visible, not a black screen that
+        // looks like a paused video. Drawn above the shutter, which reveals immediately on
+        // ERROR (see showShutter).
+        val playbackError = if (playbackState == PlaybackState.ERROR) snapshot.error else null
+        if (playbackError != null && !isPipLayout) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.82f),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE57373).copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = Color(0xFFE57373),
+                        modifier = Modifier.size(54.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.player_error_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = stringResource(R.string.player_error_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                    Button(
+                        onClick = {
+                            activeUri?.let { viewModel.openUri(it, forceReload = true) }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.action_retry))
+                    }
+                }
+            }
         }
 
         // B. Gesture Interaction Layer (Under HUD and Controls Overlay)

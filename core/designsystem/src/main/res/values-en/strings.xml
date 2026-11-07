@@ -41,6 +41,9 @@
     <string name="player_default_title">Gyro Player</string>
     <string name="player_empty_title">No Content Playing</string>
     <string name="player_empty_desc">Select a video from the media library to begin playback</string>
+    <string name="player_error_title">Cannot Play This Video</string>
+    <string name="player_error_desc">The file may be corrupted or in an unsupported format</string>
+    <string name="action_retry">Retry</string>
     <string name="player_resumed_notice">Resumed at %s</string>
     <string name="player_auto_next_notice">Auto playing next: %s</string>
     <!-- Sheet Tabs -->
