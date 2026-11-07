@@ -525,19 +525,18 @@ fun PlayerScreen(
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
     LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
         SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect")
-        if (firstFrameRendered && geometryReady) {
+        if (firstFrameRendered && geometryReady && videoAspect > 0f) {
             val targetAspect = when (resizeMode) {
                 ResizeMode.FIT -> videoAspect
                 ResizeMode.ASPECT_16_9 -> 16f / 9f
                 ResizeMode.ASPECT_21_9 -> 21f / 9f
-                else -> 0f
+                else -> videoAspect
             }
             val containerAspect = if (videoContainerSize.height > 0) {
                 videoContainerSize.width.toFloat() / videoContainerSize.height
             } else 0f
-            val isLayoutSettled = targetAspect <= 0f ||
-                (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
-                    kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f)
+            val isLayoutSettled = videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
+                kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f
 
             if (isLayoutSettled) {
                 // Wait 2 VSYNC frames so Compose layout and SurfaceFlinger have committed the new bounds
