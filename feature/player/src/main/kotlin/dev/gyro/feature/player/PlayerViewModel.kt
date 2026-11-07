@@ -105,7 +105,9 @@ class PlayerViewModel @Inject constructor(
 
     public override fun onCleared() {
         super.onCleared()
+        // Only transient load work is cancelled: the orchestrator's periodic checkpoint is a
+        // process-lifetime singleton job and must keep running for background playback.
         saveCurrentProgress()
-        orchestrator.cancelJobs()
+        orchestrator.cancelPendingLoad()
     }
 }

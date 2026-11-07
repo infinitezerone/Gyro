@@ -134,7 +134,9 @@ class PlaybackSessionOrchestrator(
             }
         }
 
-        // 5. Periodic checkpoint while playing
+        // 5. Periodic checkpoint while playing. This job lives with the singleton for the whole
+        // process: cancelling it (there is nothing to ever restart it) silently killed periodic
+        // progress saving for background playback after the first UI teardown.
         periodicSaveJob = orchestratorScope.launch {
             engine.isPlaying.collectLatest { playing ->
                 if (playing) {
@@ -236,8 +238,12 @@ class PlaybackSessionOrchestrator(
         }
     }
 
-    fun cancelJobs() {
+    /**
+     * Cancels an in-flight load (title lookup, resume probe, mpv loadfile) without touching the
+     * process-lifetime checkpoint loop, which must keep running while playback continues in the
+     * background. The periodic ticker deliberately has no cancellation path.
+     */
+    fun cancelPendingLoad() {
         loadJob?.cancel()
-        periodicSaveJob?.cancel()
     }
 }

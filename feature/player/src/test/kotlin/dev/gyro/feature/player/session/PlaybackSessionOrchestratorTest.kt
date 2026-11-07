@@ -116,7 +116,6 @@ class PlaybackSessionOrchestratorTest {
 
     @After
     fun tearDown() {
-        orchestrator.cancelJobs()
         engine.release()
         testScope.cancel()
         Dispatchers.resetMain()
@@ -126,7 +125,9 @@ class PlaybackSessionOrchestratorTest {
         try {
             body()
         } finally {
-            orchestrator.cancelJobs()
+            // The orchestrator's periodic checkpoint is a process-lifetime ticker: left alive it
+            // reschedules every 10s of virtual time and runTest's advanceUntilIdle never idles.
+            testScope.cancel()
         }
     }
 
