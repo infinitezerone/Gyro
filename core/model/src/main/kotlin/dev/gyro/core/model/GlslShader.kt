@@ -5,7 +5,6 @@ package dev.gyro.core.model
  */
 enum class GlslShader(val id: String) {
     OFF("off"),
-    CAS("cas"),
     ANIME4K("anime4k"),
     CUSTOM("custom");
 

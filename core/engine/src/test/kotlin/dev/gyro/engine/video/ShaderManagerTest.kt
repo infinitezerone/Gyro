@@ -33,7 +33,6 @@ class ShaderManagerTest {
     @Before
     fun setUp() {
         baseDir = tempFolder.newFolder("app_files")
-        assetsData["shaders/cas.glsl"] = "// CAS shader content".toByteArray(Charsets.UTF_8)
         assetsData["shaders/anime4k_lite.glsl"] = "// Anime4K content".toByteArray(Charsets.UTF_8)
 
         testContext = object : ContextWrapper(null) {
@@ -54,13 +53,10 @@ class ShaderManagerTest {
 
         // Pre-populate built-in directory manually or verify getBuiltInShaderFile fallback
         val builtInDir = File(baseDir, ShaderManager.BUILT_IN_DIR).apply { mkdirs() }
-        val casFile = File(builtInDir, "cas.glsl").apply { writeText("// CAS content") }
         val animeFile = File(builtInDir, "anime4k_lite.glsl").apply { writeText("// Anime4K content") }
 
         val extracted = manager.extractBuiltInShaders()
-        assertTrue(extracted.containsKey(GlslShader.CAS))
         assertTrue(extracted.containsKey(GlslShader.ANIME4K))
-        assertEquals(casFile.absolutePath, extracted[GlslShader.CAS]?.absolutePath)
         assertEquals(animeFile.absolutePath, extracted[GlslShader.ANIME4K]?.absolutePath)
     }
 

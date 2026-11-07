@@ -38,7 +38,6 @@ class GyroPlayerEngineShaderTest {
 
         // Seed built-in shader files on disk
         val builtInDir = File(filesDir, ShaderManager.BUILT_IN_DIR).apply { mkdirs() }
-        File(builtInDir, "cas.glsl").writeText("// CAS GLSL")
         File(builtInDir, "anime4k_lite.glsl").writeText("// Anime4K GLSL")
 
         engine = GyroPlayerEngine(
@@ -47,20 +46,6 @@ class GyroPlayerEngineShaderTest {
             shaders = dev.gyro.engine.video.ShaderController(fakeBridge, shaderManager)
         )
         engine.warmUp()
-    }
-
-    @Test
-    fun testSetShaderCAS_dispatchesCommandAndUpdatesState() {
-        engine.shaders.setShader(GlslShader.CAS)
-
-        val casFile = File(filesDir, "${ShaderManager.BUILT_IN_DIR}/cas.glsl")
-        val expectedCommand = listOf("change-list", "glsl-shaders", "set", casFile.absolutePath)
-        assertTrue(fakeBridge.commands.contains(expectedCommand))
-
-        val state = engine.shaders.shaderState.value
-        assertEquals(GlslShader.CAS, state.activeShader)
-        assertEquals(casFile.absolutePath, state.currentPath)
-        assertEquals("AMD FidelityFX CAS", state.displayName)
     }
 
     @Test
@@ -97,8 +82,8 @@ class GyroPlayerEngineShaderTest {
     @Test
     fun testClearShader_dispatchesClrCommand() {
         // Set first
-        engine.shaders.setShader(GlslShader.CAS)
-        assertEquals(GlslShader.CAS, engine.shaders.shaderState.value.activeShader)
+        engine.shaders.setShader(GlslShader.ANIME4K)
+        assertEquals(GlslShader.ANIME4K, engine.shaders.shaderState.value.activeShader)
 
         // Then clear
         engine.shaders.clearShader()
@@ -114,8 +99,8 @@ class GyroPlayerEngineShaderTest {
 
     @Test
     fun testRelease_resetsShaders() {
-        engine.shaders.setShader(GlslShader.CAS)
-        assertEquals(GlslShader.CAS, engine.shaders.shaderState.value.activeShader)
+        engine.shaders.setShader(GlslShader.ANIME4K)
+        assertEquals(GlslShader.ANIME4K, engine.shaders.shaderState.value.activeShader)
 
         engine.release()
         assertEquals(GlslShader.OFF, engine.shaders.shaderState.value.activeShader)

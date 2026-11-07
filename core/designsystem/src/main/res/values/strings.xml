@@ -197,12 +197,10 @@
     <!-- R1: GLSL Shaders Management -->
     <string name="sheet_tab_shaders">着色器</string>
     <string name="shader_off">关闭着色器</string>
-    <string name="shader_cas">AMD CAS 锐化</string>
     <string name="shader_anime4k">Anime4K 动漫增强</string>
     <string name="shader_custom">自定义着色器</string>
     <string name="shader_import_saf">导入本地着色器 (.glsl)</string>
     <string name="shader_active_badge">生效中</string>
-    <string name="shader_desc_cas">自适应对比度锐化，增强纹理细节与边缘清晰度</string>
     <string name="shader_desc_anime4k">高质量动漫线条重建与高阶超分辨率重构</string>
     <string name="shader_desc_custom">从设备本地加载用户提供的 GLSL 着色器文件</string>
     <string name="shader_import_success">着色器加载成功</string>

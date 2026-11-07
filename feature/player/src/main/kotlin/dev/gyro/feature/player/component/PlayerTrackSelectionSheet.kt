@@ -984,17 +984,7 @@ private fun ShadersTabContent(
             )
         }
 
-        // 2. AMD FidelityFX CAS
-        item {
-            TrackItem(
-                title = stringResource(R.string.shader_cas),
-                subtitle = stringResource(R.string.shader_desc_cas),
-                isSelected = shaderState.activeShader == GlslShader.CAS,
-                onClick = { onSelectShader(GlslShader.CAS) }
-            )
-        }
-
-        // 3. Anime4K Lite
+        // 2. Anime4K Lite
         item {
             TrackItem(
                 title = stringResource(R.string.shader_anime4k),

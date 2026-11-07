@@ -23,7 +23,6 @@ class ShaderManager(
         const val CUSTOM_DIR = "shaders/custom"
 
         val BUILT_IN_ASSET_NAMES = mapOf(
-            GlslShader.CAS to "cas.glsl",
             GlslShader.ANIME4K to "anime4k_lite.glsl"
         )
     }

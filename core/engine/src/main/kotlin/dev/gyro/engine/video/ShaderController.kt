@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 /**
- * Controller responsible for GLSL post-processing shaders (CAS, Anime4K, custom shaders).
+ * Controller responsible for GLSL post-processing shaders (Anime4K, custom shaders).
  */
 class ShaderController(
     private val bridge: MpvNativeBridge,
@@ -45,20 +45,6 @@ class ShaderController(
         when (shader) {
             GlslShader.OFF -> {
                 clearShader()
-            }
-            GlslShader.CAS -> {
-                val file = shaderManager.getBuiltInShaderFile(GlslShader.CAS)
-                if (file != null && file.exists()) {
-                    bridge.command(arrayOf("change-list", "glsl-shaders", "set", file.absolutePath))
-                    _shaderState.value = GlslShaderState(
-                        activeShader = GlslShader.CAS,
-                        currentPath = file.absolutePath,
-                        displayName = "AMD FidelityFX CAS"
-                    )
-                    EngineLog.i(TAG, "Applied CAS shader: ${file.absolutePath}")
-                } else {
-                    EngineLog.e(TAG, "Failed to apply CAS shader: file missing")
-                }
             }
             GlslShader.ANIME4K -> {
                 val file = shaderManager.getBuiltInShaderFile(GlslShader.ANIME4K)

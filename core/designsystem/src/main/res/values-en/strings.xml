@@ -183,12 +183,10 @@
     <!-- R1: GLSL Shaders Management -->
     <string name="sheet_tab_shaders">Shaders</string>
     <string name="shader_off">Disable Shaders</string>
-    <string name="shader_cas">AMD FidelityFX CAS</string>
     <string name="shader_anime4k">Anime4K Lite</string>
     <string name="shader_custom">Custom Shader</string>
     <string name="shader_import_saf">Import Local Shader (.glsl)</string>
     <string name="shader_active_badge">Active</string>
-    <string name="shader_desc_cas">Contrast adaptive sharpening to enhance texture and edges</string>
     <string name="shader_desc_anime4k">High quality anime line reconstruction and upscaling</string>
     <string name="shader_desc_custom">Load user-provided GLSL shader file from local storage</string>
     <string name="shader_import_success">Shader loaded successfully</string>
