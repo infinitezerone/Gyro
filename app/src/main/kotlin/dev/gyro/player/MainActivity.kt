@@ -104,6 +104,9 @@ class MainActivity : ComponentActivity() {
                 settings = settings,
             )
             handleIntent(intent)
+            settingsRepository.settings.collect { updatedSettings ->
+                playerEngine.updateSettings(settings = updatedSettings)
+            }
         }
 
         setContent {
@@ -281,6 +284,11 @@ class MainActivity : ComponentActivity() {
                         entry<Screen.MpvConfigEditor> {
                             MpvConfigEditorScreen(
                                 onBack = {
+                                    lifecycleScope.launch {
+                                        playerEngine.updateSettings(
+                                            userOptions = mpvConfigRepository.getParsedOptions()
+                                        )
+                                    }
                                     backStack.removeAt(backStack.lastIndex)
                                 },
                                 modifier = Modifier.fillMaxSize()
@@ -340,11 +348,17 @@ class MainActivity : ComponentActivity() {
         if (!isInPictureInPictureMode && ::playerEngine.isInitialized && playerEngine.isPlaying.value) {
             // Detach video surface for headless EGL_NO_SURFACE operation in background
             playerEngine.detachSurface()
-            // Launch foreground service for background audio playback
-            runCatching {
-                PlaybackService.start(this)
-            }.onFailure { e ->
-                Log.w("MainActivity", "Failed to start PlaybackService from background", e)
+            val bgMode = settingsViewModel.settings.value.backgroundPlayMode
+            if (bgMode == "off") {
+                playerViewModel.saveCurrentProgress()
+                playerEngine.pause()
+            } else {
+                // Launch foreground service for background audio playback
+                runCatching {
+                    PlaybackService.start(this)
+                }.onFailure { e ->
+                    Log.w("MainActivity", "Failed to start PlaybackService from background", e)
+                }
             }
         }
     }

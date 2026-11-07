@@ -89,7 +89,7 @@ fun PlayerBottomBar(
         val isScreenScrubOnly = !isVisible && scrubState.isActive
         val totalMs = durationMs()
         val displayPos = if (scrubState.isActive) {
-            (scrubState.fraction * totalMs.coerceAtLeast(1L)).toLong()
+            if (totalMs > 0L) (scrubState.fraction * totalMs).toLong() else 0L
         } else {
             timePosMs()
         }

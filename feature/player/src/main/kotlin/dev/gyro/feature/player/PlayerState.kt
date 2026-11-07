@@ -1,6 +1,7 @@
 package dev.gyro.feature.player
 
 import android.app.Activity
+import android.os.SystemClock
 import dev.gyro.feature.player.component.PlayerSheetTab
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.feature.player.gesture.PlayerZoomState
@@ -8,6 +9,7 @@ import dev.gyro.feature.player.gesture.rememberPlayerZoomState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,13 +39,15 @@ class PlayerState(
     private val activity: Activity?,
 ) {
     var showControls by mutableStateOf(true)
-        private set
 
     var isLocked by mutableStateOf(false)
 
     var activeSheetTab by mutableStateOf<PlayerSheetTab?>(null)
 
     var gestureHudState by mutableStateOf<GestureHudState>(GestureHudState.Idle)
+
+    var lastInteractionTrigger by mutableLongStateOf(0L)
+        private set
 
     private var autoHideJob: Job? = null
 
@@ -77,7 +81,7 @@ class PlayerState(
     }
 
     fun resetControlsTimeout() {
-        scheduleAutoHide()
+        lastInteractionTrigger = SystemClock.uptimeMillis()
     }
 
     fun applySystemBars(isPipLayout: Boolean, isLandscape: Boolean) {

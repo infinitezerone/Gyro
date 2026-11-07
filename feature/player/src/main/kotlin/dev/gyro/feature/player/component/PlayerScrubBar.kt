@@ -70,19 +70,25 @@ fun PlayerScrubBar(
         }
     }
 
-    val validDuration = durationMs.coerceAtLeast(1L)
     val playedRatio = if (scrubState.isActive) {
         scrubState.fraction
+    } else if (durationMs > 0L) {
+        (timePosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
-        (timePosMs.toFloat() / validDuration.toFloat()).coerceIn(0f, 1f)
+        0f
     }
-    val bufferedRatio = (bufferedPosMs.toFloat() / validDuration.toFloat()).coerceIn(0f, 1f)
+    val bufferedRatio = if (durationMs > 0L) {
+        (bufferedPosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(28.dp)
-            .pointerInput(Unit) {
+            .pointerInput(durationMs) {
+                if (durationMs <= 0L) return@pointerInput
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()

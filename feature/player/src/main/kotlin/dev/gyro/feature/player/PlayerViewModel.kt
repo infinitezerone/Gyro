@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -91,7 +90,11 @@ class PlayerViewModel @Inject constructor(
     private fun shouldCheckpoint(uri: Uri, positionMs: Long): Boolean =
         uri != lastCheckpointUri || kotlin.math.abs(positionMs - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS
 
+    private val registeredLauncher: (VideoMediaItem) -> Unit = ::playMediaItem
+
     init {
+        playlistManager.mediaItemLauncher = registeredLauncher
+
         // Sync engine's currentUri changes into activeUri
         viewModelScope.launch {
             engine.currentUri.collect { uri ->
@@ -156,7 +159,6 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
-
     }
 
     fun openUri(uri: Uri, forceReload: Boolean = false, displayTitle: String? = null) {
@@ -181,12 +183,11 @@ class PlayerViewModel @Inject constructor(
         loadJob = viewModelScope.launch {
             val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(uri)
             currentCoroutineContext().ensureActive()
-            val startPos = if (settings.value.autoResume) {
-                val p = historyRepository.getProgress(uri)
-                if (p != null && !p.isCompleted && p.positionMs > 2000L) p.positionMs else 0L
-            } else 0L
+            val progress = if (settings.value.autoResume) historyRepository.getProgress(uri) else null
+            val startPos = if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) progress.positionMs else 0L
+            val initialDuration = progress?.durationMs ?: 0L
             currentCoroutineContext().ensureActive()
-            engine.loadUri(uri, startPos, resolvedTitle)
+            engine.load(uri, startPos, resolvedTitle, initialDurationMs = initialDuration)
         }
     }
 
@@ -226,6 +227,9 @@ class PlayerViewModel @Inject constructor(
 
     public override fun onCleared() {
         super.onCleared()
+        if (playlistManager.mediaItemLauncher === registeredLauncher) {
+            playlistManager.mediaItemLauncher = null
+        }
         loadJob?.cancel()
         periodicSaveJob?.cancel()
         saveCurrentProgress()
