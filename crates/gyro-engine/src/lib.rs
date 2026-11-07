@@ -113,6 +113,9 @@ pub fn reset_engine_lifecycle_state() {
     render::G_REARM_VIDEO.store(false, Ordering::Release);
     render::G_PENDING_WID_REBIND.store(false, Ordering::Release);
     render::G_LOAD_STARTED_MS.store(0, Ordering::Release);
+    render::G_CACHED_DWIDTH.store(0, Ordering::Release);
+    render::G_CACHED_DHEIGHT.store(0, Ordering::Release);
+    render::G_CACHED_ROTATE.store(0, Ordering::Release);
     render::G_FRAMES_DRAWN.store(0, Ordering::Release);
     render::G_FRAMES_STARVED.store(0, Ordering::Release);
     render::G_LAST_DRAW_MS.store(0, Ordering::Release);
@@ -152,6 +155,9 @@ mod tests {
         render::G_REARM_VIDEO.store(true, Ordering::Release);
         render::G_PENDING_WID_REBIND.store(true, Ordering::Release);
         render::G_LOAD_STARTED_MS.store(12345, Ordering::Release);
+        render::G_CACHED_DWIDTH.store(1920, Ordering::Release);
+        render::G_CACHED_DHEIGHT.store(1080, Ordering::Release);
+        render::G_CACHED_ROTATE.store(90, Ordering::Release);
         render::G_FRAMES_DRAWN.store(100, Ordering::Release);
         render::G_FRAMES_STARVED.store(50, Ordering::Release);
         render::G_LAST_DRAW_MS.store(999, Ordering::Release);
@@ -172,6 +178,9 @@ mod tests {
         assert!(!render::G_REARM_VIDEO.load(Ordering::Acquire));
         assert!(!render::G_PENDING_WID_REBIND.load(Ordering::Acquire));
         assert_eq!(0, render::G_LOAD_STARTED_MS.load(Ordering::Acquire));
+        assert_eq!(0, render::G_CACHED_DWIDTH.load(Ordering::Acquire));
+        assert_eq!(0, render::G_CACHED_DHEIGHT.load(Ordering::Acquire));
+        assert_eq!(0, render::G_CACHED_ROTATE.load(Ordering::Acquire));
         assert_eq!(0, render::G_FRAMES_DRAWN.load(Ordering::Acquire));
         assert_eq!(0, render::G_FRAMES_STARVED.load(Ordering::Acquire));
         assert_eq!(0, render::G_LAST_DRAW_MS.load(Ordering::Acquire));
@@ -180,6 +189,22 @@ mod tests {
         assert!(render::REAL_EGL_PRESENTATION_TIME.load(Ordering::Acquire).is_null());
         assert!(!render::EGL_PRESENTATION_RESOLVED.load(Ordering::Acquire));
         assert!(render::ACTIVE_FENCES.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn update_cached_video_geometry_prioritizes_display_dimensions_over_coded() {
+        reset_engine_lifecycle_state();
+        events::update_cached_video_geometry("width", 1440);
+        events::update_cached_video_geometry("height", 1080);
+        assert_eq!(1440, render::G_CACHED_DWIDTH.load(Ordering::Acquire));
+        assert_eq!(1080, render::G_CACHED_DHEIGHT.load(Ordering::Acquire));
+
+        events::update_cached_video_geometry("dwidth", 1920);
+        events::update_cached_video_geometry("dheight", 1080);
+        events::update_cached_video_geometry("video-params/rotate", 90);
+        assert_eq!(1920, render::G_CACHED_DWIDTH.load(Ordering::Acquire));
+        assert_eq!(1080, render::G_CACHED_DHEIGHT.load(Ordering::Acquire));
+        assert_eq!(90, render::G_CACHED_ROTATE.load(Ordering::Acquire));
     }
 
     #[test]

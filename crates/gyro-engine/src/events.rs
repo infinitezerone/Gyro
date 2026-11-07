@@ -18,7 +18,8 @@ use crate::mpv::{
     MPV_FORMAT_INT64, MPV_FORMAT_STRING, MpvApi,
 };
 use crate::render::{
-    G_AWAITING_FIRST_FRAME, G_FILE_LOADED_REACHED, G_LOAD_STARTED_MS, G_REARM_VIDEO,
+    G_AWAITING_FIRST_FRAME, G_CACHED_DHEIGHT, G_CACHED_DWIDTH, G_CACHED_ROTATE,
+    G_FILE_LOADED_REACHED, G_LOAD_STARTED_MS, G_REARM_VIDEO,
 };
 use crate::{monotonic_ms, nlog};
 
@@ -134,10 +135,41 @@ fn record_frame_counter(counter: FrameCounter, total: i64) {
     ));
 }
 
+pub fn update_cached_video_geometry(name: &str, value: i64) {
+    match name {
+        "dwidth" | "video-out-params/dw" => {
+            if value > 0 {
+                G_CACHED_DWIDTH.store(value, Ordering::Release);
+            }
+        }
+        "width" => {
+            if value > 0 && G_CACHED_DWIDTH.load(Ordering::Acquire) <= 0 {
+                G_CACHED_DWIDTH.store(value, Ordering::Release);
+            }
+        }
+        "dheight" | "video-out-params/dh" => {
+            if value > 0 {
+                G_CACHED_DHEIGHT.store(value, Ordering::Release);
+            }
+        }
+        "height" => {
+            if value > 0 && G_CACHED_DHEIGHT.load(Ordering::Acquire) <= 0 {
+                G_CACHED_DHEIGHT.store(value, Ordering::Release);
+            }
+        }
+        "video-params/rotate" | "video-out-params/rotate" => {
+            G_CACHED_ROTATE.store(value, Ordering::Release);
+        }
+        _ => {}
+    }
+}
+
 fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_void) {
-    if let Some(counter) = FrameCounter::from_property(name) {
-        if format == MPV_FORMAT_INT64 && !data.is_null() {
-            record_frame_counter(counter, unsafe { *(data as *const i64) });
+    if format == MPV_FORMAT_INT64 && !data.is_null() {
+        let v = unsafe { *(data as *const i64) };
+        update_cached_video_geometry(name, v);
+        if let Some(counter) = FrameCounter::from_property(name) {
+            record_frame_counter(counter, v);
         }
     }
     if is_throttled_property(name) && !throttle_allows(name) {
@@ -285,6 +317,9 @@ pub fn event_thread() {
                 MPV_EVENT_START_FILE => {
                     crate::tracelog("NATIVE_MPV_START_FILE", "");
                     G_LOAD_STARTED_MS.store(monotonic_ms() as u64, Ordering::Relaxed);
+                    G_CACHED_DWIDTH.store(0, Ordering::Release);
+                    G_CACHED_DHEIGHT.store(0, Ordering::Release);
+                    G_CACHED_ROTATE.store(0, Ordering::Release);
                     G_FILE_LOADED_REACHED.store(false, Ordering::Release);
                     G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
                 }

@@ -181,6 +181,9 @@ pub static G_PENDING_WID_REBIND: AtomicBool = AtomicBool::new(false);
 pub static G_AWAITING_FIRST_FRAME: AtomicBool = AtomicBool::new(false);
 pub static G_FILE_LOADED_REACHED: AtomicBool = AtomicBool::new(false);
 pub static G_LOAD_STARTED_MS: AtomicU64 = AtomicU64::new(0);
+pub static G_CACHED_DWIDTH: AtomicI64 = AtomicI64::new(0);
+pub static G_CACHED_DHEIGHT: AtomicI64 = AtomicI64::new(0);
+pub static G_CACHED_ROTATE: AtomicI64 = AtomicI64::new(0);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
 static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
@@ -330,6 +333,7 @@ pub struct SyncHandle(pub *mut c_void);
 unsafe impl Send for SyncHandle {}
 unsafe impl Sync for SyncHandle {}
 
+pub const MAX_TRACKED_FENCES: usize = 64;
 pub static REAL_GL_FENCE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 pub static REAL_GL_DELETE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 pub static ACTIVE_FENCES: Mutex<Vec<SyncHandle>> = Mutex::new(Vec::new());
@@ -345,7 +349,10 @@ unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c
     if !sync.is_null() {
         if let Ok(mut lock) = ACTIVE_FENCES.lock() {
             lock.push(SyncHandle(sync));
-            if lock.len() > 2 {
+            // Keep a generous ceiling so normal mpv ringbuffer / timer fences (typically 3-8 in
+            // flight) are retired by mpv's own glDeleteSync call rather than deleted behind its
+            // back while still referenced, while still bounding pathological driver leaks.
+            if lock.len() > MAX_TRACKED_FENCES {
                 let old_sync = lock.remove(0);
                 let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
                 if !del_fn.is_null() {
@@ -1105,46 +1112,51 @@ unsafe fn draw_frame_native(
             ));
         }
 
-        // The geometry probe only feeds the first-frame gate below: its verdict is consumed
-        // exclusively inside the `awaiting_first_frame` branch, where it keeps a redraw of the
-        // previous file's last buffer from being mistaken for the new file's first frame. During
-        // steady playback nobody reads it, so polling dwidth/dheight/rotate here would burn 3-4
-        // synchronous mpv_get_property calls per presented frame for nothing.
+        // Read geometry from lock-free atomics populated on `gyro-event`; only fall back to
+        // synchronous `mpv_get_property` once if the render thread beats the event pump on the
+        // very first frame.
         let (final_w, final_h, aspect_mismatch) = if awaiting_first_frame {
-            let mpv_h = G_MPVP.load(Ordering::Acquire);
-            let mut dwidth: i64 = 0;
-            let mut dheight: i64 = 0;
-            let mut rotate: i64 = 0;
-            if !mpv_h.is_null() {
-                let dwidth_cstr = b"dwidth\0";
-                let dheight_cstr = b"dheight\0";
-                let rotate_cstr = b"video-params/rotate\0";
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    dwidth_cstr.as_ptr() as *const c_char,
-                    MPV_FORMAT_INT64,
-                    &mut dwidth as *mut _ as *mut c_void,
-                );
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    dheight_cstr.as_ptr() as *const c_char,
-                    MPV_FORMAT_INT64,
-                    &mut dheight as *mut _ as *mut c_void,
-                );
-                let _ = (api.mpv_get_property)(
-                    mpv_h,
-                    rotate_cstr.as_ptr() as *const c_char,
-                    MPV_FORMAT_INT64,
-                    &mut rotate as *mut _ as *mut c_void,
-                );
-                if rotate == 0 {
-                    let out_rotate_cstr = b"video-out-params/rotate\0";
+            let mut dwidth = G_CACHED_DWIDTH.load(Ordering::Acquire);
+            let mut dheight = G_CACHED_DHEIGHT.load(Ordering::Acquire);
+            let mut rotate = G_CACHED_ROTATE.load(Ordering::Acquire);
+            if dwidth <= 0 || dheight <= 0 {
+                let mpv_h = G_MPVP.load(Ordering::Acquire);
+                if !mpv_h.is_null() {
+                    let dwidth_cstr = b"dwidth\0";
+                    let dheight_cstr = b"dheight\0";
+                    let rotate_cstr = b"video-params/rotate\0";
                     let _ = (api.mpv_get_property)(
                         mpv_h,
-                        out_rotate_cstr.as_ptr() as *const c_char,
+                        dwidth_cstr.as_ptr() as *const c_char,
+                        MPV_FORMAT_INT64,
+                        &mut dwidth as *mut _ as *mut c_void,
+                    );
+                    let _ = (api.mpv_get_property)(
+                        mpv_h,
+                        dheight_cstr.as_ptr() as *const c_char,
+                        MPV_FORMAT_INT64,
+                        &mut dheight as *mut _ as *mut c_void,
+                    );
+                    let _ = (api.mpv_get_property)(
+                        mpv_h,
+                        rotate_cstr.as_ptr() as *const c_char,
                         MPV_FORMAT_INT64,
                         &mut rotate as *mut _ as *mut c_void,
                     );
+                    if rotate == 0 {
+                        let out_rotate_cstr = b"video-out-params/rotate\0";
+                        let _ = (api.mpv_get_property)(
+                            mpv_h,
+                            out_rotate_cstr.as_ptr() as *const c_char,
+                            MPV_FORMAT_INT64,
+                            &mut rotate as *mut _ as *mut c_void,
+                        );
+                    }
+                    if dwidth > 0 && dheight > 0 {
+                        G_CACHED_DWIDTH.store(dwidth, Ordering::Release);
+                        G_CACHED_DHEIGHT.store(dheight, Ordering::Release);
+                        G_CACHED_ROTATE.store(rotate, Ordering::Release);
+                    }
                 }
             }
 
