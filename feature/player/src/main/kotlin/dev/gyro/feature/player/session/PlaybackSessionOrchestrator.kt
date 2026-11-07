@@ -17,9 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -69,40 +67,23 @@ class PlaybackSessionOrchestrator(
 
     val orchestratorScope: CoroutineScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val _activeUri = MutableStateFlow<Uri?>(engine.currentUri.value)
-    val activeUri: StateFlow<Uri?> = _activeUri.asStateFlow()
+    /** Single source of truth for the active URI directly from the engine store. */
+    val activeUri: StateFlow<Uri?> get() = engine.currentUri
 
-    private var periodicSaveJob: Job? = null
     private var loadJob: Job? = null
 
-    private var lastCheckpointUri: Uri? = null
-    private var lastCheckpointPosMs: Long = 0L
-
-    private fun shouldCheckpoint(uri: Uri, positionMs: Long): Boolean =
-        uri != lastCheckpointUri || kotlin.math.abs(positionMs - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS
-
     init {
-        // 1. Sync engine's currentUri changes into activeUri
-        orchestratorScope.launch {
-            engine.currentUri.collect { uri ->
-                if (uri != null && uri != _activeUri.value) {
-                    _activeUri.value = uri
-                }
-            }
-        }
-
-        // 2. Auto-advance to next video when current video completes (works in foreground & background)
+        // 1. Auto-advance to next video when current video completes (works in foreground & background)
         orchestratorScope.launch {
             engine.playbackState.collect { state ->
                 if (state == PlaybackState.ENDED && playlist.hasNext) {
-                    val endedUri = _activeUri.value
+                    val endedUri = engine.currentUri.value
                     delay(500L)
                     // The grace delay is not a free pass: the user may have replayed or picked
                     // another video during it. Re-check unambiguous intent signals - resumed
                     // playback, or a different active uri - and skip the advance if either is
-                    // true. Reading the global playback state alone is racy here: residual
-                    // events from the finishing load can still land inside the window.
-                    if (engine.isPlaying.value || _activeUri.value != endedUri || !playlist.hasNext) {
+                    // true.
+                    if (engine.isPlaying.value || engine.currentUri.value != endedUri || !playlist.hasNext) {
                         return@collect
                     }
                     val next = playlist.playNext()
@@ -113,9 +94,9 @@ class PlaybackSessionOrchestrator(
             }
         }
 
-        // 3. Auto-load companion subtitles asynchronously via SubtitleRepository
+        // 2. Auto-load companion subtitles asynchronously via SubtitleRepository
         orchestratorScope.launch {
-            _activeUri.collectLatest { uri ->
+            engine.currentUri.collectLatest { uri ->
                 if (uri != null && settingsRepository.settings.first().subAutoLoad) {
                     val knownDisplayName = playlist.items.value
                         .firstOrNull { it.uriString == uri.toString() }?.displayName
@@ -125,7 +106,7 @@ class PlaybackSessionOrchestrator(
             }
         }
 
-        // 4. Event-driven progress persistence on pause
+        // 3. Event-driven progress persistence on pause
         orchestratorScope.launch {
             engine.isPlaying.collect { playing ->
                 if (!playing) {
@@ -134,24 +115,23 @@ class PlaybackSessionOrchestrator(
             }
         }
 
-        // 5. Periodic checkpoint while playing. This job lives with the singleton for the whole
-        // process: cancelling it (there is nothing to ever restart it) silently killed periodic
-        // progress saving for background playback after the first UI teardown.
-        periodicSaveJob = orchestratorScope.launch {
+        // 4. Periodic checkpoint while playing. State is local to the coroutine loop;
+        // collectLatest automatically suspends/cancels when playing becomes false.
+        orchestratorScope.launch {
             engine.isPlaying.collectLatest { playing ->
-                if (playing) {
-                    while (isActive) {
-                        delay(CHECKPOINT_INTERVAL_MS)
-                        val uri = _activeUri.value
-                        if (uri != null) {
-                            val curPos = engine.timePosMs.value
-                            val curDur = engine.durationMs.value
-                            if (curDur > 0L && shouldCheckpoint(uri, curPos)) {
-                                lastCheckpointUri = uri
-                                lastCheckpointPosMs = curPos
-                                historyRepository.saveProgress(uri, curPos, curDur)
-                            }
-                        }
+                if (!playing) return@collectLatest
+                var lastCheckpointUri: Uri? = null
+                var lastCheckpointPosMs = 0L
+                while (isActive) {
+                    delay(CHECKPOINT_INTERVAL_MS)
+                    val snapshot = engine.state.value
+                    val uri = snapshot.currentUri ?: continue
+                    val curPos = engine.timePosMs.value
+                    val curDur = snapshot.durationMs
+                    if (curDur > 0L && (uri != lastCheckpointUri || kotlin.math.abs(curPos - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS)) {
+                        lastCheckpointUri = uri
+                        lastCheckpointPosMs = curPos
+                        historyRepository.saveProgress(uri, curPos, curDur)
                     }
                 }
             }
@@ -160,17 +140,10 @@ class PlaybackSessionOrchestrator(
 
     fun openUri(uri: Uri, forceReload: Boolean = false, displayTitle: String? = null): Job {
         loadJob?.cancel()
-        _activeUri.value?.let { oldUri ->
-            if (oldUri != uri) {
-                val curPos = engine.timePosMs.value
-                val curDur = engine.durationMs.value
-                if (curDur > 0L) {
-                    historyRepository.saveProgress(oldUri, curPos, curDur)
-                }
-            }
+        val oldUri = engine.currentUri.value
+        if (oldUri != null && oldUri != uri) {
+            saveCurrentProgress(oldUri)
         }
-
-        _activeUri.value = uri
 
         val knownTitle = displayTitle?.takeIf { it.isNotBlank() }
             ?: playlist.items.value.firstOrNull { it.uriString == uri.toString() }
@@ -228,21 +201,20 @@ class PlaybackSessionOrchestrator(
         openUri(uri, displayTitle = displayName)
     }
 
-    fun saveCurrentProgress() {
-        engine.audio.resetSoftwareGain()
-        val uri = _activeUri.value ?: return
+    /**
+     * Atomically saves the current playback progress using the snapshot state.
+     * Pure function with zero side-effects.
+     */
+    fun saveCurrentProgress(targetUri: Uri? = null) {
+        val snapshot = engine.state.value
+        val uri = targetUri ?: snapshot.currentUri ?: return
         val curPos = engine.timePosMs.value
-        val curDur = engine.durationMs.value
+        val curDur = snapshot.durationMs
         if (curDur > 0L) {
             historyRepository.saveProgress(uri, curPos, curDur)
         }
     }
 
-    /**
-     * Cancels an in-flight load (title lookup, resume probe, mpv loadfile) without touching the
-     * process-lifetime checkpoint loop, which must keep running while playback continues in the
-     * background. The periodic ticker deliberately has no cancellation path.
-     */
     fun cancelPendingLoad() {
         loadJob?.cancel()
     }
