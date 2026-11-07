@@ -81,6 +81,14 @@ mod libc {
 
 static G_MONOTONIC_BASE: OnceLock<Instant> = OnceLock::new();
 
+/// Monotonic nanoseconds, process-wide.
+///
+/// Contract: non-decreasing and self-consistent within the process — nothing more. On unix this
+/// reads CLOCK_MONOTONIC (boot-relative, effectively always positive); on non-unix hosts it
+/// measures elapsed time from a lazily-initialized base, so the very first sample can legitimately
+/// be 0. Consumers (presentation-time conversion, throttle/health windows) depend only on
+/// monotonicity and cross-call consistency, never on absolute magnitude — do not assert `> 0`
+/// against an arbitrary sample.
 pub fn monotonic_ns() -> i64 {
     #[cfg(unix)]
     unsafe {
@@ -145,9 +153,16 @@ pub fn reset_engine_lifecycle_state() {
 mod tests {
     use super::*;
     use std::ffi::c_void;
+    use std::sync::Mutex;
+
+    /// Tests in this module mutate the same global lifecycle statics; cargo runs tests in
+    /// parallel threads, so any two of them touching e.g. G_CACHED_* race (measured: ~25% of
+    /// runs). Serialize the state-mutating tests over this lock.
+    static LIFECYCLE_STATE_TESTS: Mutex<()> = Mutex::new(());
 
     #[test]
     fn reset_engine_lifecycle_state_clears_all_session_flags_and_pointers() {
+        let _state_guard = LIFECYCLE_STATE_TESTS.lock().unwrap_or_else(|p| p.into_inner());
         let _ = render::G_FRAME_GATE.try_acquire();
         render::G_RENDER_DEAD.store(true, Ordering::Release);
         render::G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
@@ -193,6 +208,7 @@ mod tests {
 
     #[test]
     fn update_cached_video_geometry_prioritizes_display_dimensions_over_coded() {
+        let _state_guard = LIFECYCLE_STATE_TESTS.lock().unwrap_or_else(|p| p.into_inner());
         reset_engine_lifecycle_state();
         events::update_cached_video_geometry("width", 1440);
         events::update_cached_video_geometry("height", 1080);
@@ -231,10 +247,15 @@ mod tests {
 
     #[test]
     fn monotonic_ns_returns_positive_increasing_timestamps() {
+        // On the Windows host the clock reads elapsed-from-a-lazy-base and the very first
+        // sample can legitimately be 0ns; demand positivity only after a real delay.
+        let t0 = monotonic_ns();
+        std::thread::sleep(std::time::Duration::from_millis(1));
         let t1 = monotonic_ns();
         let t2 = monotonic_ns();
         assert!(t1 > 0);
         assert!(t2 >= t1);
+        assert!(t1 >= t0);
 
         for (prop, expected) in [
             ("time-pos", c"time-pos"),
