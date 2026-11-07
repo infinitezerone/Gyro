@@ -89,10 +89,15 @@ fun PlayerBottomBar(
     ) {
         val isScreenScrubOnly = !isVisible && scrubState.isActive
         val totalMs = durationMs()
-        val displayPos = if (scrubState.isActive) {
+        val rawPos = if (scrubState.isActive) {
             if (totalMs > 0L) (scrubState.fraction * totalMs).toLong() else 0L
         } else {
             timePosMs()
+        }
+        val displayPos = if (totalMs > 0L && (rawPos >= totalMs - 800L || (!isPlaying && rawPos >= totalMs - 1500L))) {
+            totalMs
+        } else {
+            rawPos
         }
 
         val aspectLabel = when (resizeMode) {
@@ -107,7 +112,7 @@ fun PlayerBottomBar(
             // A. 拖拽屏幕 Seek 时：两侧留出安全间距的进度条与时间反馈
             Column(modifier = Modifier.fillMaxWidth()) {
                 PlayerScrubBar(
-                    timePosMs = timePosMs(),
+                    timePosMs = displayPos,
                     durationMs = totalMs,
                     bufferedPosMs = bufferedPosMs(),
                     scrubState = scrubState,
@@ -146,7 +151,7 @@ fun PlayerBottomBar(
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Row 1: 两侧保留 16dp 舒适呼吸间距与防误触缓冲的进度条
                 PlayerScrubBar(
-                    timePosMs = timePosMs(),
+                    timePosMs = displayPos,
                     durationMs = totalMs,
                     bufferedPosMs = bufferedPosMs(),
                     scrubState = scrubState,

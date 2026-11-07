@@ -55,7 +55,7 @@ import java.util.Locale
  */
 fun formatTime(ms: Long): String {
     if (ms <= 0L) return "00:00"
-    val totalSec = ms / 1000L
+    val totalSec = (ms + 500L) / 1000L
     val s = totalSec % 60
     val m = (totalSec / 60) % 60
     val h = totalSec / 3600

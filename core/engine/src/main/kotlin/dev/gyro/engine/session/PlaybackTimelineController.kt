@@ -96,14 +96,31 @@ open class PlaybackTimelineController internal constructor(
         when (event) {
             is MpvEvent.Lifecycle -> when (event.id) {
                 MpvNativeBridge.Event.FILE_LOADED -> onFileLoaded()
-                MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> {
+                MpvNativeBridge.Event.END_FILE -> {
+                    fileLoaded = false
+                    loadedAtGeometryState = null
+                    _bufferedPosMs.value = 0L
+                    val dur = _durationMs.value
+                    if (dur > 0L) {
+                        _timePosMs.value = dur
+                    }
+                }
+                MpvNativeBridge.Event.SHUTDOWN -> {
                     fileLoaded = false
                     loadedAtGeometryState = null
                     _bufferedPosMs.value = 0L
                 }
             }
             is MpvEvent.EndFile -> when (event.reason) {
-                MpvNativeBridge.EndReason.EOF,
+                MpvNativeBridge.EndReason.EOF -> {
+                    fileLoaded = false
+                    loadedAtGeometryState = null
+                    _bufferedPosMs.value = 0L
+                    val dur = _durationMs.value
+                    if (dur > 0L) {
+                        _timePosMs.value = dur
+                    }
+                }
                 MpvNativeBridge.EndReason.QUIT,
                 MpvNativeBridge.EndReason.ERROR -> {
                     fileLoaded = false
