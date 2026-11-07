@@ -164,6 +164,8 @@
     <string name="action_play">Play</string>
     <string name="action_pause">Pause</string>
     <string name="action_prev">Previous</string>
+    <string name="action_rewind">Rewind 10s</string>
+    <string name="action_fast_forward">Fast forward 10s</string>
     <string name="action_next">Next</string>
     <string name="action_stop">Stop</string>
     <string name="folder_custom_default">Custom Folder</string>

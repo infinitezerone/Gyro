@@ -5,13 +5,18 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.util.Size
 import android.view.KeyEvent
 import androidx.core.content.IntentCompat
 import dagger.hilt.android.AndroidEntryPoint
@@ -19,7 +24,14 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.session.MediaSessionManager
+import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import dev.gyro.player.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -29,7 +41,7 @@ import javax.inject.Inject
 class PlaybackService : Service() {
 
     @Inject lateinit var engine: GyroPlayerEngine
-    @Inject lateinit var orchestrator: dev.gyro.feature.player.session.PlaybackSessionOrchestrator
+    @Inject lateinit var orchestrator: PlaybackSessionOrchestrator
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -42,6 +54,8 @@ class PlaybackService : Service() {
         const val ACTION_PLAY_PAUSE = "dev.gyro.player.ACTION_PLAY_PAUSE"
         const val ACTION_PREV = "dev.gyro.player.ACTION_PREV"
         const val ACTION_NEXT = "dev.gyro.player.ACTION_NEXT"
+        const val ACTION_REWIND = "dev.gyro.player.ACTION_REWIND"
+        const val ACTION_FAST_FORWARD = "dev.gyro.player.ACTION_FAST_FORWARD"
         const val ACTION_STOP = "dev.gyro.player.ACTION_STOP"
         const val ACTION_DISMISS = "dev.gyro.player.ACTION_DISMISS"
 
@@ -87,6 +101,10 @@ class PlaybackService : Service() {
     private val notificationManager by lazy {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
+
+    private var currentThumbnailUri: Uri? = null
+    private var currentThumbnailBitmap: Bitmap? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
@@ -144,6 +162,8 @@ class PlaybackService : Service() {
             ACTION_PLAY_PAUSE -> mediaSessionManager?.togglePlayPause()
             ACTION_PREV -> mediaSessionManager?.skipToPrevious()
             ACTION_NEXT -> mediaSessionManager?.skipToNext()
+            ACTION_REWIND -> engine.seekRelative(-10_000L)
+            ACTION_FAST_FORWARD -> engine.seekRelative(10_000L)
             ACTION_STOP -> {
                 orchestrator.saveCurrentProgress()
                 engine.pause()
@@ -167,14 +187,75 @@ class PlaybackService : Service() {
         return START_STICKY
     }
 
+    private fun loadThumbnailIfNeeded(uri: Uri?) {
+        if (uri == null) {
+            currentThumbnailUri = null
+            currentThumbnailBitmap = null
+            mediaSessionManager?.updateMetadata(null)
+            return
+        }
+        if (uri == currentThumbnailUri) return
+        currentThumbnailUri = uri
+        serviceScope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                loadThumbnail(this@PlaybackService, uri)
+            }
+            if (currentThumbnailUri == uri) {
+                currentThumbnailBitmap = bitmap
+                mediaSessionManager?.updateMetadata(bitmap)
+                updateNotification()
+            }
+        }
+    }
+
+    private fun loadThumbnail(context: Context, uri: Uri): Bitmap? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == ContentResolver.SCHEME_CONTENT) {
+                context.contentResolver.loadThumbnail(uri, Size(512, 512), null)
+            } else {
+                val retriever = MediaMetadataRetriever()
+                if (uri.scheme == ContentResolver.SCHEME_FILE || uri.scheme == null) {
+                    retriever.setDataSource(uri.path)
+                } else {
+                    retriever.setDataSource(context, uri)
+                }
+                val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                retriever.release()
+                frame
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun buildNotification(): Notification {
         val isPlaying = engine.isPlaying.value
         val title = engine.mediaTitle.value.ifBlank { null }
             ?: getString(R.string.player_default_title)
-        val contentText = if (isPlaying) {
+
+        val activeUri = orchestrator.activeUri.value
+        loadThumbnailIfNeeded(activeUri)
+
+        val playlist = engine.playlist.items.value
+        val playlistIndex = engine.playlist.currentIndex.value
+        val playlistInfo = if (playlist.size > 1 && playlistIndex >= 0) {
+            "[${playlistIndex + 1}/${playlist.size}] "
+        } else ""
+
+        val playStateText = if (isPlaying) {
             getString(R.string.notification_playing)
         } else {
             getString(R.string.notification_paused)
+        }
+
+        val currentItem = engine.playlist.currentItem
+        val folderInfo = currentItem?.folderName?.takeIf { it.isNotBlank() }
+        val contentText = buildString {
+            if (playlistInfo.isNotBlank()) append(playlistInfo)
+            append(playStateText)
+            if (!folderInfo.isNullOrBlank()) {
+                append(" · ").append(folderInfo)
+            }
         }
 
         val duration = engine.durationMs.value
@@ -184,7 +265,8 @@ class PlaybackService : Service() {
             mediaSessionManager?.sessionToken?.let { token ->
                 setMediaSession(token)
             }
-            setShowActionsInCompactView(0, 1, 2)
+            // Show Previous, Play/Pause, Next in compact view (indices 0, 2, 4)
+            setShowActionsInCompactView(0, 2, 4)
         }
 
         val contentIntent = PendingIntent.getActivity(
@@ -211,6 +293,10 @@ class PlaybackService : Service() {
             .setOngoing(isPlaying)
             .setStyle(mediaStyle)
 
+        currentThumbnailBitmap?.let { art ->
+            builder.setLargeIcon(art)
+        }
+
         if (duration > 0L) {
             builder.setProgress((duration / 1000).toInt(), (position / 1000).toInt(), false)
         }
@@ -224,7 +310,16 @@ class PlaybackService : Service() {
             ).build()
         )
 
-        // Action 1: Play / Pause toggle
+        // Action 1: Rewind 10s
+        builder.addAction(
+            Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_rew),
+                getString(R.string.action_rewind),
+                createActionPendingIntent(ACTION_REWIND, 2)
+            ).build()
+        )
+
+        // Action 2: Play / Pause toggle
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         val playPauseTitle = if (isPlaying) getString(R.string.action_pause) else getString(R.string.action_play)
         val playPauseAction = if (isPlaying) ACTION_PAUSE else ACTION_PLAY
@@ -232,25 +327,34 @@ class PlaybackService : Service() {
             Notification.Action.Builder(
                 android.graphics.drawable.Icon.createWithResource(this, playPauseIcon),
                 playPauseTitle,
-                createActionPendingIntent(playPauseAction, 2)
+                createActionPendingIntent(playPauseAction, 3)
             ).build()
         )
 
-        // Action 2: Next
+        // Action 3: Fast Forward 10s
+        builder.addAction(
+            Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_ff),
+                getString(R.string.action_fast_forward),
+                createActionPendingIntent(ACTION_FAST_FORWARD, 4)
+            ).build()
+        )
+
+        // Action 4: Next
         builder.addAction(
             Notification.Action.Builder(
                 android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_next),
                 getString(R.string.action_next),
-                createActionPendingIntent(ACTION_NEXT, 3)
+                createActionPendingIntent(ACTION_NEXT, 5)
             ).build()
         )
 
-        // Action 3: Stop
+        // Action 5: Stop
         builder.addAction(
             Notification.Action.Builder(
                 android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
                 getString(R.string.action_stop),
-                createActionPendingIntent(ACTION_STOP, 4)
+                createActionPendingIntent(ACTION_STOP, 6)
             ).build()
         )
 
@@ -320,6 +424,9 @@ class PlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
+        serviceScope.cancel()
+        currentThumbnailBitmap = null
+        currentThumbnailUri = null
         isRunning = false
         mediaSessionManager?.release()
         mediaSessionManager = null

@@ -1,6 +1,7 @@
 package dev.gyro.player
 
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -336,13 +337,33 @@ class MainActivity : ComponentActivity() {
         PlaybackService.dismiss(this)
     }
 
+    /**
+     * Set when the system moves the activity into PiP and consulted by [onStop]: after a PiP
+     * stop there is no [onResume] in between, so the flag surviving to [onStop] means the user
+     * dismissed the PiP window. A fullscreen return always passes through [onResume], which
+     * clears it.
+     */
+    private var wasInPipMode = false
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) wasInPipMode = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        wasInPipMode = false
+    }
+
     override fun onStop() {
         super.onStop()
         if (!isInPictureInPictureMode && ::playerEngine.isInitialized && playerEngine.isPlaying.value) {
             // Detach video surface for headless EGL_NO_SURFACE operation in background
             playerEngine.detachSurface()
             val bgMode = settingsViewModel.settings.value.backgroundPlayMode
-            if (bgMode == "off") {
+            // Dismissing the PiP window is an explicit "done watching": pause for real instead
+            // of falling into background audio, even when backgroundPlayMode would keep it alive.
+            if (wasInPipMode || bgMode == "off") {
                 playerViewModel.saveCurrentProgress()
                 playerEngine.pause()
             } else {

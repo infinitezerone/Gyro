@@ -44,6 +44,8 @@ class MediaSessionManager(
             PlaybackState.ACTION_PLAY_PAUSE or
             PlaybackState.ACTION_STOP or
             PlaybackState.ACTION_SEEK_TO or
+            PlaybackState.ACTION_FAST_FORWARD or
+            PlaybackState.ACTION_REWIND or
             PlaybackState.ACTION_SKIP_TO_NEXT or
             PlaybackState.ACTION_SKIP_TO_PREVIOUS
     }
@@ -58,7 +60,8 @@ class MediaSessionManager(
     data class MediaMetadataSnapshot(
         val title: String,
         val artist: String,
-        val durationMs: Long
+        val durationMs: Long,
+        val art: android.graphics.Bitmap? = null
     )
 
     private var mediaSession: MediaSession? = null
@@ -98,6 +101,14 @@ class MediaSessionManager(
 
         override fun onSkipToPrevious() {
             this@MediaSessionManager.skipToPrevious()
+        }
+
+        override fun onFastForward() {
+            engine.seekRelative(10_000L)
+        }
+
+        override fun onRewind() {
+            engine.seekRelative(-10_000L)
         }
 
         override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
@@ -300,29 +311,37 @@ class MediaSessionManager(
         }
     }
 
+    private var currentArt: android.graphics.Bitmap? = null
+
     fun getMediaMetadataSnapshot(): MediaMetadataSnapshot {
         val snapshot = engine.state.value
         return MediaMetadataSnapshot(
             title = snapshot.mediaTitle,
             artist = "Gyro Player",
-            durationMs = snapshot.durationMs
+            durationMs = snapshot.durationMs,
+            art = currentArt
         )
     }
 
     fun buildMediaMetadata(): MediaMetadata? {
         val snapshot = getMediaMetadataSnapshot()
         return try {
-            MediaMetadata.Builder()
+            val builder = MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, snapshot.title)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, snapshot.artist)
                 .putLong(MediaMetadata.METADATA_KEY_DURATION, snapshot.durationMs)
-                .build()
+            snapshot.art?.let {
+                builder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it)
+                builder.putBitmap(MediaMetadata.METADATA_KEY_ART, it)
+            }
+            builder.build()
         } catch (_: Throwable) {
             null
         }
     }
 
-    fun updateMetadata(): MediaMetadata? {
+    fun updateMetadata(art: android.graphics.Bitmap? = currentArt): MediaMetadata? {
+        currentArt = art
         return try {
             val metadata = buildMediaMetadata()
             if (metadata != null) {
