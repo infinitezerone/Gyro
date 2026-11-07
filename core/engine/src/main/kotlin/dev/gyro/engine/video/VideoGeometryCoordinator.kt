@@ -102,6 +102,13 @@ class VideoGeometryCoordinator(
         _firstFrameRendered.value = false
         _geometryReady.value = false
         _videoFrameRate.value = 0f
+        // Dimensions from the previous file must go too: until the new file's params arrive,
+        // a stale aspect here sizes the Compose container and locks the surface buffer to the
+        // wrong shape, so the video can appear at the previous file's size and position before
+        // jumping to the correct one. Zero dims make the UI fall back to fillMaxSize behind
+        // the shutter until DIMS_PUBLISHED.
+        _videoDimensions.value = VideoDimensions(0, 0)
+        _videoAspect.value = 0f
         SwitchTrace.log("SWITCH_SESSION_START", "url=$url, startPos=${startPositionMs}ms")
     }
     fun onFileLoaded(url: String, hasVideo: Boolean) {

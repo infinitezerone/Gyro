@@ -411,8 +411,12 @@ class GyroPlayerEngineTest {
 
         engine.load("file:///tmp/another.mp4")
 
-        assertEquals(VideoDimensions(1920, 1080), engine.geometry.videoDimensions.value)
-        assertEquals(1920f / 1080f, engine.geometry.videoAspect.value, 0.0001f)
+        // Stale geometry must not size the Compose container or lock the surface buffer to the
+        // previous file's aspect while the new file's params are still pending - that is the
+        // "video appears at the wrong size and position" regression. The shutter hides the
+        // zeroed state; geometryReady only returns once the new file's dims publish.
+        assertEquals(VideoDimensions(0, 0), engine.geometry.videoDimensions.value)
+        assertEquals(0f, engine.geometry.videoAspect.value, 0.0001f)
         assertFalse(engine.geometry.firstFrameRendered.value)
         assertFalse(engine.geometry.geometryReady.value)
     }
