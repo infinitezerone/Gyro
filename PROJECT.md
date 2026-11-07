@@ -104,7 +104,7 @@ Data Flow:
 - `SyncTuningController` (`engine.tuning`): `subtitleDelaySec`, `audioDelaySec`, `subtitleScale`, `subtitlePositionPercent`; corresponding setters, clamping owned by the controller.
 - `MpvOptionConfigurator` (`:core:engine.config`): applies user `mpv.conf` entries, then GUI settings, then defaults, all before `mpv_init()`; protected keys (`vo`, `wid`, `idle`, `keep-open`, `gpu-context`) are dropped and the engine lifecycle invariants are re-applied.
 - `MediaResourceResolver` (`:core:engine.media`): `suspend fun resolve(item: MediaItem): ResolvedMediaSource`. Opens content descriptors off the main thread and hands ownership over in `ResolvedMediaSource.takeTargetUrl()`; a request that is cancelled or replaced before `loadfile` is closed instead of leaking the fd. Resolution failure surfaces as `PlaybackState.ERROR`.
-- Event stream: `MpvEventBus` (owned by `GyroNative`, surfaced as `MpvNativeBridge.events`) publishes `MpvEvent`; every domain controller subscribes through `observeEvents(scope)`. No replay, publish applies backpressure on the native event thread.
+- Event stream: `MpvEventPipeline` (owned by `GyroNative`, surfaced as `MpvNativeBridge.events`) publishes `MpvEvent`; every domain controller subscribes through `observeEvents(scope)`. No replay, publish applies backpressure on the native event thread.
 - `PlaybackTimelineController` is intentionally not a public namespace: it is the engine's own time/seek implementation.
 
 ### `:core:data` ↔ `:feature:settings`

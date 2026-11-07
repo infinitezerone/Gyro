@@ -144,7 +144,7 @@ flowchart TD
 
     subgraph NativeCore ["底层 Native 核心驱动"]
         Bridge["MpvNativeBridge (mpv c-api)"]
-        Bus["MpvEventBus: SharedFlow&lt;MpvEvent&gt;\n(进程级, 归 GyroNative 所有)"]
+        Bus["MpvEventPipeline: SharedFlow&lt;MpvEvent&gt;\n(进程级, 归 GyroNative 所有)"]
     end
 
     VM -->|"清晰命名空间"| DomainControllers

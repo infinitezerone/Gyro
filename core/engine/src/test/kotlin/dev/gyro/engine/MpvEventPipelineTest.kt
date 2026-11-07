@@ -20,26 +20,26 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-class MpvEventBusTest {
+class MpvEventPipelineTest {
 
-    private lateinit var bus: MpvEventBus
+    private lateinit var pipeline: MpvEventPipeline
     private lateinit var eventScope: CoroutineScope
 
     @Before
     fun setUp() {
-        bus = MpvEventBus()
+        pipeline = MpvEventPipeline()
         eventScope = CoroutineScope(Job() + Dispatchers.Unconfined)
     }
 
     @After
     fun tearDown() {
         eventScope.cancel()
-        assertEquals(0, bus.subscriptionCount.value)
+        assertEquals(0, pipeline.subscriptionCount.value)
     }
 
     private fun subscribe(events: MutableList<MpvEvent>): Job =
         eventScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            bus.events.collect { events.add(it) }
+            pipeline.events.collect { events.add(it) }
         }
 
     private fun allEventTypes(): List<MpvEvent> = listOf(
@@ -57,10 +57,10 @@ class MpvEventBusTest {
         val second = CopyOnWriteArrayList<MpvEvent>()
         subscribe(first)
         subscribe(second)
-        assertEquals(2, bus.subscriptionCount.value)
+        assertEquals(2, pipeline.subscriptionCount.value)
 
         val expected = allEventTypes() + allEventTypes().reversed()
-        expected.forEach(bus::publish)
+        expected.forEach(pipeline::publish)
 
         assertEquals(expected, first)
         assertEquals(expected, second)
@@ -68,35 +68,35 @@ class MpvEventBusTest {
 
     @Test(timeout = 5_000)
     fun publish_withoutSubscribersReturnsWithoutBlocking() {
-        assertEquals(0, bus.subscriptionCount.value)
+        assertEquals(0, pipeline.subscriptionCount.value)
 
-        repeat(10) { allEventTypes().forEach(bus::publish) }
+        repeat(10) { allEventTypes().forEach(pipeline::publish) }
 
-        assertEquals(0, bus.subscriptionCount.value)
-        assertTrue(bus.events.replayCache.isEmpty())
+        assertEquals(0, pipeline.subscriptionCount.value)
+        assertTrue(pipeline.events.replayCache.isEmpty())
     }
 
     @Test(timeout = 5_000)
     fun subscribe_doesNotReplayEventsPublishedBeforeSubscription() {
-        allEventTypes().forEach(bus::publish)
+        allEventTypes().forEach(pipeline::publish)
 
         val first = CopyOnWriteArrayList<MpvEvent>()
         subscribe(first)
         assertTrue(first.isEmpty())
 
         val current = MpvEvent.Lifecycle(MpvNativeBridge.Event.PLAYBACK_RESTART)
-        bus.publish(current)
+        pipeline.publish(current)
         assertEquals(listOf(current), first)
 
         // Also exclude events published while another collector was active.
         val late = CopyOnWriteArrayList<MpvEvent>()
         subscribe(late)
-        assertEquals(2, bus.subscriptionCount.value)
+        assertEquals(2, pipeline.subscriptionCount.value)
         assertTrue(late.isEmpty())
-        assertTrue(bus.events.replayCache.isEmpty())
+        assertTrue(pipeline.events.replayCache.isEmpty())
 
         val next = MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE)
-        bus.publish(next)
+        pipeline.publish(next)
         assertEquals(listOf(current, next), first)
         assertEquals(listOf(next), late)
     }
@@ -107,22 +107,22 @@ class MpvEventBusTest {
         val activeEvents = CopyOnWriteArrayList<MpvEvent>()
         val cancelled = subscribe(cancelledEvents)
         val active = subscribe(activeEvents)
-        assertEquals(2, bus.subscriptionCount.value)
+        assertEquals(2, pipeline.subscriptionCount.value)
 
         val first = MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED)
-        bus.publish(first)
+        pipeline.publish(first)
         cancelled.cancel()
         assertTrue(cancelled.isCompleted)
-        assertEquals(1, bus.subscriptionCount.value)
+        assertEquals(1, pipeline.subscriptionCount.value)
 
         val next = MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE)
-        bus.publish(next)
+        pipeline.publish(next)
         assertEquals(listOf(first), cancelledEvents)
         assertEquals(listOf(first, next), activeEvents)
 
         active.cancel()
-        assertEquals(0, bus.subscriptionCount.value)
-        bus.publish(MpvEvent.Lifecycle(MpvNativeBridge.Event.SHUTDOWN))
+        assertEquals(0, pipeline.subscriptionCount.value)
+        pipeline.publish(MpvEvent.Lifecycle(MpvNativeBridge.Event.SHUTDOWN))
         assertEquals(listOf(first), cancelledEvents)
         assertEquals(listOf(first, next), activeEvents)
     }
@@ -145,14 +145,14 @@ class MpvEventBusTest {
             Dispatchers.Unconfined,
             start = CoroutineStart.UNDISPATCHED
         ) {
-            bus.events.collect { event ->
+            pipeline.events.collect { event ->
                 val index = slowEvents.size
                 slowEvents.add(event)
                 received[index].countDown()
                 withTimeout(5_000) { allowNext[index].await() }
             }
         }
-        assertEquals(2, bus.subscriptionCount.value)
+        assertEquals(2, pipeline.subscriptionCount.value)
 
         val executor = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "mpv-event-pipeline-publisher").apply { isDaemon = true }
@@ -161,7 +161,7 @@ class MpvEventBusTest {
         val allPublished = CountDownLatch(1)
         val publisher = executor.submit {
             expected.forEachIndexed { index, event ->
-                bus.publish(event)
+                pipeline.publish(event)
                 if (index == 1) secondPublishFinished.countDown()
             }
             allPublished.countDown()

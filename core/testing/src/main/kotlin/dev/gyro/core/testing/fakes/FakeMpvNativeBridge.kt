@@ -3,7 +3,7 @@ package dev.gyro.core.testing.fakes
 import android.content.Context
 import android.view.Surface
 import dev.gyro.engine.MpvEvent
-import dev.gyro.engine.MpvEventBus
+import dev.gyro.engine.MpvEventPipeline
 import dev.gyro.engine.MpvNativeBridge
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -35,9 +35,9 @@ class FakeMpvNativeBridge(
     @Volatile var gpuRendererResult: String = "Adreno (TM) 750"
 ) : MpvNativeBridge {
 
-    private val bus = MpvEventBus()
-    override val events = bus.events
-    val eventSubscriberCount: Int get() = bus.subscriptionCount.value
+    private val pipeline = MpvEventPipeline()
+    override val events = pipeline.events
+    val eventSubscriberCount: Int get() = pipeline.subscriptionCount.value
 
     // Call counters backed by AtomicInteger for thread-safety
     private val _createCount = AtomicInteger(0)
@@ -193,7 +193,7 @@ class FakeMpvNativeBridge(
      * Publishes an mpv lifecycle event to active flow subscribers.
      */
     fun emitEvent(eventId: Int) {
-        bus.publish(MpvEvent.Lifecycle(eventId))
+        pipeline.publish(MpvEvent.Lifecycle(eventId))
     }
 
     /**
@@ -223,7 +223,7 @@ class FakeMpvNativeBridge(
      * Simulates reason-bearing END_FILE event (`MpvEvent.EndFile(reason)`).
      */
     fun emitEndFile(reason: Int) {
-        bus.publish(MpvEvent.EndFile(reason))
+        pipeline.publish(MpvEvent.EndFile(reason))
     }
 
     /**
@@ -237,7 +237,7 @@ class FakeMpvNativeBridge(
      * Emits a property name change notification (Format.NONE).
      */
     fun emitProperty(name: String) {
-        bus.publish(MpvEvent.PropertyChanged(name))
+        pipeline.publish(MpvEvent.PropertyChanged(name))
     }
 
     /**
@@ -245,7 +245,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyLong(name: String, value: Long) {
         properties[name] = value
-        bus.publish(MpvEvent.LongProperty(name, value))
+        pipeline.publish(MpvEvent.LongProperty(name, value))
     }
 
     /**
@@ -253,7 +253,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyDouble(name: String, value: Double) {
         properties[name] = value
-        bus.publish(MpvEvent.DoubleProperty(name, value))
+        pipeline.publish(MpvEvent.DoubleProperty(name, value))
     }
 
     /**
@@ -261,7 +261,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyFlag(name: String, value: Boolean) {
         properties[name] = value
-        bus.publish(MpvEvent.FlagProperty(name, value))
+        pipeline.publish(MpvEvent.FlagProperty(name, value))
     }
 
     /**
@@ -269,7 +269,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyString(name: String, value: String) {
         properties[name] = value
-        bus.publish(MpvEvent.StringProperty(name, value))
+        pipeline.publish(MpvEvent.StringProperty(name, value))
     }
 
     // ---------- Query & Verification Helpers ----------

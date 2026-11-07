@@ -23,8 +23,8 @@ internal object GyroNative {
         }
     }
 
-    private val eventBus = MpvEventBus()
-    val events = eventBus.events
+    private val eventPipeline = MpvEventPipeline()
+    val events = eventPipeline.events
 
     // ---------- JNI Native Methods ----------
 
@@ -63,37 +63,37 @@ internal object GyroNative {
 
     @JvmStatic
     fun onEvent(eventId: Int) {
-        eventBus.publish(MpvEvent.Lifecycle(eventId))
+        eventPipeline.publish(MpvEvent.Lifecycle(eventId))
     }
 
     @JvmStatic
     fun onEndFile(reason: Int) {
-        eventBus.publish(MpvEvent.EndFile(reason))
+        eventPipeline.publish(MpvEvent.EndFile(reason))
     }
 
     @JvmStatic
     fun onPropertyNone(name: String) {
-        eventBus.publish(MpvEvent.PropertyChanged(name))
+        eventPipeline.publish(MpvEvent.PropertyChanged(name))
     }
 
     @JvmStatic
     fun onPropertyLong(name: String, value: Long) {
-        eventBus.publish(MpvEvent.LongProperty(name, value))
+        eventPipeline.publish(MpvEvent.LongProperty(name, value))
     }
 
     @JvmStatic
     fun onPropertyDouble(name: String, value: Double) {
-        eventBus.publish(MpvEvent.DoubleProperty(name, value))
+        eventPipeline.publish(MpvEvent.DoubleProperty(name, value))
     }
 
     @JvmStatic
     fun onPropertyFlag(name: String, value: Boolean) {
-        eventBus.publish(MpvEvent.FlagProperty(name, value))
+        eventPipeline.publish(MpvEvent.FlagProperty(name, value))
     }
 
     @JvmStatic
     fun onPropertyString(name: String, value: String) {
-        eventBus.publish(MpvEvent.StringProperty(name, value))
+        eventPipeline.publish(MpvEvent.StringProperty(name, value))
     }
 
     // ---------- Format & Event Constants ----------

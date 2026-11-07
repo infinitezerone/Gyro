@@ -27,4 +27,8 @@ class MpvEventPipeline(bufferCapacity: Int = 4096) {
     }
 }
 
+@Deprecated(
+    message = "Renamed to MpvEventPipeline to reflect buffered pipeline semantics",
+    replaceWith = ReplaceWith("MpvEventPipeline")
+)
 typealias MpvEventBus = MpvEventPipeline
