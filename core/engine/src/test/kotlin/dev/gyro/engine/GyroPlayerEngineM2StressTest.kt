@@ -50,7 +50,7 @@ class GyroPlayerEngineM2StressTest {
         val store = UserSettingsDataStoreFactory.createInMemory(settings, scope)
         val repo = DefaultSettingsRepository(store)
         // stateIn propagates asynchronously; block until the repository reports the seeded value,
-        // otherwise ensureInitialized() would read the initial defaults.
+        // otherwise warmUp() would read the initial defaults.
         runBlocking {
             repo.updateSettings { settings }
             repo.settings.first { it == settings }
@@ -222,7 +222,7 @@ class GyroPlayerEngineM2StressTest {
             executor.execute {
                 try {
                     startGate.await(5, TimeUnit.SECONDS)
-                    engine.ensureInitialized()
+                    engine.warmUp()
                 } catch (e: Throwable) {
                     errors.incrementAndGet()
                 } finally {
@@ -232,10 +232,10 @@ class GyroPlayerEngineM2StressTest {
         }
 
         startGate.countDown()
-        assertTrue("Timeout awaiting ensureInitialized", doneGate.await(10, TimeUnit.SECONDS))
+        assertTrue("Timeout awaiting warmUp", doneGate.await(10, TimeUnit.SECONDS))
         executor.shutdown()
 
-        assertEquals("Exceptions during concurrent ensureInitialized", 0, errors.get())
+        assertEquals("Exceptions during concurrent warmUp", 0, errors.get())
         // create and init must be executed exactly once despite 16 concurrent callers
         assertEquals("Bridge create must be called exactly once", 1, fakeBridge.createCount)
         assertEquals("Bridge init must be called exactly once", 1, fakeBridge.initCount)
@@ -244,7 +244,7 @@ class GyroPlayerEngineM2StressTest {
     @Test
     fun testConcurrency_gyroPlayerEngine_concurrentAudioFilterUpdates() {
         val engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         val threadCount = 12
         val iterationsPerThread = 50
@@ -316,7 +316,8 @@ class GyroPlayerEngineM2StressTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.warmUp()
 
         // 1. Invariant keys must remain locked to engine contracts
         assertEquals("vo must be libmpv", "libmpv", fakeBridge.options["vo"])
@@ -354,7 +355,8 @@ class GyroPlayerEngineM2StressTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.warmUp()
 
         assertEquals("libmpv", fakeBridge.options["vo"])
         assertEquals("yes", fakeBridge.options["idle"])
@@ -380,7 +382,8 @@ class GyroPlayerEngineM2StressTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
+        engine.warmUp()
 
         // GUI setting 'mediacodec-copy' must win over mpv.conf 'no'
         assertEquals("mediacodec-copy", fakeBridge.options["hwdec"])
@@ -398,7 +401,8 @@ class GyroPlayerEngineM2StressTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
+        engine.warmUp()
 
         // Hardware wins over mpv.conf, with the copy-back variant appended so a codec that refuses
         // the surface still decodes, and with mpv's own software fallback armed for decode errors.
@@ -419,7 +423,10 @@ class GyroPlayerEngineM2StressTest {
         GyroPlayerEngine(
             context = testContext,
             bridge = bridgeA,
-        ).ensureInitialized(userOptions = runBlocking { mpvRepoA.getParsedOptions() }, settings = settingsA)
+        ).apply {
+            configure(userOptions = runBlocking { mpvRepoA.getParsedOptions() }, settings = settingsA)
+            warmUp()
+        }
 
         assertEquals("no", bridgeA.options["sub-auto"])
 
@@ -434,7 +441,10 @@ class GyroPlayerEngineM2StressTest {
         GyroPlayerEngine(
             context = testContext,
             bridge = bridgeB,
-        ).ensureInitialized(userOptions = runBlocking { mpvRepoB.getParsedOptions() }, settings = settingsB)
+        ).apply {
+            configure(userOptions = runBlocking { mpvRepoB.getParsedOptions() }, settings = settingsB)
+            warmUp()
+        }
 
         assertEquals("all", bridgeB.options["sub-auto"])
     }
@@ -455,7 +465,8 @@ class GyroPlayerEngineM2StressTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.warmUp()
 
         // Engine requires 200.0 headroom for overdrive and audiotrack,opensles for Android
         assertEquals("200.0", fakeBridge.options["volume-max"])
@@ -481,7 +492,8 @@ class GyroPlayerEngineM2StressTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.warmUp()
 
         // Check pre-init options registered
         assertEquals("no", fakeBridge.options["deband"])
@@ -514,7 +526,7 @@ class GyroPlayerEngineM2StressTest {
         val engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
 
         // 1st cycle
-        engine.ensureInitialized()
+        engine.warmUp()
         assertEquals(1, fakeBridge.createCount)
         assertEquals(1, fakeBridge.initCount)
 
@@ -524,7 +536,7 @@ class GyroPlayerEngineM2StressTest {
         assertEquals(PlaybackState.IDLE, engine.playbackState.value)
 
         // 2nd cycle (re-initialization after release)
-        engine.ensureInitialized()
+        engine.warmUp()
         assertEquals(2, fakeBridge.createCount)
         assertEquals(2, fakeBridge.initCount)
         assertTrue(fakeBridge.eventSubscriberCount > 0)
@@ -538,7 +550,7 @@ class GyroPlayerEngineM2StressTest {
     @Test
     fun testLifecycle_multipleSurfaceAttachmentsAndDetachments() {
         val engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         // Rapid attach / detach sequence
         for (i in 1..20) {
@@ -576,7 +588,7 @@ class GyroPlayerEngineM2StressTest {
     @Test
     fun testLifecycle_softwareVolumeAutoResetOnTrackChangeAndEndFile() {
         val engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         // Set overdrive volume
         engine.audio.setSoftwareVolume(180.0)

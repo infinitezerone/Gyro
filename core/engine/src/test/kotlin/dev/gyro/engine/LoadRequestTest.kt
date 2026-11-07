@@ -44,7 +44,7 @@ class LoadRequestTest {
             bridge = fakeBridge,
             resolver = DefaultMediaResourceResolver(testContext)
         )
-        engine.ensureInitialized()
+        engine.warmUp()
     }
 
     private fun loadfileCommands(): List<List<String>> =
@@ -85,7 +85,7 @@ class LoadRequestTest {
 
     @Test(timeout = 10_000)
     fun unresolvableContentUriEndsInError() {
-        engine.loadUri(TestUri("content://media/external/video/1"))
+        engine.load(TestUri("content://media/external/video/1"))
 
         runBlocking {
             withTimeout(5_000) {

@@ -71,7 +71,7 @@ class PlaybackStoreTest {
     fun controllerWritesLandInTheEnginesOnlyState_pureEngineWithoutPlatformContext() {
         val bridge = FakeMpvNativeBridge()
         val engine = GyroPlayerEngine(bridge = bridge)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         engine.tuning.setSubtitleDelay(2.0)
         engine.video.setBrightness(40)
@@ -96,7 +96,7 @@ class PlaybackStoreTest {
             bridge = bridge,
             resolver = FakeMediaResourceResolver()
         )
-        engine.ensureInitialized()
+        engine.warmUp()
 
         engine.load("file:///tmp/movie.mp4")
         assertTrue(engine.state.value.session is SessionPhase.AwaitingSurface)

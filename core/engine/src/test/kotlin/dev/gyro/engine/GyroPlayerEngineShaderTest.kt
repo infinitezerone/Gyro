@@ -46,7 +46,7 @@ class GyroPlayerEngineShaderTest {
             bridge = fakeBridge,
             shaders = dev.gyro.engine.video.ShaderController(fakeBridge, shaderManager)
         )
-        engine.ensureInitialized()
+        engine.warmUp()
     }
 
     @Test

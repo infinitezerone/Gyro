@@ -29,7 +29,7 @@ import kotlin.random.Random
  * 1. Concurrency stress on [GyroPlayerEngine.updateAudioFilters].
  * 2. Strict filter ordering invariant: pan -> dynaudnorm -> alimiter.
  * 3. Limiter dynamics: injected when volume > 100.0, purged at <= 100.0.
- * 4. Safety auto-reset: resetSoftwareGain across loadUri, load, release, and END_FILE.
+ * 4. Safety auto-reset: resetSoftwareGain across load, release, and END_FILE.
  * 5. Chapter edge cases: negative duration/time, out of bounds seekToChapter, empty chapter list, unlabelled chapters.
  */
 class GyroPlayerEngineAdversarialStressTest {
@@ -134,7 +134,7 @@ class GyroPlayerEngineAdversarialStressTest {
         }
         threadSafeBridge = ThreadSafeSpyMpvBridge()
         engine = GyroPlayerEngine(context = testContext, bridge = threadSafeBridge)
-        engine.ensureInitialized()
+        engine.warmUp()
     }
 
     // =========================================================================
@@ -361,7 +361,7 @@ class GyroPlayerEngineAdversarialStressTest {
     }
 
     // =========================================================================
-    // 4. Safety Auto-Reset across loadUri, load, release, END_FILE, SHUTDOWN
+    // 4. Safety Auto-Reset across load, release, END_FILE, SHUTDOWN
     // =========================================================================
 
     @Test
@@ -387,14 +387,14 @@ class GyroPlayerEngineAdversarialStressTest {
         assertEquals(185.0, engine.audio.softwareVolume.value, 0.001)
         assertTrue(threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
 
-        // Trigger loadUri
+        // Trigger load
         val testUri = TestUri("content://media/external/video/media/42")
-        engine.loadUri(testUri)
+        engine.load(testUri)
 
         // Assert auto-reset
-        assertEquals("softwareVolume must reset to 100.0 on loadUri()", 100.0, engine.audio.softwareVolume.value, 0.001)
-        assertEquals("mpv volume must reset to 100.0 on loadUri()", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
-        assertFalse("alimiter must be purged on loadUri()", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
+        assertEquals("softwareVolume must reset to 100.0 on load()", 100.0, engine.audio.softwareVolume.value, 0.001)
+        assertEquals("mpv volume must reset to 100.0 on load()", 100.0, threadSafeBridge.getPropertyDouble("volume") ?: 0.0, 0.001)
+        assertFalse("alimiter must be purged on load()", threadSafeBridge.getPropertyString("af")?.contains("alimiter") == true)
     }
 
     @Test

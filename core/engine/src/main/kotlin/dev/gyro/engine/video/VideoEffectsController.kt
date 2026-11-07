@@ -104,6 +104,3 @@ class VideoEffectsController(
         }
     }
 }
-
-@Deprecated("Use VideoEffectsController directly", ReplaceWith("VideoEffectsController"))
-typealias RealVideoEffectsController = VideoEffectsController

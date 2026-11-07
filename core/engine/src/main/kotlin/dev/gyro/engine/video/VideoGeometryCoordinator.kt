@@ -304,6 +304,3 @@ class VideoGeometryCoordinator(
         }
     }
 }
-
-@Deprecated("Use VideoGeometryCoordinator directly", ReplaceWith("VideoGeometryCoordinator"))
-typealias RealVideoGeometryCoordinator = VideoGeometryCoordinator

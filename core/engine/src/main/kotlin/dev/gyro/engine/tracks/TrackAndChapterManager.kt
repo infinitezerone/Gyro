@@ -158,6 +158,3 @@ class TrackAndChapterManager(
         _currentChapter.value = -1
     }
 }
-
-@Deprecated("Use TrackAndChapterManager directly", ReplaceWith("TrackAndChapterManager"))
-typealias RealTrackAndChapterManager = TrackAndChapterManager

@@ -62,7 +62,8 @@ class GyroPlayerEngineMpvConfInjectionTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.warmUp()
 
         // Protected keys must remain invariant
         assertEquals("libmpv", fakeBridge.options["vo"])
@@ -100,7 +101,8 @@ class GyroPlayerEngineMpvConfInjectionTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() }, settings = settings)
+        engine.warmUp()
 
         // GUI explicit settings must overwrite user config values for conflicting keys. The chosen
         // hardware mode is expanded with the copy-back variant so an init failure is not fatal.
@@ -119,7 +121,8 @@ class GyroPlayerEngineMpvConfInjectionTest {
             context = testContext,
             bridge = fakeBridge
         )
-        engine.ensureInitialized(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.configure(userOptions = runBlocking { mpvRepo.getParsedOptions() })
+        engine.warmUp()
 
         assertEquals("1.5", fakeBridge.options["speed"])
 

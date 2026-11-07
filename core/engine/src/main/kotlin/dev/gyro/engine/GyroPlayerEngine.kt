@@ -118,30 +118,6 @@ class GyroPlayerEngine(
     val currentPlaylistIndex: StateFlow<Int> get() = playlist.currentIndex
     val currentMediaItem: dev.gyro.core.model.VideoMediaItem? get() = playlist.currentItem
 
-    fun setPlaylist(items: List<dev.gyro.core.model.VideoMediaItem>, startIndex: Int = 0) {
-        playlist.setPlaylist(items, startIndex)
-        val item = playlist.currentItem ?: return
-        load(item.uriString, displayTitle = item.displayName)
-    }
-
-    fun playNext(): Boolean {
-        val next = playlist.playNext() ?: return false
-        load(next.uriString, displayTitle = next.displayName)
-        return true
-    }
-
-    fun playPrevious(): Boolean {
-        val prev = playlist.playPrevious() ?: return false
-        load(prev.uriString, displayTitle = prev.displayName)
-        return true
-    }
-
-    fun playAtIndex(index: Int): Boolean {
-        val item = playlist.playAtIndex(index) ?: return false
-        load(item.uriString, displayTitle = item.displayName)
-        return true
-    }
-
     /**
      * Managed domain subsystems: observers, event dispatch, and state reset are orchestrated uniformly.
      */
@@ -227,18 +203,6 @@ class GyroPlayerEngine(
         }
     }
 
-    @Deprecated(
-        message = "Initialization is handled automatically by the engine. Use configure() to set options.",
-        replaceWith = ReplaceWith("configure(userOptions, settings)")
-    )
-    fun ensureInitialized(
-        userOptions: Map<String, String> = configurator.currentState.userOptions,
-        settings: UserSettings = configurator.currentState.settings,
-    ) {
-        configure(userOptions, settings)
-        ensureNativeInitialized()
-    }
-
     private fun observePlaybackEvents() = engineScope.launch(
         Dispatchers.Unconfined,
         start = CoroutineStart.UNDISPATCHED
@@ -298,17 +262,6 @@ class GyroPlayerEngine(
             initialDurationMs = initialDurationMs
         )
     )
-
-    @Deprecated(
-        message = "Use load(uri, ...) instead",
-        replaceWith = ReplaceWith("load(uri, startPositionMs, displayTitle, initialDurationMs)")
-    )
-    fun loadUri(
-        uri: Uri,
-        startPositionMs: Long = 0L,
-        displayTitle: String? = null,
-        initialDurationMs: Long = 0L
-    ) = load(uri, startPositionMs, displayTitle, initialDurationMs)
 
     fun attachSurface(surface: Surface) {
         ensureNativeInitialized()

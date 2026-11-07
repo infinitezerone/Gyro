@@ -245,6 +245,3 @@ class MediaLoadCoordinator(
         discardPending()
     }
 }
-
-@Deprecated("Use MediaLoadCoordinator directly", ReplaceWith("MediaLoadCoordinator"))
-typealias RealMediaLoadCoordinator = MediaLoadCoordinator

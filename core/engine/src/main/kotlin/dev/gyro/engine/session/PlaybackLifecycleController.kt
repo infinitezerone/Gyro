@@ -221,6 +221,3 @@ open class PlaybackLifecycleController(
         audioFocusManager.release()
     }
 }
-
-@Deprecated("Use PlaybackLifecycleController directly", ReplaceWith("PlaybackLifecycleController"))
-typealias RealPlaybackLifecycleController = PlaybackLifecycleController

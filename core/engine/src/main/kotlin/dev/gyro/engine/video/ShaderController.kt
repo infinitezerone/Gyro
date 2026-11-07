@@ -106,6 +106,3 @@ class ShaderController(
 
     fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
 }
-
-@Deprecated("Use ShaderController directly", ReplaceWith("ShaderController"))
-typealias RealShaderController = ShaderController

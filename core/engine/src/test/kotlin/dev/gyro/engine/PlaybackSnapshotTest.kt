@@ -37,7 +37,7 @@ class PlaybackSnapshotTest {
         testContext = context()
         fakeBridge = FakeMpvNativeBridge()
         engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
-        engine.ensureInitialized()
+        engine.warmUp()
     }
 
     @Test

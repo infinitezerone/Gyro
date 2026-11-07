@@ -86,7 +86,7 @@ class PlayerViewModelTest {
             bridge = fakeBridge,
             resolver = FakeMediaResourceResolver()
         )
-        engine.ensureInitialized()
+        engine.warmUp()
 
         testScope = CoroutineScope(SupervisorJob() + testDispatcher)
         val settingsFile = File(filesDir, "user_settings.json")
@@ -535,7 +535,7 @@ class PlayerViewModelTest {
         viewModel.openUri(uri)
         testScheduler.runCurrent()
 
-        // Should have called loadUri on engine and started loading
+        // Should have called load on engine and started loading
         assertEquals(uri.toString(), engine.currentUri.value?.toString())
     }
 

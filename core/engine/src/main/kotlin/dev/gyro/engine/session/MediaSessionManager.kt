@@ -211,6 +211,10 @@ class MediaSessionManager(
         engine.seekTo(positionMs)
     }
 
+    // The raw playlist fallback below only fires when the host has not wired onSkipToNext /
+    // onSkipToPrevious (e.g. headless tests). In production PlaybackService routes skips through
+    // PlaybackSessionOrchestrator, which adds auto-resume position and companion subtitles that
+    // this fallback deliberately does not replicate.
     fun skipToNext(): Boolean {
         val handled = onSkipToNext?.invoke()
         if (handled == true) return true

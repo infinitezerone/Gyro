@@ -100,7 +100,7 @@ class GyroNativeStressTest {
         assertNotNull("test.mkv must exist for test04", videoFile)
 
         val engine = GyroPlayerEngine(context)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         val imageReader = ImageReader.newInstance(1920, 1080, PixelFormat.RGBA_8888, 2)
         engine.attachSurface(imageReader.surface)
@@ -178,7 +178,7 @@ class GyroNativeStressTest {
         assertNotNull("test.mkv must exist for test05", videoFile)
 
         val engine = GyroPlayerEngine(context)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         val testResolutions = listOf(
             Pair(1920, 1080),
@@ -225,7 +225,7 @@ class GyroNativeStressTest {
         assertNotNull("test.mkv must exist for test06", videoFile)
 
         val engine = GyroPlayerEngine(context)
-        engine.ensureInitialized()
+        engine.warmUp()
 
         val reader = ImageReader.newInstance(1920, 1080, PixelFormat.RGBA_8888, 2)
         engine.attachSurface(reader.surface)

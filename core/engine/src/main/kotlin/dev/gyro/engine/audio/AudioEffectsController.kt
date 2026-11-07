@@ -117,6 +117,3 @@ class AudioEffectsController(
         bridge.setPropertyString("af", afChain)
     }
 }
-
-@Deprecated("Use AudioEffectsController directly", ReplaceWith("AudioEffectsController"))
-typealias RealAudioEffectsController = AudioEffectsController

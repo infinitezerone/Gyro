@@ -106,6 +106,3 @@ class SyncTuningController(
         bridge.setPropertyDouble("audio-delay", 0.0)
     }
 }
-
-@Deprecated("Use SyncTuningController directly", ReplaceWith("SyncTuningController"))
-typealias RealSyncTuningController = SyncTuningController

@@ -41,11 +41,11 @@ class GyroPlayerEngineTest {
         }
         fakeBridge = FakeMpvNativeBridge()
         engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
-        engine.ensureInitialized()
+        engine.warmUp()
     }
 
     @Test
-    fun testEnsureInitialized_callsCreateAndInit() {
+    fun testWarmUp_callsCreateAndInit() {
         assertEquals(1, fakeBridge.createCount)
         assertEquals(1, fakeBridge.initCount)
         assertEquals(1, fakeBridge.eventSubscriberCount)
@@ -326,7 +326,7 @@ class GyroPlayerEngineTest {
     @Test
     fun testRelease() {
         val uri = TestUri("content://media/external/video/media/99")
-        engine.loadUri(uri)
+        engine.load(uri)
         assertEquals(uri, engine.currentUri.value)
 
         engine.release()
@@ -345,7 +345,7 @@ class GyroPlayerEngineTest {
     fun testEventSubscriptions_areCancelledAndRecreatedOnce() {
         val subscribers = fakeBridge.eventSubscriberCount
         assertEquals(1, subscribers)
-        engine.ensureInitialized()
+        engine.warmUp()
         assertEquals(subscribers, fakeBridge.eventSubscriberCount)
         fakeBridge.emitPropertyDouble("speed", 1.5)
         assertEquals(1.5f, engine.speed.value, 0.001f)
@@ -355,7 +355,7 @@ class GyroPlayerEngineTest {
         fakeBridge.emitPropertyDouble("speed", 3.0)
         assertEquals(1.5f, engine.speed.value, 0.001f)
 
-        engine.ensureInitialized()
+        engine.warmUp()
         assertEquals(subscribers, fakeBridge.eventSubscriberCount)
         fakeBridge.emitPropertyDouble("speed", 2.0)
         assertEquals(2.0f, engine.speed.value, 0.001f)
@@ -375,10 +375,10 @@ class GyroPlayerEngineTest {
             }
         }
         val retryEngine = GyroPlayerEngine(testContext, bridge)
-        retryEngine.ensureInitialized()
+        retryEngine.warmUp()
         assertEquals(0, failingBridge.eventSubscriberCount)
 
-        retryEngine.ensureInitialized()
+        retryEngine.warmUp()
         assertEquals(fakeBridge.eventSubscriberCount, failingBridge.eventSubscriberCount)
         failingBridge.emitFileLoaded()
         assertEquals(PlaybackState.READY, retryEngine.playbackState.value)
@@ -388,7 +388,7 @@ class GyroPlayerEngineTest {
 
     @Test
     fun testLoadUri_usesCallerSuppliedDisplayTitle() {
-        engine.loadUri(TestUri("content://media/external/video/media/123"), displayTitle = "Named Movie.mkv")
+        engine.load(TestUri("content://media/external/video/media/123"), displayTitle = "Named Movie.mkv")
         assertEquals("Named Movie.mkv", engine.mediaTitle.value)
         engine.release()
     }
@@ -486,10 +486,10 @@ class GyroPlayerEngineTest {
         val uri1 = TestUri("content://media/external/video/media/101")
         val uri2 = TestUri("content://media/external/video/media/102")
 
-        engine.loadUri(uri1)
+        engine.load(uri1)
         assertEquals(uri1, engine.currentUri.value)
 
-        engine.loadUri(uri2)
+        engine.load(uri2)
         assertEquals(uri2, engine.currentUri.value)
     }
 
@@ -563,13 +563,14 @@ class GyroPlayerEngineTest {
         val pureBridge = FakeMpvNativeBridge()
         val pureEngine = GyroPlayerEngine(bridge = pureBridge)
 
-        // 1. If load() runs before explicit ensureInitialized(userOptions, settings),
-        // subsequent ensureInitialized(userOptions, settings) still applies options.
+        // 1. If load() runs before explicit configure(userOptions, settings) + warmUp(),
+        // subsequent configure(userOptions, settings) still applies options.
         pureEngine.load("file:///tmp/early.mp4")
-        pureEngine.ensureInitialized(
+        pureEngine.configure(
             userOptions = mapOf("demuxer-max-bytes" to "104857600"),
             settings = UserSettings(defaultHwdec = "mediacodec-copy", subAutoLoad = false)
         )
+        pureEngine.warmUp()
         assertEquals("104857600", pureBridge.options["demuxer-max-bytes"])
         assertEquals("mediacodec-copy", pureBridge.options["hwdec"])
         assertEquals("no", pureBridge.options["sub-auto"])
