@@ -147,20 +147,30 @@ fun PlayerScreen(
     val engineCurrentUri = snapshot.currentUri
     val activeUri = vmActiveUri ?: engineCurrentUri ?: currentUri
 
-    LaunchedEffect(currentUri) {
-        if (currentUri != null && viewModel.activeUri.value != currentUri) {
-            viewModel.openUri(currentUri)
-        }
-    }
-
     val playlistMgr = playlistManager ?: engine.playlist
     val playlist by playlistMgr.items.collectAsState()
     val currentPlaylistIndex by playlistMgr.currentIndex.collectAsState()
     val hasPrevious = playlistMgr.hasPrevious
     val hasNext = playlistMgr.hasNext
 
+    LaunchedEffect(currentUri) {
+        if (currentUri != null && viewModel.activeUri.value != currentUri) {
+            val item = playlist.firstOrNull { it.uriString == currentUri.toString() }
+            viewModel.openUri(
+                currentUri,
+                initialWidth = item?.width ?: 0,
+                initialHeight = item?.height ?: 0
+            )
+        }
+    }
+
     fun openUri(uri: Uri) {
-        viewModel.openUri(uri)
+        val item = playlist.firstOrNull { it.uriString == uri.toString() }
+        viewModel.openUri(
+            uri,
+            initialWidth = item?.width ?: 0,
+            initialHeight = item?.height ?: 0
+        )
     }
 
     fun playMediaItem(item: VideoMediaItem) {
@@ -525,7 +535,8 @@ fun PlayerScreen(
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
     LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
         SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect")
-        if (firstFrameRendered && geometryReady && videoAspect > 0f) {
+        val isAudioOnly = videoDimensions.width == 0 && videoDimensions.height == 0
+        if (firstFrameRendered && geometryReady && (isAudioOnly || videoAspect > 0f)) {
             val targetAspect = when (resizeMode) {
                 ResizeMode.FIT -> videoAspect
                 ResizeMode.ASPECT_16_9 -> 16f / 9f
@@ -535,8 +546,8 @@ fun PlayerScreen(
             val containerAspect = if (videoContainerSize.height > 0) {
                 videoContainerSize.width.toFloat() / videoContainerSize.height
             } else 0f
-            val isLayoutSettled = videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
-                kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f
+            val isLayoutSettled = isAudioOnly || (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
+                kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f)
 
             if (isLayoutSettled) {
                 // Wait 2 VSYNC frames so Compose layout and SurfaceFlinger have committed the new bounds

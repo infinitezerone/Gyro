@@ -240,13 +240,17 @@ class GyroPlayerEngine(
         target: String,
         startPositionMs: Long = 0L,
         displayTitle: String? = null,
-        initialDurationMs: Long = 0L
+        initialDurationMs: Long = 0L,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
     ) = load(
         MediaItem(
             target = target,
             title = displayTitle,
             startPositionMs = startPositionMs,
-            initialDurationMs = initialDurationMs
+            initialDurationMs = initialDurationMs,
+            initialWidth = initialWidth,
+            initialHeight = initialHeight
         )
     )
 
@@ -254,13 +258,17 @@ class GyroPlayerEngine(
         uri: Uri,
         startPositionMs: Long = 0L,
         displayTitle: String? = null,
-        initialDurationMs: Long = 0L
+        initialDurationMs: Long = 0L,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
     ) = load(
         MediaItem(
             uri = uri,
             title = displayTitle,
             startPositionMs = startPositionMs,
-            initialDurationMs = initialDurationMs
+            initialDurationMs = initialDurationMs,
+            initialWidth = initialWidth,
+            initialHeight = initialHeight
         )
     )
 

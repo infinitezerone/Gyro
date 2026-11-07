@@ -78,7 +78,9 @@ class MediaLoadCoordinator(
             title = item.title,
             startPositionMs = item.startPositionMs,
             uri = item.uri,
-            initialDurationMs = item.initialDurationMs
+            initialDurationMs = item.initialDurationMs,
+            initialWidth = item.initialWidth,
+            initialHeight = item.initialHeight
         )
 
         currentLoadJob?.cancel()
@@ -120,7 +122,9 @@ class MediaLoadCoordinator(
         title: String?,
         startPositionMs: Long,
         uri: Uri?,
-        initialDurationMs: Long = 0L
+        initialDurationMs: Long = 0L,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
     ) {
         SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs")
         ensureInitialized()
@@ -133,7 +137,7 @@ class MediaLoadCoordinator(
                     currentUri = uri ?: it.currentUri
                 )
             }
-            geometry.onSwitchStarted(target, startPositionMs)
+            geometry.onSwitchStarted(target, startPositionMs, initialWidth, initialHeight)
             audio.reset()
             tuning.reset()
             store.update { it.copy(playbackState = PlaybackState.BUFFERING) }

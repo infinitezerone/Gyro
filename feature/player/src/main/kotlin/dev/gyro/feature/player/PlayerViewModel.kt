@@ -87,8 +87,14 @@ class PlayerViewModel @Inject constructor(
         _screenEntryEpoch.value += 1
     }
 
-    fun openUri(uri: Uri, forceReload: Boolean = false, displayTitle: String? = null) {
-        orchestrator.openUri(uri, forceReload, displayTitle)
+    fun openUri(
+        uri: Uri,
+        forceReload: Boolean = false,
+        displayTitle: String? = null,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
+    ) {
+        orchestrator.openUri(uri, forceReload, displayTitle, initialWidth, initialHeight)
     }
 
     fun playMediaItem(item: VideoMediaItem) {

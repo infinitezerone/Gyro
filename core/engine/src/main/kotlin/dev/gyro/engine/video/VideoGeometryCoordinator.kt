@@ -96,20 +96,29 @@ class VideoGeometryCoordinator(
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
             bridge.events.collect(::onEvent)
         }
-    fun onSwitchStarted(url: String, startPositionMs: Long = 0L) {
+    fun onSwitchStarted(
+        url: String,
+        startPositionMs: Long = 0L,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
+    ) {
         currentUrl = url
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false
-        _geometryReady.value = false
         _videoFrameRate.value = 0f
-        // Dimensions from the previous file must go too: until the new file's params arrive,
-        // a stale aspect here sizes the Compose container and locks the surface buffer to the
-        // wrong shape, so the video can appear at the previous file's size and position before
-        // jumping to the correct one. Zero dims make the UI fall back to fillMaxSize behind
-        // the shutter until DIMS_PUBLISHED.
-        _videoDimensions.value = VideoDimensions(0, 0)
-        _videoAspect.value = 0f
-        SwitchTrace.log("SWITCH_SESSION_START", "url=$url, startPos=${startPositionMs}ms")
+        if (initialWidth > 0 && initialHeight > 0) {
+            val aspect = initialWidth.toFloat() / initialHeight
+            val dims = VideoDimensions(initialWidth, initialHeight)
+            _videoDimensions.value = dims
+            _videoAspect.value = aspect
+            _geometryReady.value = true
+            SwitchTrace.log("SWITCH_SESSION_START_PREWARMED", "url=$url, ${initialWidth}x${initialHeight}, aspect=$aspect")
+        } else {
+            _geometryReady.value = false
+            _videoDimensions.value = VideoDimensions(0, 0)
+            _videoAspect.value = 0f
+            SwitchTrace.log("SWITCH_SESSION_START", "url=$url, startPos=${startPositionMs}ms")
+        }
     }
     fun onFileLoaded(url: String, hasVideo: Boolean) {
         if (!hasVideo) {

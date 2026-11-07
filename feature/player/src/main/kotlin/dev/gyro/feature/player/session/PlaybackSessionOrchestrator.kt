@@ -138,16 +138,24 @@ class PlaybackSessionOrchestrator(
         }
     }
 
-    fun openUri(uri: Uri, forceReload: Boolean = false, displayTitle: String? = null): Job {
+    fun openUri(
+        uri: Uri,
+        forceReload: Boolean = false,
+        displayTitle: String? = null,
+        initialWidth: Int = 0,
+        initialHeight: Int = 0
+    ): Job {
         loadJob?.cancel()
         val oldUri = engine.currentUri.value
         if (oldUri != null && oldUri != uri) {
             saveCurrentProgress(oldUri)
         }
 
+        val playlistItem = playlist.items.value.firstOrNull { it.uriString == uri.toString() }
         val knownTitle = displayTitle?.takeIf { it.isNotBlank() }
-            ?: playlist.items.value.firstOrNull { it.uriString == uri.toString() }
-                ?.displayName?.takeIf { it.isNotBlank() }
+            ?: playlistItem?.displayName?.takeIf { it.isNotBlank() }
+        val resolvedWidth = if (initialWidth > 0) initialWidth else playlistItem?.width ?: 0
+        val resolvedHeight = if (initialHeight > 0) initialHeight else playlistItem?.height ?: 0
 
         val job = orchestratorScope.launch {
             val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(uri)
@@ -160,14 +168,26 @@ class PlaybackSessionOrchestrator(
             val startPos = if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) progress.positionMs else 0L
             val initialDuration = progress?.durationMs ?: 0L
             currentCoroutineContext().ensureActive()
-            engine.load(uri, startPos, resolvedTitle, initialDurationMs = initialDuration)
+            engine.load(
+                uri = uri,
+                startPositionMs = startPos,
+                displayTitle = resolvedTitle,
+                initialDurationMs = initialDuration,
+                initialWidth = resolvedWidth,
+                initialHeight = resolvedHeight
+            )
         }
         loadJob = job
         return job
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        openUri(uriParser.parse(item.uriString), displayTitle = item.displayName)
+        openUri(
+            uriParser.parse(item.uriString),
+            displayTitle = item.displayName,
+            initialWidth = item.width,
+            initialHeight = item.height
+        )
     }
 
     fun playNext(): Boolean {
