@@ -204,6 +204,10 @@ class GyroPlayerEngine(
                 engineScope = CoroutineScope(engineJob + Dispatchers.Default)
             }
             try {
+                // A prior release() sticks requestPlay() off until the audio focus manager is
+                // reset - its contract says re-initialization clears it. Dropping this call made
+                // every post-release load open paused with playback permanently suppressed.
+                playback.resetAudioFocus()
                 // The real bridge requires the application context; only fakes accept null.
                 bridge.create(context)
                 configurator.applyInitial(bridge, configurator.currentState.userOptions, configurator.currentState.settings)

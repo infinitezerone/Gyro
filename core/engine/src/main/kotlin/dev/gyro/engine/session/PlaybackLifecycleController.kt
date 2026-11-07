@@ -212,6 +212,11 @@ open class PlaybackLifecycleController(
         audioFocusManager.abandon()
     }
 
+    /** Clears a sticky released state so a re-initialized engine can request focus again. */
+    fun resetAudioFocus() {
+        audioFocusManager.reset()
+    }
+
     fun release() {
         audioFocusManager.release()
     }

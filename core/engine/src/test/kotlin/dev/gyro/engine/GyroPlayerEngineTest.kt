@@ -6,6 +6,7 @@ import android.net.TestUri
 import android.view.Surface
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import dev.gyro.engine.audio.AudioFocusController
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.SessionPhase
@@ -48,6 +49,44 @@ class GyroPlayerEngineTest {
         assertEquals(1, fakeBridge.createCount)
         assertEquals(1, fakeBridge.initCount)
         assertEquals(1, fakeBridge.eventSubscriberCount)
+    }
+
+    /** Audio focus whose released state sticks exactly like [dev.gyro.engine.audio.GyroAudioFocusManager]. */
+    private class StickyReleaseAudioFocus : AudioFocusController {
+        var released = false
+        override fun requestPlay(): Boolean = !released
+        override fun notifyUserPaused() {}
+        override fun abandon() {}
+        override fun release() {
+            released = true
+        }
+        override fun reset() {
+            released = false
+        }
+    }
+
+    @Test
+    fun testReinitialization_clearsStickyAudioFocusRelease() {
+        val focus = StickyReleaseAudioFocus()
+        val stickyBridge = FakeMpvNativeBridge()
+        val stickyEngine = GyroPlayerEngine(context = testContext, bridge = stickyBridge, audioFocus = focus)
+
+        stickyEngine.attachSurface(Any())
+        stickyEngine.load("file:///tmp/one.mp4")
+        assertEquals(false, stickyBridge.properties["pause"])
+
+        // Activity destroyed while the process (and the singleton engine) survives:
+        // release() sticks the audio focus manager shut.
+        stickyEngine.release()
+        assertTrue(focus.released)
+        // mpv is still paused from the previous session.
+        stickyBridge.properties["pause"] = true
+
+        stickyEngine.load("file:///tmp/two.mp4")
+        // Re-initialization must reset the audio focus manager, so play() unpauses mpv
+        // instead of being suppressed forever.
+        assertEquals(false, stickyBridge.properties["pause"])
+        assertFalse(focus.released)
     }
 
     @Test
@@ -398,7 +437,7 @@ class GyroPlayerEngineTest {
     }
 
     @Test
-    fun testLoad_keepsPreviousDimensionsBehindShutterUntilNewGeometryArrives() {
+    fun testLoad_resetsPreviousDimensionsBehindShutterUntilNewGeometryArrives() {
         fakeBridge.properties["video-out-params/dw"] = 1920L
         fakeBridge.properties["video-out-params/dh"] = 1080L
         fakeBridge.emitProperty("video-out-params")
