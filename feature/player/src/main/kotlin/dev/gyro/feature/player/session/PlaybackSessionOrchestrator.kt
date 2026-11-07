@@ -100,7 +100,16 @@ class PlaybackSessionOrchestrator(
         orchestratorScope.launch {
             engine.playbackState.collect { state ->
                 if (state == PlaybackState.ENDED && playlist.hasNext) {
+                    val endedUri = _activeUri.value
                     delay(500L)
+                    // The grace delay is not a free pass: the user may have replayed or picked
+                    // another video during it. Re-check unambiguous intent signals - resumed
+                    // playback, or a different active uri - and skip the advance if either is
+                    // true. Reading the global playback state alone is racy here: residual
+                    // events from the finishing load can still land inside the window.
+                    if (engine.isPlaying.value || _activeUri.value != endedUri || !playlist.hasNext) {
+                        return@collect
+                    }
                     val next = playlist.playNext()
                     if (next != null) {
                         playMediaItem(next)

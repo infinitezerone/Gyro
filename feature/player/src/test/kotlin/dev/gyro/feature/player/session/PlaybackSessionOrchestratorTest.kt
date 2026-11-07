@@ -173,6 +173,28 @@ class PlaybackSessionOrchestratorTest {
     }
 
     @Test
+    fun testAutoAdvance_skippedWhenUserInterruptsDuringGraceDelay() = runOrchestratorTest {
+        val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
+        orchestrator.setPlaylistAndPlay(listOf(item1, item2), item1)
+        runCurrent()
+
+        fakeBridge.emitEndFile()
+        runCurrent()
+        assertEquals(dev.gyro.engine.model.PlaybackState.ENDED, engine.playbackState.value)
+
+        // The user replays (pause=false flips the lifecycle state back to READY) inside the
+        // 500ms grace delay - the queued auto-advance must not clobber that choice.
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+        advanceTimeBy(600L)
+        runCurrent()
+
+        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals("file:///tmp/a.mp4", orchestrator.activeUri.value?.toString())
+    }
+
+    @Test
     fun testProgressPersistence_onPause() = runOrchestratorTest {
         val uri = TestUri("file:///tmp/progress.mp4")
         orchestrator.openUri(uri)
