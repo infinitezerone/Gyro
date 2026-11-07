@@ -1115,7 +1115,7 @@ unsafe fn draw_frame_native(
         // Read geometry from lock-free atomics populated on `gyro-event`; only fall back to
         // synchronous `mpv_get_property` once if the render thread beats the event pump on the
         // very first frame.
-        let (final_w, final_h) = if awaiting_first_frame {
+        let (final_w, final_h, aspect_mismatch) = if awaiting_first_frame {
             let mut dwidth = G_CACHED_DWIDTH.load(Ordering::Acquire);
             let mut dheight = G_CACHED_DHEIGHT.load(Ordering::Acquire);
             let mut rotate = G_CACHED_ROTATE.load(Ordering::Acquire);
@@ -1165,9 +1165,16 @@ unsafe fn draw_frame_native(
             } else {
                 (dwidth, dheight)
             };
-            (fw, fh)
+            let mismatch = if fw > 0 && fh > 0 && w > 0 && h > 0 {
+                let vid_aspect = fw as f64 / fh as f64;
+                let buf_aspect = w as f64 / h as f64;
+                (buf_aspect / vid_aspect - 1.0).abs() > 0.08
+            } else {
+                false
+            };
+            (fw, fh, mismatch)
         } else {
-            (0, 0)
+            (0, 0, false)
         };
 
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
@@ -1177,19 +1184,23 @@ unsafe fn draw_frame_native(
                 crate::tracelog(
                     "NATIVE_SWAP_WHILE_AWAITING",
                     &format!(
-                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}"
+                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}, mismatch={aspect_mismatch}"
                     ),
                 );
+                let load_start = G_LOAD_STARTED_MS.load(Ordering::Relaxed);
+                let now_ms = monotonic_ms() as u64;
+                let waited_ms = now_ms.saturating_sub(load_start);
                 // Pipeline separation:
                 // 1. Redraws (force=true) and mpv internal repaints (is_redraw=true) are NEVER first frames.
                 // 2. Demuxer must have loaded the file (file_loaded=true).
-                if file_loaded && !force && !is_redraw {
+                // 3. Buffer geometry must match video aspect, unless waited over 600ms (fallback).
+                if file_loaded && !force && !is_redraw && (!aspect_mismatch || waited_ms > 600) {
                     crate::events::signal_first_frame();
                 } else {
                     crate::tracelog(
                         "NATIVE_SUPPRESS_FIRST_FRAME",
                         &format!(
-                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}"
+                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}, mismatch={aspect_mismatch}, waited={waited_ms}ms"
                         ),
                     );
                 }

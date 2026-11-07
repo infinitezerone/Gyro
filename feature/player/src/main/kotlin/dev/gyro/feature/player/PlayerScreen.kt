@@ -523,17 +523,34 @@ fun PlayerScreen(
     val geometryReady = snapshot.geometryReady
     var isShutterReady by remember(activeUri) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, playbackState) {
-        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, state=$playbackState")
-        if ((firstFrameRendered && geometryReady) || (firstFrameRendered && videoDimensions.width > 0)) {
-            withFrameNanos { }
-            SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
-            isShutterReady = true
-            shutterTimedOut = false
-            return@LaunchedEffect
+    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
+        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect")
+        if (firstFrameRendered && geometryReady) {
+            val targetAspect = when (resizeMode) {
+                ResizeMode.FIT -> videoAspect
+                ResizeMode.ASPECT_16_9 -> 16f / 9f
+                ResizeMode.ASPECT_21_9 -> 21f / 9f
+                else -> 0f
+            }
+            val containerAspect = if (videoContainerSize.height > 0) {
+                videoContainerSize.width.toFloat() / videoContainerSize.height
+            } else 0f
+            val isLayoutSettled = targetAspect <= 0f ||
+                (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
+                    kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f)
+
+            if (isLayoutSettled) {
+                // Wait 2 VSYNC frames so Compose layout and SurfaceFlinger have committed the new bounds
+                withFrameNanos { }
+                withFrameNanos { }
+                SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
+                isShutterReady = true
+                shutterTimedOut = false
+                return@LaunchedEffect
+            }
         }
         isShutterReady = false
-        delay(1_000L)
+        delay(1_500L)
         if (!engine.state.value.firstFrameRendered || !engine.state.value.geometryReady) {
             SwitchTrace.log("SHUTTER_TIMEOUT_EXPIRED", "firstFrame=${engine.state.value.firstFrameRendered}, geometry=${engine.state.value.geometryReady}")
             shutterTimedOut = true
