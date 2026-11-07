@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Gyro Project - Pre-Commit Encoding Guard
+#
+# Invalid UTF-8 bytes make grep treat a source file as binary, so whole files
+# silently drop out of code searches and mechanical sweeps (this actually
+# happened: two test files carried corrupted CJK bytes and every grep-based
+# audit missed them). Reject such files before they enter history.
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+PYTHON_BIN=""
+for candidate in python python3 py; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_BIN" ] || [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/scripts/check_encoding.py" ] || ! command -v xargs >/dev/null 2>&1; then
+    # No Python / no xargs / script missing: skip rather than block. The
+    # commit-msg hook still enforces message rules; periodic full scans
+    # (git ls-files | ... | check_encoding.py) cover the rest.
+    exit 0
+fi
+
+# Staged text sources only; deletions and unchanged files never reach the
+# checker. The pipeline is wired directly (no command substitution): -z keeps
+# NUL separators intact, xargs -0 keeps spaces in paths intact, and -r skips
+# the run entirely when nothing staged matches.
+git diff --cached --name-only --diff-filter=ACM -z \
+    | grep -zE '\.(kt|kts|rs|java|xml|md|py|toml|pro|json|gradle|properties|yml|yaml|csv|html|css|js|sh|c|h|cpp)$' \
+    | xargs -0 -r "$PYTHON_BIN" "$REPO_ROOT/scripts/check_encoding.py"
+exit $?
