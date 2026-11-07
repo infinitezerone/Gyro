@@ -310,7 +310,8 @@ class GyroPlayerEngineTest {
     @Test
     fun testRedraw_onlyDispatchesWhenSurfaceAttached() {
         assertEquals(0, fakeBridge.redrawCount)
-        // æœ?attach surface æ—¶è°ƒç”?redraw ä¸è§¦å?        engine.redraw()
+        // redraw() is a no-op before a surface is attached
+        engine.redraw()
         assertEquals(0, fakeBridge.redrawCount)
 
         val surface = Surface(android.graphics.SurfaceTexture(0))

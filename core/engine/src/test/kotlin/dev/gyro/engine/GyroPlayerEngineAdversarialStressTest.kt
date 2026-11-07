@@ -567,7 +567,7 @@ class GyroPlayerEngineAdversarialStressTest {
         threadSafeBridge.setPropertyString("chapter-list/3/title", "  Trimmed Intro  ")
         threadSafeBridge.setPropertyDouble("chapter-list/3/time", 30.0)
 
-        threadSafeBridge.setPropertyString("chapter-list/4/title", "�?�? 終幕 🌸 (Final)")
+        threadSafeBridge.setPropertyString("chapter-list/4/title", "第五章 終幕 🌸 (Final)")
         threadSafeBridge.setPropertyDouble("chapter-list/4/time", 40.0)
 
         threadSafeBridge.getDelegateBridge().emitProperty("chapter-list")
@@ -578,7 +578,7 @@ class GyroPlayerEngineAdversarialStressTest {
         assertEquals("Chapter 2", chapters[1].title)
         assertEquals("Chapter 3", chapters[2].title)
         assertEquals("Trimmed Intro", chapters[3].title)
-        assertEquals("�?�? 終幕 🌸 (Final)", chapters[4].title)
+        assertEquals("第五章 終幕 🌸 (Final)", chapters[4].title)
     }
 
     @Test
