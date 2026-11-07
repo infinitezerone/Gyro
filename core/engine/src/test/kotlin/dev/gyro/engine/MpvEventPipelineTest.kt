@@ -8,189 +8,221 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+/**
+ * Contracts of the split event pipeline, verified in real time: the pump's channel wake-ups
+ * resume outside a virtual scheduler's clock, so virtual-time runTest would hang (see the
+ * note on [MpvEventPipeline]). Every wait below is bounded.
+ */
 class MpvEventPipelineTest {
 
-    private lateinit var pipeline: MpvEventPipeline
-    private lateinit var eventScope: CoroutineScope
-
-    @Before
-    fun setUp() {
-        pipeline = MpvEventPipeline()
-        eventScope = CoroutineScope(Job() + Dispatchers.Unconfined)
-    }
+    private val scopes = mutableListOf<CoroutineScope>()
+    private val pipelines = mutableListOf<MpvEventPipeline>()
 
     @After
     fun tearDown() {
-        eventScope.cancel()
-        assertEquals(0, pipeline.subscriptionCount.value)
+        scopes.forEach { it.cancel() }
+        scopes.clear()
+        pipelines.forEach { it.close() }
+        pipelines.clear()
     }
 
-    private fun subscribe(events: MutableList<MpvEvent>): Job =
-        eventScope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-            pipeline.events.collect { events.add(it) }
+    private fun newPipeline(lifecycleCapacity: Int = 64): MpvEventPipeline =
+        MpvEventPipeline(lifecycleCapacity = lifecycleCapacity).also { pipelines.add(it) }
+
+    private fun newScope(): CoroutineScope =
+        CoroutineScope(Job() + Dispatchers.Unconfined).also { scopes.add(it) }
+
+    /** Bounded busy-wait for a predicate; the pump runs on real dispatchers. */
+    private fun awaitTrue(timeoutMs: Long = 2_000, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (!condition()) {
+            assertTrue("condition not met within ${timeoutMs}ms", System.nanoTime() < deadline)
+            Thread.sleep(2)
         }
+    }
 
-    private fun allEventTypes(): List<MpvEvent> = listOf(
-        MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED),
-        MpvEvent.PropertyChanged("track-list"),
-        MpvEvent.LongProperty("time-pos", 42L),
-        MpvEvent.DoubleProperty("speed", 1.25),
-        MpvEvent.FlagProperty("pause", true),
-        MpvEvent.StringProperty("media-title", "Test Video")
-    )
-
-    @Test(timeout = 5_000)
-    fun publish_deliversAllSixEventTypesToEverySubscriberInOrder() {
+    @Test(timeout = 10_000)
+    fun lifecycleEvents_reachEverySubscriberInOrder() {
+        val pipeline = newPipeline()
+        val scope = newScope()
         val first = CopyOnWriteArrayList<MpvEvent>()
         val second = CopyOnWriteArrayList<MpvEvent>()
-        subscribe(first)
-        subscribe(second)
-        assertEquals(2, pipeline.subscriptionCount.value)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { first.add(it) }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { second.add(it) }
+        }
+        awaitTrue { pipeline.subscriptionCount.value == 2 }
 
-        val expected = allEventTypes() + allEventTypes().reversed()
+        val expected = listOf(
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED),
+            MpvEvent.EndFile(MpvNativeBridge.EndReason.EOF),
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.PLAYBACK_RESTART),
+            MpvEvent.Lifecycle(MpvNativeBridge.Event.SHUTDOWN),
+        )
         expected.forEach(pipeline::publish)
 
+        awaitTrue { first.size == expected.size && second.size == expected.size }
         assertEquals(expected, first)
         assertEquals(expected, second)
     }
 
-    @Test(timeout = 5_000)
-    fun publish_withoutSubscribersReturnsWithoutBlocking() {
-        assertEquals(0, pipeline.subscriptionCount.value)
+    @Test(timeout = 10_000)
+    fun propertyEvents_coalesceToLatestPerKey() {
+        val pipeline = newPipeline()
+        val scope = newScope()
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { received.add(it) }
+        }
+        awaitTrue { pipeline.subscriptionCount.value == 1 }
 
-        repeat(10) { allEventTypes().forEach(pipeline::publish) }
+        // Single-threaded: the final drain must carry the last snapshot of each key.
+        repeat(100) { pipeline.publish(MpvEvent.LongProperty("time-pos", it.toLong())) }
+        pipeline.publish(MpvEvent.DoubleProperty("speed", 1.25))
+        pipeline.publish(MpvEvent.LongProperty("time-pos", 100L))
 
-        assertEquals(0, pipeline.subscriptionCount.value)
-        assertTrue(pipeline.events.replayCache.isEmpty())
-    }
-
-    @Test(timeout = 5_000)
-    fun subscribe_doesNotReplayEventsPublishedBeforeSubscription() {
-        allEventTypes().forEach(pipeline::publish)
-
-        val first = CopyOnWriteArrayList<MpvEvent>()
-        subscribe(first)
-        assertTrue(first.isEmpty())
-
-        val current = MpvEvent.Lifecycle(MpvNativeBridge.Event.PLAYBACK_RESTART)
-        pipeline.publish(current)
-        assertEquals(listOf(current), first)
-
-        // Also exclude events published while another collector was active.
-        val late = CopyOnWriteArrayList<MpvEvent>()
-        subscribe(late)
-        assertEquals(2, pipeline.subscriptionCount.value)
-        assertTrue(late.isEmpty())
-        assertTrue(pipeline.events.replayCache.isEmpty())
-
-        val next = MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE)
-        pipeline.publish(next)
-        assertEquals(listOf(current, next), first)
-        assertEquals(listOf(next), late)
-    }
-
-    @Test(timeout = 5_000)
-    fun cancel_removesOnlyThatSubscriberAndStopsItsNextEvent() {
-        val cancelledEvents = CopyOnWriteArrayList<MpvEvent>()
-        val activeEvents = CopyOnWriteArrayList<MpvEvent>()
-        val cancelled = subscribe(cancelledEvents)
-        val active = subscribe(activeEvents)
-        assertEquals(2, pipeline.subscriptionCount.value)
-
-        val first = MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED)
-        pipeline.publish(first)
-        cancelled.cancel()
-        assertTrue(cancelled.isCompleted)
-        assertEquals(1, pipeline.subscriptionCount.value)
-
-        val next = MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE)
-        pipeline.publish(next)
-        assertEquals(listOf(first), cancelledEvents)
-        assertEquals(listOf(first, next), activeEvents)
-
-        active.cancel()
-        assertEquals(0, pipeline.subscriptionCount.value)
-        pipeline.publish(MpvEvent.Lifecycle(MpvNativeBridge.Event.SHUTDOWN))
-        assertEquals(listOf(first), cancelledEvents)
-        assertEquals(listOf(first, next), activeEvents)
+        // Drain order across different keys is arbitrary (concurrent map): set semantics.
+        awaitTrue(timeoutMs = 5_000) {
+            received.contains(MpvEvent.LongProperty("time-pos", 100L)) &&
+                received.contains(MpvEvent.DoubleProperty("speed", 1.25))
+        }
     }
 
     @Test(timeout = 15_000)
-    fun publish_isNonBlockingAndBuffersEventsForConsumer() {
-        val lifecycleIds = listOf(
-            MpvNativeBridge.Event.FILE_LOADED,
-            MpvNativeBridge.Event.TRACKS_CHANGED,
-            MpvNativeBridge.Event.END_FILE,
-            MpvNativeBridge.Event.SHUTDOWN
-        )
-        val expected = List(32) { MpvEvent.Lifecycle(lifecycleIds[it % lifecycleIds.size]) }
-        val fastEvents = CopyOnWriteArrayList<MpvEvent>()
-        val slowEvents = CopyOnWriteArrayList<MpvEvent>()
-        val received = List(expected.size) { CountDownLatch(1) }
-        val allowNext = List(expected.size) { CompletableDeferred<Unit>() }
-        subscribe(fastEvents)
-        val slowCollector = eventScope.launch(
-            Dispatchers.Unconfined,
-            start = CoroutineStart.UNDISPATCHED
-        ) {
-            pipeline.events.collect { event ->
-                val index = slowEvents.size
-                slowEvents.add(event)
-                received[index].countDown()
-                withTimeout(5_000) { allowNext[index].await() }
-            }
+    fun propertyFlood_publishNeverFailsAndLatestSnapshotSurvives() {
+        val pipeline = newPipeline()
+        val scope = newScope()
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { received.add(it) }
         }
-        assertEquals(2, pipeline.subscriptionCount.value)
+        awaitTrue { pipeline.subscriptionCount.value == 1 }
 
-        val executor = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "mpv-event-pipeline-publisher").apply { isDaemon = true }
+        val threads = 8
+        val perThread = 1_000
+        val published = CountDownLatch(threads)
+        val executor = Executors.newFixedThreadPool(threads) { r ->
+            Thread(r, "pipeline-flood-publisher").apply { isDaemon = true }
         }
-        val secondPublishFinished = CountDownLatch(1)
-        val allPublished = CountDownLatch(1)
-        val publisher = executor.submit {
-            expected.forEachIndexed { index, event ->
-                pipeline.publish(event)
-                if (index == 1) secondPublishFinished.countDown()
-            }
-            allPublished.countDown()
-        }
-
         try {
-            assertTrue(
-                "Publish must be non-blocking and advance immediately",
-                secondPublishFinished.await(500, TimeUnit.MILLISECONDS)
-            )
-            assertTrue(
-                "All events should publish rapidly without waiting for consumer",
-                allPublished.await(1, TimeUnit.SECONDS)
-            )
-
-            expected.indices.forEach { index ->
-                assertTrue("Missing lifecycle event $index", received[index].await(5, TimeUnit.SECONDS))
-                assertEquals(expected[index], slowEvents[index])
-                allowNext[index].complete(Unit)
+            for (t in 0 until threads) {
+                executor.execute {
+                    repeat(perThread) { i ->
+                        pipeline.publish(MpvEvent.LongProperty("time-pos", i.toLong()))
+                    }
+                    published.countDown()
+                }
             }
-            publisher.get(5, TimeUnit.SECONDS)
-
-            assertEquals(expected, slowEvents)
-            assertEquals(expected, fastEvents)
+            assertTrue(
+                "Publishing ${threads * perThread} events must not block or fail",
+                published.await(10, TimeUnit.SECONDS),
+            )
+            // Some snapshot for the key must eventually be delivered; every delivered value
+            // must be a value some thread published. No count assertion: drains coalesce.
+            awaitTrue(timeoutMs = 5_000) { received.isNotEmpty() }
+            received.filterIsInstance<MpvEvent.LongProperty>().forEach {
+                assertTrue(it.value in 0 until perThread.toLong())
+            }
         } finally {
-            slowCollector.cancel()
-            publisher.cancel(true)
             executor.shutdownNow()
-            assertTrue("Publisher thread did not stop", executor.awaitTermination(5, TimeUnit.SECONDS))
         }
+    }
+
+    @Test(timeout = 10_000)
+    fun lifecycleIngest_overflowsLoudlyInsteadOfBufferingUnboundedly() {
+        val pipeline = newPipeline(lifecycleCapacity = 2)
+        val scope = newScope()
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        val gate = CompletableDeferred<Unit>()
+        val collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect {
+                received.add(it)
+                gate.await() // park the pump on the very first event
+            }
+        }
+
+        val published: List<MpvEvent> = (0 until 20).map { MpvEvent.Lifecycle(100 + it) }
+        pipeline.publish(published[0])
+        awaitTrue { received.size == 1 } // the pump is parked on the first event somewhere:
+        // either suspended in emit(published[0]) or already holding published[1] - either way
+        // it cannot consume while the collector is gated, and the channel only buffers 2.
+        published.drop(1).forEach(pipeline::publish)
+
+        gate.complete(Unit)
+        awaitTrue { received.size >= 3 } // whatever buffered plus the parked one arrives
+        collector.cancel()
+        // The unbounded-buffering contract violation must not happen: with 20 published and
+        // an ingest bound of 2, at least one event was dropped loudly rather than queued.
+        assertTrue(
+            "expected loud drops beyond the ingest bound, but all ${published.size} arrived",
+            received.size < published.size,
+        )
+        // Delivery order is a subsequence of publish order: the concurrent pump interleaves
+        // with the publisher, so WHICH events drop is racy, but delivered events never
+        // reorder relative to each other.
+        var cursor = 0
+        for (event in received) {
+            while (cursor < published.size && published[cursor] != event) cursor++
+            assertTrue("delivered event $event violated publish order", cursor < published.size)
+            cursor++
+        }
+    }
+
+    @Test(timeout = 10_000)
+    fun subscribe_doesNotReplayEventsPublishedBeforeSubscription() {
+        val pipeline = newPipeline()
+        val scope = newScope()
+        pipeline.publish(MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED))
+        awaitTrue { pipeline.subscriptionCount.value == 0 }
+
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { received.add(it) }
+        }
+        awaitTrue { pipeline.subscriptionCount.value == 1 }
+        assertEquals(0, received.size)
+
+        val next = MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE)
+        pipeline.publish(next)
+        awaitTrue { received.size == 1 }
+        assertEquals(listOf(next), received)
+    }
+
+    @Test(timeout = 10_000)
+    fun cancel_removesOnlyThatSubscriber() {
+        val pipeline = newPipeline()
+        val scope = newScope()
+        val cancelledEvents = CopyOnWriteArrayList<MpvEvent>()
+        val activeEvents = CopyOnWriteArrayList<MpvEvent>()
+        val cancelledJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { cancelledEvents.add(it) }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { activeEvents.add(it) }
+        }
+        awaitTrue { pipeline.subscriptionCount.value == 2 }
+
+        val first = MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED)
+        pipeline.publish(first)
+        awaitTrue { activeEvents.size == 1 }
+        cancelledJob.cancel()
+        awaitTrue { pipeline.subscriptionCount.value == 1 }
+
+        val second = MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE)
+        pipeline.publish(second)
+        awaitTrue { activeEvents.size == 2 }
+        assertEquals(listOf(first), cancelledEvents)
+        assertEquals(listOf(first, second), activeEvents)
     }
 }

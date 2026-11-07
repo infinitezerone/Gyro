@@ -3,8 +3,10 @@ package dev.gyro.core.testing.fakes
 import android.content.Context
 import android.view.Surface
 import dev.gyro.engine.MpvEvent
-import dev.gyro.engine.MpvEventPipeline
 import dev.gyro.engine.MpvNativeBridge
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -35,9 +37,18 @@ class FakeMpvNativeBridge(
     @Volatile var gpuRendererResult: String = "Adreno (TM) 750"
 ) : MpvNativeBridge {
 
-    private val pipeline = MpvEventPipeline()
-    override val events = pipeline.events
-    val eventSubscriberCount: Int get() = pipeline.subscriptionCount.value
+    // Deliberately NOT the production MpvEventPipeline: the production pipeline pumps events
+    // off a merge map on real dispatchers, which would make every emit* below asynchronous and
+    // non-deterministic for the engine/player unit tests built on synchronous delivery. The
+    // fake keeps the old direct-publish semantics: tryEmit lands in subscribers immediately
+    // on the calling thread, and every publish succeeds (buffered, drop-oldest on overflow).
+    private val mutableEvents = MutableSharedFlow<MpvEvent>(
+        replay = 0,
+        extraBufferCapacity = 4096,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    override val events = mutableEvents.asSharedFlow()
+    val eventSubscriberCount: Int get() = mutableEvents.subscriptionCount.value
 
     // Call counters backed by AtomicInteger for thread-safety
     private val _createCount = AtomicInteger(0)
@@ -193,7 +204,7 @@ class FakeMpvNativeBridge(
      * Publishes an mpv lifecycle event to active flow subscribers.
      */
     fun emitEvent(eventId: Int) {
-        pipeline.publish(MpvEvent.Lifecycle(eventId))
+        mutableEvents.tryEmit(MpvEvent.Lifecycle(eventId))
     }
 
     /**
@@ -223,7 +234,7 @@ class FakeMpvNativeBridge(
      * Simulates reason-bearing END_FILE event (`MpvEvent.EndFile(reason)`).
      */
     fun emitEndFile(reason: Int) {
-        pipeline.publish(MpvEvent.EndFile(reason))
+        mutableEvents.tryEmit(MpvEvent.EndFile(reason))
     }
 
     /**
@@ -237,7 +248,7 @@ class FakeMpvNativeBridge(
      * Emits a property name change notification (Format.NONE).
      */
     fun emitProperty(name: String) {
-        pipeline.publish(MpvEvent.PropertyChanged(name))
+        mutableEvents.tryEmit(MpvEvent.PropertyChanged(name))
     }
 
     /**
@@ -245,7 +256,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyLong(name: String, value: Long) {
         properties[name] = value
-        pipeline.publish(MpvEvent.LongProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.LongProperty(name, value))
     }
 
     /**
@@ -253,7 +264,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyDouble(name: String, value: Double) {
         properties[name] = value
-        pipeline.publish(MpvEvent.DoubleProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.DoubleProperty(name, value))
     }
 
     /**
@@ -261,7 +272,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyFlag(name: String, value: Boolean) {
         properties[name] = value
-        pipeline.publish(MpvEvent.FlagProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.FlagProperty(name, value))
     }
 
     /**
@@ -269,7 +280,7 @@ class FakeMpvNativeBridge(
      */
     fun emitPropertyString(name: String, value: String) {
         properties[name] = value
-        pipeline.publish(MpvEvent.StringProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.StringProperty(name, value))
     }
 
     // ---------- Query & Verification Helpers ----------
