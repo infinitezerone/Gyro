@@ -111,4 +111,14 @@ class GyroPlayerEngineShaderTest {
         assertNull(state.currentPath)
         assertNull(state.displayName)
     }
+
+    @Test
+    fun testRelease_resetsShaders() {
+        engine.shaders.setShader(GlslShader.CAS)
+        assertEquals(GlslShader.CAS, engine.shaders.shaderState.value.activeShader)
+
+        engine.release()
+        assertEquals(GlslShader.OFF, engine.shaders.shaderState.value.activeShader)
+        assertNull(engine.shaders.shaderState.value.currentPath)
+    }
 }

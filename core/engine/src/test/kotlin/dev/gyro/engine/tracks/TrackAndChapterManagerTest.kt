@@ -82,4 +82,44 @@ class TrackAndChapterManagerTest {
         assertTrue(manager.chapters.value.isEmpty())
         assertEquals(-1, manager.currentChapter.value)
     }
+
+    @Test
+    fun testClearTracksAndReset() {
+        bridge.properties["track-list/count"] = 1L
+        bridge.properties["track-list/0/id"] = 1L
+        bridge.properties["track-list/0/type"] = "audio"
+        bridge.properties["track-list/0/title"] = "Stereo"
+        manager.refreshTracks()
+        assertEquals(1, manager.tracks.value.size)
+
+        manager.clearTracks()
+        assertTrue(manager.tracks.value.isEmpty())
+
+        manager.refreshTracks()
+        assertEquals(1, manager.tracks.value.size)
+        manager.reset()
+        assertTrue(manager.tracks.value.isEmpty())
+        assertTrue(manager.chapters.value.isEmpty())
+    }
+
+    @Test
+    fun testEndFile_clearsChaptersAndRetainsTracks() {
+        bridge.properties["track-list/count"] = 1L
+        bridge.properties["track-list/0/id"] = 1L
+        bridge.properties["track-list/0/type"] = "sub"
+        bridge.properties["chapter-list/count"] = 1L
+        bridge.properties["chapter-list/0/title"] = "Intro"
+        manager.refreshTracks()
+        manager.refreshChapters()
+        assertEquals(1, manager.tracks.value.size)
+        assertEquals(1, manager.chapters.value.size)
+
+        manager.onEvent(dev.gyro.engine.MpvEvent.EndFile(dev.gyro.engine.MpvNativeBridge.EndReason.EOF))
+        assertEquals(1, manager.tracks.value.size)
+        assertTrue(manager.chapters.value.isEmpty())
+
+        manager.reset()
+        assertTrue(manager.tracks.value.isEmpty())
+        assertTrue(manager.chapters.value.isEmpty())
+    }
 }

@@ -74,6 +74,7 @@ class MediaSessionManager(
         }
 
     var onPlaybackStateChanged: ((isPlaying: Boolean) -> Unit)? = null
+    var onMetadataChanged: (() -> Unit)? = null
     var onStopRequested: (() -> Unit)? = null
     var onSkipToNext: (() -> Boolean)? = null
     var onSkipToPrevious: (() -> Boolean)? = null
@@ -171,6 +172,7 @@ class MediaSessionManager(
                     }
                     if (metadataChanged) {
                         updateMetadata()
+                        onMetadataChanged?.invoke()
                     }
                 }
             }

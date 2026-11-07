@@ -133,6 +133,9 @@ class PlaybackService : Service() {
             onPlaybackStateChanged = { _ ->
                 updateNotification()
             }
+            onMetadataChanged = {
+                updateNotification()
+            }
             onStopRequested = {
                 stopForegroundAndSelf()
             }

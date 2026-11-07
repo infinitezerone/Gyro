@@ -92,9 +92,6 @@ class MainActivity : ComponentActivity() {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
-        // Keep screen on during playback
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
         // The engine takes configuration as values, not repositories. The first emission of the
         // DataStore flow is the real persisted value; reading a StateFlow here would have handed
         // mpv the defaults while the disk was still loading.

@@ -279,6 +279,21 @@ class MediaSessionManagerTest {
     }
 
     @Test
+    fun testEngineObservationTriggersMetadataChanged() {
+        var metadataChangedCount = 0
+        val manager = createMediaSessionManager()
+        manager.onMetadataChanged = { metadataChangedCount++ }
+
+        fakeBridge.emitPropertyString("media-title", "New Title")
+        testScope.advanceUntilIdle()
+        assertEquals(1, metadataChangedCount)
+
+        fakeBridge.emitPropertyDouble("duration", 120.0)
+        testScope.advanceUntilIdle()
+        assertEquals(2, metadataChangedCount)
+    }
+
+    @Test
     fun testReleaseCancelsScope() {
         val manager = createMediaSessionManager()
         manager.release()

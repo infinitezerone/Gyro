@@ -122,7 +122,7 @@ class GyroPlayerEngine(
      * Managed domain subsystems: observers, event dispatch, and state reset are orchestrated uniformly.
      */
     private val subsystems: List<EngineSubsystem> by lazy {
-        listOf(geometry, trackManager, timeline, audio, video, tuning, playback)
+        listOf(geometry, trackManager, timeline, audio, video, tuning, shaders, playback)
     }
 
     // =========================================================================

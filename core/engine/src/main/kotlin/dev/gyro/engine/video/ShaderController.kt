@@ -3,6 +3,7 @@ package dev.gyro.engine.video
 import android.net.Uri
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
+import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
@@ -17,13 +18,17 @@ class ShaderController(
     private val bridge: MpvNativeBridge,
     private val shaderManager: ShaderManager = ShaderManager(),
     private val store: PlaybackStore = PlaybackStore()
-) {
+) : EngineSubsystem {
     companion object {
         private const val TAG = "ShaderController"
     }
 
     private val _shaderState = store.property({ it.shaderState }) { s, v -> s.copy(shaderState = v) }
     val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
+
+    override fun reset() {
+        clearShader()
+    }
 
     fun extractBuiltInShaders(): Map<GlslShader, File> =
         shaderManager.extractBuiltInShaders()

@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.util.Rational
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -416,6 +417,19 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             playerState.restoreSystemBars()
+        }
+    }
+
+    // 播放中保持屏幕常亮，暂停或退出播放器界面时释放常亮锁
+    DisposableEffect(activity, isPlaying) {
+        val window = activity?.window
+        if (isPlaying) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 

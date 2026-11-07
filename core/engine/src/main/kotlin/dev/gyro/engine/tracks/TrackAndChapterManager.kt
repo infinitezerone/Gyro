@@ -70,7 +70,7 @@ class TrackAndChapterManager(
     }
 
     override fun reset() {
-        clearChapters()
+        clearTracksAndChapters()
     }
 
     fun observeEvents(scope: CoroutineScope): Job =
@@ -156,5 +156,14 @@ class TrackAndChapterManager(
     fun clearChapters() {
         _chapters.value = emptyList()
         _currentChapter.value = -1
+    }
+
+    fun clearTracks() {
+        _tracks.value = emptyList()
+    }
+
+    fun clearTracksAndChapters() {
+        clearChapters()
+        clearTracks()
     }
 }
