@@ -7,41 +7,28 @@ import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Controller responsible for GLSL post-processing shaders (CAS, Anime4K, custom shaders).
  */
-interface ShaderController {
-    val shaderState: StateFlow<GlslShaderState>
-
-    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null)
-    fun clearShader()
-    fun importAndSetCustomShader(uri: Uri): Result<String>
-    fun getCustomShaders(): List<File>
-    fun extractBuiltInShaders(): Map<GlslShader, File>
-    fun restoreActiveShader()
-}
-
-@Singleton
-class RealShaderController @Inject constructor(
+class ShaderController(
     private val bridge: MpvNativeBridge,
     private val shaderManager: ShaderManager = ShaderManager(),
     private val store: PlaybackStore = PlaybackStore()
-) : ShaderController {
+) {
     companion object {
         private const val TAG = "ShaderController"
     }
 
     private val _shaderState = store.property({ it.shaderState }) { s, v -> s.copy(shaderState = v) }
-    override val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
+    val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
 
-    override fun extractBuiltInShaders(): Map<GlslShader, File> =
+    fun extractBuiltInShaders(): Map<GlslShader, File> =
         shaderManager.extractBuiltInShaders()
 
-    override fun restoreActiveShader() {
+    fun restoreActiveShader() {
         val currentShader = _shaderState.value
         val currentPath = currentShader.currentPath
         if (currentShader.activeShader != GlslShader.OFF && currentPath != null) {
@@ -49,7 +36,7 @@ class RealShaderController @Inject constructor(
         }
     }
 
-    override fun setShader(shader: GlslShader, customPath: String?, customName: String?) {
+    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) {
         when (shader) {
             GlslShader.OFF -> {
                 clearShader()
@@ -99,7 +86,7 @@ class RealShaderController @Inject constructor(
         }
     }
 
-    override fun clearShader() {
+    fun clearShader() {
         bridge.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
         _shaderState.value = GlslShaderState(
             activeShader = GlslShader.OFF,
@@ -109,7 +96,7 @@ class RealShaderController @Inject constructor(
         EngineLog.i(TAG, "Cleared glsl-shaders")
     }
 
-    override fun importAndSetCustomShader(uri: Uri): Result<String> {
+    fun importAndSetCustomShader(uri: Uri): Result<String> {
         return shaderManager.importCustomShader(uri).map { file ->
             val name = file.nameWithoutExtension
             setShader(GlslShader.CUSTOM, customPath = file.absolutePath, customName = name)
@@ -117,5 +104,8 @@ class RealShaderController @Inject constructor(
         }
     }
 
-    override fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
+    fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
 }
+
+@Deprecated("Use ShaderController directly", ReplaceWith("ShaderController"))
+typealias RealShaderController = ShaderController

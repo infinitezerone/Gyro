@@ -17,40 +17,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.math.abs
 
-interface PlaybackTimelineController : EngineSubsystem {
-    val timePosMs: StateFlow<Long>
-    val durationMs: StateFlow<Long>
-    val bufferedPosMs: StateFlow<Long>
-    val isFileLoaded: Boolean
-
-    override fun registerObservers() {}
-    override fun onEvent(event: MpvEvent) {}
-    override fun reset() {}
-    fun observeEvents(scope: CoroutineScope): Job
-    fun onLoadStarted(startPositionMs: Long, initialDurationMs: Long = 0L)
-    fun onLoadCommandIssued()
-    fun onFileLoaded()
-    fun onPositionChanged(positionSeconds: Double)
-    fun onDurationChanged(durationSeconds: Double)
-    fun onBufferedPositionChanged(positionSeconds: Double)
-    fun seekTo(positionMs: Long)
-    fun seekRelative(offsetMs: Long)
-    fun seekToChapter(index: Int)
-}
-
-@Singleton
-class RealPlaybackTimelineController internal constructor(
+open class PlaybackTimelineController internal constructor(
     private val bridge: MpvNativeBridge,
     private val geometry: VideoGeometryCoordinator? = null,
     private val trackManager: TrackAndChapterManager,
     private val elapsedRealtimeMs: () -> Long = { System.nanoTime() / 1_000_000L },
     private val store: PlaybackStore = PlaybackStore()
-) : PlaybackTimelineController {
-    @Inject
+) : EngineSubsystem {
     constructor(
         bridge: MpvNativeBridge,
         geometry: VideoGeometryCoordinator,
@@ -66,13 +41,13 @@ class RealPlaybackTimelineController internal constructor(
     }
 
     private val _timePosMs = MutableStateFlow(0L)
-    override val timePosMs: StateFlow<Long> = _timePosMs.asStateFlow()
+    val timePosMs: StateFlow<Long> = _timePosMs.asStateFlow()
 
     private val _durationMs = store.property({ it.durationMs }) { s, v -> s.copy(durationMs = v) }
-    override val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
+    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     private val _bufferedPosMs = MutableStateFlow(0L)
-    override val bufferedPosMs: StateFlow<Long> = _bufferedPosMs.asStateFlow()
+    val bufferedPosMs: StateFlow<Long> = _bufferedPosMs.asStateFlow()
 
     @Volatile
     private var fileLoaded = false
@@ -80,7 +55,7 @@ class RealPlaybackTimelineController internal constructor(
     @Volatile
     private var loadedAtGeometryState: PlaybackSessionState? = null
 
-    override val isFileLoaded: Boolean
+    val isFileLoaded: Boolean
         get() = when (store.current.session) {
             is SessionPhase.Loaded -> true
             is SessionPhase.Resolving,
@@ -145,14 +120,16 @@ class RealPlaybackTimelineController internal constructor(
         }
     }
 
-    override fun observeEvents(scope: CoroutineScope): Job = scope.launch(
+    override fun reset() {}
+
+    fun observeEvents(scope: CoroutineScope): Job = scope.launch(
         Dispatchers.Unconfined,
         start = CoroutineStart.UNDISPATCHED
     ) {
         bridge.events.collect(::onEvent)
     }
 
-    override fun onLoadStarted(startPositionMs: Long, initialDurationMs: Long) {
+    fun onLoadStarted(startPositionMs: Long, initialDurationMs: Long = 0L) {
         fileLoaded = false
         loadedAtGeometryState = null
         pendingSeekTargetMs = null
@@ -162,11 +139,11 @@ class RealPlaybackTimelineController internal constructor(
         _bufferedPosMs.value = startMs
     }
 
-    override fun onLoadCommandIssued() {
+    fun onLoadCommandIssued() {
         pendingSeekMs = -1L
     }
 
-    override fun onFileLoaded() {
+    fun onFileLoaded() {
         fileLoaded = true
         loadedAtGeometryState = geometry?.sessionState?.value
         if (pendingSeekMs >= 0L) {
@@ -177,7 +154,7 @@ class RealPlaybackTimelineController internal constructor(
         }
     }
 
-    override fun onPositionChanged(positionSeconds: Double) {
+    fun onPositionChanged(positionSeconds: Double) {
         val positionMs = (positionSeconds * 1000.0).toLong().coerceAtLeast(0L)
         val target = pendingSeekTargetMs
         if (target != null) {
@@ -190,17 +167,17 @@ class RealPlaybackTimelineController internal constructor(
         _timePosMs.value = positionMs
     }
 
-    override fun onDurationChanged(durationSeconds: Double) {
+    fun onDurationChanged(durationSeconds: Double) {
         _durationMs.value = (durationSeconds * 1000.0).toLong().coerceAtLeast(0L)
     }
 
-    override fun onBufferedPositionChanged(positionSeconds: Double) {
+    fun onBufferedPositionChanged(positionSeconds: Double) {
         val rawMs = (positionSeconds * 1000.0).toLong().coerceAtLeast(_timePosMs.value)
         val dur = _durationMs.value
         _bufferedPosMs.value = if (dur > 0L) rawMs.coerceAtMost(dur) else rawMs
     }
 
-    override fun seekTo(positionMs: Long) {
+    fun seekTo(positionMs: Long) {
         if (!isFileLoaded) {
             pendingSeekMs = positionMs
             return
@@ -214,7 +191,7 @@ class RealPlaybackTimelineController internal constructor(
         bridge.command(arrayOf("seek", "$seconds", "absolute"))
     }
 
-    override fun seekRelative(offsetMs: Long) {
+    fun seekRelative(offsetMs: Long) {
         if (!isFileLoaded) return
         // Chained seeks build on the displayed target, not mpv's lagging position.
         val targetMs = (_timePosMs.value + offsetMs).coerceAtLeast(0L)
@@ -223,7 +200,7 @@ class RealPlaybackTimelineController internal constructor(
         bridge.command(arrayOf("seek", "$seconds", "relative"))
     }
 
-    override fun seekToChapter(index: Int) {
+    fun seekToChapter(index: Int) {
         val chapterList = trackManager.chapters.value
         if (index !in chapterList.indices) {
             EngineLog.w(TAG, "seekToChapter: index $index out of bounds (0..${chapterList.size - 1})")
@@ -246,3 +223,6 @@ class RealPlaybackTimelineController internal constructor(
         _timePosMs.value = target
     }
 }
+
+@Deprecated("Use PlaybackTimelineController directly", ReplaceWith("PlaybackTimelineController"))
+typealias RealPlaybackTimelineController = PlaybackTimelineController

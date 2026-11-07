@@ -2,15 +2,7 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.view.Surface
-import javax.inject.Inject
-import javax.inject.Singleton
-
-/**
- * Production implementation of [MpvNativeBridge] delegating directly to [GyroNative] JNI.
- * Supports both companion singleton access ([RealMpvNativeBridge]) and constructor instantiation ([RealMpvNativeBridge()]).
- */
-@Singleton
-open class RealMpvNativeBridge @Inject constructor() : MpvNativeBridge {
+open class RealMpvNativeBridge : MpvNativeBridge {
 
     companion object : RealMpvNativeBridge()
 

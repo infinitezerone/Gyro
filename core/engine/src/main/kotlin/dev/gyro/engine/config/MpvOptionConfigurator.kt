@@ -5,21 +5,7 @@ import dev.gyro.core.model.UserSettings
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.trace.EngineLog
 import java.util.concurrent.atomic.AtomicReference
-import javax.inject.Inject
-import javax.inject.Singleton
-
-/**
- * Translates `mpv.conf` and GUI settings into mpv options and manages configuration lifecycle.
- *
- * mpv only accepts options before the core exists, so [apply] runs synchronously between
- * `create()` and `init()`. Three layers, in order:
- *
- * 1. user `mpv.conf` entries, minus the keys that can break the native pipeline;
- * 2. GUI settings, which always win over the file;
- * 3. defaults for the keys the user did not provide at all.
- */
-@Singleton
-class MpvOptionConfigurator @Inject constructor() {
+class MpvOptionConfigurator {
 
     companion object {
         private const val TAG = "MpvOptionConfigurator"

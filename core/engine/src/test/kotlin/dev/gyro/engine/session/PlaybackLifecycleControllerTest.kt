@@ -33,7 +33,7 @@ class PlaybackLifecycleControllerTest {
     fun setUp() {
         bridge = FakeMpvNativeBridge()
         store = PlaybackStore()
-        controller = RealPlaybackLifecycleController(
+        controller = PlaybackLifecycleController(
             bridge = bridge,
             store = store,
             audioFocusManager = fakeAudioFocus,

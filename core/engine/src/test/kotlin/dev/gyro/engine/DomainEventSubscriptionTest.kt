@@ -2,12 +2,11 @@ package dev.gyro.engine
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.audio.AudioEffectsController
-import dev.gyro.engine.audio.RealAudioEffectsController
-import dev.gyro.engine.video.RealVideoEffectsController
+import dev.gyro.engine.video.VideoEffectsController
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.session.PlaybackSessionState
-import dev.gyro.engine.video.RealVideoGeometryCoordinator
-import dev.gyro.engine.tracks.RealTrackAndChapterManager
+import dev.gyro.engine.video.VideoGeometryCoordinator
+import dev.gyro.engine.tracks.TrackAndChapterManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
@@ -29,7 +28,7 @@ class DomainEventSubscriptionTest {
     fun audioHandlesEndAndShutdownWithoutEngineAndCanResubscribe() = runTest {
         val bridge = RecordingBridge()
         val fake = bridge.fake
-        val audio = RealAudioEffectsController(bridge)
+        val audio = AudioEffectsController(bridge)
         audio.setNightMode(true)
         audio.setStereoDownmix(true)
         audio.setSoftwareVolume(180.0)
@@ -76,7 +75,7 @@ class DomainEventSubscriptionTest {
     fun videoHandlesTypedPropertiesWithoutEngineAndCanResubscribe() = runTest {
         val bridge = RecordingBridge()
         val fake = bridge.fake
-        val video = RealVideoEffectsController(bridge)
+        val video = VideoEffectsController(bridge)
         fake.emitPropertyFlag("deband", true)
         assertFalse(video.deband.value)
 
@@ -127,7 +126,7 @@ class DomainEventSubscriptionTest {
     fun tracksAndChaptersHandleEventsWithoutEngineAndCanResubscribe() = runTest {
         val bridge = RecordingBridge()
         val fake = bridge.fake
-        val manager = RealTrackAndChapterManager(bridge)
+        val manager = TrackAndChapterManager(bridge)
         fake.properties["track-list/count"] = 1L
         fake.properties["track-list/0/id"] = 7L
         fake.properties["track-list/0/type"] = "audio"
@@ -208,7 +207,7 @@ class DomainEventSubscriptionTest {
     fun geometryHandlesLifecycleWithoutEngineAndCanResubscribe() = runTest {
         val bridge = RecordingBridge()
         val fake = bridge.fake
-        val geometry = RealVideoGeometryCoordinator(bridge)
+        val geometry = VideoGeometryCoordinator(bridge)
         fake.properties["video"] = "1"
         fake.properties["track-list/count"] = 1L
         fake.properties["track-list/0/type"] = "video"
@@ -283,7 +282,7 @@ class DomainEventSubscriptionTest {
     @Test
     fun geometryHandlesVoPropertiesAndNormalizesEstimatedFps() = runTest {
         val fake = FakeMpvNativeBridge()
-        val geometry = RealVideoGeometryCoordinator(fake)
+        val geometry = VideoGeometryCoordinator(fake)
         val scope = eventScope()
         geometry.observeEvents(scope)
         geometry.onSwitchStarted("test://adaptive.m3u8")

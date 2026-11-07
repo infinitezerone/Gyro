@@ -2,14 +2,11 @@ package dev.gyro.engine.media
 
 import android.content.ContentResolver
 import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Turns a [MediaItem] into something mpv can load.
@@ -44,16 +41,9 @@ interface MediaResourceResolver {
  * with [ResolvedMediaSource], so a load that is cancelled or replaced before `loadfile` releases it
  * instead of leaking it. Every other scheme is handed over as a path: mpv opens those itself.
  */
-@Singleton
-class DefaultMediaResourceResolver private constructor(
-    private val context: Context?,
-    @Suppress("UNUSED_PARAMETER") marker: Unit
+class DefaultMediaResourceResolver(
+    private val context: Context? = null
 ) : MediaResourceResolver {
-
-    @Inject
-    constructor(@ApplicationContext context: Context) : this(context, Unit)
-
-    constructor() : this(null, Unit)
 
     companion object {
         private const val TAG = "MediaResourceResolver"

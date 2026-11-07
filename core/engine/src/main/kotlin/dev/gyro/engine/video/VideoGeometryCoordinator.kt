@@ -15,8 +15,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.math.abs
 
 /**
@@ -24,63 +22,37 @@ import kotlin.math.abs
  * Guarantees that container layout adapts immediately on [PlaybackSessionState.Demuxed]
  * without waiting for decoder warmup, while isolating stale VO properties during [PlaybackSessionState.Switching].
  */
-interface VideoGeometryCoordinator : dev.gyro.engine.EngineSubsystem {
-    val sessionState: StateFlow<PlaybackSessionState>
-    val videoDimensions: StateFlow<VideoDimensions>
-    val videoAspect: StateFlow<Float>
-    val videoFrameRate: StateFlow<Float>
-    val geometryReady: StateFlow<Boolean>
-    val firstFrameRendered: StateFlow<Boolean>
-    val displayRefreshRate: StateFlow<Float>
-    val resizeMode: StateFlow<ResizeMode>
-
-    override fun registerObservers() {}
-    override fun onEvent(event: MpvEvent) {}
-    fun observeEvents(scope: CoroutineScope): Job
-    fun updateDisplayRefreshRate(rate: Float)
-    fun setResizeMode(mode: ResizeMode)
-    fun resetZoomAndPan()
-    fun onSwitchStarted(url: String, startPositionMs: Long = 0L)
-    fun onFileLoaded(url: String, hasVideo: Boolean)
-    fun onFirstFramePresented()
-    fun onVoParamsChanged()
-    fun onFpsUpdated(fps: Float, isEstimated: Boolean = false)
-    fun onSessionEnded()
-    override fun reset()
-}
-
-@Singleton
-class RealVideoGeometryCoordinator @Inject constructor(
+class VideoGeometryCoordinator(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : VideoGeometryCoordinator {
+) : dev.gyro.engine.EngineSubsystem {
 
     private val _sessionState = store.property({ it.sessionState }) { s, v -> s.copy(sessionState = v) }
-    override val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
+    val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
 
     private val _videoDimensions = store.property({ it.videoDimensions }) { s, v -> s.copy(videoDimensions = v) }
-    override val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
+    val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
 
     private val _videoAspect = store.property({ it.videoAspect }) { s, v -> s.copy(videoAspect = v) }
-    override val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
+    val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
 
     private val _videoFrameRate = store.property({ it.videoFrameRate }) { s, v -> s.copy(videoFrameRate = v) }
-    override val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
+    val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
 
     private val _geometryReady = store.property({ it.geometryReady }) { s, v -> s.copy(geometryReady = v) }
-    override val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
+    val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
 
     private val _firstFrameRendered = store.property({ it.firstFrameRendered }) { s, v -> s.copy(firstFrameRendered = v) }
-    override val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
+    val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
     @Volatile
     private var currentUrl = ""
 
     private val _displayRefreshRate = store.property({ it.displayRefreshRate }) { s, v -> s.copy(displayRefreshRate = v) }
-    override val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
+    val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
 
     private val _resizeMode = store.property({ it.resizeMode }) { s, v -> s.copy(resizeMode = v) }
-    override val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
+    val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
     override fun registerObservers() {
         bridge.observeProperty("dwidth", MpvNativeBridge.Format.INT64)
@@ -120,13 +92,11 @@ class RealVideoGeometryCoordinator @Inject constructor(
             else -> Unit
         }
     }
-
-    override fun observeEvents(scope: CoroutineScope): Job =
+    fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
             bridge.events.collect(::onEvent)
         }
-
-    override fun onSwitchStarted(url: String, startPositionMs: Long) {
+    fun onSwitchStarted(url: String, startPositionMs: Long = 0L) {
         currentUrl = url
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false
@@ -134,8 +104,7 @@ class RealVideoGeometryCoordinator @Inject constructor(
         _videoFrameRate.value = 0f
         SwitchTrace.log("SWITCH_SESSION_START", "url=$url, startPos=${startPositionMs}ms")
     }
-
-    override fun onFileLoaded(url: String, hasVideo: Boolean) {
+    fun onFileLoaded(url: String, hasVideo: Boolean) {
         if (!hasVideo) {
             _sessionState.value = PlaybackSessionState.Presenting(url, VideoDimensions(0, 0), 1.0f)
             _firstFrameRendered.value = true
@@ -162,8 +131,7 @@ class RealVideoGeometryCoordinator @Inject constructor(
             }
         }
     }
-
-    override fun onFpsUpdated(fps: Float, isEstimated: Boolean) {
+    fun onFpsUpdated(fps: Float, isEstimated: Boolean = false) {
         if (fps <= 1.0f || fps >= 1000.0f) return
         if (isEstimated) {
             if (_videoFrameRate.value <= 0f) {
@@ -173,8 +141,7 @@ class RealVideoGeometryCoordinator @Inject constructor(
             _videoFrameRate.value = fps
         }
     }
-
-    override fun onFirstFramePresented() {
+    fun onFirstFramePresented() {
         val current = _sessionState.value
         val dims = _videoDimensions.value
         val aspect = _videoAspect.value
@@ -187,8 +154,7 @@ class RealVideoGeometryCoordinator @Inject constructor(
         _sessionState.value = PlaybackSessionState.Presenting(url, dims, aspect)
         _firstFrameRendered.value = true
     }
-
-    override fun onVoParamsChanged() {
+    fun onVoParamsChanged() {
         when (val state = _sessionState.value) {
             is PlaybackSessionState.Switching -> {
                 // VO still reports previous video's parameters during switch; suppress completely
@@ -230,8 +196,7 @@ class RealVideoGeometryCoordinator @Inject constructor(
             }
         }
     }
-
-    override fun onSessionEnded() {
+    fun onSessionEnded() {
         _sessionState.value = PlaybackSessionState.Ended
         _firstFrameRendered.value = false
         _geometryReady.value = false
@@ -255,15 +220,14 @@ class RealVideoGeometryCoordinator @Inject constructor(
      * exists, where the property write is a no-op; [dev.gyro.engine.GyroPlayerEngine] applies the
      * rate explicitly once the core is up, so an early measurement is not lost.
      */
-    override fun updateDisplayRefreshRate(rate: Float) {
+    fun updateDisplayRefreshRate(rate: Float) {
         if (rate !in 20f..300f) return
         if (abs(_displayRefreshRate.value - rate) < 0.1f) return
         _displayRefreshRate.value = rate
         bridge.setPropertyDouble("display-fps-override", rate.toDouble())
         bridge.setPropertyDouble("display-fps", rate.toDouble())
     }
-
-    override fun setResizeMode(mode: ResizeMode) {
+    fun setResizeMode(mode: ResizeMode) {
         _resizeMode.value = mode
         when (mode) {
             ResizeMode.FIT -> {
@@ -288,8 +252,7 @@ class RealVideoGeometryCoordinator @Inject constructor(
             }
         }
     }
-
-    override fun resetZoomAndPan() {
+    fun resetZoomAndPan() {
         bridge.setPropertyDouble("video-zoom", 0.0)
         bridge.setPropertyDouble("video-pan-x", 0.0)
         bridge.setPropertyDouble("video-pan-y", 0.0)
@@ -334,3 +297,6 @@ class RealVideoGeometryCoordinator @Inject constructor(
         }
     }
 }
+
+@Deprecated("Use VideoGeometryCoordinator directly", ReplaceWith("VideoGeometryCoordinator"))
+typealias RealVideoGeometryCoordinator = VideoGeometryCoordinator

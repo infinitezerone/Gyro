@@ -15,7 +15,7 @@ class VideoEffectsControllerTest {
     @Before
     fun setUp() {
         bridge = FakeMpvNativeBridge()
-        controller = RealVideoEffectsController(bridge)
+        controller = VideoEffectsController(bridge)
     }
 
     @Test

@@ -5,13 +5,11 @@ import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.view.Display
 import android.view.Surface
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.UserSettings
 import dev.gyro.engine.audio.AudioEffectsController
 import dev.gyro.engine.audio.AudioFocusController
 import dev.gyro.engine.audio.GyroAudioFocusManager
-import dev.gyro.engine.audio.RealAudioEffectsController
 import dev.gyro.engine.config.MpvOptionConfigurator
 import dev.gyro.engine.media.DefaultMediaResourceResolver
 import dev.gyro.engine.media.MediaInfoExtractor
@@ -23,24 +21,14 @@ import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.session.MediaLoadCoordinator
 import dev.gyro.engine.session.PlaybackLifecycleController
 import dev.gyro.engine.session.PlaybackTimelineController
-import dev.gyro.engine.session.RealMediaLoadCoordinator
-import dev.gyro.engine.session.RealPlaybackLifecycleController
-import dev.gyro.engine.session.RealPlaybackTimelineController
 import dev.gyro.engine.state.PlaybackStore
-import dev.gyro.engine.tracks.RealTrackAndChapterManager
 import dev.gyro.engine.tracks.TrackAndChapterManager
-import dev.gyro.engine.tuning.RealSyncTuningController
 import dev.gyro.engine.tuning.SyncTuningController
-import dev.gyro.engine.video.RealShaderController
-import dev.gyro.engine.video.RealVideoEffectsController
-import dev.gyro.engine.video.RealVideoGeometryCoordinator
 import dev.gyro.engine.video.ShaderController
 import dev.gyro.engine.video.ShaderManager
 import dev.gyro.engine.video.VideoEffectsController
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -54,54 +42,23 @@ typealias MpvLoadException = dev.gyro.engine.session.MpvLoadException
  * Unified playback engine facade.
  * Coordinates domain subsystems, manages native lifecycle, and exposes reactive playback state.
  */
-@Singleton
 class GyroPlayerEngine(
     private val context: Context? = null,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
     private val resolver: MediaResourceResolver = if (context != null) DefaultMediaResourceResolver(context) else MediaResourceResolver.Direct,
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     internal val store: PlaybackStore = PlaybackStore(),
-    val shaders: ShaderController = RealShaderController(bridge, ShaderManager(context), store),
-    val geometry: VideoGeometryCoordinator = RealVideoGeometryCoordinator(bridge, store),
-    val audio: AudioEffectsController = RealAudioEffectsController(bridge, store),
-    val video: VideoEffectsController = RealVideoEffectsController(bridge, store),
-    val trackManager: TrackAndChapterManager = RealTrackAndChapterManager(bridge, store),
-    val tuning: SyncTuningController = RealSyncTuningController(bridge, store),
+    val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
+    val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
+    val audio: AudioEffectsController = AudioEffectsController(bridge, store),
+    val video: VideoEffectsController = VideoEffectsController(bridge, store),
+    val trackManager: TrackAndChapterManager = TrackAndChapterManager(bridge, store),
+    val tuning: SyncTuningController = SyncTuningController(bridge, store),
     internal val timeline: PlaybackTimelineController =
-        RealPlaybackTimelineController(bridge, geometry, trackManager, store = store),
+        PlaybackTimelineController(bridge, geometry, trackManager, store = store),
     audioFocus: AudioFocusController? = null,
     private val displayRefreshRateProvider: () -> Float? = { defaultDisplayRefreshRate(context) }
 ) {
-    @Inject
-    constructor(
-        @ApplicationContext context: Context,
-        bridge: MpvNativeBridge,
-        resolver: MediaResourceResolver,
-        configurator: MpvOptionConfigurator,
-        store: PlaybackStore,
-        shaders: ShaderController,
-        geometry: VideoGeometryCoordinator,
-        audio: AudioEffectsController,
-        video: VideoEffectsController,
-        trackManager: TrackAndChapterManager,
-        tuning: SyncTuningController,
-        timeline: PlaybackTimelineController
-    ) : this(
-        context = context,
-        bridge = bridge,
-        resolver = resolver,
-        configurator = configurator,
-        store = store,
-        shaders = shaders,
-        geometry = geometry,
-        audio = audio,
-        video = video,
-        trackManager = trackManager,
-        tuning = tuning,
-        timeline = timeline,
-        audioFocus = null,
-        displayRefreshRateProvider = { defaultDisplayRefreshRate(context) }
-    )
 
     companion object {
         private fun defaultDisplayRefreshRate(context: Context?): Float? = runCatching {
@@ -117,7 +74,7 @@ class GyroPlayerEngine(
     private var engineJob = SupervisorJob()
     private var engineScope = CoroutineScope(engineJob + Dispatchers.Default)
 
-    internal val playback: PlaybackLifecycleController = RealPlaybackLifecycleController(
+    internal val playback: PlaybackLifecycleController = PlaybackLifecycleController(
         bridge = bridge,
         store = store,
         audioFocusManager = audioFocus ?: if (context != null) {
@@ -143,7 +100,7 @@ class GyroPlayerEngine(
         getRequestedTitle = { loadCoordinator.requestedTitle }
     )
 
-    internal val loadCoordinator: MediaLoadCoordinator = RealMediaLoadCoordinator(
+    internal val loadCoordinator: MediaLoadCoordinator = MediaLoadCoordinator(
         bridge = bridge,
         store = store,
         resolver = resolver,

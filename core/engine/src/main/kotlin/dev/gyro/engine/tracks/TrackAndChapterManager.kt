@@ -1,6 +1,7 @@
 package dev.gyro.engine.tracks
 
 import dev.gyro.core.model.ChapterInfo
+import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.TrackInfo
@@ -11,49 +12,30 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Manages audio, video, and subtitle tracks as well as chapter parsing and selection.
  */
-interface TrackAndChapterManager : dev.gyro.engine.EngineSubsystem {
-    val tracks: StateFlow<List<TrackInfo>>
-    val chapters: StateFlow<List<ChapterInfo>>
-    val currentChapter: StateFlow<Int>
-
-    override fun registerObservers() {}
-    override fun onEvent(event: MpvEvent) {}
-    override fun reset() { clearChapters() }
-    fun observeEvents(scope: CoroutineScope): Job
-    fun refreshTracks()
-    fun selectTrack(type: String, id: Int)
-    fun addSubtitle(path: String)
-    fun refreshChapters()
-    fun onChapterPropertyChanged(index: Int)
-    fun clearChapters()
-}
-
-@Singleton
-class RealTrackAndChapterManager @Inject constructor(
+class TrackAndChapterManager(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : TrackAndChapterManager {
+) : EngineSubsystem {
 
     companion object {
         private const val TAG = "TrackAndChapterManager"
     }
 
     private val _tracks = store.property({ it.tracks }) { s, v -> s.copy(tracks = v) }
-    override val tracks: StateFlow<List<TrackInfo>> = _tracks.asStateFlow()
+    val tracks: StateFlow<List<TrackInfo>> = _tracks.asStateFlow()
 
     private val _chapters = store.property({ it.chapters }) { s, v -> s.copy(chapters = v) }
-    override val chapters: StateFlow<List<ChapterInfo>> = _chapters.asStateFlow()
+    val chapters: StateFlow<List<ChapterInfo>> = _chapters.asStateFlow()
 
     private val _currentChapter = store.property({ it.currentChapter }) { s, v -> s.copy(currentChapter = v) }
-    override val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
+    val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
     override fun registerObservers() {
         bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
@@ -87,12 +69,16 @@ class RealTrackAndChapterManager @Inject constructor(
         }
     }
 
-    override fun observeEvents(scope: CoroutineScope): Job =
+    override fun reset() {
+        clearChapters()
+    }
+
+    fun observeEvents(scope: CoroutineScope): Job =
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
             bridge.events.collect(::onEvent)
         }
 
-    override fun refreshTracks() {
+    fun refreshTracks() {
         try {
             val count = bridge.getLong("track-list/count") ?: 0L
             val trackList = mutableListOf<TrackInfo>()
@@ -111,7 +97,7 @@ class RealTrackAndChapterManager @Inject constructor(
         }
     }
 
-    override fun selectTrack(type: String, id: Int) {
+    fun selectTrack(type: String, id: Int) {
         when (type) {
             "audio" -> {
                 if (id <= 0) {
@@ -131,12 +117,12 @@ class RealTrackAndChapterManager @Inject constructor(
         refreshTracks()
     }
 
-    override fun addSubtitle(path: String) {
+    fun addSubtitle(path: String) {
         bridge.command(arrayOf("sub-add", path, "select"))
         refreshTracks()
     }
 
-    override fun refreshChapters() {
+    fun refreshChapters() {
         try {
             val count = bridge.getLong("chapter-list/count") ?: 0L
             if (count <= 0L) {
@@ -163,12 +149,15 @@ class RealTrackAndChapterManager @Inject constructor(
         }
     }
 
-    override fun onChapterPropertyChanged(index: Int) {
+    fun onChapterPropertyChanged(index: Int) {
         _currentChapter.value = index
     }
 
-    override fun clearChapters() {
+    fun clearChapters() {
         _chapters.value = emptyList()
         _currentChapter.value = -1
     }
 }
+
+@Deprecated("Use TrackAndChapterManager directly", ReplaceWith("TrackAndChapterManager"))
+typealias RealTrackAndChapterManager = TrackAndChapterManager

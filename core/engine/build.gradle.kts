@@ -1,6 +1,5 @@
 plugins {
     id("gyro.android.library")
-    id("gyro.android.hilt")
     id("gyro.android.compose")
 }
 

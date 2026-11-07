@@ -9,36 +9,20 @@ import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
-import javax.inject.Inject
-import javax.inject.Singleton
+
+class MpvLoadException(val reason: Int, message: String) : RuntimeException(message)
 
 /**
  * Controller responsible for core playback actions (play, pause, speed, hwdec)
  * and mapping mpv playback lifecycle events into [PlaybackStore].
  */
-interface PlaybackLifecycleController : EngineSubsystem {
-    override fun registerObservers()
-    override fun onEvent(event: MpvEvent)
-    override fun reset() { release() }
-    fun play()
-    fun pause()
-    fun togglePlayPause()
-    fun setSpeed(speed: Float)
-    fun toggleHwdec()
-    fun abandonAudioFocus()
-    fun release()
-}
-
-class MpvLoadException(val reason: Int, message: String) : RuntimeException(message)
-
-@Singleton
-class RealPlaybackLifecycleController(
+open class PlaybackLifecycleController(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore,
     private val audioFocusManager: AudioFocusController,
     private val getTimePosMs: () -> Long,
     private val getRequestedTitle: () -> String = { "" }
-) : PlaybackLifecycleController {
+) : EngineSubsystem {
 
     companion object {
         private const val TAG = "PlaybackLifecycle"
@@ -148,42 +132,50 @@ class RealPlaybackLifecycleController(
                 "speed" -> store.update { it.copy(speed = event.value.toFloat()) }
                 "estimated-vf-fps" -> store.update { it.copy(fps = event.value) }
             }
-            is MpvEvent.FlagProperty -> when (event.name) {
-                "pause" -> {
-                    store.update {
-                        it.copy(
-                            isPlaying = !event.value,
-                            playbackState = if (!event.value && it.playbackState != PlaybackState.BUFFERING) {
-                                PlaybackState.READY
-                            } else {
-                                it.playbackState
-                            }
-                        )
+            is MpvEvent.FlagProperty -> {
+                when (event.name) {
+                    "pause" -> {
+                        store.update {
+                            it.copy(
+                                isPlaying = !event.value,
+                                playbackState = if (!event.value && it.playbackState != PlaybackState.BUFFERING) {
+                                    PlaybackState.READY
+                                } else {
+                                    it.playbackState
+                                }
+                            )
+                        }
                     }
-                }
-                "paused-for-cache" -> {
-                    store.update {
-                        if (event.value) {
-                            it.copy(playbackState = PlaybackState.BUFFERING)
-                        } else if (it.isPlaying) {
-                            it.copy(playbackState = PlaybackState.READY)
-                        } else {
-                            it
+                    "paused-for-cache" -> {
+                        store.update {
+                            if (event.value) {
+                                it.copy(playbackState = PlaybackState.BUFFERING)
+                            } else if (it.isPlaying) {
+                                it.copy(playbackState = PlaybackState.READY)
+                            } else {
+                                it
+                            }
                         }
                     }
                 }
             }
-            is MpvEvent.StringProperty -> when (event.name) {
-                "hwdec-current" -> store.update { it.copy(hwdecCurrent = event.value) }
-                "media-title" -> if (event.value.isNotBlank() && getRequestedTitle().isBlank()) {
-                    store.update { it.copy(mediaTitle = event.value) }
+            is MpvEvent.StringProperty -> {
+                when (event.name) {
+                    "hwdec-current" -> store.update { it.copy(hwdecCurrent = event.value) }
+                    "media-title" -> if (event.value.isNotBlank() && getRequestedTitle().isBlank()) {
+                        store.update { it.copy(mediaTitle = event.value) }
+                    }
                 }
             }
             is MpvEvent.PropertyChanged -> Unit
         }
     }
 
-    override fun play() {
+    override fun reset() {
+        release()
+    }
+
+    fun play() {
         if (!audioFocusManager.requestPlay()) {
             EngineLog.i(TAG, "play(): playback suppressed until audio focus is granted")
             return
@@ -191,12 +183,12 @@ class RealPlaybackLifecycleController(
         bridge.setPropertyBoolean("pause", false)
     }
 
-    override fun pause() {
+    fun pause() {
         audioFocusManager.notifyUserPaused()
         bridge.setPropertyBoolean("pause", true)
     }
 
-    override fun togglePlayPause() {
+    fun togglePlayPause() {
         if (store.current.isPlaying) {
             pause()
         } else {
@@ -204,11 +196,11 @@ class RealPlaybackLifecycleController(
         }
     }
 
-    override fun setSpeed(speed: Float) {
+    fun setSpeed(speed: Float) {
         bridge.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
     }
 
-    override fun toggleHwdec() {
+    fun toggleHwdec() {
         val current = store.current.hwdecCurrent
         val isHw = current.contains("mediacodec")
         val target = if (isHw) "no" else (if (bridge.isZeroCopySafe()) "mediacodec,mediacodec-copy" else "mediacodec-copy")
@@ -216,11 +208,14 @@ class RealPlaybackLifecycleController(
         store.update { it.copy(hwdecCurrent = target) }
     }
 
-    override fun abandonAudioFocus() {
+    fun abandonAudioFocus() {
         audioFocusManager.abandon()
     }
 
-    override fun release() {
+    fun release() {
         audioFocusManager.release()
     }
 }
+
+@Deprecated("Use PlaybackLifecycleController directly", ReplaceWith("PlaybackLifecycleController"))
+typealias RealPlaybackLifecycleController = PlaybackLifecycleController

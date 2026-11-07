@@ -5,16 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import javax.inject.Inject
-import javax.inject.Singleton
-
-/**
- * In-memory manager for the active playback playlist and track queue.
- *
- * This is an in-memory session coordinator rather than a persistent repository.
- */
-@Singleton
-class PlaylistManager @Inject constructor() {
+class PlaylistManager {
 
     private val _items = MutableStateFlow<List<VideoMediaItem>>(emptyList())
     val items: StateFlow<List<VideoMediaItem>> = _items.asStateFlow()

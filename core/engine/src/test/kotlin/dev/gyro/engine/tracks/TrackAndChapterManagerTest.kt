@@ -15,7 +15,7 @@ class TrackAndChapterManagerTest {
     @Before
     fun setUp() {
         bridge = FakeMpvNativeBridge()
-        manager = RealTrackAndChapterManager(bridge)
+        manager = TrackAndChapterManager(bridge)
     }
 
     @Test

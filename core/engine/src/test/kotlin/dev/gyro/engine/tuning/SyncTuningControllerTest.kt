@@ -12,7 +12,7 @@ import org.junit.Test
 class SyncTuningControllerTest {
 
     private val bridge = FakeMpvNativeBridge()
-    private val controller = RealSyncTuningController(bridge)
+    private val controller = SyncTuningController(bridge)
     private var scope: CoroutineScope? = null
 
     @After

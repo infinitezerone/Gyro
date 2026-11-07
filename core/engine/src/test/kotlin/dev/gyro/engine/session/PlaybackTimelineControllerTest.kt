@@ -1,8 +1,8 @@
 package dev.gyro.engine.session
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.engine.tracks.RealTrackAndChapterManager
-import dev.gyro.engine.video.RealVideoGeometryCoordinator
+import dev.gyro.engine.tracks.TrackAndChapterManager
+import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,18 +16,18 @@ import org.junit.Test
 class PlaybackTimelineControllerTest {
 
     private lateinit var bridge: FakeMpvNativeBridge
-    private lateinit var geometry: RealVideoGeometryCoordinator
-    private lateinit var trackManager: RealTrackAndChapterManager
+    private lateinit var geometry: VideoGeometryCoordinator
+    private lateinit var trackManager: TrackAndChapterManager
     private lateinit var timeline: PlaybackTimelineController
     private var nowMs = 10_000L
 
     @Before
     fun setUp() {
         bridge = FakeMpvNativeBridge()
-        geometry = RealVideoGeometryCoordinator(bridge)
-        trackManager = RealTrackAndChapterManager(bridge)
+        geometry = VideoGeometryCoordinator(bridge)
+        trackManager = TrackAndChapterManager(bridge)
         nowMs = 10_000L
-        timeline = RealPlaybackTimelineController(
+        timeline = PlaybackTimelineController(
             bridge = bridge,
             geometry = geometry,
             trackManager = trackManager,

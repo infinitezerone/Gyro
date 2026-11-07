@@ -21,27 +21,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Coordinates media resolution, asynchronous queueing while awaiting Surface attachment,
  * and dispatching the `loadfile` command to mpv with appropriate resume timestamps.
  */
-interface MediaLoadCoordinator {
-    val isSurfaceAttached: Boolean
-    val requestedTitle: String
-
-    fun load(item: MediaItem)
-    fun attachSurface(surface: Surface)
-    fun attachSurface(surfaceToken: Any = Any())
-    fun detachSurface(surface: Any? = null)
-    fun redraw()
-    fun release()
-}
-
-@Singleton
-class RealMediaLoadCoordinator(
+class MediaLoadCoordinator(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore,
     private val resolver: MediaResourceResolver,
@@ -52,18 +37,18 @@ class RealMediaLoadCoordinator(
     private val playbackController: PlaybackLifecycleController,
     private val coroutineScope: () -> CoroutineScope,
     private val ensureInitialized: () -> Unit
-) : MediaLoadCoordinator {
+) {
 
     companion object {
         private const val TAG = "MediaLoadCoordinator"
     }
 
     @Volatile
-    override var isSurfaceAttached: Boolean = false
+    var isSurfaceAttached: Boolean = false
         private set
 
     @Volatile
-    override var requestedTitle: String = ""
+    var requestedTitle: String = ""
         private set
 
     private var attachedSurfaceRef: Any? = null
@@ -86,7 +71,7 @@ class RealMediaLoadCoordinator(
         pendingLabel = ""
     }
 
-    override fun load(item: MediaItem) {
+    fun load(item: MediaItem) {
         val target = item.target.ifBlank { item.uri?.toString().orEmpty() }
         beginLoad(
             target = target,
@@ -209,14 +194,14 @@ class RealMediaLoadCoordinator(
         playbackController.play()
     }
 
-    override fun attachSurface(surface: Surface) {
+    fun attachSurface(surface: Surface) {
         attachedSurfaceRef = surface
         isSurfaceAttached = true
         bridge.attachSurface(surface)
         flushPendingSourceOnSurfaceReady()
     }
 
-    override fun attachSurface(surfaceToken: Any) {
+    fun attachSurface(surfaceToken: Any) {
         if (surfaceToken is Surface) {
             attachSurface(surfaceToken)
             return
@@ -237,7 +222,7 @@ class RealMediaLoadCoordinator(
         }
     }
 
-    override fun detachSurface(surface: Any?) {
+    fun detachSurface(surface: Any?) {
         if (!isSurfaceAttached) return
         if (surface != null && attachedSurfaceRef !== surface) {
             EngineLog.i(TAG, "detachSurface ignored: engine holds a different surface")
@@ -248,15 +233,18 @@ class RealMediaLoadCoordinator(
         bridge.detachSurface()
     }
 
-    override fun redraw() {
+    fun redraw() {
         SwitchTrace.log("REDRAW_REQUESTED", "surfaceAttached=$isSurfaceAttached")
         if (isSurfaceAttached) {
             bridge.redraw()
         }
     }
 
-    override fun release() {
+    fun release() {
         currentLoadJob?.cancel()
         discardPending()
     }
 }
+
+@Deprecated("Use MediaLoadCoordinator directly", ReplaceWith("MediaLoadCoordinator"))
+typealias RealMediaLoadCoordinator = MediaLoadCoordinator

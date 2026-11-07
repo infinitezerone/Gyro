@@ -17,7 +17,7 @@ class VideoGeometryCoordinatorTest {
     @Before
     fun setUp() {
         bridge = FakeMpvNativeBridge()
-        coordinator = RealVideoGeometryCoordinator(bridge)
+        coordinator = VideoGeometryCoordinator(bridge)
     }
 
     @Test

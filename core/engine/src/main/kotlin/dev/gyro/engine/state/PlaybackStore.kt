@@ -10,25 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import javax.inject.Inject
-import javax.inject.Singleton
-
-/**
- * The single state container for the whole playback engine.
- *
- * Every controller writes through [update]; nothing else owns a `MutableStateFlow` of playback
- * state. What controllers expose as `StateFlow<T>` is a zero-coroutine projection produced by
- * [select], so there is exactly one source of truth, every read is a view of it, and no background
- * coroutines wake up when unrelated fields change.
- *
- * [batch] coalesces multiple mutations within a single event dispatch into one atomic state
- * transition while keeping intermediate reads consistent on the calling thread.
- *
- * `timePosMs`/`bufferedPosMs` deliberately stay outside this object: they change at report
- * frequency and must not make the UI recompose the whole surface on every tick.
- */
-@Singleton
-class PlaybackStore @Inject constructor() {
+class PlaybackStore {
 
     private val _state = MutableStateFlow(PlaybackSnapshot())
     val state: StateFlow<PlaybackSnapshot> = _state.asStateFlow()

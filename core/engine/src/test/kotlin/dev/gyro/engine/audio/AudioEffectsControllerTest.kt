@@ -15,7 +15,7 @@ class AudioEffectsControllerTest {
     @Before
     fun setUp() {
         bridge = FakeMpvNativeBridge()
-        controller = RealAudioEffectsController(bridge)
+        controller = AudioEffectsController(bridge)
     }
 
     @Test
