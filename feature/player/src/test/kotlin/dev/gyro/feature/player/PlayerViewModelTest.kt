@@ -113,6 +113,7 @@ class PlayerViewModelTest {
             subtitleRepository = fakeSubtitleRepo,
             uriParser = UriParser { TestUri(it) },
             mediaRepository = mediaRepo,
+            scope = testScope,
         )
     }
 
@@ -140,6 +141,10 @@ class PlayerViewModelTest {
             body()
         } finally {
             viewModel.viewModelScope.cancel()
+            // Must happen inside runTest, before its final advanceUntilIdle: the orchestrator
+            // checkpoint ticker is an unbounded virtual-time loop on this scope, and the @After
+            // teardown only runs after the drain - cancelling there is too late.
+            testScope.cancel()
         }
     }
 
