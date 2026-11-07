@@ -1,14 +1,15 @@
 package dev.gyro.engine.config
 
-import android.util.Log
 import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.UserSettings
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.trace.EngineLog
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Translates `mpv.conf` and GUI settings into mpv options.
+ * Translates `mpv.conf` and GUI settings into mpv options and manages configuration lifecycle.
  *
  * mpv only accepts options before the core exists, so [apply] runs synchronously between
  * `create()` and `init()`. Three layers, in order:
@@ -16,9 +17,6 @@ import javax.inject.Singleton
  * 1. user `mpv.conf` entries, minus the keys that can break the native pipeline;
  * 2. GUI settings, which always win over the file;
  * 3. defaults for the keys the user did not provide at all.
- *
- * Nothing here reads or writes playback state: it is a one-shot translation of configuration into
- * options, which is why it can be tested without an engine.
  */
 @Singleton
 class MpvOptionConfigurator @Inject constructor() {
@@ -36,21 +34,140 @@ class MpvOptionConfigurator @Inject constructor() {
         )
     }
 
+    /**
+     * Immutable snapshot of current options, settings and whether defaults-only initialization took place.
+     */
+    data class State(
+        val userOptions: Map<String, String> = emptyMap(),
+        val settings: UserSettings = UserSettings(),
+        val isDefaultsOnly: Boolean = true
+    ) {
+        val isExplicit: Boolean get() = userOptions.isNotEmpty() || settings != UserSettings()
+    }
+
+    private val _state = AtomicReference(State())
+    val currentState: State get() = _state.get()
+
+    /**
+     * Atomically records initial configuration and translates it into mpv options before `bridge.init()`.
+     */
+    fun applyInitial(
+        bridge: MpvNativeBridge,
+        userOptions: Map<String, String> = currentState.userOptions,
+        settings: UserSettings = currentState.settings
+    ) {
+        val updated = _state.updateAndGet { current ->
+            val hasExplicit = userOptions.isNotEmpty() || settings != UserSettings()
+            State(
+                userOptions = if (hasExplicit) userOptions else current.userOptions,
+                settings = if (hasExplicit) settings else current.settings,
+                isDefaultsOnly = !hasExplicit && current.isDefaultsOnly
+            )
+        }
+        apply(bridge, updated.userOptions, updated.settings)
+    }
+
+    /**
+     * If the engine was previously initialized with defaults only, upgrades it with explicit options.
+     */
+    fun upgradeIfDefaultsOnly(
+        bridge: MpvNativeBridge,
+        userOptions: Map<String, String>,
+        settings: UserSettings
+    ): Boolean {
+        var upgraded = false
+        _state.updateAndGet { current ->
+            val hasExplicit = userOptions.isNotEmpty() || settings != UserSettings()
+            if (hasExplicit && current.isDefaultsOnly) {
+                upgraded = true
+                State(userOptions = userOptions, settings = settings, isDefaultsOnly = false)
+            } else {
+                current
+            }
+        }
+        if (upgraded) {
+            apply(bridge, userOptions, settings)
+        }
+        return upgraded
+    }
+
+    /**
+     * Atomically updates configuration in memory and hot-applies it to the running mpv instance.
+     */
+    fun applyRuntimeUpdate(
+        bridge: MpvNativeBridge,
+        settings: UserSettings = currentState.settings,
+        userOptions: Map<String, String> = currentState.userOptions
+    ) {
+        _state.updateAndGet {
+            State(userOptions = userOptions, settings = settings, isDefaultsOnly = false)
+        }
+        applyRuntime(bridge, userOptions, settings)
+    }
+
+    /**
+     * Updates configuration without applying to bridge (e.g. before bridge initialization).
+     */
+    fun updateConfig(
+        userOptions: Map<String, String> = currentState.userOptions,
+        settings: UserSettings = currentState.settings
+    ) {
+        _state.updateAndGet { current ->
+            val hasExplicit = userOptions.isNotEmpty() || settings != UserSettings()
+            State(
+                userOptions = if (hasExplicit) userOptions else current.userOptions,
+                settings = if (hasExplicit) settings else current.settings,
+                isDefaultsOnly = !hasExplicit && current.isDefaultsOnly
+            )
+        }
+    }
+
     fun apply(bridge: MpvNativeBridge, userOptions: Map<String, String>, settings: UserSettings) {
         applyUserOptions(bridge, userOptions)
         applyGuiSettings(bridge, userOptions, settings)
+    }
+
+    /**
+     * Hot-applies updated GUI [settings] and [userOptions] to an already-initialized mpv instance
+     * using runtime properties alongside option table updates for subsequent file loads.
+     */
+    fun applyRuntime(bridge: MpvNativeBridge, userOptions: Map<String, String>, settings: UserSettings) {
+        for ((key, value) in userOptions) {
+            val normalizedKey = key.trim().lowercase()
+            if (normalizedKey in PROTECTED_OPTION_KEYS) {
+                EngineLog.w(TAG, "Ignoring protected mpv.conf key '$key' with value '$value'")
+                continue
+            }
+            val optCode = bridge.setOptionString(key, value)
+            if (optCode != 0) {
+                EngineLog.w(TAG, "mpv rejected option '$key=$value' (code=$optCode)")
+            }
+            bridge.setPropertyString(key, value)
+        }
+        val requestedHwdec = settings.defaultHwdec.trim().ifBlank { HWDEC_HARDWARE }
+        val hwdecConfig = if (requestedHwdec == HWDEC_HARDWARE) {
+            "$HWDEC_HARDWARE,mediacodec-copy"
+        } else {
+            requestedHwdec
+        }
+        bridge.setOptionString("hwdec", hwdecConfig)
+        bridge.setPropertyString("hwdec", hwdecConfig)
+
+        val subAuto = if (settings.subAutoLoad) "all" else "no"
+        bridge.setOptionString("sub-auto", subAuto)
+        bridge.setPropertyString("sub-auto", subAuto)
     }
 
     private fun applyUserOptions(bridge: MpvNativeBridge, userOptions: Map<String, String>) {
         for ((key, value) in userOptions) {
             val normalizedKey = key.trim().lowercase()
             if (normalizedKey in PROTECTED_OPTION_KEYS) {
-                Log.w(TAG, "Ignoring protected mpv.conf key '$key' with value '$value'")
+                EngineLog.w(TAG, "Ignoring protected mpv.conf key '$key' with value '$value'")
                 continue
             }
             val code = bridge.setOptionString(key, value)
             if (code != 0) {
-                Log.w(TAG, "mpv rejected option '$key=$value' (code=$code)")
+                EngineLog.w(TAG, "mpv rejected option '$key=$value' (code=$code)")
             }
         }
     }
@@ -61,10 +178,6 @@ class MpvOptionConfigurator @Inject constructor() {
         settings: UserSettings
     ) {
         val userHwdec = settings.defaultHwdec.trim()
-        // Hardware is the default: software decoding caps a phone at 1080p H.264 and cannot play 4K
-        // HEVC at all. Failures go to mpv's own two fallbacks rather than to the default value:
-        // `mediacodec,mediacodec-copy` lets a codec that refuses the surface play through copy-back,
-        // and `hwdec-software-fallback` (set below) continues on libavcodec after N frames fail.
         val requestedHwdec = userHwdec.ifBlank { HWDEC_HARDWARE }
         val hwdecConfig = if (requestedHwdec == HWDEC_HARDWARE) {
             "$HWDEC_HARDWARE,mediacodec-copy"
@@ -73,12 +186,7 @@ class MpvOptionConfigurator @Inject constructor() {
         }
         bridge.setOptionString("hwdec", hwdecConfig)
         bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
-        // Set after mpv.conf so a user config cannot silently turn the fallback off.
         bridge.setOptionString("hwdec-software-fallback", "3")
-        // `vo` only, which is mpv's recommended mode and what mpv-android runs: the video output
-        // drops the frame at the last moment, when it is known the display cannot show it. Adding
-        // `decoder` lets the decoder guess instead, and mpv documents that as "not recommended ...
-        // can produce unwatchable choppy output".
         bridge.setOptionString("framedrop", "vo")
 
         bridge.setOptionString("sub-auto", if (settings.subAutoLoad) "all" else "no")

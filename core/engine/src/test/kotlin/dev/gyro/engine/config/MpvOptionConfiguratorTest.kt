@@ -71,4 +71,46 @@ class MpvOptionConfiguratorTest {
         assertEquals("audiotrack,opensles", bridge.options["ao"])
         assertEquals("200.0", bridge.options["volume-max"])
     }
+
+    @Test
+    fun statefulConfigLifecycle_defaultsThenExplicitUpgrade() {
+        val configurator = MpvOptionConfigurator()
+        val bridge = FakeMpvNativeBridge()
+
+        configurator.applyInitial(bridge, emptyMap(), UserSettings())
+        org.junit.Assert.assertTrue(configurator.currentState.isDefaultsOnly)
+
+        val upgraded = configurator.upgradeIfDefaultsOnly(
+            bridge,
+            mapOf("speed" to "1.5"),
+            UserSettings(defaultHwdec = "mediacodec-copy")
+        )
+        org.junit.Assert.assertTrue(upgraded)
+        assertFalse(configurator.currentState.isDefaultsOnly)
+        assertEquals("mediacodec-copy", bridge.options["hwdec"])
+
+        // Second upgrade attempt should be a no-op since it's already configured
+        val secondUpgrade = configurator.upgradeIfDefaultsOnly(
+            bridge,
+            mapOf("speed" to "2.0"),
+            UserSettings()
+        )
+        assertFalse(secondUpgrade)
+    }
+
+    @Test
+    fun statefulConfigLifecycle_runtimeHotUpdate() {
+        val configurator = MpvOptionConfigurator()
+        val bridge = FakeMpvNativeBridge()
+
+        configurator.applyRuntimeUpdate(
+            bridge,
+            UserSettings(defaultHwdec = "no", subAutoLoad = false),
+            mapOf("panscan" to "1.0")
+        )
+        assertEquals("no", bridge.properties["hwdec"])
+        assertEquals("no", bridge.properties["sub-auto"])
+        assertEquals("1.0", bridge.properties["panscan"])
+        assertFalse(configurator.currentState.isDefaultsOnly)
+    }
 }
