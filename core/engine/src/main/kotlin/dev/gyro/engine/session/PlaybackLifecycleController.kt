@@ -21,11 +21,13 @@ open class PlaybackLifecycleController(
     private val store: PlaybackStore,
     private val audioFocusManager: AudioFocusController,
     private val getTimePosMs: () -> Long,
-    private val getRequestedTitle: () -> String = { "" }
+    private val getRequestedTitle: () -> String = { "" },
+    private val onReplay: () -> Unit = NoOpReplay
 ) : EngineSubsystem {
 
     companion object {
         private const val TAG = "PlaybackLifecycle"
+        private val NoOpReplay: () -> Unit = {}
 
         internal fun currentSessionTarget(phase: SessionPhase): String = when (phase) {
             is SessionPhase.Submitting -> phase.target
@@ -176,6 +178,21 @@ open class PlaybackLifecycleController(
     }
 
     fun play() {
+        val currentDuration = store.current.durationMs
+        val currentPos = getTimePosMs()
+        val isAtEnd = store.current.playbackState == PlaybackState.ENDED ||
+            (currentDuration > 0L && currentPos >= currentDuration - 500L)
+
+        if (isAtEnd) {
+            EngineLog.i(TAG, "play(): video is at end, replaying from start")
+            if (onReplay !== NoOpReplay) {
+                onReplay()
+            } else {
+                bridge.command(arrayOf("seek", "0", "absolute"))
+            }
+            store.update { it.copy(playbackState = PlaybackState.READY) }
+        }
+
         if (!audioFocusManager.requestPlay()) {
             EngineLog.i(TAG, "play(): playback suppressed until audio focus is granted")
             return

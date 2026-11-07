@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
@@ -179,13 +180,18 @@ fun PlayerBottomBar(
                         }
                     }
 
-                    // 纯悬浮 播放/暂停
+                    // 纯悬浮 播放/暂停/重播
+                    val isEnded = !isPlaying && totalMs > 0L && displayPos >= totalMs - 500L
                     IconButton(
                         onClick = onTogglePlayPause,
                         modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            imageVector = when {
+                                isPlaying -> Icons.Default.Pause
+                                isEnded -> Icons.Default.Refresh
+                                else -> Icons.Default.PlayArrow
+                            },
                             contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
                             tint = Color.White,
                             modifier = Modifier.size(26.dp)

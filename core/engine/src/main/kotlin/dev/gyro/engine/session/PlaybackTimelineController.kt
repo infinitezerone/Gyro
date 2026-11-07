@@ -178,6 +178,10 @@ open class PlaybackTimelineController internal constructor(
     }
 
     fun seekTo(positionMs: Long) {
+        val dur = _durationMs.value
+        if (store.current.playbackState == dev.gyro.engine.model.PlaybackState.ENDED && (dur <= 0L || positionMs < dur - 1000L)) {
+            store.update { it.copy(playbackState = dev.gyro.engine.model.PlaybackState.READY) }
+        }
         if (!isFileLoaded) {
             pendingSeekMs = positionMs
             return

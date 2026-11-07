@@ -10,10 +10,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -83,7 +86,7 @@ fun PlayerScrubBar(
         0f
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(28.dp)
@@ -117,6 +120,8 @@ fun PlayerScrubBar(
             },
         contentAlignment = Alignment.CenterStart
     ) {
+        val totalWidth = maxWidth
+
         // 1. 底轨 (Background Track)
         Box(
             modifier = Modifier
@@ -126,23 +131,27 @@ fun PlayerScrubBar(
                 .background(Color.White.copy(alpha = 0.22f))
         )
 
-        // 2. 缓冲进度 (Buffered Track)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(bufferedRatio)
-                .height(barHeight)
-                .clip(RoundedCornerShape(barHeight / 2))
-                .background(Color.White.copy(alpha = 0.45f))
-        )
+        // 2. 缓冲进度 (Buffered Track) - 大于 0 时才绘制，避免 0 宽度圆角锯齿
+        if (bufferedRatio > 0f) {
+            Box(
+                modifier = Modifier
+                    .width(totalWidth * bufferedRatio)
+                    .height(barHeight)
+                    .clip(RoundedCornerShape(barHeight / 2))
+                    .background(Color.White.copy(alpha = 0.45f))
+            )
+        }
 
-        // 3. 播放进度 (Active Played Track)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(playedRatio)
-                .height(barHeight)
-                .clip(RoundedCornerShape(barHeight / 2))
-                .background(Color(0xFF64B5F6))
-        )
+        // 3. 播放进度 (Active Played Track) - 大于 0 时才绘制，避免 0 进度条显示为白点或异常挤压
+        if (playedRatio > 0f) {
+            Box(
+                modifier = Modifier
+                    .width(totalWidth * playedRatio)
+                    .height(barHeight)
+                    .clip(RoundedCornerShape(barHeight / 2))
+                    .background(Color(0xFF64B5F6))
+            )
+        }
 
         // 4. 微光章节刻度标线 (Chapter Demarcation Micro-Ticks)
         if (chapterFractions.isNotEmpty()) {
@@ -180,21 +189,18 @@ fun PlayerScrubBar(
         }
 
         // 5. 动态滑块 (Thumb)
-        if (thumbSize > 0.dp) {
-            Box(
+        // 沿轨道平滑运动：在 0 时对齐 0dp（完整处于左端圆角内，不向负坐标凸出越界或被裁剪）；在 1 时对齐 (totalWidth - thumbSize)
+        if (thumbSize > 0.dp && totalWidth > thumbSize) {
+            val thumbOffset = ((totalWidth - thumbSize) * playedRatio).coerceIn(0.dp, totalWidth - thumbSize)
+            Surface(
+                shape = CircleShape,
+                color = Color.White,
+                shadowElevation = 4.dp,
+                border = BorderStroke(2.dp, Color(0xFF1976D2)),
                 modifier = Modifier
-                    .fillMaxWidth(playedRatio)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color.White,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(2.dp, Color(0xFF1976D2)),
-                    modifier = Modifier.size(thumbSize)
-                ) {}
-            }
+                    .offset(x = thumbOffset)
+                    .size(thumbSize)
+            ) {}
         }
     }
 }

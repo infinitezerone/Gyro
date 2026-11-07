@@ -98,7 +98,8 @@ class GyroPlayerEngine(
             AudioFocusController.NoOp
         },
         getTimePosMs = { timeline.timePosMs.value },
-        getRequestedTitle = { loadCoordinator.requestedTitle }
+        getRequestedTitle = { loadCoordinator.requestedTitle },
+        onReplay = { timeline.seekTo(0L) }
     )
 
     internal val loadCoordinator: MediaLoadCoordinator = MediaLoadCoordinator(

@@ -125,4 +125,23 @@ class PlaybackLifecycleControllerTest {
         controller.release()
         assertTrue(releaseCalled)
     }
+
+    @Test
+    fun play_whenEnded_replaysFromBeginning() {
+        var replayInvoked = false
+        val replayController = PlaybackLifecycleController(
+            bridge = bridge,
+            store = store,
+            audioFocusManager = fakeAudioFocus,
+            getTimePosMs = { 10_000L },
+            onReplay = { replayInvoked = true }
+        )
+        store.update { it.copy(playbackState = PlaybackState.ENDED, durationMs = 10_000L) }
+
+        replayController.play()
+
+        assertTrue(replayInvoked)
+        assertEquals(PlaybackState.READY, store.current.playbackState)
+        assertEquals(false, bridge.properties["pause"])
+    }
 }
