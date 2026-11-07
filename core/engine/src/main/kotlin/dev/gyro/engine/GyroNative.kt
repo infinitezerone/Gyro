@@ -1,8 +1,8 @@
 package dev.gyro.engine
 
 import android.content.Context
-import android.util.Log
 import android.view.Surface
+import dev.gyro.engine.trace.EngineLog
 
 /**
  * Native JNI bridge to `libgyro_engine.so`.
@@ -19,7 +19,7 @@ internal object GyroNative {
         try {
             System.loadLibrary("gyro_engine")
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "Native library gyro_engine not loaded: ${e.message}")
+            EngineLog.w(TAG, "Native library gyro_engine not loaded: ${e.message}")
         }
     }
 
@@ -64,6 +64,11 @@ internal object GyroNative {
     @JvmStatic
     fun onEvent(eventId: Int) {
         eventBus.publish(MpvEvent.Lifecycle(eventId))
+    }
+
+    @JvmStatic
+    fun onEndFile(reason: Int) {
+        eventBus.publish(MpvEvent.EndFile(reason))
     }
 
     @JvmStatic
@@ -115,5 +120,13 @@ internal object GyroNative {
          * this is what lets the UI drop the cover over it.
          */
         const val FIRST_FRAME: Int = 1002
+    }
+
+    object EndReason {
+        const val EOF: Int = 0
+        const val STOP: Int = 2
+        const val QUIT: Int = 3
+        const val ERROR: Int = 4
+        const val REDIRECT: Int = 5
     }
 }

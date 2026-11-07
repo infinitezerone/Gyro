@@ -90,7 +90,7 @@ class FakeMpvNativeBridgeTest {
     fun testLifecycleCounters_sequentialInvocationsIncrementIndependently() {
         fakeBridge.create(testContext)
         fakeBridge.create(testContext)
-        fakeBridge.create(testContext)
+        fakeBridge.create()
         assertEquals("createCount must be 3", 3, fakeBridge.createCount)
         assertEquals("initCount must remain 0", 0, fakeBridge.initCount)
         assertEquals("destroyCount must remain 0", 0, fakeBridge.destroyCount)
@@ -324,12 +324,14 @@ class FakeMpvNativeBridgeTest {
         fakeBridge.emitEvent(MpvNativeBridge.Event.PLAYBACK_RESTART)
         fakeBridge.emitTracksChanged()
         fakeBridge.emitEndFile()
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
         fakeBridge.emitShutdown()
 
         val expected = listOf(
             MpvEvent.Lifecycle(MpvNativeBridge.Event.PLAYBACK_RESTART),
             MpvEvent.Lifecycle(MpvNativeBridge.Event.TRACKS_CHANGED),
             MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE),
+            MpvEvent.EndFile(MpvNativeBridge.EndReason.ERROR),
             MpvEvent.Lifecycle(MpvNativeBridge.Event.SHUTDOWN)
         )
         assertEquals(expected, events)
@@ -342,6 +344,7 @@ class FakeMpvNativeBridgeTest {
         fakeBridge.emitEvent(MpvNativeBridge.Event.PLAYBACK_RESTART)
         fakeBridge.emitTracksChanged()
         fakeBridge.emitEndFile()
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
         fakeBridge.emitShutdown()
         fakeBridge.emitFileLoaded()
         fakeBridge.emitProperty("test")
@@ -398,6 +401,7 @@ class FakeMpvNativeBridgeTest {
                     is MpvEvent.FlagProperty -> fakeBridge.getPropertyBoolean(event.name)
                     is MpvEvent.StringProperty -> fakeBridge.getPropertyString(event.name)
                     is MpvEvent.Lifecycle -> null
+                    is MpvEvent.EndFile -> event.reason
                 }
             )
         }

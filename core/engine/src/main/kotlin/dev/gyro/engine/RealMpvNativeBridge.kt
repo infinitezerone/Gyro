@@ -17,7 +17,8 @@ open class RealMpvNativeBridge @Inject constructor() : MpvNativeBridge {
     override val events
         get() = GyroNative.events
 
-    override fun create(appctx: Context) {
+    override fun create(appctx: Context?) {
+        requireNotNull(appctx) { "Context is required to initialize native mpv instance" }
         GyroNative.create(appctx)
     }
 

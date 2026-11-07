@@ -17,7 +17,7 @@ interface MpvNativeBridge {
     /**
      * Creates and initializes the underlying mpv instance context.
      */
-    fun create(appctx: Context)
+    fun create(appctx: Context? = null)
 
     /**
      * Initializes the mpv core after setting pre-init options.
@@ -151,5 +151,13 @@ interface MpvNativeBridge {
          * this is what lets the UI drop the cover over it.
          */
         const val FIRST_FRAME: Int = 1002
+    }
+
+    object EndReason {
+        const val EOF: Int = 0
+        const val STOP: Int = 2
+        const val QUIT: Int = 3
+        const val ERROR: Int = 4
+        const val REDIRECT: Int = 5
     }
 }

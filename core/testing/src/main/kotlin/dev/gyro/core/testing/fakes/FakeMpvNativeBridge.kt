@@ -71,7 +71,7 @@ class FakeMpvNativeBridge(
     val observedProperties: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
     val attachedSurfaces: CopyOnWriteArrayList<Surface> = CopyOnWriteArrayList()
 
-    override fun create(appctx: Context) {
+    override fun create(appctx: Context?) {
         _createCount.incrementAndGet()
     }
 
@@ -217,6 +217,13 @@ class FakeMpvNativeBridge(
      */
     fun emitEndFile() {
         emitEvent(MpvNativeBridge.Event.END_FILE)
+    }
+
+    /**
+     * Simulates reason-bearing END_FILE event (`MpvEvent.EndFile(reason)`).
+     */
+    fun emitEndFile(reason: Int) {
+        bus.publish(MpvEvent.EndFile(reason))
     }
 
     /**

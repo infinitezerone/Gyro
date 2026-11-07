@@ -128,7 +128,7 @@ class MpvEventBusTest {
     }
 
     @Test(timeout = 15_000)
-    fun publish_slowConsumerAppliesBackpressureWithoutLosingLifecycleEvents() {
+    fun publish_isNonBlockingAndBuffersEventsForConsumer() {
         val lifecycleIds = listOf(
             MpvNativeBridge.Event.FILE_LOADED,
             MpvNativeBridge.Event.TRACKS_CHANGED,
@@ -149,32 +149,32 @@ class MpvEventBusTest {
                 val index = slowEvents.size
                 slowEvents.add(event)
                 received[index].countDown()
-                // Hold each handler until the test explicitly allows the next event.
                 withTimeout(5_000) { allowNext[index].await() }
             }
         }
         assertEquals(2, bus.subscriptionCount.value)
 
-        // A blocked test scheduler cannot resume the suspended collector.
         val executor = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "mpv-event-bus-publisher").apply { isDaemon = true }
+            Thread(runnable, "mpv-event-pipeline-publisher").apply { isDaemon = true }
         }
-        val secondPublishStarted = CountDownLatch(1)
         val secondPublishFinished = CountDownLatch(1)
+        val allPublished = CountDownLatch(1)
         val publisher = executor.submit {
             expected.forEachIndexed { index, event ->
-                if (index == 1) secondPublishStarted.countDown()
                 bus.publish(event)
                 if (index == 1) secondPublishFinished.countDown()
             }
+            allPublished.countDown()
         }
 
         try {
-            assertTrue("First event was not received", received[0].await(5, TimeUnit.SECONDS))
-            assertTrue("Publisher did not advance", secondPublishStarted.await(5, TimeUnit.SECONDS))
-            assertFalse(
-                "Publish must wait while the slow subscriber is still handling the first event",
-                secondPublishFinished.await(100, TimeUnit.MILLISECONDS)
+            assertTrue(
+                "Publish must be non-blocking and advance immediately",
+                secondPublishFinished.await(500, TimeUnit.MILLISECONDS)
+            )
+            assertTrue(
+                "All events should publish rapidly without waiting for consumer",
+                allPublished.await(1, TimeUnit.SECONDS)
             )
 
             expected.indices.forEach { index ->
