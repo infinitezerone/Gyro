@@ -72,6 +72,8 @@ class MediaSessionManager(
 
     var onPlaybackStateChanged: ((isPlaying: Boolean) -> Unit)? = null
     var onStopRequested: (() -> Unit)? = null
+    var onSkipToNext: (() -> Boolean)? = null
+    var onSkipToPrevious: (() -> Boolean)? = null
 
     private val sessionCallback = object : MediaSession.Callback() {
         override fun onPlay() {
@@ -199,12 +201,16 @@ class MediaSessionManager(
     }
 
     fun skipToNext(): Boolean {
+        val handled = onSkipToNext?.invoke()
+        if (handled == true) return true
         val next = playlistManager.playNext() ?: return false
         engine.load(uriParser(next.uriString), displayTitle = next.displayName)
         return true
     }
 
     fun skipToPrevious(): Boolean {
+        val handled = onSkipToPrevious?.invoke()
+        if (handled == true) return true
         val prev = playlistManager.playPrevious() ?: return false
         engine.load(uriParser(prev.uriString), displayTitle = prev.displayName)
         return true

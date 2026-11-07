@@ -29,7 +29,7 @@ import javax.inject.Inject
 class PlaybackService : Service() {
 
     @Inject lateinit var engine: GyroPlayerEngine
-    @Inject lateinit var playlistManager: PlaylistManager
+    @Inject lateinit var orchestrator: dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -94,10 +94,10 @@ class PlaybackService : Service() {
         Log.i(TAG, "PlaybackService created")
         createNotificationChannel()
 
-        setupMediaSessionManager(engine, playlistManager)
+        setupMediaSessionManager(engine, engine.playlist)
     }
 
-    fun setupMediaSessionManager(engine: GyroPlayerEngine, playlistManager: PlaylistManager) {
+    fun setupMediaSessionManager(engine: GyroPlayerEngine, playlistManager: PlaylistManager = engine.playlist) {
         mediaSessionManager?.release()
         val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(this, PlaybackService::class.java)
         val buttonPendingIntent = PendingIntent.getService(
@@ -118,6 +118,12 @@ class PlaybackService : Service() {
             onStopRequested = {
                 stopForegroundAndSelf()
             }
+            onSkipToNext = {
+                orchestrator.playNext()
+            }
+            onSkipToPrevious = {
+                orchestrator.playPrevious()
+            }
         }
     }
 
@@ -129,7 +135,7 @@ class PlaybackService : Service() {
 
         // Lazy-connect engine if not yet attached
         if (mediaSessionManager == null) {
-            setupMediaSessionManager(engine, playlistManager)
+            setupMediaSessionManager(engine, engine.playlist)
         }
 
         when (action) {
@@ -139,11 +145,13 @@ class PlaybackService : Service() {
             ACTION_PREV -> mediaSessionManager?.skipToPrevious()
             ACTION_NEXT -> mediaSessionManager?.skipToNext()
             ACTION_STOP -> {
+                orchestrator.saveCurrentProgress()
                 engine.pause()
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }
             ACTION_DISMISS -> {
+                orchestrator.saveCurrentProgress()
                 stopForegroundAndSelf()
                 return START_NOT_STICKY
             }

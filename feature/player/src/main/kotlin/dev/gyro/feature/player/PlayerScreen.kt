@@ -150,10 +150,11 @@ fun PlayerScreen(
         }
     }
 
-    val playlist by (playlistManager?.items ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList()) }).collectAsState()
-    val currentPlaylistIndex by (playlistManager?.currentIndex ?: remember { kotlinx.coroutines.flow.MutableStateFlow(-1) }).collectAsState()
-    val hasPrevious = playlistManager?.hasPrevious ?: false
-    val hasNext = playlistManager?.hasNext ?: false
+    val playlistMgr = playlistManager ?: engine.playlist
+    val playlist by playlistMgr.items.collectAsState()
+    val currentPlaylistIndex by playlistMgr.currentIndex.collectAsState()
+    val hasPrevious = playlistMgr.hasPrevious
+    val hasNext = playlistMgr.hasNext
 
     fun openUri(uri: Uri) {
         viewModel.openUri(uri)
@@ -788,7 +789,7 @@ fun PlayerScreen(
                     stereoDownmix = stereoDownmix,
                     onDismiss = { playerState.activeSheetTab = null },
                     onSelectPlaylistItem = { idx ->
-                        playlistManager?.playAtIndex(idx)?.let { playMediaItem(it) }
+                        playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
                         playerState.activeSheetTab = null
                     },
                     onSelectChapter = { idx ->

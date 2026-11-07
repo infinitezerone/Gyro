@@ -40,7 +40,7 @@ import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.MpvConfigRepository
-import dev.gyro.engine.media.PlaylistManager
+import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen
@@ -71,7 +71,7 @@ private val navEffectsSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var playerEngine: GyroPlayerEngine
-    @Inject lateinit var playlistManager: PlaylistManager
+    @Inject lateinit var orchestrator: PlaybackSessionOrchestrator
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var mpvConfigRepository: MpvConfigRepository
     private val homeViewModel: HomeViewModel by viewModels()
@@ -116,10 +116,7 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
-                    playlistManager.setSingle(uri, uri.lastPathSegment ?: "Video")
-                    // Opening another video from outside while a player page is already on top
-                    // must replace it, not stack: every VIEW intent used to push one more player
-                    // entry, so the back gesture walked back through every video ever opened.
+                    orchestrator.setSingleAndPlay(uri, uri.lastPathSegment ?: "Video")
                     val top = backStack.lastOrNull()
                     if (top is Screen.Player) {
                         if (top.uri == uri) return@LaunchedEffect
@@ -127,7 +124,6 @@ class MainActivity : ComponentActivity() {
                     }
                     playerViewModel.notifyScreenEntry()
                     backStack.add(Screen.Player(uri))
-                    playerViewModel.openUri(uri)
                 }
             }
 
@@ -217,12 +213,10 @@ class MainActivity : ComponentActivity() {
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 onPlayVideo = { item, currentList ->
-                                    val idx = currentList.indexOfFirst { it.uriString == item.uriString }
-                                    playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
+                                    orchestrator.setPlaylistAndPlay(currentList, item)
                                     playerViewModel.notifyScreenEntry()
                                     val itemAndroidUri = item.uriString.toUri()
                                     backStack.add(Screen.Player(itemAndroidUri))
-                                    playerViewModel.openUri(itemAndroidUri)
                                 },
                                 onOpenSettings = {
                                     backStack.add(Screen.Settings)
@@ -235,7 +229,6 @@ class MainActivity : ComponentActivity() {
                                 engine = playerEngine,
                                 currentUri = playerScreen.uri,
                                 settings = settings,
-                                playlistManager = playlistManager,
                                 viewModel = playerViewModel,
                                 onBack = {
                                     playerViewModel.saveCurrentProgress()
@@ -366,9 +359,11 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (isChangingConfigurations) return
-        PlaybackService.stop(this)
-        if (::playerEngine.isInitialized) {
-            playerEngine.release()
+        if (!PlaybackService.isRunning) {
+            orchestrator.saveCurrentProgress()
+            if (::playerEngine.isInitialized) {
+                playerEngine.release()
+            }
         }
     }
 }
