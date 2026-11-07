@@ -90,11 +90,7 @@ class PlayerViewModel @Inject constructor(
     private fun shouldCheckpoint(uri: Uri, positionMs: Long): Boolean =
         uri != lastCheckpointUri || kotlin.math.abs(positionMs - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS
 
-    private val registeredLauncher: (VideoMediaItem) -> Unit = ::playMediaItem
-
     init {
-        playlistManager.mediaItemLauncher = registeredLauncher
-
         // Sync engine's currentUri changes into activeUri
         viewModelScope.launch {
             engine.currentUri.collect { uri ->
@@ -227,9 +223,6 @@ class PlayerViewModel @Inject constructor(
 
     public override fun onCleared() {
         super.onCleared()
-        if (playlistManager.mediaItemLauncher === registeredLauncher) {
-            playlistManager.mediaItemLauncher = null
-        }
         loadJob?.cancel()
         periodicSaveJob?.cancel()
         saveCurrentProgress()

@@ -22,7 +22,7 @@ object PlayerModule {
 
     @Provides
     @Singleton
-    fun providePlaylistManager(): PlaylistManager {
-        return PlaylistManager()
+    fun providePlaylistManager(engine: GyroPlayerEngine): PlaylistManager {
+        return engine.playlist
     }
 }

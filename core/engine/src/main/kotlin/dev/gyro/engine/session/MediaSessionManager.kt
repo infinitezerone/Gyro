@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 class MediaSessionManager(
     private val context: Context,
     val engine: GyroPlayerEngine,
-    val playlistManager: PlaylistManager,
+    val playlistManager: PlaylistManager = engine.playlist,
     private val mediaButtonReceiver: PendingIntent? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
     private val uriParser: (String) -> Uri = { Uri.parse(it) }
@@ -72,7 +72,6 @@ class MediaSessionManager(
 
     var onPlaybackStateChanged: ((isPlaying: Boolean) -> Unit)? = null
     var onStopRequested: (() -> Unit)? = null
-    var onPlayMediaItemRequested: ((VideoMediaItem) -> Unit)? = null
 
     private val sessionCallback = object : MediaSession.Callback() {
         override fun onPlay() {
@@ -199,33 +198,16 @@ class MediaSessionManager(
         engine.seekTo(positionMs)
     }
 
-    private fun dispatchMediaItem(item: VideoMediaItem) {
-        val delegate = onPlayMediaItemRequested ?: playlistManager.mediaItemLauncher
-        if (delegate != null) {
-            delegate(item)
-        } else {
-            engine.load(uriParser(item.uriString), displayTitle = item.displayName)
-        }
-    }
-
     fun skipToNext(): Boolean {
-        val next = playlistManager.playNext()
-        return if (next != null) {
-            dispatchMediaItem(next)
-            true
-        } else {
-            false
-        }
+        val next = playlistManager.playNext() ?: return false
+        engine.load(uriParser(next.uriString), displayTitle = next.displayName)
+        return true
     }
 
     fun skipToPrevious(): Boolean {
-        val prev = playlistManager.playPrevious()
-        return if (prev != null) {
-            dispatchMediaItem(prev)
-            true
-        } else {
-            false
-        }
+        val prev = playlistManager.playPrevious() ?: return false
+        engine.load(uriParser(prev.uriString), displayTitle = prev.displayName)
+        return true
     }
 
     fun handleKeyCode(action: Int, keyCode: Int): Boolean {

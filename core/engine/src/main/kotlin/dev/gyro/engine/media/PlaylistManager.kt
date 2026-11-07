@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+
 class PlaylistManager {
 
     private val _items = MutableStateFlow<List<VideoMediaItem>>(emptyList())
@@ -12,14 +13,6 @@ class PlaylistManager {
 
     private val _currentIndex = MutableStateFlow(-1)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
-
-    /**
-     * Optional session-level launcher registered by the active orchestrator (e.g. `PlayerViewModel`)
-     * so background transport controls (`MediaSessionManager` / `PlaybackService`) route through
-     * the same progress-saving, auto-resume, and companion-subtitle pipeline as foreground switches.
-     */
-    @Volatile
-    var mediaItemLauncher: ((VideoMediaItem) -> Unit)? = null
 
     fun setPlaylist(newItems: List<VideoMediaItem>, startIndex: Int) {
         _items.value = newItems

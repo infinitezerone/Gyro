@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
         // mpv the defaults while the disk was still loading.
         lifecycleScope.launch {
             val settings = settingsRepository.settings.first()
-            playerEngine.ensureInitialized(
+            playerEngine.configure(
                 userOptions = mpvConfigRepository.getParsedOptions(),
                 settings = settings,
             )

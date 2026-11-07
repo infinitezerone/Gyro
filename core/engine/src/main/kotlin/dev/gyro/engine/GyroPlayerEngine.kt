@@ -48,6 +48,7 @@ class GyroPlayerEngine(
     private val resolver: MediaResourceResolver = if (context != null) DefaultMediaResourceResolver(context) else MediaResourceResolver.Direct,
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     internal val store: PlaybackStore = PlaybackStore(),
+    val playlist: dev.gyro.engine.media.PlaylistManager = dev.gyro.engine.media.PlaylistManager(),
     val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
     val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
     val audio: AudioEffectsController = AudioEffectsController(bridge, store),
@@ -110,8 +111,36 @@ class GyroPlayerEngine(
         tuning = tuning,
         playbackController = playback,
         coroutineScope = { engineScope },
-        ensureInitialized = { ensureInitialized() }
+        ensureInitialized = { ensureNativeInitialized() }
     )
+
+    val playlistItems: StateFlow<List<dev.gyro.core.model.VideoMediaItem>> get() = playlist.items
+    val currentPlaylistIndex: StateFlow<Int> get() = playlist.currentIndex
+    val currentMediaItem: dev.gyro.core.model.VideoMediaItem? get() = playlist.currentItem
+
+    fun setPlaylist(items: List<dev.gyro.core.model.VideoMediaItem>, startIndex: Int = 0) {
+        playlist.setPlaylist(items, startIndex)
+        val item = playlist.currentItem ?: return
+        load(item.uriString, displayTitle = item.displayName)
+    }
+
+    fun playNext(): Boolean {
+        val next = playlist.playNext() ?: return false
+        load(next.uriString, displayTitle = next.displayName)
+        return true
+    }
+
+    fun playPrevious(): Boolean {
+        val prev = playlist.playPrevious() ?: return false
+        load(prev.uriString, displayTitle = prev.displayName)
+        return true
+    }
+
+    fun playAtIndex(index: Int): Boolean {
+        val item = playlist.playAtIndex(index) ?: return false
+        load(item.uriString, displayTitle = item.displayName)
+        return true
+    }
 
     /**
      * Managed domain subsystems: observers, event dispatch, and state reset are orchestrated uniformly.
@@ -140,10 +169,35 @@ class GyroPlayerEngine(
     // Core Engine Lifecycle & Native Initialization
     // =========================================================================
 
-    fun ensureInitialized(
+    /**
+     * Declares configuration (options and settings).
+     * If native engine is not started yet, updates configuration memory and applies them when
+     * playback or surface starts. If native engine is already started, applies runtime updates.
+     */
+    fun configure(
         userOptions: Map<String, String> = configurator.currentState.userOptions,
         settings: UserSettings = configurator.currentState.settings,
     ) {
+        if (isInitialized.get()) {
+            configurator.applyRuntimeUpdate(bridge, settings, userOptions)
+        } else {
+            configurator.updateConfig(userOptions, settings)
+        }
+    }
+
+    fun updateSettings(
+        settings: UserSettings = configurator.currentState.settings,
+        userOptions: Map<String, String> = configurator.currentState.userOptions
+    ) = configure(userOptions, settings)
+
+    /**
+     * Optional pre-warming for native core before media load or surface attachment.
+     */
+    fun warmUp() {
+        ensureNativeInitialized()
+    }
+
+    internal fun ensureNativeInitialized() {
         if (isInitialized.compareAndSet(false, true)) {
             if (!engineJob.isActive) {
                 engineJob = SupervisorJob()
@@ -151,7 +205,7 @@ class GyroPlayerEngine(
             }
             try {
                 bridge.create()
-                configurator.applyInitial(bridge, userOptions, settings)
+                configurator.applyInitial(bridge, configurator.currentState.userOptions, configurator.currentState.settings)
                 displayRefreshRateProvider()?.let { rate ->
                     geometry.updateDisplayRefreshRate(rate)
                 }
@@ -164,19 +218,20 @@ class GyroPlayerEngine(
                 isInitialized.set(false)
             }
         } else {
-            configurator.upgradeIfDefaultsOnly(bridge, userOptions, settings)
+            configurator.upgradeIfDefaultsOnly(bridge, configurator.currentState.userOptions, configurator.currentState.settings)
         }
     }
 
-    fun updateSettings(
+    @Deprecated(
+        message = "Initialization is handled automatically by the engine. Use configure() to set options.",
+        replaceWith = ReplaceWith("configure(userOptions, settings)")
+    )
+    fun ensureInitialized(
+        userOptions: Map<String, String> = configurator.currentState.userOptions,
         settings: UserSettings = configurator.currentState.settings,
-        userOptions: Map<String, String> = configurator.currentState.userOptions
     ) {
-        if (isInitialized.get()) {
-            configurator.applyRuntimeUpdate(bridge, settings, userOptions)
-        } else {
-            configurator.updateConfig(userOptions, settings)
-        }
+        configure(userOptions, settings)
+        ensureNativeInitialized()
     }
 
     private fun observePlaybackEvents() = engineScope.launch(
@@ -250,8 +305,14 @@ class GyroPlayerEngine(
         initialDurationMs: Long = 0L
     ) = load(uri, startPositionMs, displayTitle, initialDurationMs)
 
-    fun attachSurface(surface: Surface) = loadCoordinator.attachSurface(surface)
-    fun attachSurface(surfaceToken: Any = Any()) = loadCoordinator.attachSurface(surfaceToken)
+    fun attachSurface(surface: Surface) {
+        ensureNativeInitialized()
+        loadCoordinator.attachSurface(surface)
+    }
+    fun attachSurface(surfaceToken: Any = Any()) {
+        ensureNativeInitialized()
+        loadCoordinator.attachSurface(surfaceToken)
+    }
     fun detachSurface(surface: Any? = null) = loadCoordinator.detachSurface(surface)
     fun redraw() = loadCoordinator.redraw()
 
