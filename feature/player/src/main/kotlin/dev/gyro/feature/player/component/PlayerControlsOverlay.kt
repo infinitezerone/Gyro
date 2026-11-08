@@ -4,9 +4,8 @@ import dev.gyro.feature.player.PlayerScrubState
 
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -82,8 +81,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，采用 GyroCircleActionButton）
         AnimatedVisibility(
             visible = isVisible || isLocked,
-            enter = fadeIn(animationSpec = tween(120)),
-            exit = fadeOut(animationSpec = tween(160)),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .displayCutoutPadding()
@@ -104,7 +103,7 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏胶囊按键（置于【视频画面正下方居中】，下移 32dp）
+        // 2. 竖屏模式下的全屏胶囊按键（置于【视频画面正下方居中】，下移 60dp）
         if (!isLandscape) {
             val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
                 Modifier
@@ -118,8 +117,8 @@ fun BoxScope.PlayerControlsOverlay(
 
             AnimatedVisibility(
                 visible = isVisible,
-                enter = fadeIn(animationSpec = tween(120)),
-                exit = fadeOut(animationSpec = tween(160)),
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
                 modifier = bottomModifier
             ) {
                 // 横竖切换药丸胶囊
@@ -138,8 +137,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 3. 顶部操作栏（未锁屏且可见时展示）
         AnimatedVisibility(
             visible = isVisible,
-            enter = fadeIn(animationSpec = tween(120)),
-            exit = fadeOut(animationSpec = tween(160)),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             PlayerTopBar(
@@ -156,8 +155,8 @@ fun BoxScope.PlayerControlsOverlay(
         val showBottomBar = isVisible || scrubState.isActive
         AnimatedVisibility(
             visible = showBottomBar,
-            enter = fadeIn(animationSpec = tween(120)),
-            exit = fadeOut(animationSpec = tween(160)),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             PlayerBottomBar(

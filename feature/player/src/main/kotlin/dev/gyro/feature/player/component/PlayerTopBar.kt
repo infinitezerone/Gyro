@@ -28,15 +28,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.component.GyroGhostIconButton
 
 /**
  * 顶部导航与快捷入口栏 (PlayerTopBar)
- * - 返回（ArrowBack）
- * - 媒体标题与实时参数微标
- * - 一键直达字幕选择（💬 Subtitles 快捷入口）
- * - 画中画 (PiP) 与 全能设置 (⚙️ Settings)
- * - 5 段平滑渐变暗角过渡，保护状态栏与文字可读性，消灭生硬黑切边
+ * - 全悬浮圆盘按键设计（返回、字幕、画中画、设置均为 40dp 悬浮半透明磨砂圆纽）
+ * - 彻底告别压顶黑条渐变，保持画面通透纯粹
+ * - 标题配合柔和文字投影，兼顾不同背景下的极致可读性
  */
 @Composable
 fun PlayerTopBar(
@@ -51,36 +50,26 @@ fun PlayerTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.75f),
-                        Color.Black.copy(alpha = 0.50f),
-                        Color.Black.copy(alpha = 0.20f),
-                        Color.Black.copy(alpha = 0.05f),
-                        Color.Transparent
-                    )
-                )
-            )
             .displayCutoutPadding()
             .statusBarsPadding()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 返回键
-            GyroGhostIconButton(
+            // 返回键：40dp 悬浮磨砂圆盘
+            GyroCircleActionButton(
                 onClick = onBack,
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.action_back),
-                iconSize = 22.dp
+                size = 40.dp,
+                iconSize = 20.dp
             )
 
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // 视频标题与参数徽章
+            // 视频标题与参数微标（带文字阴影，无需黑底遮罩也能清晰辨识）
             Column(
                 modifier = Modifier.weight(1f)
             ) {
@@ -89,7 +78,11 @@ fun PlayerTopBar(
                     style = TextStyle(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = Color.White,
+                        shadow = androidx.compose.ui.graphics.Shadow(
+                            color = Color.Black.copy(alpha = 0.85f),
+                            blurRadius = 8f
+                        )
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -99,8 +92,12 @@ fun PlayerTopBar(
                         text = mediaSubtitle,
                         style = TextStyle(
                             fontSize = 11.sp,
-                            color = Color.White.copy(alpha = 0.65f),
-                            fontFeatureSettings = "tnum"
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontFeatureSettings = "tnum",
+                            shadow = androidx.compose.ui.graphics.Shadow(
+                                color = Color.Black.copy(alpha = 0.85f),
+                                blurRadius = 6f
+                            )
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -108,29 +105,36 @@ fun PlayerTopBar(
                 }
             }
 
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // 字幕一键直达入口 (💬 Subtitles)
-            GyroGhostIconButton(
+            // 字幕一键直达入口 (💬 Subtitles)：40dp 悬浮磨砂圆盘
+            GyroCircleActionButton(
                 onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
                 icon = Icons.Default.Subtitles,
                 contentDescription = stringResource(R.string.sheet_tab_subtitles),
+                size = 40.dp,
                 iconSize = 20.dp
             )
 
-            // 画中画 (PiP)
-            GyroGhostIconButton(
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // 画中画 (PiP)：40dp 悬浮磨砂圆盘
+            GyroCircleActionButton(
                 onClick = onEnterPiP,
                 icon = Icons.Default.PictureInPictureAlt,
                 contentDescription = stringResource(R.string.cd_pip),
+                size = 40.dp,
                 iconSize = 20.dp
             )
 
-            // 设置与全量面板入口 (⚙️ Settings 齿轮图标)
-            GyroGhostIconButton(
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // 设置与全量面板入口 (⚙️ Settings)：40dp 悬浮磨砂圆盘
+            GyroCircleActionButton(
                 onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
                 icon = Icons.Default.Settings,
                 contentDescription = stringResource(R.string.cd_settings),
+                size = 40.dp,
                 iconSize = 20.dp
             )
         }
