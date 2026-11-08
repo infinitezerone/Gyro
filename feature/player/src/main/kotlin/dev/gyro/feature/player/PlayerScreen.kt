@@ -399,20 +399,6 @@ fun PlayerScreen(
         }
     }
 
-    val mediaSubtitle = remember(videoDimensions, videoFrameRate, hwdecCurrent) {
-        val parts = mutableListOf<String>()
-        if (videoDimensions.width > 0 && videoDimensions.height > 0) {
-            parts.add("${videoDimensions.width}x${videoDimensions.height}")
-        }
-        if (videoFrameRate > 0f) {
-            parts.add("${String.format(Locale.US, "%.0f", videoFrameRate)}fps")
-        }
-        if (hwdecCurrent.isNotBlank() && hwdecCurrent != "no") {
-            parts.add("HW")
-        }
-        if (parts.isNotEmpty()) parts.joinToString(" · ") else null
-    }
-
     val dynamicConfig = settings.gestureConfig
     val gestureConfig = remember(dynamicConfig, settings.gesturesEnabled, playerState.isLocked) {
         if (!settings.gesturesEnabled) {
@@ -758,7 +744,6 @@ fun PlayerScreen(
                 isVisible = playerState.showControls,
                 isLocked = playerState.isLocked,
                 title = mediaTitle.ifBlank { "Gyro Player" },
-                mediaSubtitle = mediaSubtitle,
                 isPlaying = isPlaying,
                 timePosMs = { timePosState.value },
                 durationMs = { durationMs },

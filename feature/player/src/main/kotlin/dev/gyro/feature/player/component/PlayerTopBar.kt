@@ -45,7 +45,6 @@ import dev.gyro.core.designsystem.component.GyroGhostIconButton
 @Composable
 fun PlayerTopBar(
     title: String,
-    mediaSubtitle: String? = null,
     isLandscape: Boolean,
     onBack: () -> Unit,
     onEnterPiP: () -> Unit,
@@ -74,41 +73,22 @@ fun PlayerTopBar(
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            // 视频标题与参数微标（带文字阴影，保证纯净背景可读性）
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = title.ifBlank { stringResource(R.string.player_default_title) },
-                    style = TextStyle(
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        shadow = androidx.compose.ui.graphics.Shadow(
-                            color = Color.Black.copy(alpha = 0.85f),
-                            blurRadius = 8f
-                        )
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!mediaSubtitle.isNullOrBlank()) {
-                    Text(
-                        text = mediaSubtitle,
-                        style = TextStyle(
-                            fontSize = 11.sp,
-                            color = Color.White.copy(alpha = 0.70f),
-                            fontFeatureSettings = "tnum",
-                            shadow = androidx.compose.ui.graphics.Shadow(
-                                color = Color.Black.copy(alpha = 0.85f),
-                                blurRadius = 6f
-                            )
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            // 纯净视频标题（垂直居中对齐，带文字阴影保证背景可读性）
+            Text(
+                text = title.ifBlank { stringResource(R.string.player_default_title) },
+                style = TextStyle(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    shadow = androidx.compose.ui.graphics.Shadow(
+                        color = Color.Black.copy(alpha = 0.85f),
+                        blurRadius = 8f
                     )
-                }
-            }
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
 
             Spacer(modifier = Modifier.width(8.dp))
 

@@ -47,7 +47,6 @@ fun BoxScope.PlayerControlsOverlay(
     isVisible: Boolean,
     isLocked: Boolean,
     title: String,
-    mediaSubtitle: String? = null,
     isPlaying: Boolean,
     timePosMs: () -> Long,
     durationMs: () -> Long,
@@ -143,7 +142,6 @@ fun BoxScope.PlayerControlsOverlay(
         ) {
             PlayerTopBar(
                 title = title,
-                mediaSubtitle = mediaSubtitle,
                 isLandscape = isLandscape,
                 onBack = onBack,
                 onEnterPiP = onEnterPiP,
