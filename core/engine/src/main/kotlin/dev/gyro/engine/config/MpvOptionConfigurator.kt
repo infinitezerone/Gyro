@@ -197,10 +197,31 @@ class MpvOptionConfigurator {
             bridge.setOptionString("demuxer-readahead-secs", "20")
         }
         if (!userOptions.containsKey("tone-mapping")) {
-            bridge.setOptionString("tone-mapping", "bt.2446a")
+            bridge.setOptionString("tone-mapping", "hable")
         }
         if (!userOptions.containsKey("hdr-compute-peak")) {
             bridge.setOptionString("hdr-compute-peak", "yes")
+        }
+        if (!userOptions.containsKey("tone-mapping-mode")) {
+            bridge.setOptionString("tone-mapping-mode", "hybrid")
+        }
+        if (!userOptions.containsKey("gamut-clipping")) {
+            bridge.setOptionString("gamut-clipping", "no")
+        }
+        if (!userOptions.containsKey("scale")) {
+            bridge.setOptionString("scale", "spline36")
+        }
+        if (!userOptions.containsKey("cscale")) {
+            bridge.setOptionString("cscale", "spline36")
+        }
+        if (!userOptions.containsKey("dscale")) {
+            bridge.setOptionString("dscale", "mitchell")
+        }
+        if (!userOptions.containsKey("correct-downscaling")) {
+            bridge.setOptionString("correct-downscaling", "yes")
+        }
+        if (!userOptions.containsKey("sigmoid-upscaling")) {
+            bridge.setOptionString("sigmoid-upscaling", "yes")
         }
         if (!userOptions.containsKey("sub-font-provider")) {
             bridge.setOptionString("sub-font-provider", "none")
