@@ -535,28 +535,22 @@ fun PlayerScreen(
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
     LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
         SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect")
-        val isAudioOnly = videoDimensions.width == 0 && videoDimensions.height == 0
-        if (firstFrameRendered && geometryReady && (isAudioOnly || videoAspect > 0f)) {
-            val targetAspect = when (resizeMode) {
-                ResizeMode.FIT -> videoAspect
-                ResizeMode.ASPECT_16_9 -> 16f / 9f
-                ResizeMode.ASPECT_21_9 -> 21f / 9f
-                else -> videoAspect
-            }
-            val containerAspect = if (videoContainerSize.height > 0) {
-                videoContainerSize.width.toFloat() / videoContainerSize.height
-            } else 0f
-            val isFlexibleMode = resizeMode == ResizeMode.CROP || resizeMode == ResizeMode.STRETCH
-            val isLayoutSettled = isAudioOnly || isFlexibleMode || (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
-                kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f)
-
-            if (isLayoutSettled) {
-                withFrameNanos { }
-                SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
-                isShutterReady = true
-                shutterTimedOut = false
-                return@LaunchedEffect
-            }
+        val decision = ShutterRevealPolicy.evaluate(
+            firstFrameRendered = firstFrameRendered,
+            geometryReady = geometryReady,
+            videoAspect = videoAspect,
+            videoWidth = videoDimensions.width,
+            videoHeight = videoDimensions.height,
+            resizeMode = resizeMode,
+            containerWidth = videoContainerSize.width,
+            containerHeight = videoContainerSize.height
+        )
+        if (decision == ShutterRevealPolicy.Decision.Reveal) {
+            withFrameNanos { }
+            SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
+            isShutterReady = true
+            shutterTimedOut = false
+            return@LaunchedEffect
         }
         isShutterReady = false
         delay(1_500L)

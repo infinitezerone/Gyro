@@ -34,6 +34,22 @@ impl EpochGate {
     }
 }
 
+/// The native half of the first-frame protocol: decides whether a successful swap while
+/// `awaiting_first_frame` is an authentic first frame or a repaint that must be suppressed.
+///
+/// The rules below are the endpoint of the 95cfc92..bd223b4 fix chain: native only reports
+/// facts, aspect and container convergence are the host UI's business, and redraws/forced
+/// repaints are never first frames no matter what. Kept as a pure predicate so the invariant
+/// is CI-tested instead of re-learned on device.
+#[derive(Debug, Default)]
+pub struct FirstFrameGate;
+
+impl FirstFrameGate {
+    pub const fn should_signal(file_loaded: bool, force: bool, is_redraw: bool) -> bool {
+        file_loaded && !force && !is_redraw
+    }
+}
+
 /// One-slot gate that collapses mpv's per-frame update notifications into at most one queued
 /// render command.
 ///
@@ -1159,5 +1175,26 @@ mod tests {
         assert!(!gate.is_valid(0));
         assert!(gate.is_valid(1));
         assert!(gate.is_valid(2));
+    }
+
+    // ---------- FirstFrameGate ----------
+
+    #[test]
+    fn first_frame_gate_signals_authentic_swaps_on_loaded_files() {
+        assert!(FirstFrameGate::should_signal(true, false, false));
+    }
+
+    #[test]
+    fn first_frame_gate_never_signals_redraws_or_forced_repaints() {
+        // Redraw (force=true) and mpv internal repaint (is_redraw=true) must not count as first
+        // frames even with everything else satisfied - this was the corner-jump root cause.
+        assert!(!FirstFrameGate::should_signal(true, true, false));
+        assert!(!FirstFrameGate::should_signal(true, false, true));
+        assert!(!FirstFrameGate::should_signal(true, true, true));
+    }
+
+    #[test]
+    fn first_frame_gate_requires_the_demuxer_to_have_loaded_the_file() {
+        assert!(!FirstFrameGate::should_signal(false, false, false));
     }
 }

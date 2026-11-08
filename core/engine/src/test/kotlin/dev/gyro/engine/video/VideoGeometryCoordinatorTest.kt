@@ -145,4 +145,35 @@ class VideoGeometryCoordinatorTest {
         assertTrue(coordinator.firstFrameRendered.value)
         assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
     }
+
+    @Test
+    fun testSwitchResetsFirstFrameFromPreviousSession() {
+        // Video 1 plays to a fully revealed state
+        coordinator.onSwitchStarted("test://video1.mp4", 0L)
+        coordinator.onFileLoaded("test://video1.mp4", hasVideo = true)
+        coordinator.onFirstFramePresented()
+        assertTrue(coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+
+        // Switching to video 2 must pull the first-frame flag back down IMMEDIATELY, before any
+        // event of the new session arrives - otherwise the UI shutter would open over video 2
+        // with video 1's stale buffer (the "corner jump" class).
+        coordinator.onSwitchStarted("test://video2.mp4", 0L)
+        assertFalse(coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+    }
+
+    @Test
+    fun testPrewarmedDimensionsAreReadyBeforeFileLoads() {
+        // Dimension pre-warm (bd223b4): playlist metadata flows in at switch start, so the UI
+        // has the correct aspect BEFORE demux lands and the shutter can evaluate geometry
+        // without waiting for the file to load.
+        coordinator.onSwitchStarted("test://prewarmed.mp4", 0L, initialWidth = 1920, initialHeight = 1080)
+
+        assertTrue(coordinator.geometryReady.value)
+        assertEquals(VideoDimensions(1920, 1080), coordinator.videoDimensions.value)
+        assertEquals(1920f / 1080f, coordinator.videoAspect.value, 0.001f)
+        assertFalse(coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+    }
 }

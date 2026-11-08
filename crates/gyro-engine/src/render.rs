@@ -10,8 +10,8 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crate::logic::{
-    compute_monotonic_presentation_ns, AckOutcome, AffinityVerdict, FrameCoalescer, ThreadAffinity,
-    request_ack,
+    compute_monotonic_presentation_ns, AckOutcome, AffinityVerdict, FirstFrameGate, FrameCoalescer,
+    ThreadAffinity, request_ack,
 };
 #[cfg(target_os = "android")]
 use crate::logic::{
@@ -1241,12 +1241,12 @@ unsafe fn draw_frame_native(
                         "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}"
                     ),
                 );
-                // Pipeline separation:
+                // Pipeline separation (predicate in logic::FirstFrameGate, CI-tested):
                 // 1. Redraws (force=true) and mpv internal repaints (is_redraw=true) are NEVER first frames.
                 // 2. Demuxer must have loaded the file (file_loaded=true).
                 // 3. Any successful frame swap on a loaded file is an authentic first frame.
                 // Sizing and shutter reveal are coordinated by the host UI layer, decoupled from the native render loop.
-                if file_loaded && !force && !is_redraw {
+                if FirstFrameGate::should_signal(file_loaded, force, is_redraw) {
                     let cur_epoch = crate::events::current_epoch();
                     let frame_epoch = G_RENDER_EPOCH.load(Ordering::Acquire);
                     if frame_epoch >= cur_epoch {
