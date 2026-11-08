@@ -377,7 +377,7 @@ fun GyroPlayerSurface(
     // From then on window resizes (including PiP entry/exit) never touch the BufferQueue again;
     // low-res videos still get full screen-resolution FBOs for Anime4K shaders and ASS subtitles,
     // while same-aspect playlist switches reuse the exact same BufferQueue without re-locking.
-    val observedDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState()
+    val observedDimensions: VideoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState(initial = VideoDimensions())
     val effectiveDimensions = videoDimensions ?: observedDimensions
     LaunchedEffect(effectiveDimensions.width, effectiveDimensions.height) {
         if (effectiveDimensions.width <= 0 || effectiveDimensions.height <= 0) return@LaunchedEffect
@@ -392,7 +392,19 @@ fun GyroPlayerSurface(
     }
 
     AndroidView(
-        factory = { surfaceView },
+        factory = {
+            if (effectiveDimensions.width > 0 && effectiveDimensions.height > 0) {
+                val (displayW, displayH) = resolvePhysicalDisplaySize(context)
+                val (targetW, targetH) = computeDisplayFittedBufferSize(
+                    videoWidth = effectiveDimensions.width,
+                    videoHeight = effectiveDimensions.height,
+                    displayWidth = displayW,
+                    displayHeight = displayH
+                )
+                surfaceView.lockBufferSizeToVideo(targetW, targetH)
+            }
+            surfaceView
+        },
         update = { view ->
             view.engine = engine
         },

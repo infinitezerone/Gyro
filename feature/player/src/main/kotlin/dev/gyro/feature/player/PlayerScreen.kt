@@ -569,7 +569,7 @@ fun PlayerScreen(
         shutterTimedOut = true
         isShutterReady = true
     }
-    val showShutter = !isPipLayout && playbackState != PlaybackState.IDLE &&
+    val showShutter = !isPipLayout && activeUri != null &&
         playbackState != PlaybackState.ERROR &&
         !isShutterReady && !shutterTimedOut
 

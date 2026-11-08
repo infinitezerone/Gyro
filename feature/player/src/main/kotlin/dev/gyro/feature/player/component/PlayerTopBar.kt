@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -107,13 +107,13 @@ fun PlayerTopBar(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // 字幕一键直达入口 (💬 Subtitles)：40dp 悬浮磨砂圆盘
+            // 字幕一键直达入口：采用国际标准 [CC] (Closed Caption) 图标
             GyroCircleActionButton(
                 onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
-                icon = Icons.Default.Subtitles,
+                icon = Icons.Default.ClosedCaption,
                 contentDescription = stringResource(R.string.sheet_tab_subtitles),
                 size = 40.dp,
-                iconSize = 20.dp
+                iconSize = 22.dp
             )
 
             Spacer(modifier = Modifier.width(8.dp))

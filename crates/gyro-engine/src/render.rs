@@ -1257,7 +1257,9 @@ unsafe fn draw_frame_native(
             let buf_aspect = w as f64 / h as f64;
             (buf_aspect / vid_aspect - 1.0).abs() > 0.08
         } else {
-            false
+            // If video geometry is not yet established, treat as mismatch to prevent
+            // premature signal before dimensions and buffer converge (600ms fallback protects audio files).
+            true
         };
         let load_start = G_SESSION.load_started_ms.load(Ordering::Relaxed);
         let now_ms = monotonic_ms() as u64;
