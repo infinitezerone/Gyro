@@ -63,16 +63,16 @@ fun PlayerTopBar(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 返回键：38dp 悬浮磨砂圆钮
+            // 返回键：35dp 独立悬浮微磨砂圆钮
             GyroCircleActionButton(
                 onClick = onBack,
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.action_back),
-                size = 38.dp,
-                iconSize = 20.dp
+                size = 35.dp,
+                iconSize = 19.dp
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             // 视频标题与参数微标（带文字阴影，保证纯净背景可读性）
             Column(
@@ -110,49 +110,39 @@ fun PlayerTopBar(
                 }
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            // 右侧联合功能胶囊岛 (Unified Action Pill):
-            // 将 [CC 字幕]、[PiP 画中画]、[⚙ 设置] 一体化收纳进统一磨砂胶囊中，
-            // 既常驻画中画，又大幅缩减水平横向空间占用，消灭视觉碎裂噪点
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.45f),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
-                modifier = Modifier.height(36.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 2.dp)
-                ) {
-                    // 字幕 (CC)
-                    GyroGhostIconButton(
-                        onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
-                        icon = Icons.Default.ClosedCaption,
-                        contentDescription = stringResource(R.string.sheet_tab_subtitles),
-                        iconSize = 19.dp,
-                        modifier = Modifier.size(34.dp)
-                    )
+            // 独立悬浮功能圆钮集群（分开独立，外径精巧 35dp，间距 6dp，既常驻画中画又毫不拥挤）：
+            // 1. 字幕 (CC)
+            GyroCircleActionButton(
+                onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                icon = Icons.Default.ClosedCaption,
+                contentDescription = stringResource(R.string.sheet_tab_subtitles),
+                size = 35.dp,
+                iconSize = 19.dp
+            )
 
-                    // 画中画 (PiP)
-                    GyroGhostIconButton(
-                        onClick = onEnterPiP,
-                        icon = Icons.Default.PictureInPictureAlt,
-                        contentDescription = stringResource(R.string.cd_pip),
-                        iconSize = 18.dp,
-                        modifier = Modifier.size(34.dp)
-                    )
+            Spacer(modifier = Modifier.width(6.dp))
 
-                    // 全局设置 (⚙)
-                    GyroGhostIconButton(
-                        onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
-                        icon = Icons.Default.Settings,
-                        contentDescription = stringResource(R.string.cd_settings),
-                        iconSize = 18.dp,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-            }
+            // 2. 画中画 (PiP 常驻)
+            GyroCircleActionButton(
+                onClick = onEnterPiP,
+                icon = Icons.Default.PictureInPictureAlt,
+                contentDescription = stringResource(R.string.cd_pip),
+                size = 35.dp,
+                iconSize = 18.dp
+            )
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // 3. 全局设置 (⚙)
+            GyroCircleActionButton(
+                onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                icon = Icons.Default.Settings,
+                contentDescription = stringResource(R.string.cd_settings),
+                size = 35.dp,
+                iconSize = 18.dp
+            )
         }
     }
 }
