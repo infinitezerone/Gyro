@@ -33,7 +33,7 @@ class MediaSessionManager(
     private val mediaButtonReceiver: PendingIntent? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
     private val uriParser: (String) -> Uri = { Uri.parse(it) }
-) {
+) : MediaSessionControls {
     companion object {
         private const val TAG = "MediaSessionManager"
         const val MEDIA_SESSION_TAG = "GyroMediaSession"
@@ -192,15 +192,15 @@ class MediaSessionManager(
         }
     }
 
-    fun play() {
+    override fun play() {
         engine.play()
     }
 
-    fun pause() {
+    override fun pause() {
         engine.pause()
     }
 
-    fun togglePlayPause() {
+    override fun togglePlayPause() {
         engine.togglePlayPause()
     }
 
@@ -217,7 +217,7 @@ class MediaSessionManager(
     // onSkipToPrevious (e.g. headless tests). In production PlaybackService routes skips through
     // PlaybackSessionOrchestrator, which adds auto-resume position and companion subtitles that
     // this fallback deliberately does not replicate.
-    fun skipToNext(): Boolean {
+    override fun skipToNext(): Boolean {
         val handled = onSkipToNext?.invoke()
         if (handled == true) return true
         val next = playlistManager.playNext() ?: return false
@@ -225,7 +225,7 @@ class MediaSessionManager(
         return true
     }
 
-    fun skipToPrevious(): Boolean {
+    override fun skipToPrevious(): Boolean {
         val handled = onSkipToPrevious?.invoke()
         if (handled == true) return true
         val prev = playlistManager.playPrevious() ?: return false
@@ -265,7 +265,7 @@ class MediaSessionManager(
         }
     }
 
-    fun handleKeyEvent(keyEvent: KeyEvent?): Boolean {
+    override fun handleKeyEvent(keyEvent: KeyEvent?): Boolean {
         if (keyEvent == null) return false
         return handleKeyCode(keyEvent.action, keyEvent.keyCode)
     }
