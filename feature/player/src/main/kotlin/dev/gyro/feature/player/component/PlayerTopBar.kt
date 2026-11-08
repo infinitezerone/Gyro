@@ -137,7 +137,7 @@ fun PlayerTopBar(
 
             // 3. 全局设置 (⚙)
             GyroCircleActionButton(
-                onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                onClick = { onOpenSheetTab(PlayerSheetTab.SETTINGS_HUB) },
                 icon = Icons.Default.Settings,
                 contentDescription = stringResource(R.string.cd_settings),
                 size = 35.dp,

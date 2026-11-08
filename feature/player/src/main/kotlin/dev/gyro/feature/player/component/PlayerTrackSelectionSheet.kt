@@ -27,6 +27,17 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.foundation.shape.CircleShape
+import dev.gyro.core.designsystem.component.GyroPillButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,6 +86,7 @@ import java.io.File
 import java.util.Locale
 
 enum class PlayerSheetTab(@StringRes val titleRes: Int) {
+    SETTINGS_HUB(R.string.settings_title),
     PLAYLIST(R.string.sheet_tab_playlist),
     CHAPTERS(R.string.sheet_tab_chapters),
     SUBTITLES(R.string.sheet_tab_subtitles),
@@ -208,6 +220,82 @@ fun PlayerTrackSelectionSheet(
     }
 }
 
+
+/**
+ * 现代轻量级设置卡片项 (SettingsHubItem)
+ */
+@Composable
+private fun SettingsHubItem(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color = Color(0xFF64B5F6),
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.05f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(iconTint.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = TextStyle(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                )
+                if (subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.60f)
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.35f),
+                modifier = Modifier.size(13.dp)
+            )
+        }
+    }
+}
+
 @Composable
 fun PlayerTrackSelectionSheetContent(
     initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
@@ -267,58 +355,184 @@ fun PlayerTrackSelectionSheetContent(
     val audioTracks = remember(tracks) { tracks.filter { it.type == "audio" } }
     val subtitleTracks = remember(tracks) { tracks.filter { it.type == "sub" } }
 
+    val isPlaylistScene = initialTab == PlayerSheetTab.PLAYLIST || initialTab == PlayerSheetTab.CHAPTERS
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 32.dp)
     ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.cd_settings),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onOpenFullSettings, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = stringResource(R.string.settings_title),
-                        tint = Color(0xFF64B5F6),
-                        modifier = Modifier.size(20.dp)
+            if (isPlaylistScene) {
+                // A. 选集/章节场景：极简双胶囊导航，剔除其余无关 9 个 Tab
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GyroPillButton(
+                        text = "${stringResource(R.string.sheet_tab_playlist)} (${playlist.size})",
+                        onClick = { selectedTab = PlayerSheetTab.PLAYLIST },
+                        containerColor = if (selectedTab == PlayerSheetTab.PLAYLIST) Color(0xFF64B5F6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                        contentColor = if (selectedTab == PlayerSheetTab.PLAYLIST) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.85f)
                     )
+                    if (chapters.isNotEmpty()) {
+                        GyroPillButton(
+                            text = "${stringResource(R.string.sheet_tab_chapters)} (${chapters.size})",
+                            onClick = { selectedTab = PlayerSheetTab.CHAPTERS },
+                            containerColor = if (selectedTab == PlayerSheetTab.CHAPTERS) Color(0xFF64B5F6).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                            contentColor = if (selectedTab == PlayerSheetTab.CHAPTERS) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+            } else if (selectedTab == PlayerSheetTab.SETTINGS_HUB) {
+                // B. 设置总览大厅场景
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    IconButton(onClick = onOpenFullSettings, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.settings_title),
+                            tint = Color(0xFF64B5F6),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            } else {
+                // C. 各子设置场景：清晰返回导航头
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { selectedTab = PlayerSheetTab.SETTINGS_HUB },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(selectedTab.titleRes),
+                        style = TextStyle(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onOpenFullSettings, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.settings_title),
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 
-            @Suppress("DEPRECATION")
-            ScrollableTabRow(
-                selectedTabIndex = selectedTab.ordinal,
-                edgePadding = 16.dp,
-                containerColor = Color(0xFF1E1E1E),
-                contentColor = Color.White
-            ) {
-                PlayerSheetTab.entries.forEach { tab ->
-                    Tab(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        text = {
-                            Text(
-                                text = stringResource(tab.titleRes),
-                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp
-                            )
-                        }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             when (selectedTab) {
+                PlayerSheetTab.SETTINGS_HUB -> {
+                    // 全局设置分类大厅卡片列表
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // 1. 画面比例与解码
+                        val hwDesc = if (hwdec.contains("mediacodec")) "硬件解码 (MediaCodec)" else "软件解码"
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_aspect),
+                            subtitle = "${currentResizeMode.label} · $hwDesc",
+                            icon = Icons.Default.AspectRatio,
+                            iconTint = Color(0xFF4FC3F7),
+                            onClick = { selectedTab = PlayerSheetTab.ASPECT }
+                        )
+
+                        // 2. 音轨与音效
+                        val currentAudioName = audioTracks.firstOrNull { it.isSelected }?.title ?: stringResource(R.string.track_none_audio)
+                        val nightDesc = if (nightMode) "夜间音效已开" else "标准立体声"
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_audio),
+                            subtitle = "$currentAudioName · $nightDesc",
+                            icon = Icons.AutoMirrored.Filled.VolumeUp,
+                            iconTint = Color(0xFF81C784),
+                            onClick = { selectedTab = PlayerSheetTab.AUDIO }
+                        )
+
+                        // 3. 字幕管理与微调
+                        val currentSubName = subtitleTracks.firstOrNull { it.isSelected }?.title ?: "已关闭"
+                        val delayDesc = if (Math.abs(subDelaySec) > 0.01) "延迟 ${String.format(Locale.US, "%.1f", subDelaySec)}s" else "无延迟"
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_subtitles),
+                            subtitle = "$currentSubName · $delayDesc",
+                            icon = Icons.Default.ClosedCaption,
+                            iconTint = Color(0xFFFFB74D),
+                            onClick = { selectedTab = PlayerSheetTab.SUBTITLES }
+                        )
+
+                        // 4. 播放速度
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_speed),
+                            subtitle = "当前倍速: ${currentSpeed}x",
+                            icon = Icons.Default.Speed,
+                            iconTint = Color(0xFFBA68C8),
+                            onClick = { selectedTab = PlayerSheetTab.SPEED }
+                        )
+
+                        // 5. 着色器与 Anime4K
+                        val shaderLabel = if (shaderState.activeShader != GlslShader.OFF) (shaderState.displayName ?: shaderState.activeShader.name) else "原生渲染 (未开启)"
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_shaders),
+                            subtitle = shaderLabel,
+                            icon = Icons.Default.AutoAwesome,
+                            iconTint = Color(0xFFFF8A65),
+                            onClick = { selectedTab = PlayerSheetTab.SHADERS }
+                        )
+
+                        // 6. 视听画质增强
+                        val debandDesc = if (deband) "去色带已开 · 色彩校准" else "色彩与明暗调节"
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_audiovisual),
+                            subtitle = debandDesc,
+                            icon = Icons.Default.Tune,
+                            iconTint = Color(0xFF4DB6AC),
+                            onClick = { selectedTab = PlayerSheetTab.AUDIOVISUAL }
+                        )
+
+                        // 7. 媒体参数与丢帧统计
+                        val resDesc = if (videoWidth > 0 && videoHeight > 0) "${videoWidth}×${videoHeight} · ${String.format(Locale.US, "%.1f", fps)} FPS" else "实时性能与媒体详情"
+                        SettingsHubItem(
+                            title = stringResource(R.string.sheet_tab_stats),
+                            subtitle = resDesc,
+                            icon = Icons.Default.Info,
+                            iconTint = Color(0xFF90A4AE),
+                            onClick = { selectedTab = PlayerSheetTab.STATS }
+                        )
+                    }
+                }
                 PlayerSheetTab.PLAYLIST -> {
                     if (playlist.isEmpty()) {
                         Box(
