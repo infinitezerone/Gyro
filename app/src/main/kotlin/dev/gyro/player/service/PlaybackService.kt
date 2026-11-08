@@ -23,6 +23,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
+import dev.gyro.engine.session.MediaSessionControls
 import dev.gyro.engine.session.MediaSessionManager
 import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import dev.gyro.player.MainActivity
@@ -153,41 +154,74 @@ class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
-        engine.isHeadlessMode = true
 
         // Lazy-connect engine if not yet attached
         if (mediaSessionManager == null) {
             setupMediaSessionManager(engine, engine.playlist)
         }
 
+        val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON && intent != null) {
+            IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+        } else {
+            null
+        }
+        val sticky = handleCommand(
+            action = action,
+            keyEvent = keyEvent,
+            controls = mediaSessionManager,
+            saveProgress = { orchestrator.saveCurrentProgress() },
+            stopAndReset = { stopForegroundAndSelf() }
+        )
+
+        updateNotification()
+        return sticky
+    }
+
+    /**
+     * Command dispatch for the notification actions, service intents, and headset keys.
+     *
+     * Pure routing: every dispatch first arms `engine.isHeadlessMode` (a service start implies
+     * background playback intent, so loads must go straight to mpv instead of queueing behind a
+     * Surface), and the STOP/DISMISS paths disarm it via [stopAndReset] — if the teardown paths
+     * ever forget to disarm, a follow-up UI load would submit headless and present with no
+     * Surface attached. Extracted as an internal method so JVM tests can drive it with a fake
+     * [MediaSessionControls] instead of instantiating the Android Service.
+     *
+     * @return the Service onStartCommand sticky flag for this action.
+     */
+    internal fun handleCommand(
+        action: String?,
+        keyEvent: KeyEvent?,
+        controls: MediaSessionControls?,
+        saveProgress: () -> Unit,
+        stopAndReset: () -> Unit
+    ): Int {
+        engine.isHeadlessMode = true
         when (action) {
-            ACTION_PLAY -> mediaSessionManager?.play()
-            ACTION_PAUSE -> mediaSessionManager?.pause()
-            ACTION_PLAY_PAUSE -> mediaSessionManager?.togglePlayPause()
-            ACTION_PREV -> mediaSessionManager?.skipToPrevious()
-            ACTION_NEXT -> mediaSessionManager?.skipToNext()
+            ACTION_PLAY -> controls?.play()
+            ACTION_PAUSE -> controls?.pause()
+            ACTION_PLAY_PAUSE -> controls?.togglePlayPause()
+            ACTION_PREV -> controls?.skipToPrevious()
+            ACTION_NEXT -> controls?.skipToNext()
             ACTION_REWIND -> engine.seekRelative(-10_000L)
             ACTION_FAST_FORWARD -> engine.seekRelative(10_000L)
             ACTION_STOP -> {
-                orchestrator.saveCurrentProgress()
+                saveProgress()
                 engine.pause()
-                stopForegroundAndSelf()
+                stopAndReset()
                 return START_NOT_STICKY
             }
             ACTION_DISMISS -> {
-                orchestrator.saveCurrentProgress()
-                stopForegroundAndSelf()
+                saveProgress()
+                stopAndReset()
                 return START_NOT_STICKY
             }
             Intent.ACTION_MEDIA_BUTTON -> {
-                val keyEvent = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
                 if (keyEvent != null) {
-                    mediaSessionManager?.handleKeyEvent(keyEvent)
+                    controls?.handleKeyEvent(keyEvent)
                 }
             }
         }
-
-        updateNotification()
         return START_STICKY
     }
 
@@ -388,7 +422,7 @@ class PlaybackService : Service() {
         }
     }
 
-    private fun stopForegroundAndSelf() {
+    internal fun stopForegroundAndSelf() {
         engine.isHeadlessMode = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
