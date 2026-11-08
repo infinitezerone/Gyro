@@ -531,10 +531,14 @@ fun PlayerScreen(
 
     val firstFrameRendered = snapshot.firstFrameRendered
     val geometryReady = snapshot.geometryReady
+    // Buffer geometry actually applied by the platform (surfaceChanged), not merely requested:
+    // setFixedSize is an async transaction, so a reveal that ignores this shows the new video
+    // through the previous file's buffer (the 2026-11-08 corner-jump regression).
+    var appliedBufferSize by remember { mutableStateOf(IntSize.Zero) }
     var isShutterReady by remember(activeUri) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
-        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect")
+    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode, appliedBufferSize) {
+        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, buffer=$appliedBufferSize, aspect=$videoAspect")
         val decision = ShutterRevealPolicy.evaluate(
             firstFrameRendered = firstFrameRendered,
             geometryReady = geometryReady,
@@ -543,22 +547,27 @@ fun PlayerScreen(
             videoHeight = videoDimensions.height,
             resizeMode = resizeMode,
             containerWidth = videoContainerSize.width,
-            containerHeight = videoContainerSize.height
+            containerHeight = videoContainerSize.height,
+            bufferWidth = appliedBufferSize.width,
+            bufferHeight = appliedBufferSize.height
         )
         if (decision == ShutterRevealPolicy.Decision.Reveal) {
             withFrameNanos { }
-            SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
+            SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize, buffer=$appliedBufferSize")
             isShutterReady = true
             shutterTimedOut = false
             return@LaunchedEffect
         }
         isShutterReady = false
         delay(1_500L)
-        if (!engine.state.value.firstFrameRendered || !engine.state.value.geometryReady) {
-            SwitchTrace.log("SHUTTER_TIMEOUT_EXPIRED", "firstFrame=${engine.state.value.firstFrameRendered}, geometry=${engine.state.value.geometryReady}")
-            shutterTimedOut = true
-            isShutterReady = true
-        }
+        // Force reveal after the deadline no matter which gate is stuck - a permanent black
+        // screen is worse than a transiently mis-shaped frame.
+        SwitchTrace.log(
+            "SHUTTER_TIMEOUT_EXPIRED",
+            "firstFrame=${engine.state.value.firstFrameRendered}, geometry=${engine.state.value.geometryReady}, buffer=$appliedBufferSize"
+        )
+        shutterTimedOut = true
+        isShutterReady = true
     }
     val showShutter = !isPipLayout && playbackState != PlaybackState.IDLE &&
         playbackState != PlaybackState.ERROR &&
@@ -615,7 +624,8 @@ fun PlayerScreen(
                 },
             engine = engine,
             videoDimensions = videoDimensions,
-            videoFrameRate = videoFrameRate
+            videoFrameRate = videoFrameRate,
+            onAppliedBufferSizeChanged = { appliedBufferSize = it }
         )
 
         // A2. Shutter over the file-switch window.

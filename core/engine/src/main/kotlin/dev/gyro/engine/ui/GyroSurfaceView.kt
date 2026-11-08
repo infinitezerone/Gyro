@@ -14,7 +14,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -129,6 +132,19 @@ class GyroSurfaceView @JvmOverloads constructor(
     private var lockedWidth = 0
     private var lockedHeight = 0
 
+    /**
+     * Buffer dims actually applied by the platform, as of the last [surfaceChanged]. Unlike
+     * [lockedWidth]/[lockedHeight] (the *requested* lock), these reflect the live BufferQueue:
+     * `setFixedSize` is an async transaction, so between a re-lock and the matching
+     * [surfaceChanged] mpv still draws into the previous file's buffer. The shutter-reveal
+     * policy consumes this to avoid revealing the new video through stale buffer geometry -
+     * the "corner jump" regression of 2026-11-08.
+     */
+    var appliedBufferWidth by mutableIntStateOf(0)
+        private set
+    var appliedBufferHeight by mutableIntStateOf(0)
+        private set
+
     /** Frame rate of the content on screen, 0 when the system should pick. */
     private var contentFrameRate = 0f
 
@@ -178,6 +194,8 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        appliedBufferWidth = width
+        appliedBufferHeight = height
         SwitchTrace.log("SURFACE_CHANGED", "view=${width}x$height buffer=${lockedWidth}x$lockedHeight")
         EngineLog.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
         if (lockedWidth <= 0 || lockedHeight <= 0) {
@@ -326,7 +344,8 @@ fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
     engine: GyroPlayerEngine? = null,
     videoDimensions: VideoDimensions? = null,
-    videoFrameRate: Float? = null
+    videoFrameRate: Float? = null,
+    onAppliedBufferSizeChanged: ((androidx.compose.ui.unit.IntSize) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val surfaceView = remember {
@@ -340,6 +359,11 @@ fun GyroPlayerSurface(
         onDispose {
             surfaceView.releaseSurfaceOwnership(engine)
         }
+    }
+
+    LaunchedEffect(surfaceView) {
+        snapshotFlow { androidx.compose.ui.unit.IntSize(surfaceView.appliedBufferWidth, surfaceView.appliedBufferHeight) }
+            .collect { onAppliedBufferSizeChanged?.invoke(it) }
     }
 
     val observedFrameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()

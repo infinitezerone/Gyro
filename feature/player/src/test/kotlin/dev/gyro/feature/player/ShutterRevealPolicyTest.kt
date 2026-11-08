@@ -21,7 +21,9 @@ class ShutterRevealPolicyTest {
         videoHeight: Int = h1080,
         resizeMode: ResizeMode = ResizeMode.FIT,
         containerWidth: Int = w1080,
-        containerHeight: Int = h1080
+        containerHeight: Int = h1080,
+        bufferWidth: Int = 2261,
+        bufferHeight: Int = 1272
     ) = ShutterRevealPolicy.evaluate(
         firstFrameRendered = firstFrame,
         geometryReady = geometryReady,
@@ -30,7 +32,9 @@ class ShutterRevealPolicyTest {
         videoHeight = videoHeight,
         resizeMode = resizeMode,
         containerWidth = containerWidth,
-        containerHeight = containerHeight
+        containerHeight = containerHeight,
+        bufferWidth = bufferWidth,
+        bufferHeight = bufferHeight
     )
 
     @Test
@@ -84,7 +88,8 @@ class ShutterRevealPolicyTest {
     @Test
     fun aspectOverrideModesConvergeOnTargetAspectNotVideoAspect() {
         // 4:3 video forced into a 16:9 container with ASPECT_16_9: the container matches the
-        // override target, so reveal even though it diverges from the video's own aspect.
+        // override target and the buffer is locked to the video's own aspect, so reveal even
+        // though the container diverges from the video's own aspect.
         assertEquals(
             ShutterRevealPolicy.Decision.Reveal,
             evaluate(
@@ -93,7 +98,9 @@ class ShutterRevealPolicyTest {
                 videoHeight = 1080,
                 resizeMode = ResizeMode.ASPECT_16_9,
                 containerWidth = 1920,
-                containerHeight = 1080
+                containerHeight = 1080,
+                bufferWidth = 1440,
+                bufferHeight = 1080
             )
         )
     }
@@ -118,5 +125,61 @@ class ShutterRevealPolicyTest {
     fun emptyContainerInFitModeHolds() {
         // No layout yet: container 0x0 cannot have converged.
         assertEquals(ShutterRevealPolicy.Decision.Hold, evaluate(containerWidth = 0, containerHeight = 0))
+    }
+
+    @Test
+    fun holdsWhileBufferStillCarriesPreviousFilesAspect() {
+        // The 2026-11-08 regression: switching from a landscape 16:9 file to a tall portrait
+        // one. Dimension pre-warm converges the container instantly, but setFixedSize is an
+        // async transaction - the buffer still carries the previous file's geometry, so mpv's
+        // first frame lands in the stale BufferQueue and the picture zooms out of a corner.
+        assertEquals(
+            ShutterRevealPolicy.Decision.Hold,
+            evaluate(
+                videoAspect = 0.4586f,
+                videoWidth = 1080,
+                videoHeight = 2354,
+                containerWidth = 1271,
+                containerHeight = 2772,
+                bufferWidth = 2261,
+                bufferHeight = 1272
+            )
+        )
+    }
+
+    @Test
+    fun revealsOnceRelockedBufferMatchesTarget() {
+        // Same switch after the re-lock transaction has landed (surfaceChanged applied).
+        assertEquals(
+            ShutterRevealPolicy.Decision.Reveal,
+            evaluate(
+                videoAspect = 0.4586f,
+                videoWidth = 1080,
+                videoHeight = 2354,
+                containerWidth = 1271,
+                containerHeight = 2772,
+                bufferWidth = 1272,
+                bufferHeight = 2772
+            )
+        )
+    }
+
+    @Test
+    fun holdsWhileBufferNotYetApplied() {
+        // No surfaceChanged has run yet (0x0): the live BufferQueue geometry is unknown.
+        assertEquals(
+            ShutterRevealPolicy.Decision.Hold,
+            evaluate(bufferWidth = 0, bufferHeight = 0)
+        )
+    }
+
+    @Test
+    fun sameAspectBufferOfDifferentSizeStillReveals() {
+        // Same-aspect playlist switches intentionally skip the re-lock (epsilon); the equally
+        // shaped buffer renders the new file without distortion.
+        assertEquals(
+            ShutterRevealPolicy.Decision.Reveal,
+            evaluate(bufferWidth = 1920, bufferHeight = 1080)
+        )
     }
 }
