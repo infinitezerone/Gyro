@@ -9,17 +9,16 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,15 +27,17 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import dev.gyro.core.designsystem.R
 import androidx.compose.ui.unit.dp
+import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
 
 /**
  * 现代轻量级播放器控制遮罩骨架 (PlayerControlsOverlay)
- * - 纯悬浮无背景设计，零遮挡色块；
- * - 锁屏按键悬浮于左侧边缘 (Alignment.CenterStart)；
- * - 顶部栏承载返回、标题与次级设置；
- * - 底部栏采用现代高精度双行通栏架构。
+ * - 纯悬浮设计，零遮挡色块；
+ * - 锁屏按键悬浮于左侧边缘黄金触达位 (Alignment.CenterStart)，采用 GyroCircleActionButton；
+ * - 竖屏模式下，全屏按键解耦移出底部死角，独立悬浮于右侧黄金触达位 (Alignment.CenterEnd)，与锁屏按键左右呼应；
+ * - 顶部栏承载极简返回、标题与设置入口；
+ * - 底部栏专注进度条与核心控制，全面卸下多余入口负担。
  */
 @Composable
 fun BoxScope.PlayerControlsOverlay(
@@ -45,14 +46,6 @@ fun BoxScope.PlayerControlsOverlay(
     title: String,
     mediaSubtitle: String? = null,
     isPlaying: Boolean,
-    /**
-     * Playback clock, passed as a lambda rather than a value.
-     *
-     * `time-pos` updates on every decoded frame, so receiving it as a value would recompose this
-     * whole overlay (and the caller) at video frame rate even while the controls are hidden and
-     * nothing is on screen. Deferring the read keeps the invalidation inside the bottom bar, which
-     * only composes while it is visible.
-     */
     timePosMs: () -> Long,
     durationMs: () -> Long,
     bufferedPosMs: () -> Long,
@@ -78,7 +71,7 @@ fun BoxScope.PlayerControlsOverlay(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，纯悬浮微透明）
+        // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，采用 GyroCircleActionButton）
         AnimatedVisibility(
             visible = isVisible || isLocked,
             enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
@@ -88,23 +81,46 @@ fun BoxScope.PlayerControlsOverlay(
                 .displayCutoutPadding()
                 .padding(start = 14.dp)
         ) {
-            IconButton(
+            GyroCircleActionButton(
                 onClick = onToggleLock,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
-                    tint = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+                icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
+                containerColor = if (isLocked) Color.Black.copy(alpha = 0.60f) else Color.Black.copy(alpha = 0.40f),
+                contentColor = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.85f),
+                border = BorderStroke(0.5.dp, if (isLocked) Color(0xFFFFB74D).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.22f)),
+                size = 40.dp,
+                iconSize = 20.dp
+            )
         }
 
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 顶部操作栏（未锁屏且可见时展示）
+        // 2. 竖屏模式下的全屏展开按键（解耦移出底部，悬浮于右侧中央边缘 Alignment.CenterEnd，右手大拇指自然触达）
+        if (!isLandscape) {
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
+                exit = fadeOut(animationSpec = tween(280)) + scaleOut(targetScale = 0.85f),
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .displayCutoutPadding()
+                    .padding(end = 14.dp)
+            ) {
+                GyroCircleActionButton(
+                    onClick = onToggleOrientation,
+                    icon = Icons.Default.Fullscreen,
+                    contentDescription = stringResource(R.string.cd_fullscreen),
+                    containerColor = Color.Black.copy(alpha = 0.40f),
+                    contentColor = Color.White,
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
+                    size = 40.dp,
+                    iconSize = 22.dp
+                )
+            }
+        }
+
+        // 3. 顶部操作栏（未锁屏且可见时展示）
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(animationSpec = tween(200)),
@@ -121,7 +137,7 @@ fun BoxScope.PlayerControlsOverlay(
             )
         }
 
-        // 3. 底部栏（可见态或滑屏 Seek 态）
+        // 4. 底部栏（可见态或滑屏 Seek 态）
         val showBottomBar = isVisible || scrubState.isActive
         AnimatedVisibility(
             visible = showBottomBar,

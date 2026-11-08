@@ -8,15 +8,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,14 +27,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroGhostIconButton
 
 /**
  * 顶部导航与快捷入口栏 (PlayerTopBar)
- * 职责纯粹化：
- * - 返回首页（ArrowBack）
- * - 媒体标题与实时参数徽章
- * - 纯悬浮快捷入口：画中画、字幕与音轨面板直达、全能设置与统计面板
- * - 彻底移除多余的文件夹/本地文件选择图标（选片属于首页媒体库职责）
+ * 职责纯粹化（做减法）：
+ * - 返回（ArrowBack，采用 GyroGhostIconButton，带 ≥48dp 靶区与微按压弹性）
+ * - 媒体标题与实时参数微标
+ * - 画中画 (PiP) 与 全能设置 (⚙️ Settings，采用成熟齿轮图标取代模糊的三点)
+ * - 5 段平滑渐变暗角过渡，保护状态栏与文字可读性，消灭生硬黑切边
  */
 @Composable
 fun PlayerTopBar(
@@ -54,23 +52,32 @@ fun PlayerTopBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color.Black.copy(alpha = 0.82f), Color.Transparent)
+                    colors = listOf(
+                        Color.Black.copy(alpha = 0.75f),
+                        Color.Black.copy(alpha = 0.50f),
+                        Color.Black.copy(alpha = 0.20f),
+                        Color.Black.copy(alpha = 0.05f),
+                        Color.Transparent
+                    )
                 )
             )
             .displayCutoutPadding()
             .statusBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 返回键（返回首页媒体库）
-            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Color.White)
-            }
+            // 返回键
+            GyroGhostIconButton(
+                onClick = onBack,
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.action_back),
+                iconSize = 22.dp
+            )
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             // 视频标题与参数徽章
             Column(
@@ -78,31 +85,45 @@ fun PlayerTopBar(
             ) {
                 Text(
                     text = title.ifBlank { stringResource(R.string.player_default_title) },
-                    style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White),
+                    style = TextStyle(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (!mediaSubtitle.isNullOrBlank()) {
                     Text(
                         text = mediaSubtitle,
-                        style = TextStyle(fontSize = 11.sp, color = Color.White.copy(alpha = 0.65f), fontFeatureSettings = "tnum"),
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontFeatureSettings = "tnum"
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             // 画中画 (PiP)
-            IconButton(onClick = onEnterPiP, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Default.PictureInPictureAlt, contentDescription = stringResource(R.string.cd_pip), tint = Color.White, modifier = Modifier.size(20.dp))
-            }
+            GyroGhostIconButton(
+                onClick = onEnterPiP,
+                icon = Icons.Default.PictureInPictureAlt,
+                contentDescription = stringResource(R.string.cd_pip),
+                iconSize = 20.dp
+            )
 
-            // 设置与全量面板入口 (直达全功能控制面板：字幕/音轨/校准/倍速/画幅/统计)
-            IconButton(onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) }, modifier = Modifier.size(38.dp)) {
-                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.cd_settings), tint = Color.White, modifier = Modifier.size(20.dp))
-            }
+            // 设置与全量面板入口 (⚙️ Settings 齿轮图标)
+            GyroGhostIconButton(
+                onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                icon = Icons.Default.Settings,
+                contentDescription = stringResource(R.string.cd_settings),
+                iconSize = 20.dp
+            )
         }
     }
 }
