@@ -20,8 +20,6 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -43,12 +41,13 @@ import dev.gyro.engine.model.ResizeMode
 /**
  * 底部控制栏统一组件 (PlayerBottomBar)
  *
- * 减法与人机工学升级：
- * 1. 采用 BgmPlus 微交互动作按键原语（GyroCircleActionButton / GyroPillButton / GyroGhostIconButton），
- *    所有可点元素严格具备 ≥48dp 隐式靶心判定与物理弹簧微按压动效；
- * 2. 彻底移除杂乱低频的画幅比例（Aspect）文本，收归二级设置；
- * 3. 竖屏模式下将全屏切换移至更容易触及的屏幕右侧浮动区，底栏免受系统手势条挤压；
- * 4. 采用 4 段非线性平滑暗角衰减，消除生硬黑阶。
+ * 极简两行架构（方案一规范）：
+ * 1. 行 1：通栏自适应弹性进度条（带缓冲状态与安全间距）；
+ * 2. 行 2：极简核心控制行：
+ *    - 左侧仅保留 [播放/暂停 38dp圆钮] 与清晰时间 [05:20 / 45:00]；
+ *    - 右侧保留 [倍速 1.0x 胶囊]（多集连播时保留 [选集 胶囊]）；
+ *    - 竖屏全屏按键彻底移出底栏（放置于视频画面正下方），横屏模式下在底栏右侧呈现退出全屏按键；
+ * 3. 采用 4 段非线性平滑暗角衰减，消除生硬黑阶。
  */
 @Composable
 fun PlayerBottomBar(
@@ -141,7 +140,7 @@ fun PlayerBottomBar(
                 }
             }
         } else {
-            // B. 现代通透控制栏
+            // B. 极简两行控制栏
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Row 1: 舒适安全间距与防误触缓冲的通栏进度条
                 PlayerScrubBar(
@@ -156,7 +155,7 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Row 2: 黄金触达控制行 (44dp 高度)
+                // Row 2: 黄金触达极简控制行 (44dp 高度)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -164,16 +163,6 @@ fun PlayerBottomBar(
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 上一集 (仅有上一集时显示)
-                    if (hasPrevious) {
-                        GyroGhostIconButton(
-                            onClick = onPlayPrevious,
-                            icon = Icons.Default.SkipPrevious,
-                            contentDescription = stringResource(R.string.cd_prev_video),
-                            iconSize = 22.dp
-                        )
-                    }
-
                     // 播放 / 暂停 / 重播（采用 GyroCircleActionButton 微磨砂圆钮）
                     val isEnded = !isPlaying && totalMs > 0L && displayPos >= totalMs - 500L
                     GyroCircleActionButton(
@@ -191,17 +180,7 @@ fun PlayerBottomBar(
                         border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f))
                     )
 
-                    // 下一集 (仅有下一集时显示)
-                    if (hasNext) {
-                        GyroGhostIconButton(
-                            onClick = onPlayNext,
-                            icon = Icons.Default.SkipNext,
-                            contentDescription = stringResource(R.string.cd_next_video),
-                            iconSize = 22.dp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
                     // 紧跟播放键的时间显示：当前时间 / 总时长
                     Text(
@@ -216,7 +195,7 @@ fun PlayerBottomBar(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // 播放列表胶囊 (若有连播列表时呈现)
+                    // 选集胶囊 (有连播列表时呈现)
                     if (hasPrevious || hasNext) {
                         GyroPillButton(
                             text = stringResource(R.string.cd_playlist),
@@ -232,9 +211,9 @@ fun PlayerBottomBar(
                         onClick = { onOpenSheetTab(PlayerSheetTab.SPEED) }
                     )
 
-                    // 横屏模式下，底栏最右侧提供退出全屏按键；竖屏模式下已解耦移出底部，由右侧黄金触达区承载
+                    // 横屏模式下，底栏最右侧提供退出全屏按键；竖屏模式下已解耦彻底移出底栏
                     if (isLandscape) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         GyroGhostIconButton(
                             onClick = onToggleOrientation,
                             icon = Icons.Default.FullscreenExit,

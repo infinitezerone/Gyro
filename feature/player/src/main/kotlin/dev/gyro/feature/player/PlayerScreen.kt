@@ -372,6 +372,12 @@ fun PlayerScreen(
 
     var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
     var videoContainerSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val videoBottomDp = remember(videoContainerOrigin, videoContainerSize, density) {
+        if (videoContainerSize.height > 0) {
+            with(density) { (videoContainerOrigin.y + videoContainerSize.height).toDp() }
+        } else null
+    }
 
     val composeVideoBounds = remember(videoContainerOrigin, videoContainerSize, videoSourceRect) {
         if (videoContainerSize.width > 0 && videoContainerSize.height > 0) {
@@ -585,7 +591,6 @@ fun PlayerScreen(
                 IntSize((containerSize.height * videoAspect).toInt(), containerSize.height)
             }
         }
-        val density = LocalDensity.current
         val videoContainerModifier = when (resizeMode) {
             ResizeMode.FIT -> if (videoAspect > 0f) Modifier.aspectRatio(videoAspect) else Modifier.fillMaxSize()
             ResizeMode.ASPECT_16_9 -> Modifier.aspectRatio(16f / 9f)
@@ -831,7 +836,8 @@ fun PlayerScreen(
                     }
                 },
                 onBack = onBack,
-                chapters = chapters
+                chapters = chapters,
+                videoBottomDp = videoBottomDp
             )
         }
 

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import dev.gyro.core.designsystem.R
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.model.ChapterInfo
@@ -34,10 +36,10 @@ import dev.gyro.engine.model.ResizeMode
 /**
  * 现代轻量级播放器控制遮罩骨架 (PlayerControlsOverlay)
  * - 纯悬浮设计，零遮挡色块；
- * - 锁屏按键悬浮于左侧边缘黄金触达位 (Alignment.CenterStart)，采用 GyroCircleActionButton；
- * - 竖屏模式下，全屏按键解耦移出底部死角，独立悬浮于右侧黄金触达位 (Alignment.CenterEnd)，与锁屏按键左右呼应；
+ * - 锁屏按键悬浮于左侧边缘 (Alignment.CenterStart)；
+ * - 竖屏模式下，全屏按键解耦移出底栏，置于【视频画面正下方居中】，视线与操作完全顺畅；
  * - 顶部栏承载极简返回、标题与设置入口；
- * - 底部栏专注进度条与核心控制，全面卸下多余入口负担。
+ * - 底部栏采用极简两行架构（进度条 + 播放/时间/倍速）。
  */
 @Composable
 fun BoxScope.PlayerControlsOverlay(
@@ -65,7 +67,8 @@ fun BoxScope.PlayerControlsOverlay(
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
     onBack: () -> Unit,
-    chapters: List<ChapterInfo> = emptyList()
+    chapters: List<ChapterInfo> = emptyList(),
+    videoBottomDp: Dp? = null
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -96,26 +99,33 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏展开按键（解耦移出底部，悬浮于右侧中央边缘 Alignment.CenterEnd，右手大拇指自然触达）
+        // 2. 竖屏模式下的全屏按键：置于【视频画面正下方居中】（告别底栏死角，视线与动作自然统合）
         if (!isLandscape) {
+            val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = videoBottomDp + 18.dp)
+            } else {
+                Modifier
+                    .align(Alignment.Center)
+                    .offset(y = 140.dp)
+            }
+
             AnimatedVisibility(
                 visible = isVisible,
                 enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
                 exit = fadeOut(animationSpec = tween(280)) + scaleOut(targetScale = 0.85f),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .displayCutoutPadding()
-                    .padding(end = 14.dp)
+                modifier = bottomModifier
             ) {
                 GyroCircleActionButton(
                     onClick = onToggleOrientation,
                     icon = Icons.Default.Fullscreen,
                     contentDescription = stringResource(R.string.cd_fullscreen),
-                    containerColor = Color.Black.copy(alpha = 0.40f),
+                    containerColor = Color.Black.copy(alpha = 0.45f),
                     contentColor = Color.White,
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
-                    size = 40.dp,
-                    iconSize = 22.dp
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.25f)),
+                    size = 42.dp,
+                    iconSize = 24.dp
                 )
             }
         }
@@ -137,7 +147,7 @@ fun BoxScope.PlayerControlsOverlay(
             )
         }
 
-        // 4. 底部栏（可见态或滑屏 Seek 态）
+        // 4. 底部栏（极简两行，可见态或滑屏 Seek 态）
         val showBottomBar = isVisible || scrubState.isActive
         AnimatedVisibility(
             visible = showBottomBar,
