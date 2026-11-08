@@ -37,10 +37,14 @@ class TrackAndChapterManager(
     private val _currentChapter = store.property({ it.currentChapter }) { s, v -> s.copy(currentChapter = v) }
     val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
+    private val _secondarySubId = store.property({ it.secondarySubId }) { s, v -> s.copy(secondarySubId = v) }
+    val secondarySubId: StateFlow<Int> = _secondarySubId.asStateFlow()
+
     override fun registerObservers() {
         bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
         bridge.observeProperty("chapter-list", MpvNativeBridge.Format.NONE)
         bridge.observeProperty("chapter", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("secondary-sid", MpvNativeBridge.Format.INT64)
     }
 
     override fun onEvent(event: MpvEvent) {
@@ -63,7 +67,10 @@ class TrackAndChapterManager(
                 "chapter-list" -> refreshChapters()
             }
             is MpvEvent.LongProperty -> {
-                if (event.name == "chapter") onChapterPropertyChanged(event.value.toInt())
+                when (event.name) {
+                    "chapter" -> onChapterPropertyChanged(event.value.toInt())
+                    "secondary-sid" -> _secondarySubId.value = event.value.toInt()
+                }
             }
             else -> Unit
         }
@@ -111,6 +118,14 @@ class TrackAndChapterManager(
                     bridge.setPropertyString("sid", "no")
                 } else {
                     bridge.setPropertyString("sid", "$id")
+                }
+            }
+            "secondary-sub" -> {
+                // 次字幕（双语同屏）：id <= 0 关闭；主字幕轨不会被次字幕抢占
+                if (id <= 0) {
+                    bridge.setPropertyString("secondary-sid", "no")
+                } else {
+                    bridge.setPropertyString("secondary-sid", "$id")
                 }
             }
         }
