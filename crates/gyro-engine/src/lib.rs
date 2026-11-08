@@ -12,6 +12,7 @@ pub mod jni;
 pub mod logic;
 pub mod mpv;
 pub mod render;
+pub mod vulkan;
 
 use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
