@@ -734,7 +734,7 @@ fun PlayerTrackSelectionSheetContent(
                                     onValueChange = onSetSubDelay
                                 )
                                 Spacer(modifier = Modifier.height(14.dp))
-                                Text(stringResource(R.string.sub_scale_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.sub_scale_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(0.8, 1.0, 1.2, 1.5).forEach { scale ->
@@ -746,7 +746,7 @@ fun PlayerTrackSelectionSheetContent(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Text(stringResource(R.string.sub_pos_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.sub_pos_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(
@@ -935,7 +935,7 @@ fun PlayerTrackSelectionSheetContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(stringResource(R.string.stats_hwdec_title), fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.stats_hwdec_title), fontWeight = FontWeight.SemiBold, color = Color.White)
                                 Text(
                                     text = if (hwdec.contains("mediacodec")) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
                                     fontSize = 12.sp,
@@ -1094,7 +1094,7 @@ private fun SyncCalibrationItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
             val sign = if (currentSec > 0.0) "+" else ""
             Text(
                 text = "$sign${String.format(Locale.US, "%.1fs", currentSec)}",
@@ -1342,7 +1342,8 @@ private fun AudiovisualTabContent(
             OutlinedButton(
                 onClick = onResetColors,
                 enabled = hasColorModifications,
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6), disabledContentColor = Color.White.copy(alpha = 0.3f))
             ) {
                 Text(text = stringResource(R.string.effects_color_reset))
             }

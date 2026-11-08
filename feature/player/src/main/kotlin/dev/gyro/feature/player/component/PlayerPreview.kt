@@ -141,6 +141,7 @@ fun PlayerMediaInfoSheetPreview() {
 
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -175,6 +176,7 @@ fun PlayerMediaInfoSheetPreview() {
 fun PlayerAudiovisualSheetPreview() {
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -210,6 +212,7 @@ fun PlayerAudiovisualSheetPreview() {
 fun PlayerSettingsHubPreview() {
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -243,6 +246,7 @@ fun PlayerSettingsHubPreview() {
 fun PlayerPlaylistSheetPreview() {
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -287,6 +291,7 @@ fun PlayerSubtitlesSheetPreview() {
     )
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -323,6 +328,7 @@ fun PlayerAudioSheetPreview() {
     )
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -352,6 +358,7 @@ fun PlayerAudioSheetPreview() {
 fun PlayerSpeedSheetPreview() {
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -381,6 +388,7 @@ fun PlayerSpeedSheetPreview() {
 fun PlayerAspectSheetPreview() {
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
@@ -410,6 +418,7 @@ fun PlayerAspectSheetPreview() {
 fun PlayerStatsSheetPreview() {
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerTrackSelectionSheetContent(
