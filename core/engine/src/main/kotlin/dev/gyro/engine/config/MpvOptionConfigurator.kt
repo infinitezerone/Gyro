@@ -188,10 +188,19 @@ class MpvOptionConfigurator {
             bridge.setOptionString("video-sync", "audio")
         }
         if (!userOptions.containsKey("demuxer-max-bytes")) {
-            bridge.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
+            bridge.setOptionString("demuxer-max-bytes", "${128 * 1024 * 1024}")
         }
         if (!userOptions.containsKey("demuxer-max-back-bytes")) {
             bridge.setOptionString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
+        }
+        if (!userOptions.containsKey("demuxer-readahead-secs")) {
+            bridge.setOptionString("demuxer-readahead-secs", "20")
+        }
+        if (!userOptions.containsKey("tone-mapping")) {
+            bridge.setOptionString("tone-mapping", "bt.2446a")
+        }
+        if (!userOptions.containsKey("hdr-compute-peak")) {
+            bridge.setOptionString("hdr-compute-peak", "yes")
         }
         if (!userOptions.containsKey("sub-font-provider")) {
             bridge.setOptionString("sub-font-provider", "none")

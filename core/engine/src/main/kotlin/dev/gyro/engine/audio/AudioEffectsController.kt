@@ -40,6 +40,9 @@ class AudioEffectsController(
     private val _stereoDownmix = store.property({ it.stereoDownmix }) { s, v -> s.copy(stereoDownmix = v) }
     val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
 
+    @Volatile
+    var userBaseAf: String = ""
+
     override fun registerObservers() {}
 
     override fun onEvent(event: MpvEvent) {
@@ -96,7 +99,10 @@ class AudioEffectsController(
 
     @Synchronized
     private fun updateAudioFilters() {
-        val activeFilters = ArrayList<String>(3)
+        val activeFilters = ArrayList<String>(4)
+        if (userBaseAf.isNotBlank()) {
+            activeFilters.add(userBaseAf)
+        }
 
         // Pipeline Stage 1: Downmixing (pan)
         if (_stereoDownmix.value) {

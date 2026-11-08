@@ -85,4 +85,21 @@ class AudioEffectsControllerTest {
             "${AudioEffectsController.FILTER_STEREO_DOWNMIX},${AudioEffectsController.FILTER_DYNAUDNORM},${AudioEffectsController.FILTER_ALIMITER}"
         assertEquals(expectedAllThree, bridge.properties["af"])
     }
+
+    @Test
+    fun testUserBaseAf_isPreservedWhenEffectsChange() {
+        controller.userBaseAf = "lavfi=[bs2b=profile=default]"
+        controller.setSoftwareVolume(150.0)
+
+        val expected = "lavfi=[bs2b=profile=default],${AudioEffectsController.FILTER_ALIMITER}"
+        assertEquals(expected, bridge.properties["af"])
+
+        controller.setNightMode(true)
+        val expectedWithNight = "lavfi=[bs2b=profile=default],${AudioEffectsController.FILTER_DYNAUDNORM},${AudioEffectsController.FILTER_ALIMITER}"
+        assertEquals(expectedWithNight, bridge.properties["af"])
+
+        controller.setSoftwareVolume(100.0)
+        controller.setNightMode(false)
+        assertEquals("lavfi=[bs2b=profile=default]", bridge.properties["af"])
+    }
 }

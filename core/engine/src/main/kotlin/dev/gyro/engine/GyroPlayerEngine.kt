@@ -155,6 +155,7 @@ class GyroPlayerEngine(
         userOptions: Map<String, String> = configurator.currentState.userOptions,
         settings: UserSettings = configurator.currentState.settings,
     ) {
+        userOptions["af"]?.let { audio.userBaseAf = it }
         if (isInitialized.get()) {
             configurator.applyRuntimeUpdate(bridge, settings, userOptions)
         } else {
@@ -187,6 +188,7 @@ class GyroPlayerEngine(
                 playback.resetAudioFocus()
                 // The real bridge requires the application context; only fakes accept null.
                 bridge.create(context)
+                configurator.currentState.userOptions["af"]?.let { audio.userBaseAf = it }
                 configurator.applyInitial(bridge, configurator.currentState.userOptions, configurator.currentState.settings)
                 displayRefreshRateProvider()?.let { rate ->
                     geometry.updateDisplayRefreshRate(rate)
