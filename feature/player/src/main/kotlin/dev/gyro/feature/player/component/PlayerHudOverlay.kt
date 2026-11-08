@@ -4,6 +4,10 @@ import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.layout.Column
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
@@ -36,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -169,11 +174,11 @@ fun BoxScope.PlayerHudOverlay(
             }
         }
 
-        // 3. YouTube-Style Double-Tap Jump Pills (Left / Right)
+        // 3. YouTube-Style Curved Ripple Arc with Pulsing Seconds (Left / Right)
         AnimatedVisibility(
             visible = hudState is GestureHudState.DoubleTap,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(animationSpec = tween(100)),
+            exit = fadeOut(animationSpec = tween(250)),
             modifier = Modifier.fillMaxSize()
         ) {
             val doubleTapState = hudState as? GestureHudState.DoubleTap
@@ -183,31 +188,43 @@ fun BoxScope.PlayerHudOverlay(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = if (isLeft) Alignment.CenterStart else Alignment.CenterEnd
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(32.dp),
-                        color = Color.Black.copy(alpha = 0.65f),
-                        contentColor = Color.White,
-                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f)),
-                        modifier = Modifier.padding(horizontal = 48.dp)
+                    // 半圆扩散微光波纹弧 (Curved Ripple Arc)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(0.38f)
+                            .clip(
+                                if (isLeft) {
+                                    RoundedCornerShape(topEndPercent = 100, bottomEndPercent = 100)
+                                } else {
+                                    RoundedCornerShape(topStartPercent = 100, bottomStartPercent = 100)
+                                }
+                            )
+                            .background(Color.White.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (isLeft) {
-                                Icon(Icons.Default.FastRewind, contentDescription = null, modifier = Modifier.size(20.dp))
-                                Text(
-                                    text = stringResource(R.string.hud_rewind_seconds, doubleTapState.seconds),
-                                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
+                            Icon(
+                                imageVector = if (isLeft) Icons.Default.FastRewind else Icons.Default.FastForward,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Text(
+                                text = stringResource(
+                                    if (isLeft) R.string.hud_rewind_seconds else R.string.hud_forward_seconds,
+                                    doubleTapState.seconds
+                                ),
+                                style = TextStyle(
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    fontFeatureSettings = "tnum"
                                 )
-                            } else {
-                                Text(
-                                    text = stringResource(R.string.hud_forward_seconds, doubleTapState.seconds),
-                                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
-                                )
-                                Icon(Icons.Default.FastForward, contentDescription = null, modifier = Modifier.size(20.dp))
-                            }
+                            )
                         }
                     }
                 }
@@ -258,7 +275,12 @@ private fun TopCapsuleSlider(
                 modifier = Modifier.size(18.dp)
             )
 
-            // Horizontal Progress Bar Track
+            // Horizontal Progress Bar Track (with smooth physics interpolation)
+            val animatedRatio by animateFloatAsState(
+                targetValue = ratio.coerceIn(0f, 1f),
+                animationSpec = spring(stiffness = Spring.StiffnessHigh, dampingRatio = Spring.DampingRatioNoBouncy),
+                label = "hudRatio"
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -269,7 +291,7 @@ private fun TopCapsuleSlider(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(ratio.coerceIn(0f, 1f))
+                        .fillMaxWidth(animatedRatio)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(2.dp))
                         .background(activeColor)

@@ -196,3 +196,76 @@ fun PlayerAudiovisualSheetPreview() {
         )
     }
 }
+
+@Preview(
+    name = "Player Settings Hub Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerSettingsHubPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.SETTINGS_HUB,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            hwdec = "mediacodec",
+            fps = 60.0,
+            videoWidth = 1920,
+            videoHeight = 1080,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Playlist Dual-Pill Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerPlaylistSheetPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.PLAYLIST,
+            playlist = listOf(
+                dev.gyro.core.model.VideoMediaItem(1L, "content://1", "Episode 01 - The Beginning", 1440000L, 500000000L, 1920, 1080, 0L, "Season 1"),
+                dev.gyro.core.model.VideoMediaItem(2L, "content://2", "Episode 02 - Into The Forest", 1500000L, 500000000L, 1920, 1080, 0L, "Season 1"),
+                dev.gyro.core.model.VideoMediaItem(3L, "content://3", "Episode 03 - Discovery", 1480000L, 500000000L, 1920, 1080, 0L, "Season 1")
+            ),
+            currentPlaylistIndex = 0,
+            chapters = listOf(
+                dev.gyro.core.model.ChapterInfo(0, "OP", 0L),
+                dev.gyro.core.model.ChapterInfo(1, "Main Part", 90000L)
+            ),
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
