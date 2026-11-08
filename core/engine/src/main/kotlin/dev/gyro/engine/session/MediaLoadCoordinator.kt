@@ -83,6 +83,12 @@ class MediaLoadCoordinator(
 
     fun load(item: MediaItem) {
         val target = item.target.ifBlank { item.uri?.toString().orEmpty() }
+        // Ensure the native engine exists BEFORE this load captures its epoch. Lazy init runs
+        // reset_engine_lifecycle_state, which advances the native epoch counter; bumping first
+        // would make the very first load after create trail the native counter (observed on
+        // device: LOAD_URI epoch=1 while the first-frame signal fired with epoch=2), leaving the
+        // Kotlin mirror and Rust authority out of sync for that session. Idempotent (CAS).
+        ensureInitialized()
         val epoch = bridge.nextEpoch()
         beginLoad(
             target = target,
