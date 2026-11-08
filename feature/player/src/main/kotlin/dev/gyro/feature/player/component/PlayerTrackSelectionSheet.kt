@@ -1027,111 +1027,29 @@ fun PlayerTrackSelectionSheetContent(
                     }
                 }
                 PlayerSheetTab.SPEED -> {
-                    // Speed Tab
-                    val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                        Text(stringResource(R.string.speed_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f))
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            speedOptions.forEach { sp ->
-                                FilterChip(
-                                    selected = currentSpeed == sp,
-                                    onClick = { onSelectSpeed(sp) },
-                                    label = { Text("${sp}x") }
-                                )
-                            }
-                        }
-                    }
+                    SpeedTabContent(
+                        currentSpeed = currentSpeed,
+                        onSelectSpeed = onSelectSpeed
+                    )
                 }
                 PlayerSheetTab.ASPECT -> {
-                    // Aspect / ResizeMode
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ResizeMode.entries.forEach { mode ->
-                            TrackItem(
-                                title = mode.label,
-                                subtitle = when (mode) {
-                                    ResizeMode.FIT -> stringResource(R.string.aspect_fit_desc)
-                                    ResizeMode.CROP -> stringResource(R.string.aspect_crop_desc)
-                                    ResizeMode.STRETCH -> stringResource(R.string.aspect_stretch_desc)
-                                    ResizeMode.ASPECT_16_9 -> stringResource(R.string.aspect_16_9_desc)
-                                    ResizeMode.ASPECT_21_9 -> stringResource(R.string.aspect_21_9_desc)
-                                },
-                                isSelected = currentResizeMode == mode,
-                                onClick = { onSelectResizeMode(mode) }
-                            )
-                        }
-                    }
+                    AspectTabContent(
+                        currentResizeMode = currentResizeMode,
+                        hwdec = hwdec,
+                        onSelectResizeMode = onSelectResizeMode,
+                        onToggleHwdec = onToggleHwdec
+                    )
                 }
                 PlayerSheetTab.STATS -> {
-                    // Stats & Decoding Tab
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color.White.copy(alpha = 0.08f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.stats_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF64B5F6))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(stringResource(R.string.stats_resolution), color = Color.White.copy(alpha = 0.7f))
-                                    Text(if (videoWidth > 0 && videoHeight > 0) "${videoWidth} × ${videoHeight}" else stringResource(R.string.stats_pending), fontWeight = FontWeight.Bold)
-                                }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(stringResource(R.string.stats_framerate), color = Color.White.copy(alpha = 0.7f))
-                                    Text("${String.format(Locale.US, "%.1f", fps)} FPS", fontWeight = FontWeight.Bold)
-                                }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(stringResource(R.string.stats_dropped_frames), color = Color.White.copy(alpha = 0.7f))
-                                    Text("$droppedFrames", fontWeight = FontWeight.Bold, color = if (droppedFrames > 0) Color(0xFFFFB74D) else Color.White)
-                                }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(stringResource(R.string.stats_decoder), color = Color.White.copy(alpha = 0.7f))
-                                    val isHw = hwdec.contains("mediacodec")
-                                    Text(if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software), fontWeight = FontWeight.Bold, color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D))
-                                }
-                                powerMetrics?.let { pm ->
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(stringResource(R.string.stats_power), color = Color.White.copy(alpha = 0.7f))
-                                        Text("${String.format(Locale.US, "%.2f", pm.powerWatts)} W", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Decoder toggle action
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(stringResource(R.string.stats_hwdec_title), fontWeight = FontWeight.SemiBold, color = Color.White)
-                                Text(
-                                    text = if (hwdec.contains("mediacodec")) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.6f)
-                                )
-                            }
-                            OutlinedButton(onClick = onToggleHwdec) {
-                                Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(if (hwdec.contains("mediacodec")) R.string.stats_switch_to_sw else R.string.stats_switch_to_hw))
-                            }
-                        }
-                    }
+                    StatsTabContent(
+                        videoWidth = videoWidth,
+                        videoHeight = videoHeight,
+                        fps = fps,
+                        droppedFrames = droppedFrames,
+                        hwdec = hwdec,
+                        powerMetrics = powerMetrics,
+                        onToggleHwdec = onToggleHwdec
+                    )
                 }
                 PlayerSheetTab.INFO -> {
                     val resolvedInfo = mediaInfo ?: MediaInfo(
@@ -1493,92 +1411,109 @@ private fun ShadersTabContent(
     onSelectCustomShaderFile: (File) -> Unit,
     onImportCustomShader: () -> Unit
 ) {
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 380.dp),
-        contentPadding = PaddingValues(vertical = 4.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Off
-        item {
+        // 1. 预设 GLSL 画质滤镜
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "GLSL 画质渲染滤镜",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
+            )
+
             TrackItem(
                 title = stringResource(R.string.shader_off),
                 subtitle = stringResource(R.string.common_off),
                 isSelected = shaderState.activeShader == GlslShader.OFF,
+                accentColor = Color(0xFF64B5F6),
+                icon = Icons.Default.AutoAwesome,
                 onClick = onClearShader
             )
-        }
 
-        // 2. Anime4K Lite
-        item {
             TrackItem(
                 title = stringResource(R.string.shader_anime4k),
                 subtitle = stringResource(R.string.shader_desc_anime4k),
                 isSelected = shaderState.activeShader == GlslShader.ANIME4K,
+                accentColor = Color(0xFF64B5F6),
+                icon = Icons.Default.AutoAwesome,
                 onClick = { onSelectShader(GlslShader.ANIME4K) }
             )
         }
 
-        // Divider
-        item {
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                color = Color.White.copy(alpha = 0.1f)
+        // 2. 自定义着色器
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.shader_custom),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
             )
-        }
 
-        // 4. Cached Custom Shaders
-        if (customShaders.isNotEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.shader_custom),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF64B5F6),
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
-                )
+            Surface(
+                onClick = onImportCustomShader,
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF64B5F6).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color(0xFF64B5F6),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.shader_import_saf),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF64B5F6)
+                        )
+                        Text(
+                            text = stringResource(R.string.shader_desc_custom),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.5f)
+                        )
+                    }
+                }
             }
-            items(customShaders) { file ->
+
+            customShaders.forEach { file ->
                 val isSelected = shaderState.activeShader == GlslShader.CUSTOM &&
                         shaderState.currentPath == file.absolutePath
                 TrackItem(
                     title = file.nameWithoutExtension,
                     subtitle = file.name,
                     isSelected = isSelected,
+                    accentColor = Color(0xFF64B5F6),
+                    icon = Icons.Default.AutoAwesome,
                     onClick = { onSelectCustomShaderFile(file) }
                 )
-            }
-        }
-
-        // 5. Import Action Item via SAF
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onImportCustomShader() }
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = null,
-                    tint = Color(0xFF64B5F6),
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = stringResource(R.string.shader_import_saf),
-                        color = Color(0xFF64B5F6),
-                        fontWeight = FontWeight.Medium,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        text = stringResource(R.string.shader_desc_custom),
-                        color = Color.White.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
             }
         }
     }
@@ -1603,90 +1538,564 @@ private fun AudiovisualTabContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 420.dp)
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 6.dp)
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Group 1: 画面色彩调节
-        Text(
-            text = stringResource(R.string.effects_color_group),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF64B5F6),
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
-        )
+        // 1. 画质滤波优化
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "画质优化",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
 
-        FilterSwitchRow(
-            title = stringResource(R.string.effects_deband),
-            description = stringResource(R.string.effects_deband_desc),
-            checked = deband,
-            onCheckedChange = onSetDeband
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        ColorSliderRow(
-            label = stringResource(R.string.effects_color_brightness),
-            value = brightness,
-            onValueChange = onSetBrightness
-        )
-
-        ColorSliderRow(
-            label = stringResource(R.string.effects_color_contrast),
-            value = contrast,
-            onValueChange = onSetContrast
-        )
-
-        ColorSliderRow(
-            label = stringResource(R.string.effects_color_saturation),
-            value = saturation,
-            onValueChange = onSetSaturation
-        )
-
-        val hasColorModifications = brightness != 0 || contrast != 0 || saturation != 0
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            OutlinedButton(
-                onClick = onResetColors,
-                enabled = hasColorModifications,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6), disabledContentColor = Color.White.copy(alpha = 0.3f))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(text = stringResource(R.string.effects_color_reset))
+                FilterSwitchRow(
+                    title = stringResource(R.string.effects_deband),
+                    description = stringResource(R.string.effects_deband_desc),
+                    checked = deband,
+                    onCheckedChange = onSetDeband
+                )
             }
         }
 
-        HorizontalDivider(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            color = Color.White.copy(alpha = 0.1f)
-        )
+        // 2. 画面色彩校准卡片
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.effects_color_group),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF64B5F6)
+                )
 
-        // Group 2: 音频增强滤镜
-        Text(
-            text = stringResource(R.string.effects_audio_group),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF64B5F6),
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
-        )
+                val hasColorModifications = brightness != 0 || contrast != 0 || saturation != 0
+                FilledTonalButton(
+                    onClick = onResetColors,
+                    enabled = hasColorModifications,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFF64B5F6).copy(alpha = 0.2f),
+                        contentColor = Color(0xFF64B5F6),
+                        disabledContainerColor = Color.White.copy(alpha = 0.04f),
+                        disabledContentColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(text = stringResource(R.string.effects_color_reset), fontSize = 12.sp)
+                }
+            }
 
-        FilterSwitchRow(
-            title = stringResource(R.string.effects_night_dialogue),
-            description = stringResource(R.string.effects_night_dialogue_desc),
-            checked = nightMode,
-            onCheckedChange = onSetNightMode
-        )
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ColorSliderRow(
+                        label = stringResource(R.string.effects_color_brightness),
+                        value = brightness,
+                        onValueChange = onSetBrightness
+                    )
+                    ColorSliderRow(
+                        label = stringResource(R.string.effects_color_contrast),
+                        value = contrast,
+                        onValueChange = onSetContrast
+                    )
+                    ColorSliderRow(
+                        label = stringResource(R.string.effects_color_saturation),
+                        value = saturation,
+                        onValueChange = onSetSaturation
+                    )
+                }
+            }
+        }
+    }
+}
 
-        FilterSwitchRow(
-            title = stringResource(R.string.effects_stereo_downmix),
-            description = stringResource(R.string.effects_stereo_downmix_desc),
-            checked = stereoDownmix,
-            onCheckedChange = onSetStereoDownmix
-        )
+@Composable
+private fun SpeedTabContent(
+    currentSpeed: Float,
+    onSelectSpeed: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Hero Card: 当前倍速与快速原速
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White.copy(alpha = 0.05f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = String.format(Locale.US, "%.2fx", currentSpeed),
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF64B5F6),
+                    style = TextStyle(fontFeatureSettings = "tnum")
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (Math.abs(currentSpeed - 1.0f) < 0.01f) "标准播放速率 (原速)" else "自定义变速播放中",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+
+                if (Math.abs(currentSpeed - 1.0f) >= 0.01f) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    FilledTonalButton(
+                        onClick = { onSelectSpeed(1.0f) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color(0xFF64B5F6).copy(alpha = 0.2f),
+                            contentColor = Color(0xFF64B5F6)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("恢复 1.0x 原速", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        // Section 1: 预设倍速矩阵
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "快捷预设倍速",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+
+            val row1 = listOf(0.5f, 0.75f, 1.0f, 1.25f)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row1.forEach { sp ->
+                    FilterChip(
+                        selected = Math.abs(currentSpeed - sp) < 0.01f,
+                        onClick = { onSelectSpeed(sp) },
+                        label = { Text("${sp}x") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            val row2 = listOf(1.5f, 1.75f, 2.0f, 3.0f)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                row2.forEach { sp ->
+                    FilterChip(
+                        selected = Math.abs(currentSpeed - sp) < 0.01f,
+                        onClick = { onSelectSpeed(sp) },
+                        label = { Text("${sp}x") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        // Section 2: 无级精细调速
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color.White.copy(alpha = 0.05f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "无级精细微调",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "0.25x - 3.0x",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = { onSelectSpeed(Math.max(0.25f, (Math.round((currentSpeed - 0.05f) * 100f) / 100f))) },
+                        modifier = Modifier.height(36.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.08f),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Text("-0.05x", fontSize = 12.sp)
+                    }
+
+                    Slider(
+                        value = currentSpeed.coerceIn(0.25f, 3.0f),
+                        onValueChange = { onSelectSpeed(Math.round(it * 20f) / 20f) },
+                        valueRange = 0.25f..3.0f,
+                        modifier = Modifier.weight(1f),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF64B5F6),
+                            activeTrackColor = Color(0xFF64B5F6),
+                            inactiveTrackColor = Color.White.copy(alpha = 0.15f)
+                        )
+                    )
+
+                    FilledTonalButton(
+                        onClick = { onSelectSpeed(Math.min(3.0f, (Math.round((currentSpeed + 0.05f) * 100f) / 100f))) },
+                        modifier = Modifier.height(36.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.08f),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Text("+0.05x", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AspectTabContent(
+    currentResizeMode: ResizeMode,
+    hwdec: String,
+    onSelectResizeMode: (ResizeMode) -> Unit,
+    onToggleHwdec: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. 画面显示比例
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "画面显示比例",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
+            )
+
+            ResizeMode.entries.forEach { mode ->
+                TrackItem(
+                    title = mode.label,
+                    subtitle = when (mode) {
+                        ResizeMode.FIT -> stringResource(R.string.aspect_fit_desc)
+                        ResizeMode.CROP -> stringResource(R.string.aspect_crop_desc)
+                        ResizeMode.STRETCH -> stringResource(R.string.aspect_stretch_desc)
+                        ResizeMode.ASPECT_16_9 -> stringResource(R.string.aspect_16_9_desc)
+                        ResizeMode.ASPECT_21_9 -> stringResource(R.string.aspect_21_9_desc)
+                    },
+                    isSelected = currentResizeMode == mode,
+                    accentColor = Color(0xFF64B5F6),
+                    icon = Icons.Default.AspectRatio,
+                    onClick = { onSelectResizeMode(mode) }
+                )
+            }
+        }
+
+        // 2. 硬件加速解码
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "解码加速",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+
+            val isHw = hwdec.contains("mediacodec")
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isHw) Color(0xFF81C784).copy(alpha = 0.15f) else Color(0xFFFFB74D).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Memory,
+                                contentDescription = null,
+                                tint = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = stringResource(R.string.stats_hwdec_title),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
+                                fontSize = 12.sp,
+                                color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    FilledTonalButton(
+                        onClick = onToggleHwdec,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.1f),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(if (isHw) R.string.stats_switch_to_sw else R.string.stats_switch_to_hw),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatsTabContent(
+    videoWidth: Int,
+    videoHeight: Int,
+    fps: Double,
+    droppedFrames: Long,
+    hwdec: String,
+    powerMetrics: PowerMetrics?,
+    onToggleHwdec: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. 实时性能监控卡片
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "实时播放性能",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_resolution),
+                        value = if (videoWidth > 0 && videoHeight > 0) "${videoWidth} × ${videoHeight}" else stringResource(R.string.stats_pending)
+                    )
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_framerate),
+                        value = "${String.format(Locale.US, "%.1f", fps)} FPS"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(stringResource(R.string.stats_dropped_frames), fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                        Text(
+                            text = "$droppedFrames",
+                            style = TextStyle(
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (droppedFrames > 0) Color(0xFFFFB74D) else Color.White,
+                                fontFeatureSettings = "tnum"
+                            )
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(stringResource(R.string.stats_decoder), fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                        val isHw = hwdec.contains("mediacodec")
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = (if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D)).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    powerMetrics?.let { pm ->
+                        MediaInfoRow(
+                            label = stringResource(R.string.stats_power),
+                            value = "${String.format(Locale.US, "%.2f", pm.powerWatts)} W"
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. 解码器模式切换
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "解码配置",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+
+            val isHw = hwdec.contains("mediacodec")
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isHw) Color(0xFF81C784).copy(alpha = 0.15f) else Color(0xFFFFB74D).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Memory,
+                                contentDescription = null,
+                                tint = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = stringResource(R.string.stats_hwdec_title),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
+                                fontSize = 12.sp,
+                                color = if (isHw) Color(0xFF81C784) else Color(0xFFFFB74D)
+                            )
+                        }
+                    }
+
+                    FilledTonalButton(
+                        onClick = onToggleHwdec,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.1f),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(if (isHw) R.string.stats_switch_to_sw else R.string.stats_switch_to_hw),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

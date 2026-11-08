@@ -444,6 +444,38 @@ fun PlayerStatsSheetPreview() {
 }
 
 @Preview(
+    name = "Player Shaders Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerShadersSheetPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        contentColor = Color.White,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.SHADERS,
+            shaderState = dev.gyro.core.model.GlslShaderState(activeShader = dev.gyro.core.model.GlslShader.ANIME4K, displayName = "Anime4K"),
+            customShaders = emptyList(),
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
     name = "Player Double-Tap Curved Arc HUD Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
