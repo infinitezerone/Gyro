@@ -3,7 +3,6 @@ package dev.gyro.feature.player.component
 import dev.gyro.feature.player.PlayerScrubState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,8 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -24,7 +25,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -32,11 +32,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroCapsuleContainer
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.component.GyroGhostIconButton
 import dev.gyro.core.designsystem.component.GyroPillButton
+import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 
 /**
  * 底部控制栏统一组件 (PlayerBottomBar)
@@ -57,6 +60,11 @@ fun PlayerBottomBar(
     timePosMs: () -> Long,
     durationMs: () -> Long,
     bufferedPosMs: () -> Long,
+    subtitleEnabled: Boolean = true,
+    onToggleSubtitle: () -> Unit = {},
+    abLoopASeconds: Double = -1.0,
+    abLoopBSeconds: Double = -1.0,
+    onCycleAbLoop: () -> Unit = {},
     speed: Float,
     resizeMode: ResizeMode,
     scrubState: PlayerScrubState,
@@ -75,20 +83,18 @@ val bottomElevate = if (isLandscape) 14.dp else 20.dp
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.20f),
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.85f),
-                        )
-                    )
-                )
                 .displayCutoutPadding()
                 .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
                 .padding(bottom = bottomElevate)
         ) {
+        // 悬浮胶囊底衬（伪磨砂）：替代原通栏四段渐变 scrim
+        GyroCapsuleContainer(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            elevation = 8.dp
+        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val isScreenScrubOnly = !isVisible && scrubState.isActive
         val totalMs = durationMs()
         val rawPos = if (scrubState.isActive) {
@@ -103,90 +109,32 @@ val bottomElevate = if (isLandscape) 14.dp else 20.dp
         }
 
         if (isScreenScrubOnly) {
-            // A. 拖拽屏幕 Seek 时的轻量反馈条
-            Column(modifier = Modifier.fillMaxWidth()) {
-                PlayerScrubBar(
-                    timePosMs = displayPos,
-                    durationMs = totalMs,
-                    bufferedPosMs = bufferedPosMs(),
-                    scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction,
-                    chapters = chapters,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = formatTime(displayPos),
-                        style = TextStyle(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF64B5F6),
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-                    Text(
-                        text = formatTime(totalMs),
-                        style = TextStyle(
-                            fontSize = 13.sp,
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-                }
-            }
+            // A. 拖拽屏幕 Seek 时的轻量反馈条（复用控制栏同款 ScrubRow，样式完全一致）
+            ScrubRow(
+                displayPos = displayPos,
+                totalMs = totalMs,
+                bufferedPosMs = bufferedPosMs(),
+                scrubState = scrubState,
+                onSeekToFraction = onSeekToFraction,
+                chapters = chapters,
+                abLoopASeconds = abLoopASeconds,
+                abLoopBSeconds = abLoopBSeconds,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
         } else {
             // B. 现代双行控制栏：时间环绕进度条两翼 + 纯净操作行
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Row 1: 时间环绕自适应进度条 [05:25] ----------●---------- [45:00]
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 当前播放时间 (左翼)
-                    Text(
-                        text = formatTime(displayPos),
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.90f),
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // 核心进度条 (自适应拉伸铺满中间)
-                    PlayerScrubBar(
-                        timePosMs = displayPos,
-                        durationMs = totalMs,
-                        bufferedPosMs = bufferedPosMs(),
-                        scrubState = scrubState,
-                        onSeekToFraction = onSeekToFraction,
-                        chapters = chapters,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // 总时长 (右翼)
-                    Text(
-                        text = formatTime(totalMs),
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.70f),
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-                }
+                ScrubRow(
+                    displayPos = displayPos,
+                    totalMs = totalMs,
+                    bufferedPosMs = bufferedPosMs(),
+                    scrubState = scrubState,
+                    onSeekToFraction = onSeekToFraction,
+                    chapters = chapters,
+                    abLoopASeconds = abLoopASeconds,
+                    abLoopBSeconds = abLoopBSeconds
+                )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -217,6 +165,45 @@ val bottomElevate = if (isLandscape) 14.dp else 20.dp
 
                     Spacer(modifier = Modifier.weight(1f))
 
+                    // AB 循环胶囊（三态：设A → 设B → 循环中/清除）
+                    val abStateLabel = when {
+                        abLoopASeconds >= 0 && abLoopBSeconds >= 0 -> "循环中"
+                        abLoopASeconds >= 0 -> "A✓ 设B"
+                        else -> "AB循环"
+                    }
+                    GyroPillButton(
+                        text = abStateLabel,
+                        onClick = onCycleAbLoop,
+                        containerColor = if (abLoopASeconds >= 0 && abLoopBSeconds >= 0) {
+                            GyroColors.AccentOrange.copy(alpha = 0.30f)
+                        } else {
+                            Color.Black.copy(alpha = 0.45f)
+                        },
+                        contentColor = if (abLoopASeconds >= 0) {
+                            GyroColors.AccentOrange
+                        } else {
+                            Color.White
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // 字幕快开钮（单击开关字幕轨，长按进入字幕设置面板）
+                    GyroCircleActionButton(
+                        onClick = onToggleSubtitle,
+                        icon = Icons.Default.ClosedCaption,
+                        contentDescription = stringResource(R.string.sheet_tab_subtitles),
+                        size = 38.dp,
+                        iconSize = 22.dp,
+                        containerColor = Color.Transparent,
+                        contentColor = if (subtitleEnabled) {
+                            GyroColors.PrimaryLight
+                        } else {
+                            Color.White.copy(alpha = 0.55f)
+                        },
+                        border = null
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     // 选集胶囊 (有连播列表时呈现)
                     if (hasPrevious || hasNext) {
                         GyroPillButton(
@@ -246,5 +233,70 @@ val bottomElevate = if (isLandscape) 14.dp else 20.dp
                 }
             }
         }
+        }
+        }
+    }
+}
+
+/**
+ * 共享进度行 (ScrubRow)：时间左翼 + 弹性进度条 + 时长右翼。
+ * 控制栏完整模式与滑屏 Seek 轻量模式共用同一布局壳，保证两种场景进度条样式完全一致。
+ */
+@Composable
+private fun ScrubRow(
+    displayPos: Long,
+    totalMs: Long,
+    bufferedPosMs: Long,
+    scrubState: PlayerScrubState,
+    onSeekToFraction: (Float) -> Unit,
+    chapters: List<ChapterInfo>,
+    abLoopASeconds: Double = -1.0,
+    abLoopBSeconds: Double = -1.0,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 当前播放时间 (左翼)
+        Text(
+            text = formatTime(displayPos),
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.90f),
+                fontFeatureSettings = "tnum"
+            )
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // 核心进度条 (自适应拉伸铺满中间)
+        PlayerScrubBar(
+            timePosMs = displayPos,
+            durationMs = totalMs,
+            bufferedPosMs = bufferedPosMs,
+            scrubState = scrubState,
+            onSeekToFraction = onSeekToFraction,
+            chapters = chapters,
+            abLoopASeconds = abLoopASeconds,
+            abLoopBSeconds = abLoopBSeconds,
+            modifier = Modifier.weight(1f)
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // 总时长 (右翼)
+        Text(
+            text = formatTime(totalMs),
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.70f),
+                fontFeatureSettings = "tnum"
+            )
+        )
     }
 }

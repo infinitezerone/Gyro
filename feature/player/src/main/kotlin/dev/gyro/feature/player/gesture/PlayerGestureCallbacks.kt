@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.geometry.Offset
 import kotlin.math.roundToInt
 
@@ -67,15 +68,35 @@ class DefaultPlayerGestureCallbacks(
     private var dragStartOverallVolume: Int = 0
     private var dragStartBrightness: Float = 0.5f
 
+    /**
+     * 手势触觉反馈（双击 seek / 长按倍速触发 / seek 落点），
+     * 统一走 decorView 的轻震动，不依赖额外权限。
+     */
+    private fun performHaptic() {
+        activity?.window?.decorView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+    }
+
     override fun getCurrentPositionMs(): Long = currentPosMs()
     override fun getDurationMs(): Long = durationMs()
     override fun getZoomScale(): Float = zoomScale()
 
     override fun onSingleTap() = onSingleTap.invoke()
-    override fun onDoubleTapSeek(deltaMs: Long) = onDoubleTapSeek.invoke(deltaMs)
-    override fun onDoubleTapPlayPause() = onDoubleTapPlayPause.invoke()
-    override fun onFastForwardStart(speed: Float) = onFastForwardStart.invoke(speed)
-    override fun onFastForwardEnd() = onFastForwardEnd.invoke()
+    override fun onDoubleTapSeek(deltaMs: Long) {
+        performHaptic()
+        onDoubleTapSeek.invoke(deltaMs)
+    }
+    override fun onDoubleTapPlayPause() {
+        performHaptic()
+        onDoubleTapPlayPause.invoke()
+    }
+    override fun onFastForwardStart(speed: Float) {
+        performHaptic()
+        onFastForwardStart.invoke(speed)
+    }
+    override fun onFastForwardEnd() {
+        performHaptic()
+        onFastForwardEnd.invoke()
+    }
 
     override fun onZoomPan(zoomChange: Float, panDelta: Offset, centroid: Offset, isPinch: Boolean) {
         onZoomChange.invoke(zoomChange, panDelta, centroid, isPinch)

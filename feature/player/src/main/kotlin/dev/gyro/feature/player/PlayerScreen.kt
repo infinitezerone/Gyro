@@ -40,12 +40,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -70,16 +73,21 @@ import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.feature.player.component.PlayerControlsOverlay
 import dev.gyro.feature.player.component.PlayerHudOverlay
-import dev.gyro.feature.player.component.PlayerTrackSelectionSheet
+import dev.gyro.feature.player.component.StatsDiagnosticOverlay
+import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
+import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
+import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.gesture.*
 import dev.gyro.core.designsystem.R
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
@@ -122,6 +130,40 @@ fun PlayerScreen(
     val videoFrameRate = snapshot.videoFrameRate
     val speed = snapshot.speed
     val tracks = snapshot.tracks
+
+    // 字幕快开状态：当前字幕轨是否启用，以及最后一次选中的字幕轨 id（便于快速恢复）
+    val subtitleEnabled = tracks.any { it.type == "sub" && it.isSelected }
+    var lastSubTrackId by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(tracks) {
+        tracks.firstOrNull { it.type == "sub" && it.isSelected }?.let { lastSubTrackId = it.id }
+    }
+
+    // 常驻诊断浮层开关（STATS sheet 中切换；会话级状态，跨播放切换保留由用户重新开关）
+    var statsOverlayEnabled by remember { mutableStateOf(false) }
+
+    // 截图：写入应用专属 Pictures 目录后交由 MediaScanner 收录相册
+    fun takeScreenshot() {
+        val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES) ?: return
+        val file = java.io.File(dir, "Gyro_${System.currentTimeMillis()}.jpg")
+        scope.launch(Dispatchers.IO) {
+            val ok = engine.screenshotToFile(file)
+            if (ok) {
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(file.absolutePath),
+                    arrayOf("image/jpeg"),
+                    null
+                )
+            }
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(if (ok) R.string.screenshot_saved else R.string.screenshot_failed),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
     val resizeMode = snapshot.resizeMode
     val subDelaySec = snapshot.subtitleDelaySec
     val audioDelaySec = snapshot.audioDelaySec
@@ -133,6 +175,7 @@ fun PlayerScreen(
     // the viewer actually sees, otherwise a portrait video gets a landscape window.
     val videoAspect = snapshot.videoAspect
     val mediaTitle = snapshot.mediaTitle
+    val liveSettings by viewModel.settings.collectAsState()
     val chapters = snapshot.chapters
     val currentChapter = snapshot.currentChapter
     val shaderState = snapshot.shaderState
@@ -523,10 +566,16 @@ fun PlayerScreen(
 
     val firstFrameRendered = snapshot.firstFrameRendered
     val geometryReady = snapshot.geometryReady
-    var isShutterReady by remember(activeUri) { mutableStateOf(false) }
-    var shutterTimedOut by remember(activeUri) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
-        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect")
+    val sessionState = snapshot.sessionState
+    val isSwitching = sessionState is dev.gyro.engine.session.PlaybackSessionState.Switching
+    var isShutterReady by remember(activeUri, sessionState) { mutableStateOf(false) }
+    var shutterTimedOut by remember(activeUri, sessionState) { mutableStateOf(false) }
+    LaunchedEffect(activeUri, sessionState, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
+        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect, isSwitching=$isSwitching")
+        if (isSwitching || !firstFrameRendered) {
+            isShutterReady = false
+            return@LaunchedEffect
+        }
         val decision = ShutterRevealPolicy.evaluate(
             firstFrameRendered = firstFrameRendered,
             geometryReady = geometryReady,
@@ -538,6 +587,7 @@ fun PlayerScreen(
             containerHeight = videoContainerSize.height
         )
         if (decision == ShutterRevealPolicy.Decision.Reveal) {
+            withFrameNanos { }
             withFrameNanos { }
             SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
             isShutterReady = true
@@ -557,7 +607,8 @@ fun PlayerScreen(
     }
     val showShutter = !isPipLayout && activeUri != null &&
         playbackState != PlaybackState.ERROR &&
-        !isShutterReady && !shutterTimedOut
+        (!firstFrameRendered || !isShutterReady || isSwitching) &&
+        !shutterTimedOut
 
     Box(
         modifier = modifier
@@ -731,10 +782,28 @@ fun PlayerScreen(
             }
         }
 
-        // E. Clean Top Floating Capsule HUD (Volume/Brightness/Speed/Double-Tap)
+        // E. Clean Floating HUD (Scrub Preview / Volume / Brightness / Speed / Double-Tap)
         if (!isPipLayout && !hideChrome) {
             PlayerHudOverlay(
-                hudState = playerState.gestureHudState
+                hudState = playerState.gestureHudState,
+                scrubState = scrubState,
+                durationMs = { durationMs }
+            )
+        }
+
+        // E2. 常驻诊断浮层（控制层隐藏时显示，替代 mpv stats 页核心读数）
+        if (!isPipLayout && !hideChrome && statsOverlayEnabled && !playerState.showControls) {
+            StatsDiagnosticOverlay(
+                fps = snapshot.fps,
+                droppedFrames = snapshot.droppedFrames,
+                hwdec = snapshot.hwdecCurrent,
+                vsyncRatio = snapshot.vsyncRatio,
+                speed = snapshot.speed,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .displayCutoutPadding()
+                    .statusBarsPadding()
+                    .padding(start = 16.dp, top = 8.dp)
             )
         }
 
@@ -789,8 +858,28 @@ fun PlayerScreen(
                     playerState.resetControlsTimeout()
                     engine.seekRelative(settings.seekStepSeconds * 1000L)
                 },
-                onOpenSheetTab = { tab ->
+                subtitleEnabled = subtitleEnabled,
+                onToggleSubtitle = {
                     playerState.resetControlsTimeout()
+                    if (subtitleEnabled) {
+                        engine.trackManager.selectTrack("sub", 0)
+                    } else {
+                        engine.trackManager.selectTrack("sub", lastSubTrackId.coerceAtLeast(1))
+                    }
+                },
+                abLoopASeconds = snapshot.abLoopASeconds,
+                abLoopBSeconds = snapshot.abLoopBSeconds,
+                onCycleAbLoop = {
+                    playerState.resetControlsTimeout()
+                    engine.cycleAbLoop()
+                },
+                onScreenshot = {
+                    playerState.resetControlsTimeout()
+                    takeScreenshot()
+                },
+                onOpenSheetTab = { tab ->
+                    // 打开 sheet 时收起控制层（取消自动隐藏计时），避免顶/底栏透过 scrim 与 sheet 叠显
+                    playerState.hideControls()
                     playerState.activeSheetTab = tab
                 },
                 onEnterPiP = {
@@ -844,73 +933,86 @@ fun PlayerScreen(
                         fallbackUri = activeUri?.toString() ?: ""
                     )
                 }
-                PlayerTrackSelectionSheet(
+                PlayerSettingsSheet(
                     initialTab = tab,
-                    playlist = playlist,
-                    currentPlaylistIndex = currentPlaylistIndex,
-                    chapters = chapters,
-                    currentChapterIndex = currentChapter,
-                    currentTimePosMs = timePosMs,
-                    tracks = tracks,
-                    currentResizeMode = resizeMode,
-                    currentSpeed = speed,
-                    subDelaySec = subDelaySec,
-                    audioDelaySec = audioDelaySec,
-                    subScale = subScale,
-                    subPos = subPos,
-                    hwdec = hwdecCurrent,
-                    fps = fps,
-                    droppedFrames = droppedFrames,
-                    videoWidth = videoDimensions.width,
-                    videoHeight = videoDimensions.height,
-                    powerMetrics = powerMetrics,
-                    mediaInfo = currentMediaInfo,
-                    shaderState = shaderState,
-                    customShaders = remember(shaderState) { engine.shaders.getCustomShaders() },
-                    deband = deband,
-                    brightness = brightness,
-                    contrast = contrast,
-                    saturation = saturation,
-                    nightMode = nightMode,
-                    stereoDownmix = stereoDownmix,
-                    onDismiss = { playerState.activeSheetTab = null },
-                    onSelectPlaylistItem = { idx ->
-                        playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
+                    state = PlayerSheetUiState(
+                        playlist = playlist,
+                        currentPlaylistIndex = currentPlaylistIndex,
+                        chapters = chapters,
+                        currentChapterIndex = currentChapter,
+                        currentTimePosMs = timePosMs,
+                        tracks = tracks,
+                        secondarySubId = snapshot.secondarySubId,
+                        statsOverlayEnabled = statsOverlayEnabled,
+                        currentResizeMode = resizeMode,
+                        currentSpeed = speed,
+                        subDelaySec = subDelaySec,
+                        audioDelaySec = audioDelaySec,
+                        subScale = subScale,
+                        subPos = subPos,
+                        hwdec = hwdecCurrent,
+                        fps = fps,
+                        droppedFrames = droppedFrames,
+                        videoWidth = videoDimensions.width,
+                        videoHeight = videoDimensions.height,
+                        powerMetrics = powerMetrics,
+                        mediaInfo = currentMediaInfo,
+                        shaderState = shaderState,
+                        customShaders = remember(shaderState) { engine.shaders.getCustomShaders() },
+                        deband = deband,
+                        brightness = brightness,
+                        contrast = contrast,
+                        saturation = saturation,
+                        nightMode = nightMode,
+                        stereoDownmix = stereoDownmix,
+                        voRenderer = liveSettings.voRenderer
+                    ),
+                    callbacks = PlayerSheetCallbacks(
+                        onSelectPlaylistItem = { idx ->
+                            playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
+                            playerState.activeSheetTab = null
+                        },
+                        onSelectChapter = { idx ->
+                            engine.seekToChapter(idx)
+                            playerState.activeSheetTab = null
+                        },
+                        onSelectShader = { shader -> engine.shaders.setShader(shader) },
+                        onClearShader = { engine.shaders.clearShader() },
+                        onSelectCustomShaderFile = { file ->
+                            engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
+                        },
+                        onImportCustomShader = {
+                            shaderPicker.launch(arrayOf("*/*"))
+                        },
+                        onSetDeband = { enabled -> engine.video.setDeband(enabled) },
+                        onSetBrightness = { value -> engine.video.setBrightness(value) },
+                        onSetContrast = { value -> engine.video.setContrast(value) },
+                        onSetSaturation = { value -> engine.video.setSaturation(value) },
+                        onResetColors = { engine.video.resetColors() },
+                        onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
+                        onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
+                        onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
+                        onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
+                        onSelectSpeed = { sp -> engine.setSpeed(sp) },
+                        onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
+                        onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
+                        onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
+                        onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
+                        onToggleHwdec = { engine.toggleHwdec() },
+                        onToggleStatsOverlay = { statsOverlayEnabled = it },
+                        onToggleVoRenderer = { viewModel.toggleVoRenderer() },
+                        onAddExternalSubtitle = {
+                            subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
+                        },
+                        onOpenFullSettings = {
+                            playerState.activeSheetTab = null
+                            onOpenSettings()
+                        }
+                    ),
+                    onDismiss = {
                         playerState.activeSheetTab = null
-                    },
-                    onSelectChapter = { idx ->
-                        engine.seekToChapter(idx)
-                        playerState.activeSheetTab = null
-                    },
-                    onSelectShader = { shader -> engine.shaders.setShader(shader) },
-                    onClearShader = { engine.shaders.clearShader() },
-                    onSelectCustomShaderFile = { file ->
-                        engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
-                    },
-                    onImportCustomShader = {
-                        shaderPicker.launch(arrayOf("*/*"))
-                    },
-                    onSetDeband = { enabled -> engine.video.setDeband(enabled) },
-                    onSetBrightness = { value -> engine.video.setBrightness(value) },
-                    onSetContrast = { value -> engine.video.setContrast(value) },
-                    onSetSaturation = { value -> engine.video.setSaturation(value) },
-                    onResetColors = { engine.video.resetColors() },
-                    onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
-                    onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
-                    onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
-                    onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
-                    onSelectSpeed = { sp -> engine.setSpeed(sp) },
-                    onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
-                    onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
-                    onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
-                    onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
-                    onToggleHwdec = { engine.toggleHwdec() },
-                    onAddExternalSubtitle = {
-                        subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
-                    },
-                    onOpenFullSettings = {
-                        playerState.activeSheetTab = null
-                        onOpenSettings()
+                        // 关闭 sheet 后短暂唤回控制层，随后按自动隐藏节奏淡出
+                        playerState.showControls()
                     }
                 )
             }

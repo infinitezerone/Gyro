@@ -30,6 +30,7 @@ data class PlaybackSnapshot(
     val speed: Float = 1.0f,
     val fps: Double = 0.0,
     val droppedFrames: Long = 0L,
+    val vsyncRatio: Double = 0.0,
 
     // Video geometry
     val videoDimensions: VideoDimensions = VideoDimensions(0, 0),
@@ -44,6 +45,13 @@ data class PlaybackSnapshot(
     val chapters: List<ChapterInfo> = emptyList(),
     val currentChapter: Int = -1,
     val shaderState: GlslShaderState = GlslShaderState(),
+
+    // 次字幕轨 id（双语同屏；0 = 关闭）
+    val secondarySubId: Int = 0,
+
+    // A-B loop（秒；-1.0 = 未设置）
+    val abLoopASeconds: Double = -1.0,
+    val abLoopBSeconds: Double = -1.0,
 
     // Picture & audio effects
     val deband: Boolean = false,

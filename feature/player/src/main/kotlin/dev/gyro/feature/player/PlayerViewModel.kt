@@ -16,6 +16,7 @@ import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -107,6 +108,20 @@ class PlayerViewModel @Inject constructor(
 
     fun saveCurrentProgress() {
         orchestrator.saveCurrentProgress()
+    }
+
+    fun toggleVoRenderer() {
+        viewModelScope.launch {
+            val current = settings.value.voRenderer
+            val next = if (current == dev.gyro.core.model.VO_GPU_NEXT) {
+                dev.gyro.core.model.VO_LIBMPV
+            } else {
+                dev.gyro.core.model.VO_GPU_NEXT
+            }
+            settingsRepository.setVoRenderer(next)
+            val defaultToneMapping = if (next == dev.gyro.core.model.VO_GPU_NEXT) "reinhard" else "hable"
+            engine.video.setToneMapping(defaultToneMapping)
+        }
     }
 
     public override fun onCleared() {

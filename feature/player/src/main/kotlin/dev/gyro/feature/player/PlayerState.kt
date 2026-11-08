@@ -2,7 +2,7 @@ package dev.gyro.feature.player
 
 import android.app.Activity
 import android.os.SystemClock
-import dev.gyro.feature.player.component.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import dev.gyro.feature.player.gesture.rememberPlayerZoomState
@@ -49,8 +49,6 @@ class PlayerState(
     var lastInteractionTrigger by mutableLongStateOf(0L)
         private set
 
-    private var autoHideJob: Job? = null
-
     fun toggleControls() {
         if (showControls) {
             hideControls()
@@ -59,25 +57,16 @@ class PlayerState(
         }
     }
 
+    /**
+     * 仅置位显隐标志。3.5s 自动隐藏计时统一由 PlayerScreen 的 LaunchedEffect 驱动
+     * （唯一权威计时器：覆盖交互重置、暂停保持、锁定/PiP/sheet 守卫），此处不再另起协程。
+     */
     fun showControls() {
         showControls = true
-        scheduleAutoHide()
     }
 
     fun hideControls() {
         showControls = false
-        autoHideJob?.cancel()
-        autoHideJob = null
-    }
-
-    fun scheduleAutoHide() {
-        autoHideJob?.cancel()
-        autoHideJob = scope.launch {
-            delay(3500L)
-            if (!scrubState.isActive && !isLocked && activeSheetTab == null) {
-                showControls = false
-            }
-        }
     }
 
     fun resetControlsTimeout() {

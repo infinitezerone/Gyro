@@ -296,4 +296,18 @@
     <string name="settings_gesture_reset_dialog_title">Reset Gesture Settings?</string>
     <string name="settings_gesture_reset_dialog_desc">This will reset all gesture toggles, seek steps, and speed multipliers to default.</string>
 
+    <string name="cd_screenshot">Screenshot</string>
+    <string name="screenshot_saved">Screenshot saved</string>
+    <string name="screenshot_failed">Screenshot failed</string>
+    <string name="stats_overlay_toggle">Persistent stats overlay</string>
+    <string name="secondary_sub_section">Secondary subtitles (bilingual)</string>
+    <string name="cd_enter_fullscreen">Fullscreen</string>
+    <string name="subtitles_sync_group">Subtitle Sync</string>
+    <string name="audio_sync_group">Audio Sync</string>
+    <string name="subtitle_count_format">%1$d subtitles</string>
+    <string name="audio_track_count_format">%1$d audio tracks</string>
+    <string name="secondary_sub_on">On</string>
+    <string name="secondary_sub_off">Off</string>
+    <string name="secondary_sub_disable">Disable secondary subtitle</string>
+
 </resources>

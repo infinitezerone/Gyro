@@ -4,8 +4,12 @@ import dev.gyro.feature.player.PlayerScrubState
 
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -28,6 +32,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.component.GyroPillButton
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
@@ -66,6 +71,12 @@ fun BoxScope.PlayerControlsOverlay(
     onSeekToFraction: (Float) -> Unit,
     onRewind10: () -> Unit = {},
     onForward10: () -> Unit = {},
+    subtitleEnabled: Boolean = true,
+    onToggleSubtitle: () -> Unit = {},
+    abLoopASeconds: Double = -1.0,
+    abLoopBSeconds: Double = -1.0,
+    onCycleAbLoop: () -> Unit = {},
+    onScreenshot: () -> Unit = {},
     onEnterPiP: () -> Unit,
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
@@ -80,8 +91,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，采用 GyroCircleActionButton）
         AnimatedVisibility(
             visible = isVisible || isLocked,
-            enter = EnterTransition.None,
-            exit = ExitTransition.None,
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .displayCutoutPadding()
@@ -116,13 +127,13 @@ fun BoxScope.PlayerControlsOverlay(
 
             AnimatedVisibility(
                 visible = isVisible,
-                enter = EnterTransition.None,
-                exit = ExitTransition.None,
+                enter = fadeIn() + scaleIn(initialScale = 0.9f),
+                exit = fadeOut(),
                 modifier = bottomModifier
             ) {
                 // 横竖切换药丸胶囊
                 GyroPillButton(
-                    text = "横屏",
+                    text = stringResource(R.string.cd_enter_fullscreen),
                     icon = Icons.Default.Fullscreen,
                     onClick = onToggleOrientation,
                     height = 36.dp,
@@ -133,11 +144,11 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 3. 顶部操作栏（未锁屏且可见时展示）
+        // 3. 顶部操作栏（未锁屏且可见时展示；拖拽进度条期间让位于屏幕正上方的时间预览）
         AnimatedVisibility(
-            visible = isVisible,
-            enter = EnterTransition.None,
-            exit = ExitTransition.None,
+            visible = isVisible && !scrubState.isActive,
+            enter = fadeIn() + slideInVertically(animationSpec = tween(220)) { -it / 2 },
+            exit = fadeOut() + slideOutVertically(animationSpec = tween(180)) { -it / 2 },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             PlayerTopBar(
@@ -145,7 +156,8 @@ fun BoxScope.PlayerControlsOverlay(
                 isLandscape = isLandscape,
                 onBack = onBack,
                 onEnterPiP = onEnterPiP,
-                onOpenSheetTab = onOpenSheetTab
+                onOpenSheetTab = onOpenSheetTab,
+                onScreenshot = onScreenshot
             )
         }
 
@@ -153,8 +165,8 @@ fun BoxScope.PlayerControlsOverlay(
         val showBottomBar = isVisible || scrubState.isActive
         AnimatedVisibility(
             visible = showBottomBar,
-            enter = EnterTransition.None,
-            exit = ExitTransition.None,
+            enter = fadeIn() + slideInVertically(animationSpec = tween(220)) { it / 2 },
+            exit = fadeOut() + slideOutVertically(animationSpec = tween(180)) { it / 2 },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             PlayerBottomBar(
@@ -173,6 +185,11 @@ fun BoxScope.PlayerControlsOverlay(
                 onPlayPrevious = onPlayPrevious,
                 onPlayNext = onPlayNext,
                 onSeekToFraction = onSeekToFraction,
+                subtitleEnabled = subtitleEnabled,
+                onToggleSubtitle = onToggleSubtitle,
+                abLoopASeconds = abLoopASeconds,
+                abLoopBSeconds = abLoopBSeconds,
+                onCycleAbLoop = onCycleAbLoop,
                 onOpenSheetTab = onOpenSheetTab,
                 onToggleOrientation = onToggleOrientation,
                 chapters = chapters

@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -33,16 +32,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.gyro.core.model.ChapterInfo
 
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
  * - 静止态 (3dp) 到拖拽态 (6dp) 平滑物理膨胀动画；
- * - 拖拽时正上方跟随弹出高亮时间气泡 (Floating Time Bubble)，彻底解决手指遮挡无法精准定位的痛点；
+ * - 拖拽时间预览统一显示在屏幕正上方（PlayerHudOverlay 的 ScrubTimePreview），本组件不再自绘气泡；
  * - 浅白网络缓冲条与微光章节刻度；
  * - 进度读取与拖拽状态封装于叶子内，拖拽时仅自身局部重组。
  */
@@ -54,6 +50,8 @@ fun PlayerScrubBar(
     scrubState: PlayerScrubState,
     onSeekToFraction: (Float) -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
+    abLoopASeconds: Double = -1.0,
+    abLoopBSeconds: Double = -1.0,
     modifier: Modifier = Modifier
 ) {
     val isHoveredOrScrubbing = scrubState.isActive
@@ -208,31 +206,44 @@ fun PlayerScrubBar(
             ) {}
         }
 
-        // 6. 拖拽时正上方跟随的高亮时间气泡 (Floating Time Bubble)
-        if (isHoveredOrScrubbing && durationMs > 0L) {
-            val scrubTimeMs = (playedRatio * durationMs).toLong()
-            val bubbleWidth = 72.dp
-            val thumbCenter = (totalWidth - thumbSize) * playedRatio + thumbSize / 2
-            val bubbleOffset = (thumbCenter - bubbleWidth / 2).coerceIn(0.dp, totalWidth - bubbleWidth)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.Black.copy(alpha = 0.85f),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f)),
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .offset(x = bubbleOffset, y = (-36).dp)
-                    .height(28.dp)
-                    .width(bubbleWidth)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = formatTime(scrubTimeMs),
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF64B5F6),
-                            fontFeatureSettings = "tnum"
-                        )
+        // 6. 拖拽时间预览已上移至屏幕正上方（PlayerHudOverlay 的 ScrubTimePreview）
+
+        // 7. A-B 循环标记与循环区间高亮（琥珀色，与章节刻度区分）
+        if (durationMs > 0L && (abLoopASeconds >= 0.0 || abLoopBSeconds >= 0.0)) {
+            val aFraction = if (abLoopASeconds >= 0.0) {
+                (abLoopASeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f)
+            } else {
+                null
+            }
+            val bFraction = if (abLoopBSeconds >= 0.0) {
+                (abLoopBSeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f)
+            } else {
+                null
+            }
+            if (aFraction != null && bFraction != null) {
+                // 循环区间微光高亮
+                Box(
+                    modifier = Modifier
+                        .offset(x = totalWidth * minOf(aFraction, bFraction))
+                        .width(totalWidth * kotlin.math.abs(aFraction - bFraction))
+                        .height(barHeight)
+                        .clip(RoundedCornerShape(barHeight / 2))
+                        .background(Color(0xFFFFB74D).copy(alpha = 0.30f))
+                )
+            }
+            listOfNotNull(aFraction, bFraction).forEach { frac ->
+                Canvas(
+                    modifier = Modifier
+                        .offset(x = totalWidth * frac)
+                        .width(3.dp)
+                        .height(barHeight + 4.dp)
+                ) {
+                    drawLine(
+                        color = Color(0xFFFFB74D),
+                        start = Offset(size.width / 2, 0f),
+                        end = Offset(size.width / 2, size.height),
+                        strokeWidth = 3.dp.toPx(),
+                        cap = StrokeCap.Round
                     )
                 }
             }

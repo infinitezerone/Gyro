@@ -1,5 +1,6 @@
 package dev.gyro.feature.player.component
 
+import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
 
@@ -73,27 +74,50 @@ fun formatTime(ms: Long): String {
 
 /**
  * Clean, lightweight HUD overlay:
- * 1. Top-center floating capsule slider for Volume & Brightness.
- * 2. Top-center floating pill for 2.0x playback speed.
- * 3. YouTube-style side jump pills for Double-Tap.
+ * 1. Top-center scrub time preview while dragging the progress bar（屏幕正上方统一时间预览）.
+ * 2. Center floating capsule slider for Volume & Brightness（居中呈现，避开顶/底栏）.
+ * 3. Top-center floating pill for 2.0x playback speed.
+ * 4. YouTube-style side jump pills for Double-Tap.
  * Note: Seeking HUD directly reuses the bottom progress bar in PlayerControlsOverlay.
  */
 @Composable
 fun BoxScope.PlayerHudOverlay(
     hudState: GestureHudState,
+    scrubState: PlayerScrubState,
+    durationMs: () -> Long,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        // 1. Top-Center Floating Capsule Slider (Volume / Brightness)
+        // 0. Top-Center Scrub Time Preview（拖拽进度条时，屏幕正上方显示目标时间）
         AnimatedVisibility(
-            visible = hudState is GestureHudState.Brightness || hudState is GestureHudState.Volume,
-            enter = fadeIn(animationSpec = tween(150)) + slideInVertically(animationSpec = tween(150)) { -it / 2 },
-            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { -it / 2 },
+            visible = scrubState.isActive && durationMs() > 0L,
+            enter = fadeIn(animationSpec = tween(100)),
+            exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
                 .padding(top = 16.dp)
+        ) {
+            val total = durationMs()
+            if (total > 0L) {
+                ScrubTimePreview(
+                    targetMs = (scrubState.fraction * total).toLong(),
+                    totalMs = total
+                )
+            }
+        }
+        // 1. Center Floating Capsule Slider (Volume / Brightness) — 居中呈现，避开顶栏与底栏
+        AnimatedVisibility(
+            visible = hudState is GestureHudState.Brightness || hudState is GestureHudState.Volume,
+            enter = fadeIn(animationSpec = tween(150)) + scaleIn(
+                initialScale = 0.9f,
+                animationSpec = tween(150)
+            ),
+            exit = fadeOut(animationSpec = tween(300)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .displayCutoutPadding()
         ) {
             when (hudState) {
                 is GestureHudState.Brightness -> {
@@ -234,9 +258,113 @@ fun BoxScope.PlayerHudOverlay(
 }
 
 /**
- * Top-center floating capsule slider for Volume & Brightness.
+ * Top-center capsule showing the scrub target time while dragging the progress bar.
+ * 替代原 ScrubBar 内的跟随气泡：位置固定在屏幕正上方，不被手指遮挡。
  */
 @Composable
+private fun ScrubTimePreview(
+    targetMs: Long,
+    totalMs: Long
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.Black.copy(alpha = 0.75f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
+        shadowElevation = 6.dp,
+        modifier = Modifier.height(36.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = formatTime(targetMs),
+                style = TextStyle(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontFeatureSettings = "tnum"
+                )
+            )
+            Text(
+                text = "/ " + formatTime(totalMs),
+                style = TextStyle(
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.60f),
+                    fontFeatureSettings = "tnum"
+                )
+            )
+        }
+    }
+}
+
+/**
+ * 紧凑诊断浮层 (StatsDiagnosticOverlay)：
+ * 控制层隐藏时常驻画面左上角，替代 mpv stats 页 1 的核心读数。
+ * 需要遮蔽系统状态栏/刘海场景由调用方负责 insets。
+ */
+@Composable
+fun StatsDiagnosticOverlay(
+    fps: Double,
+    droppedFrames: Long,
+    hwdec: String,
+    vsyncRatio: Double,
+    speed: Float,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color.Black.copy(alpha = 0.60f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            DiagnosticRow(
+                label = "FPS",
+                value = if (fps > 0) String.format(java.util.Locale.US, "%.1f", fps) else "--"
+            )
+            DiagnosticRow(
+                label = "DROP",
+                value = if (droppedFrames > 0) "$droppedFrames" else "0"
+            )
+            DiagnosticRow(
+                label = "VSYNC",
+                value = if (vsyncRatio > 0) String.format(java.util.Locale.US, "%.2f", vsyncRatio) else "--"
+            )
+            DiagnosticRow(
+                label = "DEC",
+                value = if (hwdec.contains("mediacodec")) "HW" else "SW"
+            )
+            DiagnosticRow(label = "SPD", value = String.format(java.util.Locale.US, "%.2fx", speed))
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            color = Color.White.copy(alpha = 0.55f),
+            modifier = Modifier.width(38.dp)
+        )
+        Text(
+            text = value,
+            style = TextStyle(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontFeatureSettings = "tnum"
+            )
+        )
+    }
+}
+
+/**
+ * Center floating capsule slider for Volume & Brightness.
+ */@Composable
 private fun TopCapsuleSlider(
     icon: ImageVector,
     contentDescription: String,

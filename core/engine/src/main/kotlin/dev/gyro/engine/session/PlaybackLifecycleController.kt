@@ -45,6 +45,7 @@ open class PlaybackLifecycleController(
         bridge.observeProperty("hwdec-current", MpvNativeBridge.Format.STRING)
         bridge.observeProperty("speed", MpvNativeBridge.Format.DOUBLE)
         bridge.observeProperty("frame-drop-count", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("vsync-ratio", MpvNativeBridge.Format.DOUBLE)
         bridge.observeProperty("media-title", MpvNativeBridge.Format.STRING)
     }
 
@@ -133,6 +134,7 @@ open class PlaybackLifecycleController(
             is MpvEvent.DoubleProperty -> when (event.name) {
                 "speed" -> store.update { it.copy(speed = event.value.toFloat()) }
                 "estimated-vf-fps" -> store.update { it.copy(fps = event.value) }
+                "vsync-ratio" -> store.update { it.copy(vsyncRatio = event.value) }
             }
             is MpvEvent.FlagProperty -> {
                 when (event.name) {

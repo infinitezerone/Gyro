@@ -16,4 +16,9 @@ object GyroColors {
     val TextSecondary = Color.White.copy(alpha = 0.6f)
     val TextMuted = Color.White.copy(alpha = 0.4f)
     val SheetBackground = Color(0xFF1E1E1E)
+
+    // —— 播放器悬浮控件层（伪磨砂配方：分层半透明 + 细描边 + 柔投影，零 blur 成本） ——
+    val OverlayFill = Color.Black.copy(alpha = 0.55f)
+    val OverlayFillStrong = Color.Black.copy(alpha = 0.75f)
+    val OverlayStroke = Color.White.copy(alpha = 0.10f)
 }

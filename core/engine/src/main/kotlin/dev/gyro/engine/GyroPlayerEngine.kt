@@ -55,6 +55,7 @@ class GyroPlayerEngine(
     val video: VideoEffectsController = VideoEffectsController(bridge, store),
     val trackManager: TrackAndChapterManager = TrackAndChapterManager(bridge, store),
     val tuning: SyncTuningController = SyncTuningController(bridge, store),
+    val abLoop: dev.gyro.engine.session.AbLoopController = dev.gyro.engine.session.AbLoopController(bridge, store),
     internal val timeline: PlaybackTimelineController =
         PlaybackTimelineController(bridge, geometry, trackManager, store = store),
     audioFocus: AudioFocusController? = null,
@@ -123,7 +124,7 @@ class GyroPlayerEngine(
      * Managed domain subsystems: observers, event dispatch, and state reset are orchestrated uniformly.
      */
     private val subsystems: List<EngineSubsystem> by lazy {
-        listOf(geometry, trackManager, timeline, audio, video, tuning, shaders, playback)
+        listOf(geometry, trackManager, timeline, audio, video, tuning, shaders, abLoop, playback)
     }
 
     // =========================================================================
@@ -231,6 +232,21 @@ class GyroPlayerEngine(
     fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
     fun seekRelative(offsetMs: Long) = timeline.seekRelative(offsetMs)
     fun seekToChapter(index: Int) = timeline.seekToChapter(index)
+
+    fun cycleAbLoop() = abLoop.cycleLoopPoint()
+    fun clearAbLoop() = abLoop.clearLoop()
+
+    /** 对当前画面截图（含字幕），保存到 [targetFile]；命令返回后以文件落盘为准。 */
+    fun screenshotToFile(targetFile: java.io.File): Boolean = runCatching {
+        bridge.command(arrayOf("screenshot-to-file", targetFile.absolutePath, "subtitles"))
+        val ok = targetFile.exists() && targetFile.length() > 0L
+        if (ok) {
+            android.util.Log.i("GyroPlayerEngine", "screenshot saved: ${targetFile.absolutePath}")
+        } else {
+            android.util.Log.w("GyroPlayerEngine", "screenshot command produced no file")
+        }
+        ok
+    }.getOrDefault(false)
 
     // =========================================================================
     // Media Loading & Surface Lifecycle

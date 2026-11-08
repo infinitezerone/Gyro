@@ -4,6 +4,10 @@ import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.feature.player.PlayerScrubState
+import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
+import dev.gyro.feature.player.component.sheet.PlayerSettingsSheetContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -11,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -142,24 +147,16 @@ fun PlayerMediaInfoSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.INFO,
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            hwdec = "mediacodec",
-            fps = 23.976,
-            videoWidth = 1920,
-            videoHeight = 1080,
-            mediaInfo = sampleMediaInfo,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                hwdec = "mediacodec",
+                fps = 23.976,
+                videoWidth = 1920,
+                videoHeight = 1080,
+                mediaInfo = sampleMediaInfo
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -177,25 +174,17 @@ fun PlayerAudiovisualSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.AUDIOVISUAL,
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            deband = true,
-            brightness = 15,
-            contrast = 5,
-            saturation = -10,
-            nightMode = true,
-            stereoDownmix = false,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                deband = true,
+                brightness = 15,
+                contrast = 5,
+                saturation = -10,
+                nightMode = true,
+                stereoDownmix = false
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -213,23 +202,15 @@ fun PlayerSettingsHubPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.SETTINGS_HUB,
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            hwdec = "mediacodec",
-            fps = 60.0,
-            videoWidth = 1920,
-            videoHeight = 1080,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                hwdec = "mediacodec",
+                fps = 60.0,
+                videoWidth = 1920,
+                videoHeight = 1080
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -247,29 +228,21 @@ fun PlayerPlaylistSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.PLAYLIST,
-            playlist = listOf(
-                dev.gyro.core.model.VideoMediaItem(1L, "content://1", "Episode 01 - The Beginning", 1440000L, 500000000L, 1920, 1080, 0L, "Season 1"),
-                dev.gyro.core.model.VideoMediaItem(2L, "content://2", "Episode 02 - Into The Forest", 1500000L, 500000000L, 1920, 1080, 0L, "Season 1"),
-                dev.gyro.core.model.VideoMediaItem(3L, "content://3", "Episode 03 - Discovery", 1480000L, 500000000L, 1920, 1080, 0L, "Season 1")
+            state = PlayerSheetUiState(
+                playlist = listOf(
+                    dev.gyro.core.model.VideoMediaItem(1L, "content://1", "Episode 01 - The Beginning", 1440000L, 500000000L, 1920, 1080, 0L, "Season 1"),
+                    dev.gyro.core.model.VideoMediaItem(2L, "content://2", "Episode 02 - Into The Forest", 1500000L, 500000000L, 1920, 1080, 0L, "Season 1"),
+                    dev.gyro.core.model.VideoMediaItem(3L, "content://3", "Episode 03 - Discovery", 1480000L, 500000000L, 1920, 1080, 0L, "Season 1")
+                ),
+                currentPlaylistIndex = 0,
+                chapters = listOf(
+                    dev.gyro.core.model.ChapterInfo(0, "OP", 0L),
+                    dev.gyro.core.model.ChapterInfo(1, "Main Part", 90000L)
+                )
             ),
-            currentPlaylistIndex = 0,
-            chapters = listOf(
-                dev.gyro.core.model.ChapterInfo(0, "OP", 0L),
-                dev.gyro.core.model.ChapterInfo(1, "Main Part", 90000L)
-            ),
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -292,21 +265,15 @@ fun PlayerSubtitlesSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.SUBTITLES,
-            tracks = sampleTracks,
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.5,
-            audioDelaySec = 0.0,
-            subScale = 1.2,
-            subPos = 100L,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                tracks = sampleTracks,
+                subDelaySec = 0.5,
+                subScale = 1.2,
+                subPos = 100L
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -329,19 +296,13 @@ fun PlayerAudioSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.AUDIO,
-            tracks = sampleTracks,
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = -0.2,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                tracks = sampleTracks,
+                audioDelaySec = -0.2
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -359,19 +320,10 @@ fun PlayerSpeedSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.SPEED,
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.25f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(currentSpeed = 1.25f),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -389,19 +341,10 @@ fun PlayerAspectSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.ASPECT,
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -419,24 +362,16 @@ fun PlayerStatsSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.STATS,
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            hwdec = "mediacodec",
-            fps = 59.94,
-            droppedFrames = 3L,
-            videoWidth = 3840,
-            videoHeight = 2160,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                hwdec = "mediacodec",
+                fps = 59.94,
+                droppedFrames = 3L,
+                videoWidth = 3840,
+                videoHeight = 2160
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -454,21 +389,15 @@ fun PlayerShadersSheetPreview() {
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
-        PlayerTrackSelectionSheetContent(
+        PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.SHADERS,
-            shaderState = dev.gyro.core.model.GlslShaderState(activeShader = dev.gyro.core.model.GlslShader.ANIME4K, displayName = "Anime4K"),
-            customShaders = emptyList(),
-            tracks = emptyList(),
-            currentResizeMode = ResizeMode.FIT,
-            currentSpeed = 1.0f,
-            subDelaySec = 0.0,
-            audioDelaySec = 0.0,
-            onSelectTrack = { _, _ -> },
-            onSelectResizeMode = {},
-            onSelectSpeed = {},
-            onSetSubDelay = {},
-            onSetAudioDelay = {},
-            onAddExternalSubtitle = {}
+            state = PlayerSheetUiState(
+                shaderState = dev.gyro.core.model.GlslShaderState(
+                    activeShader = dev.gyro.core.model.GlslShader.ANIME4K,
+                    displayName = "Anime4K"
+                )
+            ),
+            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
         )
     }
 }
@@ -487,7 +416,9 @@ fun PlayerDoubleTapHudPreview() {
             .background(Color(0xFF101010))
     ) {
         PlayerHudOverlay(
-            hudState = GestureHudState.DoubleTap(DoubleTapSide.RIGHT, 10)
+            hudState = GestureHudState.DoubleTap(DoubleTapSide.RIGHT, 10),
+            scrubState = remember { PlayerScrubState() },
+            durationMs = { 45 * 60_000L }
         )
     }
 }
@@ -506,7 +437,9 @@ fun PlayerVolumeBrightnessHudPreview() {
             .background(Color(0xFF101010))
     ) {
         PlayerHudOverlay(
-            hudState = GestureHudState.Volume(volumeRatio = 0.75f, percent = 75, isOverdrive = false)
+            hudState = GestureHudState.Volume(volumeRatio = 0.75f, percent = 75, isOverdrive = false),
+            scrubState = remember { PlayerScrubState() },
+            durationMs = { 45 * 60_000L }
         )
     }
 }

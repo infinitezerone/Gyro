@@ -1,9 +1,11 @@
 package dev.gyro.core.designsystem.component
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -39,12 +41,14 @@ fun GyroCircleActionButton(
     enabled: Boolean = true,
     size: Dp = 40.dp,
     iconSize: Dp = 22.dp,
+    onLongClick: (() -> Unit)? = null,
     containerColor: Color = Color.Black.copy(alpha = 0.45f),
     contentColor: Color = Color.White,
     border: BorderStroke? = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
 ) {
     GyroCircleActionButton(
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier,
         enabled = enabled,
         size = size,
@@ -64,12 +68,14 @@ fun GyroCircleActionButton(
 /**
  * 自定义内容槽变体：用于非单一图标的内容（如加载圈、文本等）。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GyroCircleActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     size: Dp = 40.dp,
+    onLongClick: (() -> Unit)? = null,
     containerColor: Color = Color.Black.copy(alpha = 0.45f),
     contentColor: Color = Color.White,
     border: BorderStroke? = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
@@ -80,12 +86,25 @@ fun GyroCircleActionButton(
     Box(
         modifier = modifier
             .minimumInteractiveComponentSize()
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                role = Role.Button,
-                onClick = onClick,
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        enabled = enabled,
+                        role = Role.Button,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                    )
+                } else {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        enabled = enabled,
+                        role = Role.Button,
+                        onClick = onClick,
+                    )
+                }
             ),
         contentAlignment = Alignment.Center,
     ) {
