@@ -33,6 +33,18 @@ interface MpvNativeBridge {
      */
     fun destroy()
 
+    // ---------- Epoch Generational Gating ----------
+
+    /**
+     * Advances and returns the monotonically increasing epoch generation ID.
+     */
+    fun nextEpoch(): Long = 0L
+
+    /**
+     * Returns the current epoch generation ID.
+     */
+    fun currentEpoch(): Long = 0L
+
     // ---------- Surface Rendering Operations ----------
 
     /**

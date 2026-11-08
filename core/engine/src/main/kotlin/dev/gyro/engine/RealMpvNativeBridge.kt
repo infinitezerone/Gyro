@@ -22,6 +22,14 @@ open class RealMpvNativeBridge : MpvNativeBridge {
         GyroNative.destroy()
     }
 
+    override fun nextEpoch(): Long {
+        return GyroNative.nextEpoch()
+    }
+
+    override fun currentEpoch(): Long {
+        return GyroNative.currentEpoch
+    }
+
     override fun attachSurface(surface: Surface) {
         GyroNative.attachSurface(surface)
     }

@@ -26,6 +26,21 @@ internal object GyroNative {
     private val eventPipeline = MpvEventPipeline()
     val events = eventPipeline.events
 
+    val currentEpoch: Long get() = eventPipeline.currentEpoch
+
+    fun nextEpoch(): Long {
+        val next = try {
+            nativeNextEpoch()
+        } catch (e: UnsatisfiedLinkError) {
+            eventPipeline.nextEpoch()
+        }
+        eventPipeline.updateEpoch(next)
+        return next
+    }
+
+    private external fun nativeNextEpoch(): Long
+    private external fun nativeCurrentEpoch(): Long
+
     // ---------- JNI Native Methods ----------
 
     external fun create(appctx: Context)
@@ -62,38 +77,45 @@ internal object GyroNative {
     // ---------- Native Callback Dispatchers (Called from Rust) ----------
 
     @JvmStatic
-    fun onEvent(eventId: Int) {
-        eventPipeline.publish(MpvEvent.Lifecycle(eventId))
+    @JvmOverloads
+    fun onEvent(eventId: Int, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.Lifecycle(eventId, epoch))
     }
 
     @JvmStatic
-    fun onEndFile(reason: Int) {
-        eventPipeline.publish(MpvEvent.EndFile(reason))
+    @JvmOverloads
+    fun onEndFile(reason: Int, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.EndFile(reason, epoch))
     }
 
     @JvmStatic
-    fun onPropertyNone(name: String) {
-        eventPipeline.publish(MpvEvent.PropertyChanged(name))
+    @JvmOverloads
+    fun onPropertyNone(name: String, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.PropertyChanged(name, epoch))
     }
 
     @JvmStatic
-    fun onPropertyLong(name: String, value: Long) {
-        eventPipeline.publish(MpvEvent.LongProperty(name, value))
+    @JvmOverloads
+    fun onPropertyLong(name: String, value: Long, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.LongProperty(name, value, epoch))
     }
 
     @JvmStatic
-    fun onPropertyDouble(name: String, value: Double) {
-        eventPipeline.publish(MpvEvent.DoubleProperty(name, value))
+    @JvmOverloads
+    fun onPropertyDouble(name: String, value: Double, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.DoubleProperty(name, value, epoch))
     }
 
     @JvmStatic
-    fun onPropertyFlag(name: String, value: Boolean) {
-        eventPipeline.publish(MpvEvent.FlagProperty(name, value))
+    @JvmOverloads
+    fun onPropertyFlag(name: String, value: Boolean, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.FlagProperty(name, value, epoch))
     }
 
     @JvmStatic
-    fun onPropertyString(name: String, value: String) {
-        eventPipeline.publish(MpvEvent.StringProperty(name, value))
+    @JvmOverloads
+    fun onPropertyString(name: String, value: String, epoch: Long = 0L) {
+        eventPipeline.publish(MpvEvent.StringProperty(name, value, epoch))
     }
 
     // ---------- Format & Event Constants ----------

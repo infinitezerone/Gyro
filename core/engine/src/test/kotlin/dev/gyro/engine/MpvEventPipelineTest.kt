@@ -225,4 +225,57 @@ class MpvEventPipelineTest {
         assertEquals(listOf(first), cancelledEvents)
         assertEquals(listOf(first, second), activeEvents)
     }
+
+    @Test(timeout = 10_000)
+    fun pipelineDropsEventsWithExpiredEpoch() {
+        val pipeline = newPipeline()
+        val scope = newScope()
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { received.add(it) }
+        }
+        awaitTrue { pipeline.subscriptionCount.value == 1 }
+
+        pipeline.updateEpoch(5L)
+        assertEquals(5L, pipeline.currentEpoch)
+
+        // Events with epoch < 5 must be dropped at the front of pipeline
+        pipeline.publish(MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED, epoch = 1L))
+        pipeline.publish(MpvEvent.LongProperty("time-pos", 10L, epoch = 2L))
+        pipeline.publish(MpvEvent.DoubleProperty("speed", 2.0, epoch = 4L))
+
+        // Event with epoch == 5 must be accepted
+        val validEvent = MpvEvent.Lifecycle(MpvNativeBridge.Event.FIRST_FRAME, epoch = 5L)
+        pipeline.publish(validEvent)
+
+        awaitTrue { received.size == 1 }
+        assertEquals(listOf(validEvent), received)
+    }
+
+    @Test(timeout = 10_000)
+    fun updateEpochClearsStalePropertySnapshots() {
+        val pipeline = newPipeline()
+        pipeline.currentEpoch = 1L
+
+        // Publish property under epoch 1 before any subscriber exists
+        pipeline.publish(MpvEvent.LongProperty("time-pos", 42L, epoch = 1L))
+
+        // Now advance to epoch 2, which must clear any cached snapshot from epoch 1
+        pipeline.updateEpoch(2L)
+
+        val scope = newScope()
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect { received.add(it) }
+        }
+        awaitTrue { pipeline.subscriptionCount.value == 1 }
+
+        // Publish a valid epoch 2 event
+        val epoch2Event = MpvEvent.LongProperty("time-pos", 100L, epoch = 2L)
+        pipeline.publish(epoch2Event)
+
+        awaitTrue { received.size == 1 }
+        assertEquals(100L, (received[0] as MpvEvent.LongProperty).value)
+        assertEquals(2L, received[0].epoch)
+    }
 }

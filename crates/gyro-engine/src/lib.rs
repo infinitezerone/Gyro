@@ -114,6 +114,8 @@ pub fn monotonic_ms() -> u128 {
 /// `RenderCommand::Shutdown` leave no stale flags, counters, throttles, or GL function pointers
 /// behind across engine restarts.
 pub fn reset_engine_lifecycle_state() {
+    events::next_epoch();
+    render::G_RENDER_EPOCH.store(events::current_epoch(), Ordering::Release);
     render::G_FRAME_GATE.release();
     render::G_RENDER_DEAD.store(false, Ordering::Release);
     render::G_AWAITING_FIRST_FRAME.store(false, Ordering::Release);

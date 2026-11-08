@@ -184,6 +184,7 @@ pub static G_LOAD_STARTED_MS: AtomicU64 = AtomicU64::new(0);
 pub static G_CACHED_DWIDTH: AtomicI64 = AtomicI64::new(0);
 pub static G_CACHED_DHEIGHT: AtomicI64 = AtomicI64::new(0);
 pub static G_CACHED_ROTATE: AtomicI64 = AtomicI64::new(0);
+pub static G_RENDER_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
 static G_AFFINITY: Mutex<ThreadAffinity> = Mutex::new(ThreadAffinity::new());
@@ -1185,7 +1186,18 @@ unsafe fn draw_frame_native(
                 // 3. Any successful frame swap on a loaded file is an authentic first frame.
                 // Sizing and shutter reveal are coordinated by the host UI layer, decoupled from the native render loop.
                 if file_loaded && !force && !is_redraw {
-                    crate::events::signal_first_frame();
+                    let cur_epoch = crate::events::current_epoch();
+                    let frame_epoch = G_RENDER_EPOCH.load(Ordering::Acquire);
+                    if frame_epoch >= cur_epoch {
+                        crate::events::signal_first_frame();
+                    } else {
+                        crate::tracelog(
+                            "NATIVE_SUPPRESS_FIRST_FRAME_EXPIRED_EPOCH",
+                            &format!(
+                                "frame_epoch={frame_epoch}, current_epoch={cur_epoch}"
+                            ),
+                        );
+                    }
                 } else {
                     crate::tracelog(
                         "NATIVE_SUPPRESS_FIRST_FRAME",

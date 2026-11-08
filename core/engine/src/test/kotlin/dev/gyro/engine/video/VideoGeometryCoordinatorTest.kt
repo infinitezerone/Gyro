@@ -122,4 +122,26 @@ class VideoGeometryCoordinatorTest {
         assertTrue(coordinator.geometryReady.value)
         assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
     }
+
+    @Test
+    fun testExpiredEpochEventIsSilentlyDropped() {
+        // Switch to video 2 with epoch = 10
+        coordinator.onSwitchStarted("test://video2.mp4", 0L, epoch = 10L)
+        assertEquals(10L, coordinator.currentEpoch)
+        assertFalse(coordinator.firstFrameRendered.value)
+
+        // Old event from epoch 9 arrives
+        coordinator.onEvent(dev.gyro.engine.MpvEvent.Lifecycle(dev.gyro.engine.MpvNativeBridge.Event.FIRST_FRAME, epoch = 9L))
+
+        // Must be silently dropped, firstFrameRendered remains false!
+        assertFalse(coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+
+        // Valid event from epoch 10 arrives
+        coordinator.onEvent(dev.gyro.engine.MpvEvent.Lifecycle(dev.gyro.engine.MpvNativeBridge.Event.FIRST_FRAME, epoch = 10L))
+
+        // Now firstFrameRendered is true and state is Presenting!
+        assertTrue(coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+    }
 }

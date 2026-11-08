@@ -50,6 +50,10 @@ class FakeMpvNativeBridge(
     override val events = mutableEvents.asSharedFlow()
     val eventSubscriberCount: Int get() = mutableEvents.subscriptionCount.value
 
+    private val _epoch = java.util.concurrent.atomic.AtomicLong(0L)
+    override fun nextEpoch(): Long = _epoch.incrementAndGet()
+    override fun currentEpoch(): Long = _epoch.get()
+
     // Call counters backed by AtomicInteger for thread-safety
     private val _createCount = AtomicInteger(0)
     val createCount: Int get() = _createCount.get()
@@ -203,84 +207,84 @@ class FakeMpvNativeBridge(
     /**
      * Publishes an mpv lifecycle event to active flow subscribers.
      */
-    fun emitEvent(eventId: Int) {
-        mutableEvents.tryEmit(MpvEvent.Lifecycle(eventId))
+    fun emitEvent(eventId: Int, epoch: Long = currentEpoch()) {
+        mutableEvents.tryEmit(MpvEvent.Lifecycle(eventId, epoch))
     }
 
     /**
      * Simulates FILE_LOADED event with optional title and hwdec strings.
      */
-    fun emitFileLoaded(mediaTitle: String = "Test Video", hwdec: String = "mediacodec") {
+    fun emitFileLoaded(mediaTitle: String = "Test Video", hwdec: String = "mediacodec", epoch: Long = currentEpoch()) {
         properties["media-title"] = mediaTitle
         properties["hwdec-current"] = hwdec
-        emitEvent(MpvNativeBridge.Event.FILE_LOADED)
+        emitEvent(MpvNativeBridge.Event.FILE_LOADED, epoch)
     }
 
     /**
      * Simulates TRACKS_CHANGED event.
      */
-    fun emitTracksChanged() {
-        emitEvent(MpvNativeBridge.Event.TRACKS_CHANGED)
+    fun emitTracksChanged(epoch: Long = currentEpoch()) {
+        emitEvent(MpvNativeBridge.Event.TRACKS_CHANGED, epoch)
     }
 
     /**
      * Simulates END_FILE event.
      */
-    fun emitEndFile() {
-        emitEvent(MpvNativeBridge.Event.END_FILE)
+    fun emitEndFile(epoch: Long = currentEpoch()) {
+        emitEvent(MpvNativeBridge.Event.END_FILE, epoch)
     }
 
     /**
      * Simulates reason-bearing END_FILE event (`MpvEvent.EndFile(reason)`).
      */
-    fun emitEndFile(reason: Int) {
-        mutableEvents.tryEmit(MpvEvent.EndFile(reason))
+    fun emitEndFile(reason: Int, epoch: Long = currentEpoch()) {
+        mutableEvents.tryEmit(MpvEvent.EndFile(reason, epoch))
     }
 
     /**
      * Simulates SHUTDOWN event.
      */
-    fun emitShutdown() {
-        emitEvent(MpvNativeBridge.Event.SHUTDOWN)
+    fun emitShutdown(epoch: Long = currentEpoch()) {
+        emitEvent(MpvNativeBridge.Event.SHUTDOWN, epoch)
     }
 
     /**
      * Emits a property name change notification (Format.NONE).
      */
-    fun emitProperty(name: String) {
-        mutableEvents.tryEmit(MpvEvent.PropertyChanged(name))
+    fun emitProperty(name: String, epoch: Long = currentEpoch()) {
+        mutableEvents.tryEmit(MpvEvent.PropertyChanged(name, epoch))
     }
 
     /**
      * Emits a Long property change and updates the property store.
      */
-    fun emitPropertyLong(name: String, value: Long) {
+    fun emitPropertyLong(name: String, value: Long, epoch: Long = currentEpoch()) {
         properties[name] = value
-        mutableEvents.tryEmit(MpvEvent.LongProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.LongProperty(name, value, epoch))
     }
 
     /**
      * Emits a Double property change and updates the property store.
      */
-    fun emitPropertyDouble(name: String, value: Double) {
+    fun emitPropertyDouble(name: String, value: Double, epoch: Long = currentEpoch()) {
         properties[name] = value
-        mutableEvents.tryEmit(MpvEvent.DoubleProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.DoubleProperty(name, value, epoch))
     }
 
     /**
      * Emits a Boolean property change and updates the property store.
      */
-    fun emitPropertyFlag(name: String, value: Boolean) {
+    fun emitPropertyFlag(name: String, value: Boolean, epoch: Long = currentEpoch()) {
         properties[name] = value
-        mutableEvents.tryEmit(MpvEvent.FlagProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.FlagProperty(name, value, epoch))
     }
 
     /**
      * Emits a String property change and updates the property store.
      */
-    fun emitPropertyString(name: String, value: String) {
+    fun emitPropertyString(name: String, value: String, epoch: Long = currentEpoch()) {
         properties[name] = value
-        mutableEvents.tryEmit(MpvEvent.StringProperty(name, value))
+        mutableEvents.tryEmit(MpvEvent.StringProperty(name, value, epoch))
     }
 
     // ---------- Query & Verification Helpers ----------
@@ -318,6 +322,7 @@ class FakeMpvNativeBridge(
         _attachSurfaceCount.set(0)
         _detachSurfaceCount.set(0)
         _redrawCount.set(0)
+        _epoch.set(0)
         commands.clear()
         options.clear()
         properties.clear()

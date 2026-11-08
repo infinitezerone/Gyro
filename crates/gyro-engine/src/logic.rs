@@ -6,7 +6,33 @@
 
 #![cfg_attr(not(target_os = "android"), allow(dead_code))]
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+/// Monotonically increasing atomic generation counter for cross-boundary session isolation.
+#[derive(Debug, Default)]
+pub struct EpochGate {
+    epoch: AtomicU64,
+}
+
+impl EpochGate {
+    pub const fn new() -> Self {
+        Self {
+            epoch: AtomicU64::new(0),
+        }
+    }
+
+    pub fn current(&self) -> u64 {
+        self.epoch.load(Ordering::Acquire)
+    }
+
+    pub fn next(&self) -> u64 {
+        self.epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub fn is_valid(&self, epoch: u64) -> bool {
+        epoch >= self.current()
+    }
+}
 
 /// One-slot gate that collapses mpv's per-frame update notifications into at most one queued
 /// render command.
@@ -1110,5 +1136,28 @@ mod tests {
         // Saturates instead of wrapping on extreme values
         let saturated = compute_monotonic_presentation_ns(i64::MAX, 0, 1_000_000);
         assert_eq!(Some(i64::MAX), saturated);
+    }
+
+    // ---------- EpochGate ----------
+
+    #[test]
+    fn epoch_gate_starts_at_zero_and_increments_monotonically() {
+        let gate = EpochGate::new();
+        assert_eq!(0, gate.current());
+        assert_eq!(1, gate.next());
+        assert_eq!(1, gate.current());
+        assert_eq!(2, gate.next());
+        assert_eq!(2, gate.current());
+    }
+
+    #[test]
+    fn epoch_gate_validates_epochs() {
+        let gate = EpochGate::new();
+        assert!(gate.is_valid(0));
+        let next = gate.next();
+        assert_eq!(1, next);
+        assert!(!gate.is_valid(0));
+        assert!(gate.is_valid(1));
+        assert!(gate.is_valid(2));
     }
 }

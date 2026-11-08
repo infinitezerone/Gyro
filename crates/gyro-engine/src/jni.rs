@@ -561,3 +561,35 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_getGpuRenderer(
         Err(_) => std::ptr::null_mut(),
     }
 }
+
+#[no_mangle]
+pub extern "system" fn Java_dev_gyro_engine_GyroNative_nativeNextEpoch(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    crate::events::next_epoch() as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_gyro_engine_GyroNative_nativeCurrentEpoch(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    crate::events::current_epoch() as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_gyro_engine_GyroNative_nextEpoch(
+    env: JNIEnv,
+    class: JClass,
+) -> jlong {
+    Java_dev_gyro_engine_GyroNative_nativeNextEpoch(env, class)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_dev_gyro_engine_GyroNative_currentEpoch(
+    env: JNIEnv,
+    class: JClass,
+) -> jlong {
+    Java_dev_gyro_engine_GyroNative_nativeCurrentEpoch(env, class)
+}

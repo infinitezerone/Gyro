@@ -46,6 +46,14 @@ class VideoGeometryCoordinator(
     val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
     @Volatile
+    var currentEpoch: Long = 0L
+        private set
+
+    fun updateEpoch(epoch: Long) {
+        currentEpoch = maxOf(currentEpoch, epoch)
+    }
+
+    @Volatile
     private var currentUrl = ""
 
     private val _displayRefreshRate = store.property({ it.displayRefreshRate }) { s, v -> s.copy(displayRefreshRate = v) }
@@ -66,6 +74,10 @@ class VideoGeometryCoordinator(
     }
 
     override fun onEvent(event: MpvEvent) {
+        if (event.epoch < currentEpoch) {
+            SwitchTrace.log("EVENT_IGNORED_EXPIRED_EPOCH", "eventEpoch=${event.epoch}, currentEpoch=$currentEpoch, event=$event")
+            return
+        }
         when (event) {
             is MpvEvent.Lifecycle -> when (event.id) {
                 MpvNativeBridge.Event.FILE_LOADED ->
@@ -100,8 +112,10 @@ class VideoGeometryCoordinator(
         url: String,
         startPositionMs: Long = 0L,
         initialWidth: Int = 0,
-        initialHeight: Int = 0
+        initialHeight: Int = 0,
+        epoch: Long = currentEpoch
     ) {
+        currentEpoch = maxOf(currentEpoch, epoch)
         currentUrl = url
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false

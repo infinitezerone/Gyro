@@ -56,16 +56,43 @@ class MpvEventPipeline(
     private val propertyLatest = ConcurrentHashMap<String, MpvEvent>()
     private val wakeUp = Channel<Unit>(Channel.CONFLATED)
 
+    private val _currentEpoch = java.util.concurrent.atomic.AtomicLong(0L)
+    var currentEpoch: Long
+        get() = _currentEpoch.get()
+        set(value) { _currentEpoch.set(value) }
+
+    fun nextEpoch(): Long = _currentEpoch.incrementAndGet()
+
+    fun updateEpoch(epoch: Long) {
+        _currentEpoch.updateAndGet { current -> maxOf(current, epoch) }
+        propertyLatest.clear()
+    }
+
+    fun resetEpoch(epoch: Long = 0L) {
+        _currentEpoch.set(epoch)
+        propertyLatest.clear()
+    }
+
     private val pumpScope: CoroutineScope =
         parentScope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val pumpJobs: List<Job> = listOf(
-        pumpScope.launch { for (event in lifecycleChannel) _events.emit(event) },
+        pumpScope.launch {
+            for (event in lifecycleChannel) {
+                if (event.epoch >= _currentEpoch.get()) {
+                    _events.emit(event)
+                }
+            }
+        },
         pumpScope.launch {
             for (wake in wakeUp) {
                 for ((key, event) in propertyLatest) {
                     // Remove only what was actually emitted: a newer snapshot published
                     // while this drain suspends stays in the map for the next pass.
+                    if (event.epoch < _currentEpoch.get()) {
+                        propertyLatest.remove(key, event)
+                        continue
+                    }
                     if (propertyLatest.remove(key, event)) {
                         _events.emit(event)
                     }
@@ -80,6 +107,9 @@ class MpvEventPipeline(
      * in the merge map.
      */
     fun publish(event: MpvEvent) {
+        if (event.epoch < _currentEpoch.get()) {
+            return
+        }
         if (event is MpvEvent.Lifecycle || event is MpvEvent.EndFile) {
             val result = lifecycleChannel.trySend(event)
             if (result.isFailure) {

@@ -51,6 +51,10 @@ class MediaLoadCoordinator(
     var requestedTitle: String = ""
         private set
 
+    @Volatile
+    var currentEpoch: Long = 0L
+        private set
+
     private var attachedSurfaceRef: Any? = null
 
     @Volatile
@@ -63,16 +67,22 @@ class MediaLoadCoordinator(
     private var pendingLabel: String = ""
 
     @Volatile
+    private var pendingEpoch: Long = 0L
+
+    @Volatile
     private var currentLoadJob: Job? = null
 
     private fun discardPending() {
         pendingSource?.close()
         pendingSource = null
         pendingLabel = ""
+        pendingEpoch = 0L
     }
 
     fun load(item: MediaItem) {
         val target = item.target.ifBlank { item.uri?.toString().orEmpty() }
+        val epoch = bridge.nextEpoch()
+        currentEpoch = epoch
         beginLoad(
             target = target,
             title = item.title,
@@ -80,40 +90,49 @@ class MediaLoadCoordinator(
             uri = item.uri,
             initialDurationMs = item.initialDurationMs,
             initialWidth = item.initialWidth,
-            initialHeight = item.initialHeight
+            initialHeight = item.initialHeight,
+            epoch = epoch
         )
 
         currentLoadJob?.cancel()
         discardPending()
 
         if (item.uri != null && (item.uri.scheme == "content" || target.startsWith("content://"))) {
+            val jobEpoch = epoch
             currentLoadJob = coroutineScope().launch {
                 var owned: ResolvedMediaSource? = null
                 try {
                     val resolved = resolver.resolve(item)
                     owned = resolved
-                    SwitchTrace.log("RESOLVE_PATH_DONE", "target=${resolved.targetDescription}")
+                    SwitchTrace.log("RESOLVE_PATH_DONE", "target=${resolved.targetDescription}, epoch=$jobEpoch")
                     withContext(Dispatchers.Main) {
-                        submitOrQueue(resolved, item.startPositionMs, target)
+                        if (jobEpoch == currentEpoch) {
+                            submitOrQueue(resolved, item.startPositionMs, target, epoch = jobEpoch)
+                        } else {
+                            EngineLog.i(TAG, "load: resolved target for expired epoch $jobEpoch (current=$currentEpoch), discarding")
+                            owned.close()
+                        }
                     }
                     owned = null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    EngineLog.e(TAG, "load: cannot resolve $target", t)
-                    store.update {
-                        it.copy(
-                            session = SessionPhase.Failed(target, t),
-                            error = t,
-                            playbackState = PlaybackState.ERROR
-                        )
+                    if (jobEpoch == currentEpoch) {
+                        EngineLog.e(TAG, "load: cannot resolve $target", t)
+                        store.update {
+                            it.copy(
+                                session = SessionPhase.Failed(target, t),
+                                error = t,
+                                playbackState = PlaybackState.ERROR
+                            )
+                        }
                     }
                 } finally {
                     owned?.close()
                 }
             }
         } else {
-            submitOrQueue(ResolvedMediaSource(target), item.startPositionMs, target)
+            submitOrQueue(ResolvedMediaSource(target), item.startPositionMs, target, epoch = epoch)
         }
     }
 
@@ -124,9 +143,10 @@ class MediaLoadCoordinator(
         uri: Uri?,
         initialDurationMs: Long = 0L,
         initialWidth: Int = 0,
-        initialHeight: Int = 0
+        initialHeight: Int = 0,
+        epoch: Long = currentEpoch
     ) {
-        SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs")
+        SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs, epoch=$epoch")
         ensureInitialized()
 
         store.batch {
@@ -137,7 +157,7 @@ class MediaLoadCoordinator(
                     currentUri = uri ?: it.currentUri
                 )
             }
-            geometry.onSwitchStarted(target, startPositionMs, initialWidth, initialHeight)
+            geometry.onSwitchStarted(target, startPositionMs, initialWidth, initialHeight, epoch = epoch)
             audio.reset()
             tuning.reset()
             store.update { it.copy(playbackState = PlaybackState.BUFFERING) }
@@ -158,13 +178,24 @@ class MediaLoadCoordinator(
     @Volatile
     var isHeadlessMode: Boolean = false
 
-    private fun submitOrQueue(source: ResolvedMediaSource, startPositionMs: Long, label: String) {
+    private fun submitOrQueue(
+        source: ResolvedMediaSource,
+        startPositionMs: Long,
+        label: String,
+        epoch: Long = currentEpoch
+    ) {
+        if (epoch != currentEpoch) {
+            EngineLog.i(TAG, "submitOrQueue: dropping obsolete load for epoch $epoch (current=$currentEpoch)")
+            source.close()
+            return
+        }
         if (!isSurfaceAttached && !isHeadlessMode) {
-            EngineLog.i(TAG, "load: surface not attached yet, queueing $label")
+            EngineLog.i(TAG, "load: surface not attached yet, queueing $label (epoch=$epoch)")
             discardPending()
             pendingSource = source
             pendingStartMs = startPositionMs
             pendingLabel = label
+            pendingEpoch = epoch
             store.batch {
                 store.update {
                     it.copy(
@@ -175,13 +206,23 @@ class MediaLoadCoordinator(
             }
             return
         }
-        submit(source, startPositionMs, label)
+        submit(source, startPositionMs, label, epoch = epoch)
     }
 
-    private fun submit(source: ResolvedMediaSource, startPositionMs: Long, label: String) {
+    private fun submit(
+        source: ResolvedMediaSource,
+        startPositionMs: Long,
+        label: String,
+        epoch: Long = currentEpoch
+    ) {
+        if (epoch != currentEpoch) {
+            EngineLog.i(TAG, "submit: dropping obsolete load for epoch $epoch (current=$currentEpoch)")
+            source.close()
+            return
+        }
         val target = source.takeTargetUrl()
-        SwitchTrace.log("LOAD_COMMAND_ISSUED", "url=$target, isSurfaceAttached=$isSurfaceAttached")
-        EngineLog.i(TAG, "submit: url=$target, startPositionMs=$startPositionMs")
+        SwitchTrace.log("LOAD_COMMAND_ISSUED", "url=$target, isSurfaceAttached=$isSurfaceAttached, epoch=$epoch")
+        EngineLog.i(TAG, "submit: url=$target, startPositionMs=$startPositionMs, epoch=$epoch")
         store.batch {
             timeline.onLoadCommandIssued()
             store.update {
@@ -224,10 +265,17 @@ class MediaLoadCoordinator(
         pendingSource?.let { source ->
             val startMs = pendingStartMs
             val label = pendingLabel
+            val epoch = pendingEpoch
             pendingSource = null
             pendingLabel = ""
-            EngineLog.i(TAG, "attachSurface: surface ready, flushing queued $label")
-            submit(source, startMs, label)
+            pendingEpoch = 0L
+            if (epoch == currentEpoch) {
+                EngineLog.i(TAG, "attachSurface: surface ready, flushing queued $label (epoch=$epoch)")
+                submit(source, startMs, label, epoch = epoch)
+            } else {
+                EngineLog.i(TAG, "attachSurface: discarding stale queued source for epoch $epoch (current=$currentEpoch)")
+                source.close()
+            }
         }
     }
 
@@ -250,6 +298,7 @@ class MediaLoadCoordinator(
     }
 
     fun release() {
+        currentEpoch = bridge.nextEpoch()
         currentLoadJob?.cancel()
         discardPending()
     }
