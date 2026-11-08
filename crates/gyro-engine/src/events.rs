@@ -462,6 +462,9 @@ pub fn event_thread() {
                 MPV_EVENT_FILE_LOADED => {
                     crate::tracelog("NATIVE_MPV_FILE_LOADED", "");
                     G_SESSION.file_loaded_reached.store(true, Ordering::Release);
+                    G_SESSION.cached_dwidth.store(0, Ordering::Release);
+                    G_SESSION.cached_dheight.store(0, Ordering::Release);
+                    G_SESSION.cached_rotate.store(0, Ordering::Release);
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
                     // The loadfile may have raced ahead of the render context: mpv initializes
                     // its VO during load and permanently disables video when none exists yet.

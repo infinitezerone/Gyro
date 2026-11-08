@@ -1195,8 +1195,10 @@ unsafe fn draw_frame_native(
 
         // Read geometry from lock-free atomics populated on `gyro-event`; only fall back to
         // synchronous `mpv_get_property` once if the render thread beats the event pump on the
-        // very first frame.
-        let (final_w, final_h) = if awaiting_first_frame {
+        // very first frame, and only once demux has actually loaded the file (otherwise properties
+        // belong to the previous file).
+        let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
+        let (final_w, final_h) = if awaiting_first_frame && file_loaded {
             let mut dwidth = G_SESSION.cached_dwidth.load(Ordering::Acquire);
             let mut dheight = G_SESSION.cached_dheight.load(Ordering::Acquire);
             let mut rotate = G_SESSION.cached_rotate.load(Ordering::Acquire);
@@ -1250,22 +1252,31 @@ unsafe fn draw_frame_native(
             (0, 0)
         };
 
+        let aspect_mismatch = if final_w > 0 && final_h > 0 && w > 0 && h > 0 {
+            let vid_aspect = final_w as f64 / final_h as f64;
+            let buf_aspect = w as f64 / h as f64;
+            (buf_aspect / vid_aspect - 1.0).abs() > 0.08
+        } else {
+            false
+        };
+        let load_start = G_SESSION.load_started_ms.load(Ordering::Relaxed);
+        let now_ms = monotonic_ms() as u64;
+        let waited_ms = now_ms.saturating_sub(load_start);
+
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
-            let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
             if awaiting_first_frame {
                 crate::tracelog(
                     "NATIVE_SWAP_WHILE_AWAITING",
                     &format!(
-                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}"
+                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}, mismatch={aspect_mismatch}, waited={waited_ms}ms"
                     ),
                 );
                 // Pipeline separation (predicate in logic::FirstFrameGate, CI-tested):
                 // 1. Redraws (force=true) and mpv internal repaints (is_redraw=true) are NEVER first frames.
                 // 2. Demuxer must have loaded the file (file_loaded=true).
-                // 3. Any successful frame swap on a loaded file is an authentic first frame.
-                // Sizing and shutter reveal are coordinated by the host UI layer, decoupled from the native render loop.
-                if FirstFrameGate::should_signal(file_loaded, force, is_redraw) {
+                // 3. Buffer geometry must match video aspect (aspect_mismatch=false) unless waited over 600ms fallback.
+                if FirstFrameGate::should_signal(file_loaded, force, is_redraw, aspect_mismatch, waited_ms) {
                     let cur_epoch = crate::events::current_epoch();
                     let frame_epoch = G_RENDER_EPOCH.load(Ordering::Acquire);
                     if frame_epoch >= cur_epoch {
@@ -1282,7 +1293,7 @@ unsafe fn draw_frame_native(
                     crate::tracelog(
                         "NATIVE_SUPPRESS_FIRST_FRAME",
                         &format!(
-                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}"
+                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}, mismatch={aspect_mismatch}, waited={waited_ms}ms"
                         ),
                     );
                 }

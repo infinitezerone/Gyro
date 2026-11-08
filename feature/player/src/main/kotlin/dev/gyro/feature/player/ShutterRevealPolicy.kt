@@ -23,15 +23,15 @@ import dev.gyro.engine.model.ResizeMode
  */
 object ShutterRevealPolicy {
 
-    /** Container/buffer-vs-target aspect divergence tolerated before reveal. Matches the value
-     *  the on-device fix chain converged on; changing it re-opens the corner-jump window. */
+    /** Container-vs-target aspect divergence tolerated before reveal. Matches the value the
+     *  on-device fix chain converged on; changing it re-opens the corner-jump window. */
     const val ASPECT_TOLERANCE = 0.05f
 
     sealed interface Decision {
-        /** Geometry and buffer have converged; the shutter may be revealed after one frame. */
+        /** Container geometry has converged; the shutter may be revealed after one frame. */
         data object Reveal : Decision
 
-        /** Keep the shutter up; convergence incomplete (prerequisites, container, or buffer). */
+        /** Keep the shutter up; geometry not settled yet (or prerequisites missing). */
         data object Hold : Decision
     }
 
@@ -43,9 +43,7 @@ object ShutterRevealPolicy {
         videoHeight: Int,
         resizeMode: ResizeMode,
         containerWidth: Int,
-        containerHeight: Int,
-        bufferWidth: Int,
-        bufferHeight: Int
+        containerHeight: Int
     ): Decision {
         val isAudioOnly = videoWidth == 0 && videoHeight == 0
         if (!firstFrameRendered || !geometryReady) return Decision.Hold
@@ -67,16 +65,6 @@ object ShutterRevealPolicy {
         } else 0f
         val isLayoutSettled = containerWidth > 0 && containerHeight > 0 &&
             kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * ASPECT_TOLERANCE
-        if (!isLayoutSettled) return Decision.Hold
-
-        // Buffer convergence: a not-yet-applied (0x0) or still-stale buffer would present the
-        // new video through the previous file's BufferQueue geometry. The buffer is locked to
-        // the VIDEO's own aspect (computeDisplayFittedBufferSize preserves it) - override
-        // targets remap at the compositor, not the BufferQueue, so compare against videoAspect.
-        if (bufferWidth <= 0 || bufferHeight <= 0) return Decision.Hold
-        val bufferAspect = bufferWidth.toFloat() / bufferHeight
-        val isBufferSettled =
-            kotlin.math.abs(bufferAspect - videoAspect) <= videoAspect * ASPECT_TOLERANCE
-        return if (isBufferSettled) Decision.Reveal else Decision.Hold
+        return if (isLayoutSettled) Decision.Reveal else Decision.Hold
     }
 }

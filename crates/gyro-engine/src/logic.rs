@@ -45,8 +45,14 @@ impl EpochGate {
 pub struct FirstFrameGate;
 
 impl FirstFrameGate {
-    pub const fn should_signal(file_loaded: bool, force: bool, is_redraw: bool) -> bool {
-        file_loaded && !force && !is_redraw
+    pub const fn should_signal(
+        file_loaded: bool,
+        force: bool,
+        is_redraw: bool,
+        aspect_mismatch: bool,
+        waited_ms: u64,
+    ) -> bool {
+        file_loaded && !force && !is_redraw && (!aspect_mismatch || waited_ms > 600)
     }
 }
 
@@ -1208,21 +1214,31 @@ mod tests {
 
     #[test]
     fn first_frame_gate_signals_authentic_swaps_on_loaded_files() {
-        assert!(FirstFrameGate::should_signal(true, false, false));
+        assert!(FirstFrameGate::should_signal(true, false, false, false, 100));
     }
 
     #[test]
     fn first_frame_gate_never_signals_redraws_or_forced_repaints() {
         // Redraw (force=true) and mpv internal repaint (is_redraw=true) must not count as first
         // frames even with everything else satisfied - this was the corner-jump root cause.
-        assert!(!FirstFrameGate::should_signal(true, true, false));
-        assert!(!FirstFrameGate::should_signal(true, false, true));
-        assert!(!FirstFrameGate::should_signal(true, true, true));
+        assert!(!FirstFrameGate::should_signal(true, true, false, false, 100));
+        assert!(!FirstFrameGate::should_signal(true, false, true, false, 100));
+        assert!(!FirstFrameGate::should_signal(true, true, true, false, 100));
     }
 
     #[test]
     fn first_frame_gate_requires_the_demuxer_to_have_loaded_the_file() {
-        assert!(!FirstFrameGate::should_signal(false, false, false));
+        assert!(!FirstFrameGate::should_signal(false, false, false, false, 100));
+    }
+
+    #[test]
+    fn first_frame_gate_suppresses_mismatched_buffer_before_timeout() {
+        // Buffer aspect differs from video aspect (e.g. 16:9 file in stale portrait buffer)
+        // Suppress while under the 600ms timeout
+        assert!(!FirstFrameGate::should_signal(true, false, false, true, 100));
+        assert!(!FirstFrameGate::should_signal(true, false, false, true, 599));
+        // Force-reveals after 600ms deadline to avoid permanent black screen
+        assert!(FirstFrameGate::should_signal(true, false, false, true, 601));
     }
 
     // ---------- VideoOutputRecoveryGate ----------
