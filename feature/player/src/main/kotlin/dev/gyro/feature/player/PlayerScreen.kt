@@ -766,6 +766,8 @@ fun PlayerScreen(
                 resizeMode = resizeMode,
                 speed = speed,
                 scrubState = scrubState,
+                playlist = playlist,
+                currentPlaylistIndex = currentPlaylistIndex,
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
                 onTogglePlayPause = {
@@ -779,6 +781,10 @@ fun PlayerScreen(
                 onPlayNext = {
                     playerState.resetControlsTimeout()
                     viewModel.playNext()
+                },
+                onSelectPlaylistItem = { idx ->
+                    playerState.resetControlsTimeout()
+                    playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
                 },
                 onToggleLock = {
                     playerState.resetControlsTimeout()

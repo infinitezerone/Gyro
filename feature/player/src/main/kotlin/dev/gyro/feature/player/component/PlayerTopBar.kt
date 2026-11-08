@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,10 +32,10 @@ import dev.gyro.core.designsystem.component.GyroGhostIconButton
 
 /**
  * 顶部导航与快捷入口栏 (PlayerTopBar)
- * 职责纯粹化（做减法）：
- * - 返回（ArrowBack，采用 GyroGhostIconButton，带 ≥48dp 靶区与微按压弹性）
+ * - 返回（ArrowBack）
  * - 媒体标题与实时参数微标
- * - 画中画 (PiP) 与 全能设置 (⚙️ Settings，采用成熟齿轮图标取代模糊的三点)
+ * - 一键直达字幕选择（💬 Subtitles 快捷入口）
+ * - 画中画 (PiP) 与 全能设置 (⚙️ Settings)
  * - 5 段平滑渐变暗角过渡，保护状态栏与文字可读性，消灭生硬黑切边
  */
 @Composable
@@ -108,6 +109,14 @@ fun PlayerTopBar(
             }
 
             Spacer(modifier = Modifier.width(4.dp))
+
+            // 字幕一键直达入口 (💬 Subtitles)
+            GyroGhostIconButton(
+                onClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                icon = Icons.Default.Subtitles,
+                contentDescription = stringResource(R.string.sheet_tab_subtitles),
+                iconSize = 20.dp
+            )
 
             // 画中画 (PiP)
             GyroGhostIconButton(

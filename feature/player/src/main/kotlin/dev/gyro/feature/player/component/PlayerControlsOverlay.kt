@@ -10,12 +10,19 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Lock
@@ -30,15 +37,19 @@ import dev.gyro.core.designsystem.R
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
+import dev.gyro.core.designsystem.component.GyroPillButton
 import dev.gyro.core.model.ChapterInfo
+import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
+import java.util.Locale
 
 /**
  * 现代轻量级播放器控制遮罩骨架 (PlayerControlsOverlay)
  * - 纯悬浮设计，零遮挡色块；
  * - 锁屏按键悬浮于左侧边缘 (Alignment.CenterStart)；
- * - 竖屏模式下，全屏按键解耦移出底栏，置于【视频画面正下方居中】，视线与操作完全顺畅；
- * - 顶部栏承载极简返回、标题与设置入口；
+ * - 竖屏模式下，全屏胶囊按键置于【视频画面正下方居中】（下移 32dp 舒展呈现）；
+ * - 竖屏多集模式下，在全屏胶囊下方自然展开一行轻量选集横滑栏 [01] [02]...；
+ * - 顶部栏承载极简返回、标题、字幕快捷键与设置入口；
  * - 底部栏采用极简两行架构（进度条 + 播放/时间/倍速）。
  */
 @Composable
@@ -54,11 +65,14 @@ fun BoxScope.PlayerControlsOverlay(
     resizeMode: ResizeMode,
     speed: Float,
     scrubState: PlayerScrubState,
+    playlist: List<VideoMediaItem> = emptyList(),
+    currentPlaylistIndex: Int = -1,
     hasPrevious: Boolean = false,
     hasNext: Boolean = false,
     onTogglePlayPause: () -> Unit,
     onPlayPrevious: () -> Unit = {},
     onPlayNext: () -> Unit = {},
+    onSelectPlaylistItem: (Int) -> Unit = {},
     onToggleLock: () -> Unit,
     onSeekToFraction: (Float) -> Unit,
     onRewind10: () -> Unit = {},
@@ -99,16 +113,16 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏按键：置于【视频画面正下方居中】（告别底栏死角，视线与动作自然统合）
+        // 2. 竖屏模式下的全屏胶囊按键（置于【视频画面正下方居中】，下移 32dp）
         if (!isLandscape) {
             val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
                 Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = videoBottomDp + 18.dp)
+                    .offset(y = videoBottomDp + 32.dp)
             } else {
                 Modifier
                     .align(Alignment.Center)
-                    .offset(y = 140.dp)
+                    .offset(y = 150.dp)
             }
 
             AnimatedVisibility(
@@ -117,16 +131,41 @@ fun BoxScope.PlayerControlsOverlay(
                 exit = fadeOut(animationSpec = tween(280)) + scaleOut(targetScale = 0.85f),
                 modifier = bottomModifier
             ) {
-                GyroCircleActionButton(
-                    onClick = onToggleOrientation,
-                    icon = Icons.Default.Fullscreen,
-                    contentDescription = stringResource(R.string.cd_fullscreen),
-                    containerColor = Color.Black.copy(alpha = 0.45f),
-                    contentColor = Color.White,
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.25f)),
-                    size = 42.dp,
-                    iconSize = 24.dp
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // 全屏药丸胶囊
+                    GyroPillButton(
+                        text = stringResource(R.string.cd_fullscreen),
+                        icon = Icons.Default.Fullscreen,
+                        onClick = onToggleOrientation,
+                        height = 36.dp,
+                        containerColor = Color.Black.copy(alpha = 0.50f),
+                        contentColor = Color.White,
+                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f))
+                    )
+
+                    // 如果检测到多集连播列表，在其下方自然展开一行轻量选集横滑栏
+                    if (playlist.size > 1) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 24.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            itemsIndexed(playlist) { index, item ->
+                                val isSelected = index == currentPlaylistIndex
+                                val epNumber = index + 1
+                                GyroPillButton(
+                                    text = if (item.displayName.length <= 4) item.displayName else String.format(Locale.US, "%02d", epNumber),
+                                    onClick = { onSelectPlaylistItem(index) },
+                                    height = 32.dp,
+                                    containerColor = if (isSelected) Color(0xFF1976D2).copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.40f),
+                                    contentColor = Color.White,
+                                    border = BorderStroke(0.5.dp, if (isSelected) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.18f))
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -2,8 +2,11 @@ package dev.gyro.feature.player.component
 
 import dev.gyro.feature.player.PlayerScrubState
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -11,7 +14,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,13 +33,18 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.gyro.core.model.ChapterInfo
 
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
- * 具备静止态 (3dp) 到拖拽态 (6dp) 的平滑膨胀动画与高响应度触摸判定。
- * 进度读取与拖拽状态封装于叶子内，拖拽时仅自身重组，杜绝波及外层控制栏。
+ * - 静止态 (3dp) 到拖拽态 (6dp) 平滑物理膨胀动画；
+ * - 拖拽时正上方跟随弹出高亮时间气泡 (Floating Time Bubble)，彻底解决手指遮挡无法精准定位的痛点；
+ * - 浅白网络缓冲条与微光章节刻度；
+ * - 进度读取与拖拽状态封装于叶子内，拖拽时仅自身局部重组。
  */
 @Composable
 fun PlayerScrubBar(
@@ -89,7 +97,7 @@ fun PlayerScrubBar(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(36.dp)
             .pointerInput(durationMs) {
                 if (durationMs <= 0L) return@pointerInput
                 awaitEachGesture {
@@ -131,7 +139,7 @@ fun PlayerScrubBar(
                 .background(Color.White.copy(alpha = 0.22f))
         )
 
-        // 2. 缓冲进度 (Buffered Track) - 大于 0 时才绘制，避免 0 宽度圆角锯齿
+        // 2. 缓冲进度 (Buffered Track)
         if (bufferedRatio > 0f) {
             Box(
                 modifier = Modifier
@@ -142,7 +150,7 @@ fun PlayerScrubBar(
             )
         }
 
-        // 3. 播放进度 (Active Played Track) - 大于 0 时才绘制，避免 0 进度条显示为白点或异常挤压
+        // 3. 播放进度 (Active Played Track)
         if (playedRatio > 0f) {
             Box(
                 modifier = Modifier
@@ -168,7 +176,6 @@ fun PlayerScrubBar(
 
                 for (frac in chapterFractions) {
                     val x = frac * w
-                    // 柔和微光外晕 (Subtle Cyan Glow Aura)
                     drawLine(
                         color = Color(0xFF64B5F6).copy(alpha = 0.55f),
                         start = Offset(x, 0f),
@@ -176,7 +183,6 @@ fun PlayerScrubBar(
                         strokeWidth = glowWidth,
                         cap = StrokeCap.Round
                     )
-                    // 锐利高对比度核心标线 (Crisp Core Tick)
                     drawLine(
                         color = Color.White,
                         start = Offset(x, 0f),
@@ -189,7 +195,6 @@ fun PlayerScrubBar(
         }
 
         // 5. 动态滑块 (Thumb)
-        // 沿轨道平滑运动：在 0 时对齐 0dp（完整处于左端圆角内，不向负坐标凸出越界或被裁剪）；在 1 时对齐 (totalWidth - thumbSize)
         if (thumbSize > 0.dp && totalWidth > thumbSize) {
             val thumbOffset = ((totalWidth - thumbSize) * playedRatio).coerceIn(0.dp, totalWidth - thumbSize)
             Surface(
@@ -201,6 +206,36 @@ fun PlayerScrubBar(
                     .offset(x = thumbOffset)
                     .size(thumbSize)
             ) {}
+        }
+
+        // 6. 拖拽时正上方跟随的高亮时间气泡 (Floating Time Bubble)
+        if (isHoveredOrScrubbing && durationMs > 0L) {
+            val scrubTimeMs = (playedRatio * durationMs).toLong()
+            val bubbleWidth = 72.dp
+            val thumbCenter = (totalWidth - thumbSize) * playedRatio + thumbSize / 2
+            val bubbleOffset = (thumbCenter - bubbleWidth / 2).coerceIn(0.dp, totalWidth - bubbleWidth)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Black.copy(alpha = 0.85f),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f)),
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .offset(x = bubbleOffset, y = (-36).dp)
+                    .height(28.dp)
+                    .width(bubbleWidth)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = formatTime(scrubTimeMs),
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF64B5F6),
+                            fontFeatureSettings = "tnum"
+                        )
+                    )
+                }
+            }
         }
     }
 }
