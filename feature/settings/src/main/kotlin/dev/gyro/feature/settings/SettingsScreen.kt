@@ -291,6 +291,25 @@ fun SettingsContent(
         )
     }
 
+    // 单选弹窗: 渲染引擎与管线
+    if (showVoDialog) {
+        val voModes = listOf(dev.gyro.core.model.VO_LIBMPV, dev.gyro.core.model.VO_GPU_NEXT)
+        val labels = listOf(
+            stringResource(R.string.settings_vo_libmpv),
+            stringResource(R.string.settings_vo_gpu_next)
+        )
+        SingleChoiceDialog(
+            title = stringResource(R.string.settings_vo_renderer),
+            options = labels,
+            selectedIndex = voModes.indexOf(settings.voRenderer).coerceAtLeast(0),
+            onSelect = { idx ->
+                onUpdateVoRenderer(voModes[idx])
+                showVoDialog = false
+            },
+            onDismiss = { showVoDialog = false }
+        )
+    }
+
     // 单选弹窗: 默认解码器
     if (showHwdecDialog) {
         val hwdecModes = listOf(HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE)

@@ -177,13 +177,15 @@ class MpvOptionConfigurator {
 
         bridge.setOptionString("sub-auto", if (settings.subAutoLoad) "all" else "no")
 
-        // Engine lifecycle invariants: configure classic libmpv or modern gpu-next according to UserSettings.
-        val voConfig = if (settings.voRenderer == dev.gyro.core.model.VO_GPU_NEXT) {
+        // Engine lifecycle invariants: mpv_render_context requires vo=libmpv.
+        // Backend selection (gpu-next vs legacy) is forwarded to the native render context.
+        bridge.setOptionString("vo", dev.gyro.core.model.VO_LIBMPV)
+        val voBackend = if (settings.voRenderer == dev.gyro.core.model.VO_GPU_NEXT) {
             dev.gyro.core.model.VO_GPU_NEXT
         } else {
             dev.gyro.core.model.VO_LIBMPV
         }
-        bridge.setOptionString("vo", voConfig)
+        bridge.setOptionString("vo-backend", voBackend)
         bridge.setOptionString("idle", "yes")
         bridge.setOptionString("keep-open", "yes")
         bridge.setOptionString("ao", "audiotrack,opensles")
@@ -202,32 +204,17 @@ class MpvOptionConfigurator {
             bridge.setOptionString("demuxer-readahead-secs", "20")
         }
         if (!userOptions.containsKey("tone-mapping")) {
-            val defaultToneMapping = if (voConfig == dev.gyro.core.model.VO_GPU_NEXT) "bt.2446a" else "hable"
+            val defaultToneMapping = if (voBackend == dev.gyro.core.model.VO_GPU_NEXT) "reinhard" else "hable"
             bridge.setOptionString("tone-mapping", defaultToneMapping)
         }
         if (!userOptions.containsKey("hdr-compute-peak")) {
             bridge.setOptionString("hdr-compute-peak", "yes")
         }
         if (!userOptions.containsKey("tone-mapping-mode")) {
-            bridge.setOptionString("tone-mapping-mode", "hybrid")
+            bridge.setOptionString("tone-mapping-mode", "auto")
         }
         if (!userOptions.containsKey("gamut-clipping")) {
             bridge.setOptionString("gamut-clipping", "no")
-        }
-        if (!userOptions.containsKey("scale")) {
-            bridge.setOptionString("scale", "spline36")
-        }
-        if (!userOptions.containsKey("cscale")) {
-            bridge.setOptionString("cscale", "spline36")
-        }
-        if (!userOptions.containsKey("dscale")) {
-            bridge.setOptionString("dscale", "mitchell")
-        }
-        if (!userOptions.containsKey("correct-downscaling")) {
-            bridge.setOptionString("correct-downscaling", "yes")
-        }
-        if (!userOptions.containsKey("sigmoid-upscaling")) {
-            bridge.setOptionString("sigmoid-upscaling", "yes")
         }
         if (!userOptions.containsKey("sub-font-provider")) {
             bridge.setOptionString("sub-font-provider", "none")

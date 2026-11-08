@@ -322,6 +322,7 @@ fn get_mpv_string(name: &str) -> Option<String> {
     .flatten()
 }
 
+#[allow(dead_code)]
 fn get_mpv_flag(name: &str) -> Option<bool> {
     with_api(|api| {
         let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;

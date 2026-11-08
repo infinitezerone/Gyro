@@ -364,6 +364,14 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setOptionString(
     let result = (|| -> Result<i32, String> {
         let n = jstr_to_cstring(&mut env, &name)?;
         let v = jstr_to_cstring(&mut env, &value)?;
+        let n_str = n.to_str().unwrap_or("");
+        let v_str = v.to_str().unwrap_or("");
+        if n_str == "vo" || n_str == "vo-backend" {
+            crate::render::set_requested_vo(v_str);
+        }
+        if n_str == "vo-backend" {
+            return Ok(0);
+        }
         with_api(|api| unsafe {
             let (_guard, handle) = mpv_handle_guarded()?;
             Ok((api.mpv_set_option_string)(handle, n.as_ptr(), v.as_ptr()))

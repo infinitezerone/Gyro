@@ -67,6 +67,10 @@ class VideoEffectsController(
         bridge.setPropertyBoolean("deband", enabled)
     }
 
+    fun setToneMapping(algorithm: String) {
+        bridge.setPropertyString("tone-mapping", algorithm)
+    }
+
     fun setBrightness(value: Int) {
         val clamped = value.coerceIn(-100, 100)
         _brightness.value = clamped

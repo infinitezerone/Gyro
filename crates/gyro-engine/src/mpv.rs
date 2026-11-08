@@ -47,6 +47,7 @@ pub const MPV_RENDER_PARAM_VULKAN_IMAGE: c_int = 7;
 pub const MPV_RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
 pub const MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME: c_int = 12;
 pub const MPV_RENDER_PARAM_SKIP_RENDERING: c_int = 13;
+pub const MPV_RENDER_PARAM_BACKEND: c_int = 21;
 
 /// `mpv_render_frame_info.flags` bit: the queued "frame" is a redraw, not a new picture.
 ///
