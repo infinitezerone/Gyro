@@ -1,5 +1,8 @@
 package dev.gyro.feature.player.component
 
+import dev.gyro.feature.player.gesture.DoubleTapSide
+import dev.gyro.feature.player.gesture.GestureHudState
+import dev.gyro.engine.model.TrackInfo
 import dev.gyro.feature.player.PlayerScrubState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -265,6 +268,206 @@ fun PlayerPlaylistSheetPreview() {
             onSetSubDelay = {},
             onSetAudioDelay = {},
             onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Subtitles Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerSubtitlesSheetPreview() {
+    val sampleTracks = listOf(
+        TrackInfo(id = 1, type = "sub", title = "Chinese (Simplified)", lang = "chi", isSelected = true),
+        TrackInfo(id = 2, type = "sub", title = "English (Full)", lang = "eng", isSelected = false),
+        TrackInfo(id = 3, type = "sub", title = "Japanese (Original)", lang = "jpn", isSelected = false)
+    )
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.SUBTITLES,
+            tracks = sampleTracks,
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.5,
+            audioDelaySec = 0.0,
+            subScale = 1.2,
+            subPos = 100L,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Audio Tracks Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerAudioSheetPreview() {
+    val sampleTracks = listOf(
+        TrackInfo(id = 1, type = "audio", title = "Japanese FLAC 5.1ch", lang = "jpn", isSelected = true),
+        TrackInfo(id = 2, type = "audio", title = "Chinese Mandarin AAC 2.0ch", lang = "chi", isSelected = false),
+        TrackInfo(id = 3, type = "audio", title = "Director Commentary", lang = "eng", isSelected = false)
+    )
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.AUDIO,
+            tracks = sampleTracks,
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = -0.2,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Speed Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerSpeedSheetPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.SPEED,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.25f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Aspect Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerAspectSheetPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.ASPECT,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Stats Sheet Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF1E1E1E
+)
+@Composable
+fun PlayerStatsSheetPreview() {
+    androidx.compose.material3.Surface(
+        color = Color(0xFF1E1E1E),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        PlayerTrackSelectionSheetContent(
+            initialTab = PlayerSheetTab.STATS,
+            tracks = emptyList(),
+            currentResizeMode = ResizeMode.FIT,
+            currentSpeed = 1.0f,
+            subDelaySec = 0.0,
+            audioDelaySec = 0.0,
+            hwdec = "mediacodec",
+            fps = 59.94,
+            droppedFrames = 3L,
+            videoWidth = 3840,
+            videoHeight = 2160,
+            onSelectTrack = { _, _ -> },
+            onSelectResizeMode = {},
+            onSelectSpeed = {},
+            onSetSubDelay = {},
+            onSetAudioDelay = {},
+            onAddExternalSubtitle = {}
+        )
+    }
+}
+
+@Preview(
+    name = "Player Double-Tap Curved Arc HUD Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF101010
+)
+@Composable
+fun PlayerDoubleTapHudPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF101010))
+    ) {
+        PlayerHudOverlay(
+            hudState = GestureHudState.DoubleTap(DoubleTapSide.RIGHT, 10)
+        )
+    }
+}
+
+@Preview(
+    name = "Player Volume Brightness HUD Preview",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFF101010
+)
+@Composable
+fun PlayerVolumeBrightnessHudPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF101010))
+    ) {
+        PlayerHudOverlay(
+            hudState = GestureHudState.Volume(volumeRatio = 0.75f, percent = 75, isOverdrive = false)
         )
     }
 }

@@ -71,23 +71,24 @@ fun PlayerBottomBar(
     chapters: List<ChapterInfo> = emptyList(),
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.20f),
-                        Color.Black.copy(alpha = 0.55f),
-                        Color.Black.copy(alpha = 0.85f),
+val bottomElevate = if (isLandscape) 14.dp else 20.dp
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.20f),
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.85f),
+                        )
                     )
                 )
-            )
-            .displayCutoutPadding()
-            .navigationBarsPadding()
-            .padding(bottom = 8.dp)
-    ) {
+                .displayCutoutPadding()
+                .navigationBarsPadding()
+                .padding(bottom = bottomElevate)
+        ) {
         val isScreenScrubOnly = !isVisible && scrubState.isActive
         val totalMs = durationMs()
         val rawPos = if (scrubState.isActive) {
@@ -140,28 +141,64 @@ fun PlayerBottomBar(
                 }
             }
         } else {
-            // B. 极简两行控制栏
+            // B. 现代双行控制栏：时间环绕进度条两翼 + 纯净操作行
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Row 1: 舒适通栏进度条（紧凑贴合下方控制行，消除多余空隙）
-                PlayerScrubBar(
-                    timePosMs = displayPos,
-                    durationMs = totalMs,
-                    bufferedPosMs = bufferedPosMs(),
-                    scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction,
-                    chapters = chapters,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
+                // Row 1: 时间环绕自适应进度条 [05:25] ----------●---------- [45:00]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 当前播放时间 (左翼)
+                    Text(
+                        text = formatTime(displayPos),
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.90f),
+                            fontFeatureSettings = "tnum"
+                        )
+                    )
 
-                // Row 2: 黄金触达极简控制行 (紧凑连接进度条)
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // 核心进度条 (自适应拉伸铺满中间)
+                    PlayerScrubBar(
+                        timePosMs = displayPos,
+                        durationMs = totalMs,
+                        bufferedPosMs = bufferedPosMs(),
+                        scrubState = scrubState,
+                        onSeekToFraction = onSeekToFraction,
+                        chapters = chapters,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // 总时长 (右翼)
+                    Text(
+                        text = formatTime(totalMs),
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.70f),
+                            fontFeatureSettings = "tnum"
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Row 2: 黄金触达极简操作行（左侧播放圆钮，右侧选集/倍速功能组，左右对齐呼应）
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(42.dp)
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 播放 / 暂停 / 重播（采用 GyroCircleActionButton 微磨砂圆钮）
+                    // 播放 / 暂停 / 重播（采用 38dp GyroCircleActionButton 微磨砂圆钮）
                     val isEnded = !isPlaying && totalMs > 0L && displayPos >= totalMs - 500L
                     GyroCircleActionButton(
                         onClick = onTogglePlayPause,
@@ -178,19 +215,6 @@ fun PlayerBottomBar(
                         border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f))
                     )
 
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // 紧跟播放键的时间显示：当前时间 / 总时长
-                    Text(
-                        text = "${formatTime(displayPos)} / ${formatTime(totalMs)}",
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.90f),
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-
                     Spacer(modifier = Modifier.weight(1f))
 
                     // 选集胶囊 (有连播列表时呈现)
@@ -200,7 +224,7 @@ fun PlayerBottomBar(
                             icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                             onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) }
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                     }
 
                     // 倍速胶囊 (高反差圆角药丸键)
@@ -211,7 +235,7 @@ fun PlayerBottomBar(
 
                     // 横屏模式下，底栏最右侧提供退出全屏按键；竖屏模式下已解耦彻底移出底栏
                     if (isLandscape) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         GyroGhostIconButton(
                             onClick = onToggleOrientation,
                             icon = Icons.Default.FullscreenExit,
