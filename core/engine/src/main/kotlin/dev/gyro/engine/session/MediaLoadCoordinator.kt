@@ -25,6 +25,12 @@ import java.util.Locale
 /**
  * Coordinates media resolution, asynchronous queueing while awaiting Surface attachment,
  * and dispatching the `loadfile` command to mpv with appropriate resume timestamps.
+ *
+ * Session identity: the epoch is owned by the native bridge (Rust `G_SESSION_EPOCH` is the
+ * single authority). This coordinator never caches it — every freshness check re-reads
+ * `bridge.currentEpoch()` — so an in-flight resolve/submit can never mistake a stale epoch
+ * for the current session even if another caller (e.g. the background service) advanced the
+ * session concurrently.
  */
 class MediaLoadCoordinator(
     private val bridge: MpvNativeBridge,
@@ -49,10 +55,6 @@ class MediaLoadCoordinator(
 
     @Volatile
     var requestedTitle: String = ""
-        private set
-
-    @Volatile
-    var currentEpoch: Long = 0L
         private set
 
     private var attachedSurfaceRef: Any? = null
@@ -82,7 +84,6 @@ class MediaLoadCoordinator(
     fun load(item: MediaItem) {
         val target = item.target.ifBlank { item.uri?.toString().orEmpty() }
         val epoch = bridge.nextEpoch()
-        currentEpoch = epoch
         beginLoad(
             target = target,
             title = item.title,
@@ -106,10 +107,10 @@ class MediaLoadCoordinator(
                     owned = resolved
                     SwitchTrace.log("RESOLVE_PATH_DONE", "target=${resolved.targetDescription}, epoch=$jobEpoch")
                     withContext(Dispatchers.Main) {
-                        if (jobEpoch == currentEpoch) {
+                        if (jobEpoch == bridge.currentEpoch()) {
                             submitOrQueue(resolved, item.startPositionMs, target, epoch = jobEpoch)
                         } else {
-                            EngineLog.i(TAG, "load: resolved target for expired epoch $jobEpoch (current=$currentEpoch), discarding")
+                            EngineLog.i(TAG, "load: resolved target for expired epoch $jobEpoch (current=${bridge.currentEpoch()}), discarding")
                             owned.close()
                         }
                     }
@@ -117,7 +118,7 @@ class MediaLoadCoordinator(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    if (jobEpoch == currentEpoch) {
+                    if (jobEpoch == bridge.currentEpoch()) {
                         EngineLog.e(TAG, "load: cannot resolve $target", t)
                         store.update {
                             it.copy(
@@ -144,7 +145,7 @@ class MediaLoadCoordinator(
         initialDurationMs: Long = 0L,
         initialWidth: Int = 0,
         initialHeight: Int = 0,
-        epoch: Long = currentEpoch
+        epoch: Long = bridge.currentEpoch()
     ) {
         SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs, epoch=$epoch")
         ensureInitialized()
@@ -157,7 +158,7 @@ class MediaLoadCoordinator(
                     currentUri = uri ?: it.currentUri
                 )
             }
-            geometry.onSwitchStarted(target, startPositionMs, initialWidth, initialHeight, epoch = epoch)
+            geometry.onSwitchStarted(target, startPositionMs, initialWidth, initialHeight)
             audio.reset()
             tuning.reset()
             store.update { it.copy(playbackState = PlaybackState.BUFFERING) }
@@ -182,10 +183,10 @@ class MediaLoadCoordinator(
         source: ResolvedMediaSource,
         startPositionMs: Long,
         label: String,
-        epoch: Long = currentEpoch
+        epoch: Long = bridge.currentEpoch()
     ) {
-        if (epoch != currentEpoch) {
-            EngineLog.i(TAG, "submitOrQueue: dropping obsolete load for epoch $epoch (current=$currentEpoch)")
+        if (epoch != bridge.currentEpoch()) {
+            EngineLog.i(TAG, "submitOrQueue: dropping obsolete load for epoch $epoch (current=${bridge.currentEpoch()})")
             source.close()
             return
         }
@@ -213,10 +214,10 @@ class MediaLoadCoordinator(
         source: ResolvedMediaSource,
         startPositionMs: Long,
         label: String,
-        epoch: Long = currentEpoch
+        epoch: Long = bridge.currentEpoch()
     ) {
-        if (epoch != currentEpoch) {
-            EngineLog.i(TAG, "submit: dropping obsolete load for epoch $epoch (current=$currentEpoch)")
+        if (epoch != bridge.currentEpoch()) {
+            EngineLog.i(TAG, "submit: dropping obsolete load for epoch $epoch (current=${bridge.currentEpoch()})")
             source.close()
             return
         }
@@ -269,11 +270,11 @@ class MediaLoadCoordinator(
             pendingSource = null
             pendingLabel = ""
             pendingEpoch = 0L
-            if (epoch == currentEpoch) {
+            if (epoch == bridge.currentEpoch()) {
                 EngineLog.i(TAG, "attachSurface: surface ready, flushing queued $label (epoch=$epoch)")
                 submit(source, startMs, label, epoch = epoch)
             } else {
-                EngineLog.i(TAG, "attachSurface: discarding stale queued source for epoch $epoch (current=$currentEpoch)")
+                EngineLog.i(TAG, "attachSurface: discarding stale queued source for epoch $epoch (current=${bridge.currentEpoch()})")
                 source.close()
             }
         }
@@ -298,7 +299,7 @@ class MediaLoadCoordinator(
     }
 
     fun release() {
-        currentEpoch = bridge.nextEpoch()
+        bridge.nextEpoch()
         currentLoadJob?.cancel()
         discardPending()
     }

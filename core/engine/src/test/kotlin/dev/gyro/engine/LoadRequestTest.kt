@@ -98,15 +98,15 @@ class LoadRequestTest {
     fun rapidConsecutiveLoadsIncrementEpochMonotonically() {
         val initialEpoch = fakeBridge.currentEpoch()
         engine.load("file:///tmp/ep1.mp4")
-        val epoch1 = engine.loadCoordinator.currentEpoch
+        val epoch1 = fakeBridge.currentEpoch()
         assertTrue("Epoch must increment on load", epoch1 > initialEpoch)
 
         engine.load("file:///tmp/ep2.mp4")
-        val epoch2 = engine.loadCoordinator.currentEpoch
+        val epoch2 = fakeBridge.currentEpoch()
         assertTrue("Epoch must increment again on next load", epoch2 > epoch1)
 
         engine.load("file:///tmp/ep3.mp4")
-        val epoch3 = engine.loadCoordinator.currentEpoch
+        val epoch3 = fakeBridge.currentEpoch()
         assertTrue("Epoch must increment monotonically", epoch3 > epoch2)
     }
 
@@ -116,7 +116,7 @@ class LoadRequestTest {
         for (i in 1..5) {
             engine.load("file:///tmp/ep$i.mp4")
         }
-        val latestEpoch = engine.loadCoordinator.currentEpoch
+        val latestEpoch = fakeBridge.currentEpoch()
 
         // Now attach surface
         engine.attachSurface(Surface(SurfaceTexture(0)))
@@ -125,6 +125,6 @@ class LoadRequestTest {
         val commands = loadfileCommands()
         assertEquals(1, commands.size)
         assertEquals("file:///tmp/ep5.mp4", commands.single()[1])
-        assertEquals(latestEpoch, engine.loadCoordinator.currentEpoch)
+        assertEquals(latestEpoch, fakeBridge.currentEpoch())
     }
 }

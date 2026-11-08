@@ -125,9 +125,10 @@ class VideoGeometryCoordinatorTest {
 
     @Test
     fun testExpiredEpochEventIsSilentlyDropped() {
-        // Switch to video 2 with epoch = 10
-        coordinator.onSwitchStarted("test://video2.mp4", 0L, epoch = 10L)
-        assertEquals(10L, coordinator.currentEpoch)
+        // Advance the session (bridge-owned epoch) until epoch = 10
+        repeat(10) { bridge.nextEpoch() }
+        coordinator.onSwitchStarted("test://video2.mp4", 0L)
+        assertEquals(10L, bridge.currentEpoch())
         assertFalse(coordinator.firstFrameRendered.value)
 
         // Old event from epoch 9 arrives

@@ -56,6 +56,12 @@ class MpvEventPipeline(
     private val propertyLatest = ConcurrentHashMap<String, MpvEvent>()
     private val wakeUp = Channel<Unit>(Channel.CONFLATED)
 
+    // Epoch ownership: the native bridge (Rust `G_SESSION_EPOCH`) is the single authority. This
+    // AtomicLong is the Kotlin mirror, only advanced through `GyroNative.nextEpoch()` (native
+    // call, or its JVM-test fallback) and merged monotonically via `updateEpoch` — never reset
+    // backwards. Downstream consumers (`MediaLoadCoordinator`, `VideoGeometryCoordinator`) must
+    // re-read the bridge instead of caching a copy, so a background load advancing the session
+    // is visible to every check immediately.
     private val _currentEpoch = java.util.concurrent.atomic.AtomicLong(0L)
     var currentEpoch: Long
         get() = _currentEpoch.get()

@@ -45,13 +45,9 @@ class VideoGeometryCoordinator(
     private val _firstFrameRendered = store.property({ it.firstFrameRendered }) { s, v -> s.copy(firstFrameRendered = v) }
     val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
-    @Volatile
-    var currentEpoch: Long = 0L
-        private set
-
-    fun updateEpoch(epoch: Long) {
-        currentEpoch = maxOf(currentEpoch, epoch)
-    }
+    // Session identity is owned by the bridge (Rust `G_SESSION_EPOCH`); events carry the epoch
+    // they were produced under, so freshness is validated against `bridge.currentEpoch()` at
+    // dispatch time instead of a locally cached copy that could trail a background load.
 
     @Volatile
     private var currentUrl = ""
@@ -74,8 +70,9 @@ class VideoGeometryCoordinator(
     }
 
     override fun onEvent(event: MpvEvent) {
-        if (event.epoch < currentEpoch) {
-            SwitchTrace.log("EVENT_IGNORED_EXPIRED_EPOCH", "eventEpoch=${event.epoch}, currentEpoch=$currentEpoch, event=$event")
+        val sessionEpoch = bridge.currentEpoch()
+        if (event.epoch < sessionEpoch) {
+            SwitchTrace.log("EVENT_IGNORED_EXPIRED_EPOCH", "eventEpoch=${event.epoch}, currentEpoch=$sessionEpoch, event=$event")
             return
         }
         when (event) {
@@ -112,10 +109,8 @@ class VideoGeometryCoordinator(
         url: String,
         startPositionMs: Long = 0L,
         initialWidth: Int = 0,
-        initialHeight: Int = 0,
-        epoch: Long = currentEpoch
+        initialHeight: Int = 0
     ) {
-        currentEpoch = maxOf(currentEpoch, epoch)
         currentUrl = url
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false

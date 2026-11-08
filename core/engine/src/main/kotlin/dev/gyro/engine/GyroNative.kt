@@ -117,38 +117,4 @@ internal object GyroNative {
     fun onPropertyString(name: String, value: String, epoch: Long = 0L) {
         eventPipeline.publish(MpvEvent.StringProperty(name, value, epoch))
     }
-
-    // ---------- Format & Event Constants ----------
-
-    object Format {
-        const val NONE: Int = 0
-        const val STRING: Int = 1
-        const val FLAG: Int = 3
-        const val INT64: Int = 4
-        const val DOUBLE: Int = 5
-    }
-
-    object Event {
-        const val SHUTDOWN: Int = 1
-        const val END_FILE: Int = 7
-        const val FILE_LOADED: Int = 8
-        const val TRACKS_CHANGED: Int = 10
-        const val PLAYBACK_RESTART: Int = 21
-        const val PROPERTY_CHANGE: Int = 22
-
-        /**
-         * Emitted from the render thread once the first frame of a newly loaded file has
-         * been presented. The surface keeps the previous file's last buffer until then, so
-         * this is what lets the UI drop the cover over it.
-         */
-        const val FIRST_FRAME: Int = 1002
-    }
-
-    object EndReason {
-        const val EOF: Int = 0
-        const val STOP: Int = 2
-        const val QUIT: Int = 3
-        const val ERROR: Int = 4
-        const val REDIRECT: Int = 5
-    }
 }
