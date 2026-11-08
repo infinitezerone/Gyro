@@ -7,22 +7,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Lock
@@ -91,8 +82,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 1. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart，采用 GyroCircleActionButton）
         AnimatedVisibility(
             visible = isVisible || isLocked,
-            enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
-            exit = fadeOut(animationSpec = tween(300)) + scaleOut(targetScale = 0.85f),
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(160)),
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .displayCutoutPadding()
@@ -118,62 +109,37 @@ fun BoxScope.PlayerControlsOverlay(
             val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
                 Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = videoBottomDp + 32.dp)
+                    .offset(y = videoBottomDp + 60.dp)
             } else {
                 Modifier
                     .align(Alignment.Center)
-                    .offset(y = 150.dp)
+                    .offset(y = 180.dp)
             }
 
             AnimatedVisibility(
                 visible = isVisible,
-                enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
-                exit = fadeOut(animationSpec = tween(280)) + scaleOut(targetScale = 0.85f),
+                enter = fadeIn(animationSpec = tween(120)),
+                exit = fadeOut(animationSpec = tween(160)),
                 modifier = bottomModifier
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // 全屏药丸胶囊
-                    GyroPillButton(
-                        text = stringResource(R.string.cd_fullscreen),
-                        icon = Icons.Default.Fullscreen,
-                        onClick = onToggleOrientation,
-                        height = 36.dp,
-                        containerColor = Color.Black.copy(alpha = 0.50f),
-                        contentColor = Color.White,
-                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f))
-                    )
-
-                    // 如果检测到多集连播列表，在其下方自然展开一行轻量选集横滑栏
-                    if (playlist.size > 1) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            itemsIndexed(playlist) { index, item ->
-                                val isSelected = index == currentPlaylistIndex
-                                val epNumber = index + 1
-                                GyroPillButton(
-                                    text = if (item.displayName.length <= 4) item.displayName else String.format(Locale.US, "%02d", epNumber),
-                                    onClick = { onSelectPlaylistItem(index) },
-                                    height = 32.dp,
-                                    containerColor = if (isSelected) Color(0xFF1976D2).copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.40f),
-                                    contentColor = Color.White,
-                                    border = BorderStroke(0.5.dp, if (isSelected) Color(0xFF64B5F6) else Color.White.copy(alpha = 0.18f))
-                                )
-                            }
-                        }
-                    }
-                }
+                // 横竖切换药丸胶囊
+                GyroPillButton(
+                    text = "横屏",
+                    icon = Icons.Default.Fullscreen,
+                    onClick = onToggleOrientation,
+                    height = 36.dp,
+                    containerColor = Color.Black.copy(alpha = 0.50f),
+                    contentColor = Color.White,
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f))
+                )
             }
         }
 
         // 3. 顶部操作栏（未锁屏且可见时展示）
         AnimatedVisibility(
             visible = isVisible,
-            enter = fadeIn(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(280)),
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(160)),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             PlayerTopBar(
@@ -190,8 +156,8 @@ fun BoxScope.PlayerControlsOverlay(
         val showBottomBar = isVisible || scrubState.isActive
         AnimatedVisibility(
             visible = showBottomBar,
-            enter = fadeIn(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(300)),
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(160)),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             PlayerBottomBar(
