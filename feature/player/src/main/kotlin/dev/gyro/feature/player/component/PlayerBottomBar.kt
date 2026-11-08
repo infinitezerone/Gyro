@@ -142,7 +142,7 @@ fun PlayerBottomBar(
         } else {
             // B. 极简两行控制栏
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Row 1: 舒适安全间距与防误触缓冲的通栏进度条
+                // Row 1: 舒适通栏进度条（紧凑贴合下方控制行，消除多余空隙）
                 PlayerScrubBar(
                     timePosMs = displayPos,
                     durationMs = totalMs,
@@ -150,16 +150,14 @@ fun PlayerBottomBar(
                     scrubState = scrubState,
                     onSeekToFraction = onSeekToFraction,
                     chapters = chapters,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Row 2: 黄金触达极简控制行 (44dp 高度)
+                // Row 2: 黄金触达极简控制行 (紧凑连接进度条)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .height(42.dp)
                         .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

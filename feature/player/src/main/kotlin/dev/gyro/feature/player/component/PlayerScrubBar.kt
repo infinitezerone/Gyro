@@ -97,7 +97,7 @@ fun PlayerScrubBar(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(36.dp)
+            .height(20.dp)
             .pointerInput(durationMs) {
                 if (durationMs <= 0L) return@pointerInput
                 awaitEachGesture {
