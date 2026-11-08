@@ -163,10 +163,17 @@ class MpvOptionConfigurator {
         userOptions: Map<String, String>,
         settings: UserSettings
     ) {
+        val voBackend = if (settings.voRenderer == dev.gyro.core.model.VO_GPU_NEXT) {
+            dev.gyro.core.model.VO_GPU_NEXT
+        } else {
+            dev.gyro.core.model.VO_LIBMPV
+        }
+        val isGpuNext = voBackend == dev.gyro.core.model.VO_GPU_NEXT
+
         val userHwdec = settings.defaultHwdec.trim()
         val requestedHwdec = userHwdec.ifBlank { HWDEC_HARDWARE }
         val hwdecConfig = if (requestedHwdec == HWDEC_HARDWARE) {
-            "$HWDEC_HARDWARE,mediacodec-copy"
+            if (isGpuNext) "mediacodec-copy,mediacodec" else "$HWDEC_HARDWARE,mediacodec-copy"
         } else {
             requestedHwdec
         }
@@ -177,15 +184,16 @@ class MpvOptionConfigurator {
 
         bridge.setOptionString("sub-auto", if (settings.subAutoLoad) "all" else "no")
 
-        // Engine lifecycle invariants: mpv_render_context requires vo=libmpv.
-        // Backend selection (gpu-next vs legacy) is forwarded to the native render context.
-        bridge.setOptionString("vo", dev.gyro.core.model.VO_LIBMPV)
-        val voBackend = if (settings.voRenderer == dev.gyro.core.model.VO_GPU_NEXT) {
-            dev.gyro.core.model.VO_GPU_NEXT
-        } else {
-            dev.gyro.core.model.VO_LIBMPV
-        }
+        // Engine lifecycle invariants: legacy/EGL requires vo=libmpv, while modern Vulkan uses vo=gpu-next.
         bridge.setOptionString("vo-backend", voBackend)
+        if (isGpuNext) {
+            bridge.setOptionString("vo", dev.gyro.core.model.VO_GPU_NEXT)
+            bridge.setOptionString("gpu-api", "vulkan")
+            bridge.setOptionString("gpu-context", "androidvk")
+        } else {
+            bridge.setOptionString("vo", dev.gyro.core.model.VO_LIBMPV)
+            bridge.setOptionString("gpu-api", "opengl")
+        }
         bridge.setOptionString("idle", "yes")
         bridge.setOptionString("keep-open", "yes")
         bridge.setOptionString("ao", "audiotrack,opensles")

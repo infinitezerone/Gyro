@@ -369,6 +369,13 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setOptionString(
         if n_str == "vo" || n_str == "vo-backend" {
             crate::render::set_requested_vo(v_str);
         }
+        if n_str == "gpu-api" {
+            if v_str == "vulkan" {
+                crate::render::G_PREFER_VULKAN.store(true, Ordering::Release);
+            } else if v_str == "opengl" {
+                crate::render::G_PREFER_VULKAN.store(false, Ordering::Release);
+            }
+        }
         if n_str == "vo-backend" {
             return Ok(0);
         }

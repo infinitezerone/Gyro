@@ -1,6 +1,6 @@
 //! 帧绘制、时间戳锁相、GL Fence 管理与渲染上下文生命周期
 
-#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables))]
+#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables, unused_imports))]
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::atomic::Ordering;

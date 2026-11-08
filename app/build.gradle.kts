@@ -22,6 +22,23 @@ android {
             abiFilters += nativeAbis
         }
     }
+
+    packaging {
+        jniLibs {
+            pickFirsts += listOf(
+                "**/libmpv.so",
+                "**/libavcodec.so",
+                "**/libavdevice.so",
+                "**/libavfilter.so",
+                "**/libavformat.so",
+                "**/libavutil.so",
+                "**/libswresample.so",
+                "**/libswscale.so",
+                "**/libplayer.so",
+                "**/libc++_shared.so"
+            )
+        }
+    }
 }
 
 dependencies {

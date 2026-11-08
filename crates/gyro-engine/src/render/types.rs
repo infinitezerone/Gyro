@@ -1,6 +1,6 @@
 //! EGL / NDK 底层类型、常量与 FFI 外部链接声明
 
-#![cfg_attr(not(target_os = "android"), allow(dead_code))]
+#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_imports))]
 
 use std::ffi::{c_char, c_void};
 

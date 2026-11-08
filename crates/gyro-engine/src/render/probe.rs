@@ -1,6 +1,6 @@
 //! 防御层 1：冷启动离屏环境探针 (Static Env Probe)
 
-#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables))]
+#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables, unused_imports))]
 
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicBool, Ordering};

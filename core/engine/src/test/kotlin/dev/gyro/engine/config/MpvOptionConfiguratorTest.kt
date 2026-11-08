@@ -113,4 +113,22 @@ class MpvOptionConfiguratorTest {
         assertEquals("1.0", bridge.properties["panscan"])
         assertFalse(configurator.currentState.isDefaultsOnly)
     }
+
+    @Test
+    fun gpuNextEnablesVulkanAndCopyBackHardwareDecoding() {
+        val configurator = MpvOptionConfigurator()
+        val bridge = FakeMpvNativeBridge()
+
+        configurator.apply(
+            bridge,
+            emptyMap(),
+            UserSettings(voRenderer = dev.gyro.core.model.VO_GPU_NEXT)
+        )
+
+        assertEquals("vulkan", bridge.options["gpu-api"])
+        assertEquals("androidvk", bridge.options["gpu-context"])
+        assertEquals("gpu-next", bridge.options["vo-backend"])
+        assertEquals("gpu-next", bridge.options["vo"])
+        assertEquals("mediacodec-copy,mediacodec", bridge.options["hwdec"])
+    }
 }

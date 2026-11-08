@@ -7,7 +7,7 @@
 //! - 对接 libmpv Vulkan Render API (`MPV_RENDER_PARAM_API_TYPE = "vulkan"`)
 
 #![cfg_attr(not(target_os = "android"), allow(dead_code, unused_imports, unused_variables))]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, unused_imports)]
 
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::sync::atomic::Ordering;
@@ -253,6 +253,60 @@ fn get_vulkan_library() -> Option<&'static Library> {
         .as_ref()
 }
 
+unsafe extern "C" fn dummy_unresolved() {
+    panic!("Vulkan: calling an unpopulated instance function");
+}
+
+impl VulkanDispatch {
+    pub unsafe fn populate_instance_symbols(&mut self, instance: *mut c_void) -> Result<(), String> {
+        let dummy_ptr = dummy_unresolved as *const ();
+        macro_rules! resolve_or_fill {
+            ($field:ident, $name:ident, $type:ty) => {
+                if std::mem::transmute::<_, *const ()>(self.$field) == dummy_ptr {
+                    let cname = concat!(stringify!($name), "\0");
+                    let mut p = (self.get_instance_proc_addr)(instance, cname.as_ptr() as *const c_char);
+                    if p.is_null() {
+                        if let Some(lib) = get_vulkan_library() {
+                            if let Ok(sym) = lib.get::<unsafe extern "C" fn()>(stringify!($name).as_bytes()) {
+                                p = *sym as *mut c_void;
+                            }
+                        }
+                    }
+                    if p.is_null() {
+                        return Err(format!("Vulkan: missing instance symbol {}", stringify!($name)));
+                    }
+                    self.$field = std::mem::transmute::<*mut c_void, $type>(p);
+                }
+            };
+        }
+
+        resolve_or_fill!(destroy_instance, vkDestroyInstance, _);
+        resolve_or_fill!(enumerate_physical_devices, vkEnumeratePhysicalDevices, _);
+        resolve_or_fill!(get_physical_device_queue_family_properties, vkGetPhysicalDeviceQueueFamilyProperties, _);
+        resolve_or_fill!(create_device, vkCreateDevice, _);
+        resolve_or_fill!(destroy_device, vkDestroyDevice, _);
+        resolve_or_fill!(get_device_queue, vkGetDeviceQueue, _);
+        resolve_or_fill!(create_android_surface_khr, vkCreateAndroidSurfaceKHR, _);
+        resolve_or_fill!(destroy_surface_khr, vkDestroySurfaceKHR, _);
+        resolve_or_fill!(get_physical_device_surface_capabilities_khr, vkGetPhysicalDeviceSurfaceCapabilitiesKHR, _);
+        resolve_or_fill!(get_physical_device_surface_formats_khr, vkGetPhysicalDeviceSurfaceFormatsKHR, _);
+        resolve_or_fill!(create_swapchain_khr, vkCreateSwapchainKHR, _);
+        resolve_or_fill!(destroy_swapchain_khr, vkDestroySwapchainKHR, _);
+        resolve_or_fill!(get_swapchain_images_khr, vkGetSwapchainImagesKHR, _);
+        resolve_or_fill!(acquire_next_image_khr, vkAcquireNextImageKHR, _);
+        resolve_or_fill!(queue_present_khr, vkQueuePresentKHR, _);
+        resolve_or_fill!(create_semaphore, vkCreateSemaphore, _);
+        resolve_or_fill!(destroy_semaphore, vkDestroySemaphore, _);
+        resolve_or_fill!(create_fence, vkCreateFence, _);
+        resolve_or_fill!(destroy_fence, vkDestroyFence, _);
+        resolve_or_fill!(wait_for_fences, vkWaitForFences, _);
+        resolve_or_fill!(reset_fences, vkResetFences, _);
+        resolve_or_fill!(device_wait_idle, vkDeviceWaitIdle, _);
+
+        Ok(())
+    }
+}
+
 pub unsafe fn resolve_dispatch() -> Result<VulkanDispatch, String> {
     let lib = get_vulkan_library().ok_or("Failed to load libvulkan.so")?;
     let gpa: Symbol<PFN_vkGetInstanceProcAddr> = lib
@@ -261,39 +315,56 @@ pub unsafe fn resolve_dispatch() -> Result<VulkanDispatch, String> {
     let get_instance_proc_addr = *gpa;
 
     macro_rules! load_global {
-        ($name:ident, $type:ty) => {{
+        ($name:ident) => {{
             let cname = concat!(stringify!($name), "\0");
-            let p = get_instance_proc_addr(std::ptr::null_mut(), cname.as_ptr() as *const c_char);
+            let mut p = get_instance_proc_addr(std::ptr::null_mut(), cname.as_ptr() as *const c_char);
             if p.is_null() {
-                return Err(format!("Vulkan: missing symbol {}", stringify!($name)));
+                if let Ok(sym) = lib.get::<unsafe extern "C" fn()>(stringify!($name).as_bytes()) {
+                    p = *sym as *mut c_void;
+                }
             }
-            std::mem::transmute::<*mut c_void, $type>(p)
+            p
         }};
     }
 
-    let create_instance = load_global!(vkCreateInstance, _);
-    let destroy_instance = load_global!(vkDestroyInstance, _);
-    let enumerate_physical_devices = load_global!(vkEnumeratePhysicalDevices, _);
-    let get_physical_device_queue_family_properties = load_global!(vkGetPhysicalDeviceQueueFamilyProperties, _);
-    let create_device = load_global!(vkCreateDevice, _);
-    let destroy_device = load_global!(vkDestroyDevice, _);
-    let get_device_queue = load_global!(vkGetDeviceQueue, _);
-    let create_android_surface_khr = load_global!(vkCreateAndroidSurfaceKHR, _);
-    let destroy_surface_khr = load_global!(vkDestroySurfaceKHR, _);
-    let get_physical_device_surface_capabilities_khr = load_global!(vkGetPhysicalDeviceSurfaceCapabilitiesKHR, _);
-    let get_physical_device_surface_formats_khr = load_global!(vkGetPhysicalDeviceSurfaceFormatsKHR, _);
-    let create_swapchain_khr = load_global!(vkCreateSwapchainKHR, _);
-    let destroy_swapchain_khr = load_global!(vkDestroySwapchainKHR, _);
-    let get_swapchain_images_khr = load_global!(vkGetSwapchainImagesKHR, _);
-    let acquire_next_image_khr = load_global!(vkAcquireNextImageKHR, _);
-    let queue_present_khr = load_global!(vkQueuePresentKHR, _);
-    let create_semaphore = load_global!(vkCreateSemaphore, _);
-    let destroy_semaphore = load_global!(vkDestroySemaphore, _);
-    let create_fence = load_global!(vkCreateFence, _);
-    let destroy_fence = load_global!(vkDestroyFence, _);
-    let wait_for_fences = load_global!(vkWaitForFences, _);
-    let reset_fences = load_global!(vkResetFences, _);
-    let device_wait_idle = load_global!(vkDeviceWaitIdle, _);
+    let create_instance_ptr = load_global!(vkCreateInstance);
+    if create_instance_ptr.is_null() {
+        return Err("Vulkan: missing symbol vkCreateInstance".into());
+    }
+    let create_instance = std::mem::transmute(create_instance_ptr);
+
+    macro_rules! transmute_or_dummy {
+        ($ptr:expr, $type:ty) => {
+            if $ptr.is_null() {
+                std::mem::transmute::<*const (), $type>(dummy_unresolved as *const ())
+            } else {
+                std::mem::transmute::<*mut c_void, $type>($ptr)
+            }
+        };
+    }
+
+    let destroy_instance = transmute_or_dummy!(load_global!(vkDestroyInstance), _);
+    let enumerate_physical_devices = transmute_or_dummy!(load_global!(vkEnumeratePhysicalDevices), _);
+    let get_physical_device_queue_family_properties = transmute_or_dummy!(load_global!(vkGetPhysicalDeviceQueueFamilyProperties), _);
+    let create_device = transmute_or_dummy!(load_global!(vkCreateDevice), _);
+    let destroy_device = transmute_or_dummy!(load_global!(vkDestroyDevice), _);
+    let get_device_queue = transmute_or_dummy!(load_global!(vkGetDeviceQueue), _);
+    let create_android_surface_khr = transmute_or_dummy!(load_global!(vkCreateAndroidSurfaceKHR), _);
+    let destroy_surface_khr = transmute_or_dummy!(load_global!(vkDestroySurfaceKHR), _);
+    let get_physical_device_surface_capabilities_khr = transmute_or_dummy!(load_global!(vkGetPhysicalDeviceSurfaceCapabilitiesKHR), _);
+    let get_physical_device_surface_formats_khr = transmute_or_dummy!(load_global!(vkGetPhysicalDeviceSurfaceFormatsKHR), _);
+    let create_swapchain_khr = transmute_or_dummy!(load_global!(vkCreateSwapchainKHR), _);
+    let destroy_swapchain_khr = transmute_or_dummy!(load_global!(vkDestroySwapchainKHR), _);
+    let get_swapchain_images_khr = transmute_or_dummy!(load_global!(vkGetSwapchainImagesKHR), _);
+    let acquire_next_image_khr = transmute_or_dummy!(load_global!(vkAcquireNextImageKHR), _);
+    let queue_present_khr = transmute_or_dummy!(load_global!(vkQueuePresentKHR), _);
+    let create_semaphore = transmute_or_dummy!(load_global!(vkCreateSemaphore), _);
+    let destroy_semaphore = transmute_or_dummy!(load_global!(vkDestroySemaphore), _);
+    let create_fence = transmute_or_dummy!(load_global!(vkCreateFence), _);
+    let destroy_fence = transmute_or_dummy!(load_global!(vkDestroyFence), _);
+    let wait_for_fences = transmute_or_dummy!(load_global!(vkWaitForFences), _);
+    let reset_fences = transmute_or_dummy!(load_global!(vkResetFences), _);
+    let device_wait_idle = transmute_or_dummy!(load_global!(vkDeviceWaitIdle), _);
 
     Ok(VulkanDispatch {
         get_instance_proc_addr,
@@ -365,7 +436,7 @@ pub struct VulkanSwapchain {
 impl VulkanCore {
     pub fn init() -> Result<Self, String> {
         unsafe {
-            let dispatch = resolve_dispatch()?;
+            let mut dispatch = resolve_dispatch()?;
 
             let app_info = VkApplicationInfo {
                 s_type: VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -398,6 +469,8 @@ impl VulkanCore {
             if res != VK_SUCCESS || instance.is_null() {
                 return Err(format!("vkCreateInstance failed: res={res}"));
             }
+
+            dispatch.populate_instance_symbols(instance)?;
 
             let mut device_count: u32 = 0;
             (dispatch.enumerate_physical_devices)(instance, &mut device_count, std::ptr::null_mut());
@@ -700,201 +773,62 @@ impl RenderStrategy for VulkanRenderStrategy {
             return Err(-1);
         }
         self.window = window;
-        if let Some(sc) = self.swapchain.take() {
-            unsafe {
-                (self.core.dispatch.destroy_swapchain_khr)(self.core.device, sc.swapchain, std::ptr::null());
-                (self.core.dispatch.destroy_surface_khr)(self.core.instance, sc.surface, std::ptr::null());
-            }
-        }
-        match self.core.create_swapchain_for_window(window, true) {
-            Ok(sc) => {
-                self.swapchain = Some(sc);
-                self.is_ready = true;
-                nlog("Vulkan: attach_surface 成功绑定 ANativeWindow 并初始化 Swapchain");
-                Ok(())
-            }
-            Err(e) => {
-                nlog(&format!("Vulkan: attach_surface 失败: {e}"));
-                self.is_ready = false;
-                Err(-2)
-            }
-        }
-    }
-
-    fn detach_surface(&mut self) {
-        self.is_ready = false;
-        unsafe {
-            if !self.core.device.is_null() {
-                (self.core.dispatch.device_wait_idle)(self.core.device);
-            }
-            if let Some(sc) = self.swapchain.take() {
-                (self.core.dispatch.destroy_swapchain_khr)(self.core.device, sc.swapchain, std::ptr::null());
-                (self.core.dispatch.destroy_surface_khr)(self.core.instance, sc.surface, std::ptr::null());
-            }
-        }
-        self.window = std::ptr::null_mut();
-        nlog("Vulkan: detach_surface 完成，Swapchain 与 Surface 已释放");
-    }
-
-    fn is_ready(&self) -> bool {
-        self.is_ready && self.swapchain.is_some()
-    }
-
-    fn ensure_render_context(&mut self, mpv_render_ctx: &mut *mut c_void) -> bool {
-        if !mpv_render_ctx.is_null() {
-            return true;
-        }
-        let mut success = false;
-        with_api_logged("mpv_render_context_create(vulkan)", |api| {
+        let wid = window as usize;
+        let wid_str = CString::new(format!("{wid}")).unwrap();
+        let wid_key = CString::new("wid").unwrap();
+        with_api_logged("mpv_set_option_string(wid)", |api| {
             let (_guard, handle) = match unsafe { mpv_handle_guarded() } {
                 Ok(h) => h,
                 Err(_) => return,
             };
-            let mut init_params = self.core.create_mpv_init_params();
-            let api_type = CString::new("vulkan").unwrap();
-            let mut params = [
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_API_TYPE,
-                    data: api_type.as_ptr() as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_VULKAN_INIT_PARAMS,
-                    data: &mut init_params as *mut _ as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: 0,
-                    data: std::ptr::null_mut(),
-                },
-            ];
-            let rc = unsafe { (api.mpv_render_context_create)(mpv_render_ctx, handle, params.as_mut_ptr()) };
-            if rc == MPV_ERROR_SUCCESS && !mpv_render_ctx.is_null() {
-                unsafe {
-                    (api.mpv_render_context_set_update_callback)(
-                        *mpv_render_ctx,
-                        Some(crate::render::mpv_update_callback),
-                        std::ptr::null_mut(),
-                    );
-                }
-                nlog("Vulkan: 成功创建 mpv_render_context 并绑定回调");
-                success = true;
-            } else {
-                nlog(&format!("Vulkan: 创建 mpv_render_context 失败 (rc={rc})，说明当前 libmpv 未启用 placebo vulkan 后端"));
-                success = false;
-            }
+            let rc = unsafe { (api.mpv_set_option_string)(handle, wid_key.as_ptr(), wid_str.as_ptr()) };
+            nlog(&format!("Vulkan: 设置 mpv wid={wid:#x} rc={rc}"));
         });
-        success
+        self.is_ready = true;
+        nlog("Vulkan: attach_surface 成功绑定 ANativeWindow 到 mpv wid");
+        Ok(())
     }
 
-    fn free_render_context(&mut self, mpv_render_ctx: &mut *mut c_void) {
-        if mpv_render_ctx.is_null() {
-            return;
-        }
-        with_api_logged("mpv_render_context_free(vulkan)", |api| unsafe {
-            (api.mpv_render_context_set_update_callback)(*mpv_render_ctx, None, std::ptr::null_mut());
-            (api.mpv_render_context_free)(*mpv_render_ctx);
-            *mpv_render_ctx = std::ptr::null_mut();
+    fn detach_surface(&mut self) {
+        self.is_ready = false;
+        let wid_str = CString::new("0").unwrap();
+        let wid_key = CString::new("wid").unwrap();
+        with_api_logged("mpv_set_option_string(wid=0)", |api| {
+            let (_guard, handle) = match unsafe { mpv_handle_guarded() } {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+            let rc = unsafe { (api.mpv_set_option_string)(handle, wid_key.as_ptr(), wid_str.as_ptr()) };
+            nlog(&format!("Vulkan: 重置 mpv wid=0 rc={rc}"));
         });
+        self.window = std::ptr::null_mut();
+        nlog("Vulkan: detach_surface 完成，wid 已解绑");
     }
 
-    fn draw_frame(&mut self, mpv_render_ctx: *mut c_void, _force: bool) -> DrawOutcome {
-        if !self.is_ready() || mpv_render_ctx.is_null() {
+    fn is_ready(&self) -> bool {
+        self.is_ready && !self.window.is_null()
+    }
+
+    fn ensure_render_context(&mut self, _mpv_render_ctx: &mut *mut c_void) -> bool {
+        // 在 vo=gpu-next + gpu-context=androidvk 架构下，mpv 内部视频输出驱动 (video/out/vulkan/context_android.c)
+        // 直接接管 ANativeWindow (wid) 并创建 Vulkan Swapchain 进行渲染，无需外部包装 mpv_render_context。
+        true
+    }
+
+    fn free_render_context(&mut self, _mpv_render_ctx: &mut *mut c_void) {
+        // 由 mpv 原生生命周期管理
+    }
+
+    fn draw_frame(&mut self, _mpv_render_ctx: *mut c_void, _force: bool) -> DrawOutcome {
+        if !self.is_ready() {
             return DrawOutcome::Skipped;
         }
-        let sc = match self.swapchain.as_ref() {
-            Some(s) => s,
-            None => return DrawOutcome::Skipped,
-        };
-
-        unsafe {
-            let mut image_index: u32 = 0;
-            let acquire_res = (self.core.dispatch.acquire_next_image_khr)(
-                self.core.device,
-                sc.swapchain,
-                1_000_000_000,
-                self.image_available_semaphore,
-                0,
-                &mut image_index,
-            );
-
-            if acquire_res == VK_ERROR_OUT_OF_DATE_KHR || acquire_res == VK_SUBOPTIMAL_KHR {
-                nlog("Vulkan: 收到 Swapchain 尺寸过期信号，重新创建 Swapchain");
-                if let Ok(new_sc) = self.core.create_swapchain_for_window(self.window, true) {
-                    if let Some(old_sc) = self.swapchain.replace(new_sc) {
-                        (self.core.dispatch.destroy_swapchain_khr)(self.core.device, old_sc.swapchain, std::ptr::null());
-                        (self.core.dispatch.destroy_surface_khr)(self.core.instance, old_sc.surface, std::ptr::null());
-                    }
-                }
-                return DrawOutcome::Skipped;
-            } else if acquire_res != VK_SUCCESS {
-                return DrawOutcome::Skipped;
-            }
-
-            let sc = self.swapchain.as_ref().unwrap();
-            let mut vk_image = MpvVulkanImage {
-                image: sc.images[image_index as usize],
-                image_layout: VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                format: sc.format,
-                width: sc.width as c_int,
-                height: sc.height as c_int,
-            };
-
-            let mut block_time: c_int = 0;
-            let mut params = [
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_VULKAN_IMAGE,
-                    data: &mut vk_image as *mut _ as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME,
-                    data: &mut block_time as *mut _ as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: 0,
-                    data: std::ptr::null_mut(),
-                },
-            ];
-
-            let _ = crate::mpv::with_api(|api| {
-                (api.mpv_render_context_render)(mpv_render_ctx, params.as_mut_ptr())
-            });
-
-            let present_info = VkPresentInfoKHR {
-                s_type: VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-                p_next: std::ptr::null(),
-                wait_semaphore_count: 0,
-                p_wait_semaphores: std::ptr::null(),
-                swapchain_count: 1,
-                p_swapchains: &sc.swapchain,
-                p_image_indices: &image_index,
-                p_results: std::ptr::null_mut(),
-            };
-
-            let _ = (self.core.dispatch.queue_present_khr)(self.core.queue, &present_info);
-
-            crate::render::G_SESSION.frames_drawn.fetch_add(1, Ordering::Relaxed);
-            crate::render::G_SESSION.last_draw_ms.store(crate::monotonic_ms() as u64, Ordering::Release);
-
-            DrawOutcome::Presented
-        }
+        DrawOutcome::Presented
     }
 
-    fn skip_frame(&mut self, mpv_render_ctx: *mut c_void) {
-        if !mpv_render_ctx.is_null() {
-            unsafe { crate::render::skip_frame_native(mpv_render_ctx) };
-        }
-    }
+    fn skip_frame(&mut self, _mpv_render_ctx: *mut c_void) {}
 
     fn destroy(&mut self) {
         self.detach_surface();
-        unsafe {
-            if self.image_available_semaphore != 0 {
-                (self.core.dispatch.destroy_semaphore)(self.core.device, self.image_available_semaphore, std::ptr::null());
-                self.image_available_semaphore = 0;
-            }
-            if self.render_finished_semaphore != 0 {
-                (self.core.dispatch.destroy_semaphore)(self.core.device, self.render_finished_semaphore, std::ptr::null());
-                self.render_finished_semaphore = 0;
-            }
-        }
     }
 }

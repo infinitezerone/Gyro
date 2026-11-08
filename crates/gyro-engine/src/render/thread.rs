@@ -1,6 +1,6 @@
 //! 原生渲染命令、常驻渲染线程与策略调度循环
 
-#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables))]
+#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables, unused_imports))]
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -154,6 +154,29 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
         while let Ok(cmd) = receiver.recv() {
             match cmd {
                 RenderCommand::AttachSurface(NativeWindowPtr(window)) => {
+                    let prefer_vulkan = G_PREFER_VULKAN.load(Ordering::Acquire);
+                    let current_is_vulkan = strategy.backend_type() == RenderBackend::Vulkan;
+                    if prefer_vulkan != current_is_vulkan {
+                        nlog(&format!(
+                            "渲染线程: 策略与偏好不一致 (prefer_vulkan={}, current={})，正在无缝热重载渲染策略",
+                            prefer_vulkan,
+                            strategy.name()
+                        ));
+                        strategy.free_render_context(&mut mpv_render_ctx);
+                        strategy.destroy();
+                        match create_render_strategy() {
+                            Ok(new_strat) => {
+                                strategy = new_strat;
+                                nlog(&format!("渲染线程: 已成功切换活跃渲染策略为 [{}]", strategy.name()));
+                            }
+                            Err(e) => {
+                                nlog(&format!("渲染线程: 策略重建失败: {e}，尝试回退 EGL"));
+                                if let Ok(egl) = init_egl_strategy() {
+                                    strategy = Box::new(egl);
+                                }
+                            }
+                        }
+                    }
                     nlog(&format!("{}: 收到 AttachSurface 命令", strategy.name()));
                     let _ = strategy.attach_surface(window, &mut mpv_render_ctx);
                     let ready = strategy.is_ready();

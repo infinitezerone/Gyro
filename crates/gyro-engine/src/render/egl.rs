@@ -1,6 +1,6 @@
 //! EGL / OpenGL ES 原生上下文、Surface 槽位与渲染策略实现
 
-#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables))]
+#![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables, unused_imports))]
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, Ordering};
