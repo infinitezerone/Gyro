@@ -177,8 +177,13 @@ class MpvOptionConfigurator {
 
         bridge.setOptionString("sub-auto", if (settings.subAutoLoad) "all" else "no")
 
-        // Engine lifecycle invariants: not user configurable, whatever mpv.conf says.
-        bridge.setOptionString("vo", "libmpv")
+        // Engine lifecycle invariants: configure classic libmpv or modern gpu-next according to UserSettings.
+        val voConfig = if (settings.voRenderer == dev.gyro.core.model.VO_GPU_NEXT) {
+            dev.gyro.core.model.VO_GPU_NEXT
+        } else {
+            dev.gyro.core.model.VO_LIBMPV
+        }
+        bridge.setOptionString("vo", voConfig)
         bridge.setOptionString("idle", "yes")
         bridge.setOptionString("keep-open", "yes")
         bridge.setOptionString("ao", "audiotrack,opensles")
@@ -197,7 +202,8 @@ class MpvOptionConfigurator {
             bridge.setOptionString("demuxer-readahead-secs", "20")
         }
         if (!userOptions.containsKey("tone-mapping")) {
-            bridge.setOptionString("tone-mapping", "hable")
+            val defaultToneMapping = if (voConfig == dev.gyro.core.model.VO_GPU_NEXT) "bt.2446a" else "hable"
+            bridge.setOptionString("tone-mapping", defaultToneMapping)
         }
         if (!userOptions.containsKey("hdr-compute-peak")) {
             bridge.setOptionString("hdr-compute-peak", "yes")
