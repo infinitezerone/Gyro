@@ -173,17 +173,85 @@ struct RenderThreadHandle {
 
 static RENDER_THREAD: OnceLock<Mutex<Option<RenderThreadHandle>>> = OnceLock::new();
 pub static G_FRAME_GATE: FrameCoalescer = FrameCoalescer::new();
-pub static G_FRAMES_DRAWN: AtomicU64 = AtomicU64::new(0);
-pub static G_FRAMES_STARVED: AtomicU64 = AtomicU64::new(0);
-pub static G_LAST_DRAW_MS: AtomicU64 = AtomicU64::new(0);
-pub static G_REARM_VIDEO: AtomicBool = AtomicBool::new(false);
-pub static G_PENDING_WID_REBIND: AtomicBool = AtomicBool::new(false);
-pub static G_AWAITING_FIRST_FRAME: AtomicBool = AtomicBool::new(false);
-pub static G_FILE_LOADED_REACHED: AtomicBool = AtomicBool::new(false);
-pub static G_LOAD_STARTED_MS: AtomicU64 = AtomicU64::new(0);
-pub static G_CACHED_DWIDTH: AtomicI64 = AtomicI64::new(0);
-pub static G_CACHED_DHEIGHT: AtomicI64 = AtomicI64::new(0);
-pub static G_CACHED_ROTATE: AtomicI64 = AtomicI64::new(0);
+
+/// Per-session playback/render state. Grouped so `reset_engine_lifecycle_state` clears the whole
+/// set with a single `reset()` instead of hand-enumerating each atomic: a newly added field sits
+/// directly above `reset()` in the same `impl` block, and the round-trip test
+/// (`session_state_reset_clears_every_field`) asserts every field returns to its session-start
+/// value. Intentionally excluded: `G_RENDER_EPOCH` (monotonic across sessions, never zeroed) and
+/// `G_FRAME_GATE` (a coalescer with its own `release()` semantics).
+pub struct SessionState {
+    pub frames_drawn: AtomicU64,
+    pub frames_starved: AtomicU64,
+    pub last_draw_ms: AtomicU64,
+    pub rearm_video: AtomicBool,
+    pub pending_wid_rebind: AtomicBool,
+    pub awaiting_first_frame: AtomicBool,
+    pub file_loaded_reached: AtomicBool,
+    pub load_started_ms: AtomicU64,
+    pub cached_dwidth: AtomicI64,
+    pub cached_dheight: AtomicI64,
+    pub cached_rotate: AtomicI64,
+    pub render_dead: AtomicBool,
+    /// GL/EGL entry points resolved against the current GL context; they belong to the session
+    /// that probed them, so a restart must not inherit stale function pointers.
+    pub real_gl_fence_sync: AtomicPtr<c_void>,
+    pub real_gl_delete_sync: AtomicPtr<c_void>,
+    pub real_egl_presentation_time: AtomicPtr<c_void>,
+    pub egl_presentation_resolved: AtomicBool,
+    /// Fences still in flight for the current GL context; drained on session reset.
+    pub active_fences: Mutex<Vec<SyncHandle>>,
+}
+
+impl SessionState {
+    pub const fn new() -> Self {
+        Self {
+            frames_drawn: AtomicU64::new(0),
+            frames_starved: AtomicU64::new(0),
+            last_draw_ms: AtomicU64::new(0),
+            rearm_video: AtomicBool::new(false),
+            pending_wid_rebind: AtomicBool::new(false),
+            awaiting_first_frame: AtomicBool::new(false),
+            file_loaded_reached: AtomicBool::new(false),
+            load_started_ms: AtomicU64::new(0),
+            cached_dwidth: AtomicI64::new(0),
+            cached_dheight: AtomicI64::new(0),
+            cached_rotate: AtomicI64::new(0),
+            render_dead: AtomicBool::new(false),
+            real_gl_fence_sync: AtomicPtr::new(std::ptr::null_mut()),
+            real_gl_delete_sync: AtomicPtr::new(std::ptr::null_mut()),
+            real_egl_presentation_time: AtomicPtr::new(std::ptr::null_mut()),
+            egl_presentation_resolved: AtomicBool::new(false),
+            active_fences: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Returns every field to its session-start value. Keep this directly below the field list:
+    /// when you add a field, extend both this method and the round-trip test.
+    pub fn reset(&self) {
+        self.render_dead.store(false, Ordering::Release);
+        self.awaiting_first_frame.store(false, Ordering::Release);
+        self.file_loaded_reached.store(false, Ordering::Release);
+        self.rearm_video.store(false, Ordering::Release);
+        self.pending_wid_rebind.store(false, Ordering::Release);
+        self.load_started_ms.store(0, Ordering::Release);
+        self.cached_dwidth.store(0, Ordering::Release);
+        self.cached_dheight.store(0, Ordering::Release);
+        self.cached_rotate.store(0, Ordering::Release);
+        self.frames_drawn.store(0, Ordering::Release);
+        self.frames_starved.store(0, Ordering::Release);
+        self.last_draw_ms.store(0, Ordering::Release);
+        self.real_gl_fence_sync.store(std::ptr::null_mut(), Ordering::Release);
+        self.real_gl_delete_sync.store(std::ptr::null_mut(), Ordering::Release);
+        self.real_egl_presentation_time.store(std::ptr::null_mut(), Ordering::Release);
+        self.egl_presentation_resolved.store(false, Ordering::Release);
+        if let Ok(mut fences) = self.active_fences.lock() {
+            fences.clear();
+        }
+    }
+}
+
+pub static G_SESSION: SessionState = SessionState::new();
 pub static G_RENDER_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 // ---------- 线程亲和：GL 上下文只归渲染线程所有 ----------
@@ -216,7 +284,6 @@ pub static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 // ---------- 防御层 3：GL 上下文丢失重建 (Context Recovery) ----------
 #[cfg(target_os = "android")]
 pub static G_RECOVERY: Mutex<ContextRecovery> = Mutex::new(ContextRecovery::with_defaults());
-pub static G_RENDER_DEAD: AtomicBool = AtomicBool::new(false);
 
 enum ProbeTarget {
     Surfaceless,
@@ -323,7 +390,7 @@ unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLContext) {
 unsafe fn probe_graphics_environment(_display: EGLDisplay, _ctx: EGLContext) {}
 
 fn request_video_rearm() {
-    G_REARM_VIDEO.store(true, Ordering::Release);
+    G_SESSION.rearm_video.store(true, Ordering::Release);
     if let Ok((_guard, handle)) = unsafe { mpv_handle_guarded() } {
         let _ = with_api(|api| unsafe { (api.mpv_wakeup)(handle) });
     }
@@ -335,27 +402,24 @@ unsafe impl Send for SyncHandle {}
 unsafe impl Sync for SyncHandle {}
 
 pub const MAX_TRACKED_FENCES: usize = 64;
-pub static REAL_GL_FENCE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-pub static REAL_GL_DELETE_SYNC: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-pub static ACTIVE_FENCES: Mutex<Vec<SyncHandle>> = Mutex::new(Vec::new());
 
 unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c_void {
     assert_render_thread("glFenceSync");
-    let real_fn = REAL_GL_FENCE_SYNC.load(Ordering::Relaxed);
+    let real_fn = G_SESSION.real_gl_fence_sync.load(Ordering::Relaxed);
     if real_fn.is_null() {
         return std::ptr::null_mut();
     }
     let f: unsafe extern "C" fn(u32, u32) -> *mut c_void = std::mem::transmute(real_fn);
     let sync = f(condition, flags);
     if !sync.is_null() {
-        if let Ok(mut lock) = ACTIVE_FENCES.lock() {
+        if let Ok(mut lock) = G_SESSION.active_fences.lock() {
             lock.push(SyncHandle(sync));
             // Keep a generous ceiling so normal mpv ringbuffer / timer fences (typically 3-8 in
             // flight) are retired by mpv's own glDeleteSync call rather than deleted behind its
             // back while still referenced, while still bounding pathological driver leaks.
             if lock.len() > MAX_TRACKED_FENCES {
                 let old_sync = lock.remove(0);
-                let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
+                let del_fn = G_SESSION.real_gl_delete_sync.load(Ordering::Relaxed);
                 if !del_fn.is_null() {
                     let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
                     del(old_sync.0);
@@ -369,7 +433,7 @@ unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c
 unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
     assert_render_thread("glDeleteSync");
     if !sync.is_null() {
-        let was_tracked = if let Ok(mut lock) = ACTIVE_FENCES.lock() {
+        let was_tracked = if let Ok(mut lock) = G_SESSION.active_fences.lock() {
             if let Some(pos) = lock.iter().position(|s| s.0 == sync) {
                 lock.remove(pos);
                 true
@@ -380,7 +444,7 @@ unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
             false
         };
         if was_tracked {
-            let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
+            let del_fn = G_SESSION.real_gl_delete_sync.load(Ordering::Relaxed);
             if !del_fn.is_null() {
                 let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
                 del(sync);
@@ -391,11 +455,11 @@ unsafe extern "C" fn wrapped_gl_delete_sync(sync: *mut c_void) {
 
 unsafe fn drain_active_fences() {
     assert_render_thread("drain_active_fences");
-    let Ok(mut fences) = ACTIVE_FENCES.lock() else { return };
+    let Ok(mut fences) = G_SESSION.active_fences.lock() else { return };
     if fences.is_empty() {
         return;
     }
-    let del_fn = REAL_GL_DELETE_SYNC.load(Ordering::Relaxed);
+    let del_fn = G_SESSION.real_gl_delete_sync.load(Ordering::Relaxed);
     if del_fn.is_null() {
         fences.clear();
         return;
@@ -416,11 +480,11 @@ unsafe extern "C" fn gl_proc_address(_ctx: *mut c_void, name: *const c_char) -> 
             if s == b"glFenceSync" || s == b"glFenceSyncAPPLE" {
                 let real = eglGetProcAddress(name);
                 if !real.is_null() {
-                    REAL_GL_FENCE_SYNC.store(real, Ordering::Relaxed);
-                    if REAL_GL_DELETE_SYNC.load(Ordering::Relaxed).is_null() {
+                    G_SESSION.real_gl_fence_sync.store(real, Ordering::Relaxed);
+                    if G_SESSION.real_gl_delete_sync.load(Ordering::Relaxed).is_null() {
                         let del = eglGetProcAddress(b"glDeleteSync\0".as_ptr().cast());
                         if !del.is_null() {
-                            REAL_GL_DELETE_SYNC.store(del, Ordering::Relaxed);
+                            G_SESSION.real_gl_delete_sync.store(del, Ordering::Relaxed);
                         }
                     }
                     return wrapped_gl_fence_sync as *mut c_void;
@@ -428,7 +492,7 @@ unsafe extern "C" fn gl_proc_address(_ctx: *mut c_void, name: *const c_char) -> 
             } else if s == b"glDeleteSync" || s == b"glDeleteSyncAPPLE" {
                 let real = eglGetProcAddress(name);
                 if !real.is_null() {
-                    REAL_GL_DELETE_SYNC.store(real, Ordering::Relaxed);
+                    G_SESSION.real_gl_delete_sync.store(real, Ordering::Relaxed);
                     return wrapped_gl_delete_sync as *mut c_void;
                 }
             }
@@ -450,24 +514,21 @@ pub type EglPresentationTimeAndroidFn = unsafe extern "C" fn(
     time: i64,
 ) -> EGLint;
 
-pub static REAL_EGL_PRESENTATION_TIME: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-pub static EGL_PRESENTATION_RESOLVED: AtomicBool = AtomicBool::new(false);
-
 #[cfg(target_os = "android")]
 pub fn get_egl_presentation_time_fn() -> Option<EglPresentationTimeAndroidFn> {
-    if !EGL_PRESENTATION_RESOLVED.load(Ordering::Acquire) {
+    if !G_SESSION.egl_presentation_resolved.load(Ordering::Acquire) {
         unsafe {
             let proc = eglGetProcAddress(b"eglPresentationTimeANDROID\0".as_ptr().cast());
             if !proc.is_null() {
-                REAL_EGL_PRESENTATION_TIME.store(proc, Ordering::Release);
+                G_SESSION.real_egl_presentation_time.store(proc, Ordering::Release);
                 nlog("EGL: 成功动态解析 EGL_ANDROID_presentation_time 扩展");
             } else {
                 nlog("EGL: 当前驱动未导出 eglPresentationTimeANDROID 扩展");
             }
         }
-        EGL_PRESENTATION_RESOLVED.store(true, Ordering::Release);
+        G_SESSION.egl_presentation_resolved.store(true, Ordering::Release);
     }
-    let p = REAL_EGL_PRESENTATION_TIME.load(Ordering::Acquire);
+    let p = G_SESSION.real_egl_presentation_time.load(Ordering::Acquire);
     if p.is_null() {
         None
     } else {
@@ -1040,18 +1101,18 @@ unsafe fn draw_frame_native(
     with_api(|api| {
         let flags = (api.mpv_render_context_update)(ctx);
         if !force && (flags & MPV_RENDER_UPDATE_FRAME == 0) {
-            let starved = G_FRAMES_STARVED.fetch_add(1, Ordering::Relaxed) + 1;
+            let starved = G_SESSION.frames_starved.fetch_add(1, Ordering::Relaxed) + 1;
             if starved % 120 == 0 {
                 nlog(&format!(
                     "RENDER: presented={} starved={}",
-                    G_FRAMES_DRAWN.load(Ordering::Relaxed),
+                    G_SESSION.frames_drawn.load(Ordering::Relaxed),
                     starved
                 ));
             }
             return DrawOutcome::Skipped;
         }
 
-        let awaiting_first_frame = G_AWAITING_FIRST_FRAME.load(Ordering::Acquire);
+        let awaiting_first_frame = G_SESSION.awaiting_first_frame.load(Ordering::Acquire);
         let mut frame_info = MpvRenderFrameInfo { flags: 0, target_time: 0 };
         let param = MpvRenderParam {
             param_type: MPV_RENDER_PARAM_NEXT_FRAME_INFO,
@@ -1117,9 +1178,9 @@ unsafe fn draw_frame_native(
         // synchronous `mpv_get_property` once if the render thread beats the event pump on the
         // very first frame.
         let (final_w, final_h) = if awaiting_first_frame {
-            let mut dwidth = G_CACHED_DWIDTH.load(Ordering::Acquire);
-            let mut dheight = G_CACHED_DHEIGHT.load(Ordering::Acquire);
-            let mut rotate = G_CACHED_ROTATE.load(Ordering::Acquire);
+            let mut dwidth = G_SESSION.cached_dwidth.load(Ordering::Acquire);
+            let mut dheight = G_SESSION.cached_dheight.load(Ordering::Acquire);
+            let mut rotate = G_SESSION.cached_rotate.load(Ordering::Acquire);
             if dwidth <= 0 || dheight <= 0 {
                 let mpv_h = G_MPVP.load(Ordering::Acquire);
                 if !mpv_h.is_null() {
@@ -1154,9 +1215,9 @@ unsafe fn draw_frame_native(
                         );
                     }
                     if dwidth > 0 && dheight > 0 {
-                        G_CACHED_DWIDTH.store(dwidth, Ordering::Release);
-                        G_CACHED_DHEIGHT.store(dheight, Ordering::Release);
-                        G_CACHED_ROTATE.store(rotate, Ordering::Release);
+                        G_SESSION.cached_dwidth.store(dwidth, Ordering::Release);
+                        G_SESSION.cached_dheight.store(dheight, Ordering::Release);
+                        G_SESSION.cached_rotate.store(rotate, Ordering::Release);
                     }
                 }
             }
@@ -1172,7 +1233,7 @@ unsafe fn draw_frame_native(
 
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
-            let file_loaded = G_FILE_LOADED_REACHED.load(Ordering::Acquire);
+            let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
             if awaiting_first_frame {
                 crate::tracelog(
                     "NATIVE_SWAP_WHILE_AWAITING",
@@ -1221,15 +1282,15 @@ unsafe fn draw_frame_native(
         }
 
         let now_ms = monotonic_ms() as u64;
-        let previous_ms = G_LAST_DRAW_MS.swap(now_ms, Ordering::Relaxed);
+        let previous_ms = G_SESSION.last_draw_ms.swap(now_ms, Ordering::Relaxed);
         let gap_ms = if previous_ms == 0 { 0 } else { now_ms.saturating_sub(previous_ms) as u128 };
         if gap_ms > 100 {
             nlog(&format!("RENDER: GAP {gap_ms}ms buf={w}x{h}"));
         }
 
-        let presented = G_FRAMES_DRAWN.fetch_add(1, Ordering::Relaxed) + 1;
+        let presented = G_SESSION.frames_drawn.fetch_add(1, Ordering::Relaxed) + 1;
         if presented <= 3 || presented % 300 == 0 {
-            let (delayed, mistimed, vo_drop, dec_drop) = match crate::events::G_FRAME_HEALTH.lock() {
+            let (delayed, mistimed, vo_drop, dec_drop) = match crate::events::G_EVENT_PUMP.frame_health.lock() {
                 Ok(m) => (
                     m.late_frames(),
                     m.mistimed_frames(),
@@ -1242,7 +1303,7 @@ unsafe fn draw_frame_native(
                 "RENDER: presented={} elapsed={}ms starved={} vo_drop={} dec_drop={} delayed={} mistimed={}",
                 presented,
                 elapsed.as_millis(),
-                G_FRAMES_STARVED.load(Ordering::Relaxed),
+                G_SESSION.frames_starved.load(Ordering::Relaxed),
                 vo_drop,
                 dec_drop,
                 delayed,
@@ -1257,7 +1318,7 @@ unsafe fn draw_frame_native(
 
 #[cfg(target_os = "android")]
 unsafe fn forget_active_fences() {
-    if let Ok(mut fences) = ACTIVE_FENCES.lock() {
+    if let Ok(mut fences) = G_SESSION.active_fences.lock() {
         if !fences.is_empty() {
             nlog(&format!("EGL: 上下文已丢失，丢弃 {} 个 fence 句柄", fences.len()));
             fences.clear();
@@ -1267,7 +1328,7 @@ unsafe fn forget_active_fences() {
 
 #[cfg(target_os = "android")]
 unsafe fn revive_dead_pipeline(core: &mut EglCore, mpv_render_ctx: &mut *mut c_void) -> bool {
-    if !G_RENDER_DEAD.load(Ordering::Acquire) && core.context != EGL_NO_CONTEXT {
+    if !G_SESSION.render_dead.load(Ordering::Acquire) && core.context != EGL_NO_CONTEXT {
         return true;
     }
     nlog("EGL: 新 surface 到达，尝试为已停用的管线重建上下文");
@@ -1287,7 +1348,7 @@ unsafe fn revive_dead_pipeline(core: &mut EglCore, mpv_render_ctx: &mut *mut c_v
     if let Ok(mut recovery) = G_RECOVERY.lock() {
         *recovery = ContextRecovery::with_defaults();
     }
-    G_RENDER_DEAD.store(false, Ordering::Release);
+    G_SESSION.render_dead.store(false, Ordering::Release);
 
     request_video_rearm();
     nlog("EGL: 管线已恢复，渲染重新启用");
@@ -1305,7 +1366,7 @@ unsafe fn recover_gl_context(
         Err(_) => RecoveryVerdict::Exhausted,
     };
     if verdict == RecoveryVerdict::Exhausted {
-        if !G_RENDER_DEAD.swap(true, Ordering::AcqRel) {
+        if !G_SESSION.render_dead.swap(true, Ordering::AcqRel) {
             nlog("EGL: 重建预算已用尽，停止重建（驱动持续丢失上下文），渲染已停用");
         }
         return false;
@@ -1350,7 +1411,7 @@ unsafe fn draw_and_recover(
     if !slot.is_ready() || mpv_render_ctx.is_null() {
         return;
     }
-    if G_RENDER_DEAD.load(Ordering::Acquire) {
+    if G_SESSION.render_dead.load(Ordering::Acquire) {
         return;
     }
     let outcome = draw_frame_native(core.display, slot.surface(), *mpv_render_ctx, force);
@@ -1435,7 +1496,7 @@ pub fn destroy_render_context_sync() {
             ));
         }
     }
-    if let Ok(mut fences) = ACTIVE_FENCES.lock() {
+    if let Ok(mut fences) = G_SESSION.active_fences.lock() {
         fences.clear();
     }
 }
@@ -1524,8 +1585,8 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     nlog("EGL: Surface 已解绑 (EGLContext 与 render context 常驻)");
                 }
                 RenderCommand::Redraw => {
-                    let awaiting = G_AWAITING_FIRST_FRAME.load(Ordering::Acquire);
-                    let file_loaded = G_FILE_LOADED_REACHED.load(Ordering::Acquire);
+                    let awaiting = G_SESSION.awaiting_first_frame.load(Ordering::Acquire);
+                    let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
                     let ready = slot.is_ready();
                     crate::tracelog(
                         "NATIVE_CMD_REDRAW",
@@ -1592,6 +1653,53 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Round-trip completeness check for [`SessionState::reset`]: every field is dirtied with a
+    /// non-default value, reset, and asserted clean. Lives next to the field definitions on
+    /// purpose — adding a `SessionState` field without extending `reset()` or this test fails
+    /// here instead of surfacing as stale state after a session switch on device.
+    #[test]
+    fn session_state_reset_clears_every_field() {
+        let s = SessionState {
+            frames_drawn: AtomicU64::new(100),
+            frames_starved: AtomicU64::new(50),
+            last_draw_ms: AtomicU64::new(999),
+            rearm_video: AtomicBool::new(true),
+            pending_wid_rebind: AtomicBool::new(true),
+            awaiting_first_frame: AtomicBool::new(true),
+            file_loaded_reached: AtomicBool::new(true),
+            load_started_ms: AtomicU64::new(12345),
+            cached_dwidth: AtomicI64::new(1920),
+            cached_dheight: AtomicI64::new(1080),
+            cached_rotate: AtomicI64::new(90),
+            render_dead: AtomicBool::new(true),
+            real_gl_fence_sync: AtomicPtr::new(0x1234 as *mut c_void),
+            real_gl_delete_sync: AtomicPtr::new(0x5678 as *mut c_void),
+            real_egl_presentation_time: AtomicPtr::new(0x9999 as *mut c_void),
+            egl_presentation_resolved: AtomicBool::new(true),
+            active_fences: Mutex::new(vec![SyncHandle(0xABCD as *mut c_void)]),
+        };
+
+        s.reset();
+
+        assert_eq!(0, s.frames_drawn.load(Ordering::Acquire));
+        assert_eq!(0, s.frames_starved.load(Ordering::Acquire));
+        assert_eq!(0, s.last_draw_ms.load(Ordering::Acquire));
+        assert!(!s.rearm_video.load(Ordering::Acquire));
+        assert!(!s.pending_wid_rebind.load(Ordering::Acquire));
+        assert!(!s.awaiting_first_frame.load(Ordering::Acquire));
+        assert!(!s.file_loaded_reached.load(Ordering::Acquire));
+        assert_eq!(0, s.load_started_ms.load(Ordering::Acquire));
+        assert_eq!(0, s.cached_dwidth.load(Ordering::Acquire));
+        assert_eq!(0, s.cached_dheight.load(Ordering::Acquire));
+        assert_eq!(0, s.cached_rotate.load(Ordering::Acquire));
+        assert!(!s.render_dead.load(Ordering::Acquire));
+        assert!(s.real_gl_fence_sync.load(Ordering::Acquire).is_null());
+        assert!(s.real_gl_delete_sync.load(Ordering::Acquire).is_null());
+        assert!(s.real_egl_presentation_time.load(Ordering::Acquire).is_null());
+        assert!(!s.egl_presentation_resolved.load(Ordering::Acquire));
+        assert!(s.active_fences.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn window_ref_balance_returns_to_baseline_after_a_full_handoff_cycle() {

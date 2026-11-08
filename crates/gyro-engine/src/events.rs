@@ -17,10 +17,7 @@ use crate::mpv::{
     MPV_EVENT_SHUTDOWN, MPV_EVENT_START_FILE, MPV_FORMAT_DOUBLE, MPV_FORMAT_FLAG,
     MPV_FORMAT_INT64, MPV_FORMAT_STRING, MpvApi,
 };
-use crate::render::{
-    G_AWAITING_FIRST_FRAME, G_CACHED_DHEIGHT, G_CACHED_DWIDTH, G_CACHED_ROTATE,
-    G_FILE_LOADED_REACHED, G_LOAD_STARTED_MS, G_REARM_VIDEO, G_RENDER_EPOCH,
-};
+use crate::render::{G_SESSION, G_RENDER_EPOCH};
 use crate::{monotonic_ms, nlog};
 
 const GYRO_NATIVE_CLASS: &str = "dev/gyro/engine/GyroNative";
@@ -47,9 +44,39 @@ pub static EVENT_THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 pub static G_EVENT_THREAD_EXIT: AtomicBool = AtomicBool::new(false);
 
 // ---------- 帧健康监测 (Frame Health) 与事件节流 ----------
-pub static G_FRAME_HEALTH: Mutex<FrameHealthMonitor> = Mutex::new(FrameHealthMonitor::with_defaults());
-pub static G_TIME_POS_THROTTLE: Mutex<SampleThrottle> = Mutex::new(SampleThrottle::with_defaults());
-pub static G_CACHE_TIME_THROTTLE: Mutex<SampleThrottle> = Mutex::new(SampleThrottle::with_defaults());
+/// Event-pump-side per-session state. Grouped so `reset_engine_lifecycle_state` can clear the
+/// whole set with one `reset()` call instead of hand-enumerating each mutex: a newly added field
+/// sits directly above `reset()` in the same `impl` block, and the round-trip test in `lib.rs`
+/// asserts every field returns to its session-start value.
+pub struct EventPumpState {
+    pub frame_health: Mutex<FrameHealthMonitor>,
+    pub time_pos_throttle: Mutex<SampleThrottle>,
+    pub cache_time_throttle: Mutex<SampleThrottle>,
+}
+
+impl EventPumpState {
+    pub const fn new() -> Self {
+        Self {
+            frame_health: Mutex::new(FrameHealthMonitor::with_defaults()),
+            time_pos_throttle: Mutex::new(SampleThrottle::with_defaults()),
+            cache_time_throttle: Mutex::new(SampleThrottle::with_defaults()),
+        }
+    }
+
+    pub fn reset(&self) {
+        if let Ok(mut health) = self.frame_health.lock() {
+            *health = FrameHealthMonitor::with_defaults();
+        }
+        if let Ok(mut tp) = self.time_pos_throttle.lock() {
+            *tp = SampleThrottle::with_defaults();
+        }
+        if let Ok(mut ct) = self.cache_time_throttle.lock() {
+            *ct = SampleThrottle::with_defaults();
+        }
+    }
+}
+
+pub static G_EVENT_PUMP: EventPumpState = EventPumpState::new();
 
 pub fn cache_class(env: &mut JNIEnv) {
     if G_CLASS.get().is_some() {
@@ -140,8 +167,8 @@ fn is_throttled_property(name: &str) -> bool {
 
 fn throttle_allows(name: &str) -> bool {
     let throttle = match name {
-        "time-pos" => &G_TIME_POS_THROTTLE,
-        _ => &G_CACHE_TIME_THROTTLE,
+        "time-pos" => &G_EVENT_PUMP.time_pos_throttle,
+        _ => &G_EVENT_PUMP.cache_time_throttle,
     };
     let now_ms = monotonic_ms();
     match throttle.lock() {
@@ -152,7 +179,7 @@ fn throttle_allows(name: &str) -> bool {
 
 fn record_frame_counter(counter: FrameCounter, total: i64) {
     let now_ms = monotonic_ms();
-    let Ok(mut monitor) = G_FRAME_HEALTH.lock() else { return };
+    let Ok(mut monitor) = G_EVENT_PUMP.frame_health.lock() else { return };
     let Some(report) = monitor.on_counter(counter, total, now_ms) else { return };
     nlog(&format!(
         "HEALTH: 过去 {}s 迟到 {} 帧、错拍 {} 帧、解码器丢弃 {} 帧；显示跳过 {} 帧。累计 迟到={} 错拍={} 解码丢帧={} 显示跳过={}",
@@ -172,26 +199,26 @@ pub fn update_cached_video_geometry(name: &str, value: i64) {
     match name {
         "dwidth" | "video-out-params/dw" => {
             if value > 0 {
-                G_CACHED_DWIDTH.store(value, Ordering::Release);
+                G_SESSION.cached_dwidth.store(value, Ordering::Release);
             }
         }
         "width" => {
-            if value > 0 && G_CACHED_DWIDTH.load(Ordering::Acquire) <= 0 {
-                G_CACHED_DWIDTH.store(value, Ordering::Release);
+            if value > 0 && G_SESSION.cached_dwidth.load(Ordering::Acquire) <= 0 {
+                G_SESSION.cached_dwidth.store(value, Ordering::Release);
             }
         }
         "dheight" | "video-out-params/dh" => {
             if value > 0 {
-                G_CACHED_DHEIGHT.store(value, Ordering::Release);
+                G_SESSION.cached_dheight.store(value, Ordering::Release);
             }
         }
         "height" => {
-            if value > 0 && G_CACHED_DHEIGHT.load(Ordering::Acquire) <= 0 {
-                G_CACHED_DHEIGHT.store(value, Ordering::Release);
+            if value > 0 && G_SESSION.cached_dheight.load(Ordering::Acquire) <= 0 {
+                G_SESSION.cached_dheight.store(value, Ordering::Release);
             }
         }
         "video-params/rotate" | "video-out-params/rotate" => {
-            G_CACHED_ROTATE.store(value, Ordering::Release);
+            G_SESSION.cached_rotate.store(value, Ordering::Release);
         }
         _ => {}
     }
@@ -295,14 +322,14 @@ pub fn signal_first_frame() {
         nlog(&format!("RENDER: 丢弃过期首帧信号 (frame_epoch={frame_epoch} < current={current})"));
         return;
     }
-    if !G_FILE_LOADED_REACHED.load(Ordering::Acquire) {
+    if !G_SESSION.file_loaded_reached.load(Ordering::Acquire) {
         return;
     }
-    if !G_AWAITING_FIRST_FRAME.swap(false, Ordering::AcqRel) {
+    if !G_SESSION.awaiting_first_frame.swap(false, Ordering::AcqRel) {
         return;
     }
     let waited_ms =
-        (monotonic_ms() as u64).saturating_sub(G_LOAD_STARTED_MS.load(Ordering::Relaxed));
+        (monotonic_ms() as u64).saturating_sub(G_SESSION.load_started_ms.load(Ordering::Relaxed));
     crate::tracelog(
         "NATIVE_FIRST_FRAME_SIGNAL",
         &format!("waited_from_start={waited_ms}ms, epoch={current}"),
@@ -368,7 +395,7 @@ pub fn event_thread() {
 
         let event = unsafe { wait_event(handle, 0.5) };
         if G_EVENT_THREAD_EXIT.load(Ordering::Acquire) { break; }
-        if G_REARM_VIDEO.swap(false, Ordering::AcqRel) {
+        if G_SESSION.rearm_video.swap(false, Ordering::AcqRel) {
             nlog("event_thread: 渲染线程请求重新启用视频输出");
             rearm_video_output();
         }
@@ -401,40 +428,26 @@ pub fn event_thread() {
                     nlog("event_thread: 收到 MPV_EVENT_SHUTDOWN 事件");
                     HANDLE_VALID.store(false, Ordering::Release);
                     let epoch = current_epoch() as i64;
-                    call_static_epoch(
-                        env,
-                        "onEvent",
-                        "(IJ)V",
-                        &[JValue::Int(MPV_EVENT_SHUTDOWN), JValue::Long(epoch)],
-                        "(I)V",
-                        &[JValue::Int(MPV_EVENT_SHUTDOWN)],
-                    );
+                    call_static(env, "onEvent", "(IJ)V", &[JValue::Int(MPV_EVENT_SHUTDOWN), JValue::Long(epoch)]);
                     break;
                 }
                 MPV_EVENT_START_FILE => {
                     crate::tracelog("NATIVE_MPV_START_FILE", "");
                     let epoch = current_epoch();
-                    G_LOAD_STARTED_MS.store(monotonic_ms() as u64, Ordering::Relaxed);
-                    G_CACHED_DWIDTH.store(0, Ordering::Release);
-                    G_CACHED_DHEIGHT.store(0, Ordering::Release);
-                    G_CACHED_ROTATE.store(0, Ordering::Release);
-                    G_FILE_LOADED_REACHED.store(false, Ordering::Release);
-                    G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
+                    G_SESSION.load_started_ms.store(monotonic_ms() as u64, Ordering::Relaxed);
+                    G_SESSION.cached_dwidth.store(0, Ordering::Release);
+                    G_SESSION.cached_dheight.store(0, Ordering::Release);
+                    G_SESSION.cached_rotate.store(0, Ordering::Release);
+                    G_SESSION.file_loaded_reached.store(false, Ordering::Release);
+                    G_SESSION.awaiting_first_frame.store(true, Ordering::Release);
                     crate::render::G_RENDER_EPOCH.store(epoch, Ordering::Release);
                 }
                 MPV_EVENT_FILE_LOADED => {
                     crate::tracelog("NATIVE_MPV_FILE_LOADED", "");
-                    G_FILE_LOADED_REACHED.store(true, Ordering::Release);
+                    G_SESSION.file_loaded_reached.store(true, Ordering::Release);
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
                     let epoch = current_epoch() as i64;
-                    call_static_epoch(
-                        env,
-                        "onEvent",
-                        "(IJ)V",
-                        &[JValue::Int(event_id), JValue::Long(epoch)],
-                        "(I)V",
-                        &[JValue::Int(event_id)],
-                    );
+                    call_static(env, "onEvent", "(IJ)V", &[JValue::Int(event_id), JValue::Long(epoch)]);
                 }
                 MPV_EVENT_END_FILE => {
                     let reason = if !(*ev).data.is_null() {

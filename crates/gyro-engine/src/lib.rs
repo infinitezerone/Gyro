@@ -117,34 +117,8 @@ pub fn reset_engine_lifecycle_state() {
     events::next_epoch();
     render::G_RENDER_EPOCH.store(events::current_epoch(), Ordering::Release);
     render::G_FRAME_GATE.release();
-    render::G_RENDER_DEAD.store(false, Ordering::Release);
-    render::G_AWAITING_FIRST_FRAME.store(false, Ordering::Release);
-    render::G_FILE_LOADED_REACHED.store(false, Ordering::Release);
-    render::G_REARM_VIDEO.store(false, Ordering::Release);
-    render::G_PENDING_WID_REBIND.store(false, Ordering::Release);
-    render::G_LOAD_STARTED_MS.store(0, Ordering::Release);
-    render::G_CACHED_DWIDTH.store(0, Ordering::Release);
-    render::G_CACHED_DHEIGHT.store(0, Ordering::Release);
-    render::G_CACHED_ROTATE.store(0, Ordering::Release);
-    render::G_FRAMES_DRAWN.store(0, Ordering::Release);
-    render::G_FRAMES_STARVED.store(0, Ordering::Release);
-    render::G_LAST_DRAW_MS.store(0, Ordering::Release);
-    render::REAL_GL_FENCE_SYNC.store(std::ptr::null_mut(), Ordering::Release);
-    render::REAL_GL_DELETE_SYNC.store(std::ptr::null_mut(), Ordering::Release);
-    render::REAL_EGL_PRESENTATION_TIME.store(std::ptr::null_mut(), Ordering::Release);
-    render::EGL_PRESENTATION_RESOLVED.store(false, Ordering::Release);
-    if let Ok(mut fences) = render::ACTIVE_FENCES.lock() {
-        fences.clear();
-    }
-    if let Ok(mut health) = events::G_FRAME_HEALTH.lock() {
-        *health = logic::FrameHealthMonitor::with_defaults();
-    }
-    if let Ok(mut tp) = events::G_TIME_POS_THROTTLE.lock() {
-        *tp = logic::SampleThrottle::with_defaults();
-    }
-    if let Ok(mut ct) = events::G_CACHE_TIME_THROTTLE.lock() {
-        *ct = logic::SampleThrottle::with_defaults();
-    }
+    render::G_SESSION.reset();
+    events::G_EVENT_PUMP.reset();
     #[cfg(target_os = "android")]
     if let Ok(mut recovery) = render::G_RECOVERY.lock() {
         *recovery = logic::ContextRecovery::with_defaults();
@@ -166,46 +140,50 @@ mod tests {
     fn reset_engine_lifecycle_state_clears_all_session_flags_and_pointers() {
         let _state_guard = LIFECYCLE_STATE_TESTS.lock().unwrap_or_else(|p| p.into_inner());
         let _ = render::G_FRAME_GATE.try_acquire();
-        render::G_RENDER_DEAD.store(true, Ordering::Release);
-        render::G_AWAITING_FIRST_FRAME.store(true, Ordering::Release);
-        render::G_FILE_LOADED_REACHED.store(true, Ordering::Release);
-        render::G_REARM_VIDEO.store(true, Ordering::Release);
-        render::G_PENDING_WID_REBIND.store(true, Ordering::Release);
-        render::G_LOAD_STARTED_MS.store(12345, Ordering::Release);
-        render::G_CACHED_DWIDTH.store(1920, Ordering::Release);
-        render::G_CACHED_DHEIGHT.store(1080, Ordering::Release);
-        render::G_CACHED_ROTATE.store(90, Ordering::Release);
-        render::G_FRAMES_DRAWN.store(100, Ordering::Release);
-        render::G_FRAMES_STARVED.store(50, Ordering::Release);
-        render::G_LAST_DRAW_MS.store(999, Ordering::Release);
-        render::REAL_GL_FENCE_SYNC.store(0x1234 as *mut c_void, Ordering::Release);
-        render::REAL_GL_DELETE_SYNC.store(0x5678 as *mut c_void, Ordering::Release);
-        render::REAL_EGL_PRESENTATION_TIME.store(0x9999 as *mut c_void, Ordering::Release);
-        render::EGL_PRESENTATION_RESOLVED.store(true, Ordering::Release);
-        if let Ok(mut fences) = render::ACTIVE_FENCES.lock() {
+        render::G_SESSION.render_dead.store(true, Ordering::Release);
+        render::G_SESSION.awaiting_first_frame.store(true, Ordering::Release);
+        render::G_SESSION.file_loaded_reached.store(true, Ordering::Release);
+        render::G_SESSION.rearm_video.store(true, Ordering::Release);
+        render::G_SESSION.pending_wid_rebind.store(true, Ordering::Release);
+        render::G_SESSION.load_started_ms.store(12345, Ordering::Release);
+        render::G_SESSION.cached_dwidth.store(1920, Ordering::Release);
+        render::G_SESSION.cached_dheight.store(1080, Ordering::Release);
+        render::G_SESSION.cached_rotate.store(90, Ordering::Release);
+        render::G_SESSION.frames_drawn.store(100, Ordering::Release);
+        render::G_SESSION.frames_starved.store(50, Ordering::Release);
+        render::G_SESSION.last_draw_ms.store(999, Ordering::Release);
+        render::G_SESSION.real_gl_fence_sync.store(0x1234 as *mut c_void, Ordering::Release);
+        render::G_SESSION.real_gl_delete_sync.store(0x5678 as *mut c_void, Ordering::Release);
+        render::G_SESSION.real_egl_presentation_time.store(0x9999 as *mut c_void, Ordering::Release);
+        render::G_SESSION.egl_presentation_resolved.store(true, Ordering::Release);
+        if let Ok(mut fences) = render::G_SESSION.active_fences.lock() {
             fences.push(render::SyncHandle(0xABCD as *mut c_void));
+        }
+        if let Ok(mut health) = events::G_EVENT_PUMP.frame_health.lock() {
+            health.on_counter(logic::FrameCounter::DecoderDropped, 10, 1000);
         }
 
         reset_engine_lifecycle_state();
 
         assert!(!render::G_FRAME_GATE.is_pending());
-        assert!(!render::G_RENDER_DEAD.load(Ordering::Acquire));
-        assert!(!render::G_AWAITING_FIRST_FRAME.load(Ordering::Acquire));
-        assert!(!render::G_FILE_LOADED_REACHED.load(Ordering::Acquire));
-        assert!(!render::G_REARM_VIDEO.load(Ordering::Acquire));
-        assert!(!render::G_PENDING_WID_REBIND.load(Ordering::Acquire));
-        assert_eq!(0, render::G_LOAD_STARTED_MS.load(Ordering::Acquire));
-        assert_eq!(0, render::G_CACHED_DWIDTH.load(Ordering::Acquire));
-        assert_eq!(0, render::G_CACHED_DHEIGHT.load(Ordering::Acquire));
-        assert_eq!(0, render::G_CACHED_ROTATE.load(Ordering::Acquire));
-        assert_eq!(0, render::G_FRAMES_DRAWN.load(Ordering::Acquire));
-        assert_eq!(0, render::G_FRAMES_STARVED.load(Ordering::Acquire));
-        assert_eq!(0, render::G_LAST_DRAW_MS.load(Ordering::Acquire));
-        assert!(render::REAL_GL_FENCE_SYNC.load(Ordering::Acquire).is_null());
-        assert!(render::REAL_GL_DELETE_SYNC.load(Ordering::Acquire).is_null());
-        assert!(render::REAL_EGL_PRESENTATION_TIME.load(Ordering::Acquire).is_null());
-        assert!(!render::EGL_PRESENTATION_RESOLVED.load(Ordering::Acquire));
-        assert!(render::ACTIVE_FENCES.lock().unwrap().is_empty());
+        assert!(!render::G_SESSION.render_dead.load(Ordering::Acquire));
+        assert!(!render::G_SESSION.awaiting_first_frame.load(Ordering::Acquire));
+        assert!(!render::G_SESSION.file_loaded_reached.load(Ordering::Acquire));
+        assert!(!render::G_SESSION.rearm_video.load(Ordering::Acquire));
+        assert!(!render::G_SESSION.pending_wid_rebind.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.load_started_ms.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.cached_dwidth.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.cached_dheight.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.cached_rotate.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.frames_drawn.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.frames_starved.load(Ordering::Acquire));
+        assert_eq!(0, render::G_SESSION.last_draw_ms.load(Ordering::Acquire));
+        assert!(render::G_SESSION.real_gl_fence_sync.load(Ordering::Acquire).is_null());
+        assert!(render::G_SESSION.real_gl_delete_sync.load(Ordering::Acquire).is_null());
+        assert!(render::G_SESSION.real_egl_presentation_time.load(Ordering::Acquire).is_null());
+        assert!(!render::G_SESSION.egl_presentation_resolved.load(Ordering::Acquire));
+        assert!(render::G_SESSION.active_fences.lock().unwrap().is_empty());
+        assert_eq!(0, events::G_EVENT_PUMP.frame_health.lock().unwrap().late_frames());
     }
 
     #[test]
@@ -214,15 +192,15 @@ mod tests {
         reset_engine_lifecycle_state();
         events::update_cached_video_geometry("width", 1440);
         events::update_cached_video_geometry("height", 1080);
-        assert_eq!(1440, render::G_CACHED_DWIDTH.load(Ordering::Acquire));
-        assert_eq!(1080, render::G_CACHED_DHEIGHT.load(Ordering::Acquire));
+        assert_eq!(1440, render::G_SESSION.cached_dwidth.load(Ordering::Acquire));
+        assert_eq!(1080, render::G_SESSION.cached_dheight.load(Ordering::Acquire));
 
         events::update_cached_video_geometry("dwidth", 1920);
         events::update_cached_video_geometry("dheight", 1080);
         events::update_cached_video_geometry("video-params/rotate", 90);
-        assert_eq!(1920, render::G_CACHED_DWIDTH.load(Ordering::Acquire));
-        assert_eq!(1080, render::G_CACHED_DHEIGHT.load(Ordering::Acquire));
-        assert_eq!(90, render::G_CACHED_ROTATE.load(Ordering::Acquire));
+        assert_eq!(1920, render::G_SESSION.cached_dwidth.load(Ordering::Acquire));
+        assert_eq!(1080, render::G_SESSION.cached_dheight.load(Ordering::Acquire));
+        assert_eq!(90, render::G_SESSION.cached_rotate.load(Ordering::Acquire));
     }
 
     #[test]
