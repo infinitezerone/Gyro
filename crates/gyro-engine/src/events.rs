@@ -106,29 +106,6 @@ pub fn call_static(env: &mut JNIEnv, name: &str, sig: &str, args: &[JValue]) {
     }
 }
 
-pub fn call_static_epoch(
-    env: &mut JNIEnv,
-    name: &str,
-    sig_with_epoch: &str,
-    args_with_epoch: &[JValue],
-    fallback_sig: &str,
-    fallback_args: &[JValue],
-) {
-    let class = match G_CLASS.get() {
-        Some(global) => unsafe { JClass::from_raw(global.as_obj().as_raw().cast()) },
-        None => match env.find_class(GYRO_NATIVE_CLASS) {
-            Ok(c) => c,
-            Err(_) => return,
-        },
-    };
-    if env.call_static_method(&class, name, sig_with_epoch, args_with_epoch).is_err() {
-        let _ = env.exception_clear();
-        if env.call_static_method(&class, name, fallback_sig, fallback_args).is_err() {
-            let _ = env.exception_clear();
-        }
-    }
-}
-
 #[repr(C)]
 struct MpvEvent {
     event_id: c_int,
@@ -239,14 +216,7 @@ fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_v
 
     let Ok(jname) = env.new_string(name) else { return };
     if data.is_null() {
-        call_static_epoch(
-            env,
-            "onPropertyNone",
-            "(Ljava/lang/String;J)V",
-            &[JValue::Object(&jname), JValue::Long(epoch)],
-            "(Ljava/lang/String;)V",
-            &[JValue::Object(&jname)],
-        );
+        call_static(env, "onPropertyNone", "(Ljava/lang/String;J)V", &[JValue::Object(&jname), JValue::Long(epoch)]);
         return;
     }
 
@@ -254,62 +224,27 @@ fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_v
         match format {
             MPV_FORMAT_FLAG => {
                 let v = *(data as *const c_int) != 0;
-                call_static_epoch(
-                    env,
-                    "onPropertyFlag",
-                    "(Ljava/lang/String;ZJ)V",
-                    &[JValue::Object(&jname), JValue::Bool(v as u8), JValue::Long(epoch)],
-                    "(Ljava/lang/String;Z)V",
-                    &[JValue::Object(&jname), JValue::Bool(v as u8)],
-                );
+                call_static(env, "onPropertyFlag", "(Ljava/lang/String;ZJ)V", &[JValue::Object(&jname), JValue::Bool(v as u8), JValue::Long(epoch)]);
             }
             MPV_FORMAT_INT64 => {
                 let v = *(data as *const i64);
-                call_static_epoch(
-                    env,
-                    "onPropertyLong",
-                    "(Ljava/lang/String;JJ)V",
-                    &[JValue::Object(&jname), JValue::Long(v), JValue::Long(epoch)],
-                    "(Ljava/lang/String;J)V",
-                    &[JValue::Object(&jname), JValue::Long(v)],
-                );
+                call_static(env, "onPropertyLong", "(Ljava/lang/String;JJ)V", &[JValue::Object(&jname), JValue::Long(v), JValue::Long(epoch)]);
             }
             MPV_FORMAT_DOUBLE => {
                 let v = *(data as *const f64);
-                call_static_epoch(
-                    env,
-                    "onPropertyDouble",
-                    "(Ljava/lang/String;DJ)V",
-                    &[JValue::Object(&jname), JValue::Double(v), JValue::Long(epoch)],
-                    "(Ljava/lang/String;D)V",
-                    &[JValue::Object(&jname), JValue::Double(v)],
-                );
+                call_static(env, "onPropertyDouble", "(Ljava/lang/String;DJ)V", &[JValue::Object(&jname), JValue::Double(v), JValue::Long(epoch)]);
             }
             MPV_FORMAT_STRING => {
                 let str_ptr = *(data as *const *const c_char);
                 if !str_ptr.is_null() {
                     let s = CStr::from_ptr(str_ptr).to_string_lossy();
                     if let Ok(jv) = env.new_string(s.as_ref()) {
-                        call_static_epoch(
-                            env,
-                            "onPropertyString",
-                            "(Ljava/lang/String;Ljava/lang/String;J)V",
-                            &[JValue::Object(&jname), JValue::Object(&jv), JValue::Long(epoch)],
-                            "(Ljava/lang/String;Ljava/lang/String;)V",
-                            &[JValue::Object(&jname), JValue::Object(&jv)],
-                        );
+                        call_static(env, "onPropertyString", "(Ljava/lang/String;Ljava/lang/String;J)V", &[JValue::Object(&jname), JValue::Object(&jv), JValue::Long(epoch)]);
                     }
                 }
             }
             _ => {
-                call_static_epoch(
-                    env,
-                    "onPropertyNone",
-                    "(Ljava/lang/String;J)V",
-                    &[JValue::Object(&jname), JValue::Long(epoch)],
-                    "(Ljava/lang/String;)V",
-                    &[JValue::Object(&jname)],
-                );
+                call_static(env, "onPropertyNone", "(Ljava/lang/String;J)V", &[JValue::Object(&jname), JValue::Long(epoch)]);
             }
         }
     }
@@ -339,13 +274,11 @@ pub fn signal_first_frame() {
     let Some(VmPtr(vm_ptr)) = G_VM.get() else { return };
     let Ok(vm) = (unsafe { JavaVM::from_raw(vm_ptr.cast()) }) else { return };
     let Ok(mut guard) = vm.attach_current_thread() else { return };
-    call_static_epoch(
+    call_static(
         &mut guard,
         "onEvent",
         "(IJ)V",
         &[JValue::Int(JAVA_EVENT_FIRST_FRAME), JValue::Long(current as i64)],
-        "(I)V",
-        &[JValue::Int(JAVA_EVENT_FIRST_FRAME)],
     );
 }
 
@@ -462,40 +395,19 @@ pub fn event_thread() {
                     // ENDED playback state, and only EOF may produce it — STOP is the engine's
                     // own `replace` load tearing down the previous entry.
                     if reason == MPV_END_FILE_REASON_EOF {
-                        call_static_epoch(
-                            env,
-                            "onEvent",
-                            "(IJ)V",
-                            &[JValue::Int(MPV_EVENT_END_FILE), JValue::Long(epoch)],
-                            "(I)V",
-                            &[JValue::Int(MPV_EVENT_END_FILE)],
-                        );
+                        call_static(env, "onEvent", "(IJ)V", &[JValue::Int(MPV_EVENT_END_FILE), JValue::Long(epoch)]);
                     }
                     // Reason-bearing delivery for every END_FILE. mpv rejecting a file outright
                     // (corrupt container, no playable stream) arrives as reason=ERROR and used to
                     // be swallowed here, which left the Kotlin session phase in Submitting with no
                     // terminal state to show. GyroNative only answers once the Kotlin side grows
                     // `onEndFile`; until then call_static no-ops, so this is additive.
-                    call_static_epoch(
-                        env,
-                        "onEndFile",
-                        "(IJ)V",
-                        &[JValue::Int(reason), JValue::Long(epoch)],
-                        "(I)V",
-                        &[JValue::Int(reason)],
-                    );
+                    call_static(env, "onEndFile", "(IJ)V", &[JValue::Int(reason), JValue::Long(epoch)]);
                 }
                 MPV_EVENT_PLAYBACK_RESTART => {
                     nlog(&format!("event_thread: 收到事件 event_id={event_id}"));
                     let epoch = current_epoch() as i64;
-                    call_static_epoch(
-                        env,
-                        "onEvent",
-                        "(IJ)V",
-                        &[JValue::Int(event_id), JValue::Long(epoch)],
-                        "(I)V",
-                        &[JValue::Int(event_id)],
-                    );
+                    call_static(env, "onEvent", "(IJ)V", &[JValue::Int(event_id), JValue::Long(epoch)]);
                 }
                 _ => {}
             }
