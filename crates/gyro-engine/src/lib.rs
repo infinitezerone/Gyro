@@ -159,6 +159,8 @@ mod tests {
         if let Ok(mut fences) = render::G_SESSION.active_fences.lock() {
             fences.push(render::SyncHandle(0xABCD as *mut c_void));
         }
+        render::G_SESSION.render_slot_ready.store(true, Ordering::Release);
+        render::G_SESSION.pending_vo_check.store(true, Ordering::Release);
         if let Ok(mut health) = events::G_EVENT_PUMP.frame_health.lock() {
             health.on_counter(logic::FrameCounter::DecoderDropped, 10, 1000);
         }
@@ -183,6 +185,8 @@ mod tests {
         assert!(render::G_SESSION.real_egl_presentation_time.load(Ordering::Acquire).is_null());
         assert!(!render::G_SESSION.egl_presentation_resolved.load(Ordering::Acquire));
         assert!(render::G_SESSION.active_fences.lock().unwrap().is_empty());
+        assert!(!render::G_SESSION.render_slot_ready.load(Ordering::Acquire));
+        assert!(!render::G_SESSION.pending_vo_check.load(Ordering::Acquire));
         assert_eq!(0, events::G_EVENT_PUMP.frame_health.lock().unwrap().late_frames());
     }
 

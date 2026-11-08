@@ -201,6 +201,12 @@ pub struct SessionState {
     pub egl_presentation_resolved: AtomicBool,
     /// Fences still in flight for the current GL context; drained on session reset.
     pub active_fences: Mutex<Vec<SyncHandle>>,
+    /// Whether the render thread currently has a bound window surface (mpv render context may
+    /// still be created asynchronously right after). Read from the event thread.
+    pub render_slot_ready: AtomicBool,
+    /// Set when a loadfile/attach ordering warrants re-checking whether mpv gave up its video
+    /// output; consumed and evaluated by the event thread (which owns mpv property access).
+    pub pending_vo_check: AtomicBool,
 }
 
 impl SessionState {
@@ -223,6 +229,8 @@ impl SessionState {
             real_egl_presentation_time: AtomicPtr::new(std::ptr::null_mut()),
             egl_presentation_resolved: AtomicBool::new(false),
             active_fences: Mutex::new(Vec::new()),
+            render_slot_ready: AtomicBool::new(false),
+            pending_vo_check: AtomicBool::new(false),
         }
     }
 
@@ -248,6 +256,8 @@ impl SessionState {
         if let Ok(mut fences) = self.active_fences.lock() {
             fences.clear();
         }
+        self.render_slot_ready.store(false, Ordering::Release);
+        self.pending_vo_check.store(false, Ordering::Release);
     }
 }
 
@@ -391,6 +401,15 @@ unsafe fn probe_graphics_environment(_display: EGLDisplay, _ctx: EGLContext) {}
 
 fn request_video_rearm() {
     G_SESSION.rearm_video.store(true, Ordering::Release);
+    if let Ok((_guard, handle)) = unsafe { mpv_handle_guarded() } {
+        let _ = with_api(|api| unsafe { (api.mpv_wakeup)(handle) });
+    }
+}
+
+/// Wakes the event thread to evaluate a pending `pending_vo_check` WITHOUT requesting an
+/// unconditional re-arm (that is `request_video_rearm`, the GL-recovery path). The event thread
+/// owns mpv property access and validates `VideoOutputRecoveryGate` before re-arming.
+fn request_vo_check_wakeup() {
     if let Ok((_guard, handle)) = unsafe { mpv_handle_guarded() } {
         let _ = with_api(|api| unsafe { (api.mpv_wakeup)(handle) });
     }
@@ -1564,14 +1583,24 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     let pipeline_ok = revive_dead_pipeline(&mut core, &mut mpv_render_ctx);
                     match slot.attach(window, core.context, core.context_major, core.visual_id) {
                         Ok(()) => {
-                            if slot.is_ready() {
+                            let ready = slot.is_ready();
+                            G_SESSION.render_slot_ready.store(ready, Ordering::Release);
+                            if ready {
                                 ensure_render_context(&mut mpv_render_ctx);
                             }
                             nlog(&format!(
                                 "EGL: attach 完成 ready={} ctx_null={}",
-                                slot.is_ready(),
+                                ready,
                                 mpv_render_ctx.is_null()
                             ));
+                            // A loadfile may have beaten this attach: mpv initializes its VO at
+                            // file load and permanently disables video ("Video: no video") when
+                            // no render context exists yet. Ask the event thread to re-check;
+                            // it owns mpv property access and validates before re-arming.
+                            if ready && G_SESSION.file_loaded_reached.load(Ordering::Acquire) {
+                                G_SESSION.pending_vo_check.store(true, Ordering::Release);
+                                request_vo_check_wakeup();
+                            }
                         }
                         Err(err) => {
                             nlog(&format!(
@@ -1582,6 +1611,7 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                 }
                 RenderCommand::DetachSurface => {
                     slot.detach();
+                    G_SESSION.render_slot_ready.store(false, Ordering::Release);
                     nlog("EGL: Surface 已解绑 (EGLContext 与 render context 常驻)");
                 }
                 RenderCommand::Redraw => {
@@ -1678,6 +1708,8 @@ mod tests {
             real_egl_presentation_time: AtomicPtr::new(0x9999 as *mut c_void),
             egl_presentation_resolved: AtomicBool::new(true),
             active_fences: Mutex::new(vec![SyncHandle(0xABCD as *mut c_void)]),
+            render_slot_ready: AtomicBool::new(true),
+            pending_vo_check: AtomicBool::new(true),
         };
 
         s.reset();
@@ -1699,6 +1731,8 @@ mod tests {
         assert!(s.real_egl_presentation_time.load(Ordering::Acquire).is_null());
         assert!(!s.egl_presentation_resolved.load(Ordering::Acquire));
         assert!(s.active_fences.lock().unwrap().is_empty());
+        assert!(!s.render_slot_ready.load(Ordering::Acquire));
+        assert!(!s.pending_vo_check.load(Ordering::Acquire));
     }
 
     #[test]

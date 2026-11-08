@@ -303,6 +303,87 @@ pub fn rearm_video_output() -> bool {
     restored == Some(MPV_ERROR_SUCCESS)
 }
 
+fn get_mpv_string(name: &str) -> Option<String> {
+    with_api(|api| {
+        let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;
+        let name = CString::new(name).ok()?;
+        let mut out: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            let rc = (api.mpv_get_property)(handle, name.as_ptr(), MPV_FORMAT_STRING, std::ptr::from_mut(&mut out).cast::<c_void>());
+            if rc != MPV_ERROR_SUCCESS || out.is_null() {
+                return None;
+            }
+            let s = CStr::from_ptr(out).to_string_lossy().into_owned();
+            (api.mpv_free)(out as *mut c_void);
+            Some(s)
+        }
+    })
+    .ok()
+    .flatten()
+}
+
+fn get_mpv_flag(name: &str) -> Option<bool> {
+    with_api(|api| {
+        let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;
+        let name = CString::new(name).ok()?;
+        let mut out: c_int = 0;
+        unsafe {
+            let rc = (api.mpv_get_property)(handle, name.as_ptr(), MPV_FORMAT_FLAG, std::ptr::from_mut(&mut out).cast::<c_void>());
+            if rc != MPV_ERROR_SUCCESS {
+                return None;
+            }
+            Some(out != 0)
+        }
+    })
+    .ok()
+    .flatten()
+}
+
+/// Whether the current file carries at least one video track. Distinguishes a VO failure
+/// (`video == "no"` despite a video track existing) from a genuine audio-only file.
+fn mpv_has_video_track() -> bool {
+    let count = with_api(|api| {
+        let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;
+        let name = CString::new("track-list/count").ok()?;
+        let mut out: i64 = 0;
+        unsafe {
+            let rc = (api.mpv_get_property)(handle, name.as_ptr(), MPV_FORMAT_INT64, std::ptr::from_mut(&mut out).cast::<c_void>());
+            if rc != MPV_ERROR_SUCCESS {
+                return None;
+            }
+            Some(out)
+        }
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(0);
+    (0..count).any(|i| get_mpv_string(&format!("track-list/{i}/type")).as_deref() == Some("video"))
+}
+
+/// Evaluates [`VideoOutputRecoveryGate`] against live mpv state and re-arms the video track when
+/// a loadfile raced ahead of the render context. Called from the event thread only.
+fn maybe_rearm_video_output() {
+    if !G_SESSION.file_loaded_reached.load(Ordering::Acquire) {
+        return;
+    }
+    let render_ready = G_SESSION.render_slot_ready.load(Ordering::Acquire);
+    let video_disabled = get_mpv_string("video").as_deref() == Some("no");
+    let has_video_track = mpv_has_video_track();
+    if crate::logic::VideoOutputRecoveryGate::should_rearm(
+        true,
+        render_ready,
+        video_disabled,
+        has_video_track,
+    ) {
+        nlog("RECOVERY: mpv 在渲染上下文就绪前放弃了视频输出（Video: no video），重挂视频轨");
+        rearm_video_output();
+    } else {
+        nlog(&format!(
+            "RECOVERY: VO 检查无需重挂 (render_ready={render_ready}, video_disabled={video_disabled}, has_video_track={has_video_track})"
+        ));
+    }
+}
+
 pub fn event_thread() {
     nlog("event_thread: 启动");
     let VmPtr(vm_ptr) = match G_VM.get() {
@@ -331,6 +412,9 @@ pub fn event_thread() {
         if G_SESSION.rearm_video.swap(false, Ordering::AcqRel) {
             nlog("event_thread: 渲染线程请求重新启用视频输出");
             rearm_video_output();
+        }
+        if G_SESSION.pending_vo_check.swap(false, Ordering::AcqRel) {
+            maybe_rearm_video_output();
         }
         if event.is_null() { continue; }
 
@@ -379,6 +463,10 @@ pub fn event_thread() {
                     crate::tracelog("NATIVE_MPV_FILE_LOADED", "");
                     G_SESSION.file_loaded_reached.store(true, Ordering::Release);
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
+                    // The loadfile may have raced ahead of the render context: mpv initializes
+                    // its VO during load and permanently disables video when none exists yet.
+                    // If the render context landed after that failure, nothing else will retry.
+                    maybe_rearm_video_output();
                     let epoch = current_epoch() as i64;
                     call_static(env, "onEvent", "(IJ)V", &[JValue::Int(event_id), JValue::Long(epoch)]);
                 }

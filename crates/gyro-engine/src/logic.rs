@@ -50,6 +50,33 @@ impl FirstFrameGate {
     }
 }
 
+/// Decides whether mpv's video output needs the `vid no -> vid auto` re-arm after a loadfile
+/// raced ahead of the render context.
+///
+/// mpv initializes its VO during file load: when no render context exists at that instant it
+/// logs "Error opening/initializing the selected video_out" and **permanently disables video**
+/// ("Video: no video") - it does NOT "simply start pushing frames once the render context
+/// exists", which is exactly what the fire-and-forget attach design assumed. Once the render
+/// context arrives, nothing retries, leaving audio-only playback over a black screen.
+///
+/// All four facts must hold to re-arm: the file finished loading, a render context is now
+/// available, mpv disabled the video output (`video == "no"`), and the file actually carries a
+/// video track (a genuine audio-only file must never be re-armed). CI-pinned here; the device
+/// race this encodes was found on PLK110 on 2026-11-08.
+#[derive(Debug, Default)]
+pub struct VideoOutputRecoveryGate;
+
+impl VideoOutputRecoveryGate {
+    pub const fn should_rearm(
+        file_loaded: bool,
+        render_context_ready: bool,
+        video_disabled: bool,
+        has_video_track: bool,
+    ) -> bool {
+        file_loaded && render_context_ready && video_disabled && has_video_track
+    }
+}
+
 /// One-slot gate that collapses mpv's per-frame update notifications into at most one queued
 /// render command.
 ///
@@ -1196,5 +1223,29 @@ mod tests {
     #[test]
     fn first_frame_gate_requires_the_demuxer_to_have_loaded_the_file() {
         assert!(!FirstFrameGate::should_signal(false, false, false));
+    }
+
+    // ---------- VideoOutputRecoveryGate ----------
+
+    #[test]
+    fn recovery_gate_rearms_when_mpv_gave_up_video_on_a_loaded_file_with_render_context() {
+        assert!(VideoOutputRecoveryGate::should_rearm(true, true, true, true));
+    }
+
+    #[test]
+    fn recovery_gate_never_rearms_a_genuine_audio_only_file() {
+        assert!(!VideoOutputRecoveryGate::should_rearm(true, true, true, false));
+    }
+
+    #[test]
+    fn recovery_gate_never_rearms_while_video_output_is_alive_or_pending() {
+        // Healthy load: VO not yet configured but the video track is still selected.
+        assert!(!VideoOutputRecoveryGate::should_rearm(true, true, false, true));
+    }
+
+    #[test]
+    fn recovery_gate_requires_render_context_and_loaded_file() {
+        assert!(!VideoOutputRecoveryGate::should_rearm(false, true, true, true));
+        assert!(!VideoOutputRecoveryGate::should_rearm(true, false, true, true));
     }
 }
