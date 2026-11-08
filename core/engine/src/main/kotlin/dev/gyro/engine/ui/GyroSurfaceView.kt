@@ -132,22 +132,6 @@ class GyroSurfaceView @JvmOverloads constructor(
     /** Frame rate of the content on screen, 0 when the system should pick. */
     private var contentFrameRate = 0f
 
-    /**
-     * ColorOS (OnePlus / OPPO / Realme) OplusRefreshRateInjectorImpl walks the view hierarchy
-     * when WindowInsets change (controls hide). If it finds a visible SurfaceView where
-     * `!isZOrderedOnTop()`, it unconditionally overrides window refresh rate to 60Hz (refreshRateId 2),
-     * causing severe frame judder/drops on 90fps/120fps content.
-     *
-     * In Android SurfaceView, `isZOrderedOnTop()` is a public (hidden from public SDK) virtual method.
-     * By providing this method with matching signature `public boolean isZOrderedOnTop()`,
-     * ART virtual dispatch directs ColorOS to this implementation.
-     * Returning true causes `surfaceViewAvailable` to return false, completely neutralizing ColorOS's
-     * vendor 60Hz override and letting standard Android Window/Surface display-rate voting rule.
-     */
-    @Suppress("unused")
-    fun isZOrderedOnTop(): Boolean {
-        return true
-    }
 
     /** Surface whose window the engine currently holds, for the ownership check in `surfaceDestroyed`. */
     private var attachedSurface: Surface? = null
