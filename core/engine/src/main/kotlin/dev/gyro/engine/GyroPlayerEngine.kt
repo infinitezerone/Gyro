@@ -272,6 +272,10 @@ class GyroPlayerEngine(
         )
     )
 
+    var isHeadlessMode: Boolean
+        get() = loadCoordinator.isHeadlessMode
+        set(value) { loadCoordinator.isHeadlessMode = value }
+
     fun attachSurface(surface: Surface) {
         ensureNativeInitialized()
         loadCoordinator.attachSurface(surface)

@@ -153,6 +153,7 @@ class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
+        engine.isHeadlessMode = true
 
         // Lazy-connect engine if not yet attached
         if (mediaSessionManager == null) {
@@ -388,6 +389,7 @@ class PlaybackService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
+        engine.isHeadlessMode = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -427,6 +429,7 @@ class PlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
+        engine.isHeadlessMode = false
         serviceScope.cancel()
         currentThumbnailBitmap = null
         currentThumbnailUri = null

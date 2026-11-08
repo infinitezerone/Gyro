@@ -546,12 +546,11 @@ fun PlayerScreen(
             val containerAspect = if (videoContainerSize.height > 0) {
                 videoContainerSize.width.toFloat() / videoContainerSize.height
             } else 0f
-            val isLayoutSettled = isAudioOnly || (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
+            val isFlexibleMode = resizeMode == ResizeMode.CROP || resizeMode == ResizeMode.STRETCH
+            val isLayoutSettled = isAudioOnly || isFlexibleMode || (videoContainerSize.width > 0 && videoContainerSize.height > 0 &&
                 kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * 0.05f)
 
             if (isLayoutSettled) {
-                // Wait 2 VSYNC frames so Compose layout and SurfaceFlinger have committed the new bounds
-                withFrameNanos { }
                 withFrameNanos { }
                 SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
                 isShutterReady = true

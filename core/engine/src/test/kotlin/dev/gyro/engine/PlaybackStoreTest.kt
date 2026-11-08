@@ -109,4 +109,23 @@ class PlaybackStoreTest {
         assertEquals(PlaybackState.READY, engine.state.value.playbackState)
         engine.release()
     }
+
+    @Test
+    fun headlessPlaybackAllowsLoadingWithoutSurface() {
+        val bridge = FakeMpvNativeBridge()
+        val engine = GyroPlayerEngine(
+            bridge = bridge,
+            resolver = FakeMediaResourceResolver()
+        )
+        engine.warmUp()
+        engine.isHeadlessMode = true
+
+        engine.load("file:///tmp/audio.mp3")
+        assertTrue(engine.state.value.session is SessionPhase.Submitting)
+
+        bridge.emitEvent(MpvNativeBridge.Event.FILE_LOADED)
+        assertTrue(engine.state.value.session is SessionPhase.Loaded)
+        assertEquals(PlaybackState.READY, engine.state.value.playbackState)
+        engine.release()
+    }
 }

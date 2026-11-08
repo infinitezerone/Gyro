@@ -155,8 +155,11 @@ class MediaLoadCoordinator(
         SwitchTrace.log("SHUTTER_ARMED", "firstFrame=false, geometryReady=false")
     }
 
+    @Volatile
+    var isHeadlessMode: Boolean = false
+
     private fun submitOrQueue(source: ResolvedMediaSource, startPositionMs: Long, label: String) {
-        if (!isSurfaceAttached) {
+        if (!isSurfaceAttached && !isHeadlessMode) {
             EngineLog.i(TAG, "load: surface not attached yet, queueing $label")
             discardPending()
             pendingSource = source
@@ -201,6 +204,7 @@ class MediaLoadCoordinator(
     fun attachSurface(surface: Surface) {
         attachedSurfaceRef = surface
         isSurfaceAttached = true
+        isHeadlessMode = false
         bridge.attachSurface(surface)
         flushPendingSourceOnSurfaceReady()
     }
@@ -212,6 +216,7 @@ class MediaLoadCoordinator(
         }
         attachedSurfaceRef = surfaceToken
         isSurfaceAttached = true
+        isHeadlessMode = false
         flushPendingSourceOnSurfaceReady()
     }
 
