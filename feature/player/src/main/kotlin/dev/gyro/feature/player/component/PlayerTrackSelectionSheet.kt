@@ -1,6 +1,7 @@
 package dev.gyro.feature.player.component
 
 import dev.gyro.feature.player.PowerMetrics
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +42,7 @@ import dev.gyro.core.designsystem.component.GyroPillButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -693,62 +695,163 @@ fun PlayerTrackSelectionSheetContent(
                     }
                 }
                 PlayerSheetTab.SUBTITLES -> {
-                    // Subtitles Tab
-                    LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {
-                        item {
+                    // 现代字幕配置面板 (全展开平滑滚动，无截断)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // 1. 字幕轨道选择
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.sheet_tab_subtitles),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64B5F6)
+                                )
+                                Text(
+                                    text = "${subtitleTracks.size} 个字幕",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.5f)
+                                )
+                            }
+
                             TrackItem(
                                 title = stringResource(R.string.track_none_subtitle),
                                 subtitle = "Off",
                                 isSelected = subtitleTracks.none { it.isSelected },
+                                accentColor = Color(0xFF64B5F6),
+                                icon = Icons.Default.ClosedCaption,
                                 onClick = { onSelectTrack("sub", 0) }
                             )
-                        }
-                        items(subtitleTracks) { track ->
-                            TrackItem(
-                                title = track.title ?: "内置字幕 #${track.id}",
-                                subtitle = track.lang?.uppercase() ?: "ASS/SRT",
-                                isSelected = track.isSelected,
-                                onClick = { onSelectTrack("sub", track.id) }
-                            )
-                        }
-                        item {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.White.copy(alpha = 0.1f))
-                            Row(
+
+                            subtitleTracks.forEach { track ->
+                                TrackItem(
+                                    title = track.title ?: "内置字幕 #${track.id}",
+                                    subtitle = track.lang?.uppercase() ?: "ASS/SRT",
+                                    isSelected = track.isSelected,
+                                    accentColor = Color(0xFF64B5F6),
+                                    icon = Icons.Default.ClosedCaption,
+                                    onClick = { onSelectTrack("sub", track.id) }
+                                )
+                            }
+
+                            Surface(
+                                onClick = { onAddExternalSubtitle() },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White.copy(alpha = 0.05f),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onAddExternalSubtitle() }
-                                    .padding(horizontal = 24.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(horizontal = 20.dp, vertical = 4.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF64B5F6))
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(stringResource(R.string.track_add_external_sub), color = Color(0xFF64B5F6), fontWeight = FontWeight.Medium)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF64B5F6).copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = null,
+                                            tint = Color(0xFF64B5F6),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = stringResource(R.string.track_add_external_sub),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF64B5F6)
+                                    )
+                                }
                             }
                         }
-                        item {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.White.copy(alpha = 0.1f))
-                            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)) {
-                                SyncCalibrationItem(
-                                    label = stringResource(R.string.sync_sub_delay),
-                                    currentSec = subDelaySec,
-                                    onValueChange = onSetSubDelay
+
+                        // 2. 字幕同步校准
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "字幕同步",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF64B5F6),
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+
+                            SyncCalibrationItem(
+                                label = stringResource(R.string.sync_sub_delay),
+                                currentSec = subDelaySec,
+                                accentColor = Color(0xFF64B5F6),
+                                onValueChange = onSetSubDelay
+                            )
+                        }
+
+                        // 3. 字幕样式微调 (尺寸与位置)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.White.copy(alpha = 0.05f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.sub_scale_title),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
                                 )
-                                Spacer(modifier = Modifier.height(14.dp))
-                                Text(stringResource(R.string.sub_scale_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     listOf(0.8, 1.0, 1.2, 1.5).forEach { scale ->
                                         FilterChip(
                                             selected = Math.abs(subScale - scale) < 0.05,
                                             onClick = { onSetSubScale(scale) },
-                                            label = { Text("${scale}x") }
+                                            label = { Text("${scale}x") },
+                                            modifier = Modifier.weight(1f)
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(stringResource(R.string.sub_pos_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Text(
+                                    text = stringResource(R.string.sub_pos_title),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     listOf(
                                         100L to stringResource(R.string.sub_pos_bottom),
                                         95L to stringResource(R.string.sub_pos_raised),
@@ -757,7 +860,8 @@ fun PlayerTrackSelectionSheetContent(
                                         FilterChip(
                                             selected = subPos == pos,
                                             onClick = { onSetSubPos(pos) },
-                                            label = { Text(label) }
+                                            label = { Text(label) },
+                                            modifier = Modifier.weight(1f)
                                         )
                                     }
                                 }
@@ -766,30 +870,109 @@ fun PlayerTrackSelectionSheetContent(
                     }
                 }
                 PlayerSheetTab.AUDIO -> {
-                    // Audio Tracks
-                    LazyColumn(modifier = Modifier.fillMaxWidth().height(300.dp)) {
-                        items(audioTracks) { track ->
-                            TrackItem(
-                                title = track.title ?: "音频轨道 #${track.id}",
-                                subtitle = track.lang?.uppercase() ?: "Undetermined",
-                                isSelected = track.isSelected,
-                                onClick = { onSelectTrack("audio", track.id) }
-                            )
-                        }
-                        if (audioTracks.isEmpty()) {
-                            item {
-                                EmptyTrackNotice(stringResource(R.string.track_none_audio))
-                            }
-                        }
-                        item {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(alpha = 0.1f))
-                            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-                                SyncCalibrationItem(
-                                    label = stringResource(R.string.sync_audio_delay),
-                                    currentSec = audioDelaySec,
-                                    onValueChange = onSetAudioDelay
+                    // 现代顶级音轨与音频处理大厅 (全展开平滑滚动，无截断)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // 1. 音轨选择列表 (卡片化微磨砂)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.sheet_tab_audio),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF81C784)
+                                )
+                                Text(
+                                    text = "${audioTracks.size} 个音轨",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.5f)
                                 )
                             }
+
+                            if (audioTracks.isEmpty()) {
+                                EmptyTrackNotice(stringResource(R.string.track_none_audio))
+                            } else {
+                                audioTracks.forEach { track ->
+                                    TrackItem(
+                                        title = track.title ?: "音频轨道 #${track.id}",
+                                        subtitle = track.lang?.uppercase() ?: "Standard Audio",
+                                        isSelected = track.isSelected,
+                                        accentColor = Color(0xFF81C784),
+                                        icon = Icons.AutoMirrored.Filled.VolumeUp,
+                                        onClick = { onSelectTrack("audio", track.id) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. 音效增强 (夜间模式 / 声道混缩)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = stringResource(R.string.effects_audio_group),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF81C784),
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White.copy(alpha = 0.05f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                            ) {
+                                Column {
+                                    FilterSwitchRow(
+                                        title = stringResource(R.string.effects_night_dialogue),
+                                        description = stringResource(R.string.effects_night_dialogue_desc),
+                                        checked = nightMode,
+                                        onCheckedChange = onSetNightMode
+                                    )
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        color = Color.White.copy(alpha = 0.08f)
+                                    )
+                                    FilterSwitchRow(
+                                        title = stringResource(R.string.effects_stereo_downmix),
+                                        description = stringResource(R.string.effects_stereo_downmix_desc),
+                                        checked = stereoDownmix,
+                                        onCheckedChange = onSetStereoDownmix
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3. 声音延迟校准卡片
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "声音同步",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF81C784),
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+
+                            SyncCalibrationItem(
+                                label = stringResource(R.string.sync_audio_delay),
+                                currentSec = audioDelaySec,
+                                accentColor = Color(0xFF81C784),
+                                onValueChange = onSetAudioDelay
+                            )
                         }
                     }
                 }
@@ -1086,44 +1269,133 @@ private fun MediaInfoRow(
 private fun SyncCalibrationItem(
     label: String,
     currentSec: Double,
+    accentColor: Color = Color(0xFF64B5F6),
     onValueChange: (Double) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.05f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
         ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
-            val sign = if (currentSec > 0.0) "+" else ""
-            Text(
-                text = "$sign${String.format(Locale.US, "%.1fs", currentSec)}",
-                style = TextStyle(
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF64B5F6),
-                    fontFeatureSettings = "tnum"
-                )
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(onClick = { onValueChange(currentSec - 0.5) }) { Text("-0.5s") }
-            OutlinedButton(onClick = { onValueChange(currentSec - 0.1) }) { Text("-0.1s") }
-            Button(
-                onClick = { onValueChange(0.0) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f))
+            // Row 1: 标题与实时同步状态胶囊
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("重置")
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+
+                val formatted = String.format(Locale.US, "%.1fs", currentSec)
+                val statusText = when {
+                    currentSec > 0.05 -> "延迟 +$formatted"
+                    currentSec < -0.05 -> "提前 $formatted"
+                    else -> "已同步 0.0s"
+                }
+                val statusColor = when {
+                    Math.abs(currentSec) > 0.05 -> accentColor
+                    else -> Color(0xFF81C784)
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = statusColor.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = statusText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor,
+                        style = TextStyle(fontFeatureSettings = "tnum"),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
             }
-            OutlinedButton(onClick = { onValueChange(currentSec + 0.1) }) { Text("+0.1s") }
-            OutlinedButton(onClick = { onValueChange(currentSec + 0.5) }) { Text("+0.5s") }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Row 2: 细调步进按钮组 [-0.1s] [ 重置 ] [+0.1s]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    onClick = { onValueChange(currentSec - 0.1) },
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color.White.copy(alpha = 0.08f),
+                        contentColor = Color.White
+                    ),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("-0.1s", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+
+                FilledTonalButton(
+                    onClick = { onValueChange(0.0) },
+                    modifier = Modifier.weight(1.2f).height(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    enabled = Math.abs(currentSec) > 0.01,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = accentColor.copy(alpha = 0.2f),
+                        contentColor = accentColor,
+                        disabledContainerColor = Color.White.copy(alpha = 0.04f),
+                        disabledContentColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("重置", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                FilledTonalButton(
+                    onClick = { onValueChange(currentSec + 0.1) },
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color.White.copy(alpha = 0.08f),
+                        contentColor = Color.White
+                    ),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("+0.1s", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Row 3: 粗调快速芯片组 [-1.0s] [-0.5s] [+0.5s] [+1.0s]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(-1.0, -0.5, 0.5, 1.0).forEach { delta ->
+                    val sign = if (delta > 0) "+" else ""
+                    FilledTonalButton(
+                        onClick = { onValueChange(currentSec + delta) },
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.05f),
+                            contentColor = Color.White.copy(alpha = 0.7f)
+                        ),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("$sign${delta}s", fontSize = 11.sp, fontWeight = FontWeight.Normal)
+                    }
+                }
+            }
         }
     }
 }
@@ -1133,30 +1405,69 @@ private fun TrackItem(
     title: String,
     subtitle: String,
     isSelected: Boolean,
+    accentColor: Color = Color(0xFF64B5F6),
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit
 ) {
-    Row(
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) accentColor.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
+        border = if (isSelected) BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)) else null,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 20.dp, vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = if (isSelected) Color(0xFF64B5F6) else Color.White
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.6f)
-            )
-        }
-        if (isSelected) {
-            Icon(Icons.Default.Check, contentDescription = "Selected", tint = Color(0xFF64B5F6))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (icon != null) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) accentColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (isSelected) accentColor else Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) accentColor else Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.55f)
+                    )
+                }
+            }
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
