@@ -26,6 +26,7 @@ use crate::mpv::{
     MPV_RENDER_PARAM_NEXT_FRAME_INFO, MPV_RENDER_PARAM_OPENGL_FBO,
     MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, MPV_RENDER_PARAM_SKIP_RENDERING, MPV_RENDER_UPDATE_FRAME,
 };
+pub use crate::strategy::{DrawOutcome, RenderBackend, RenderStrategy};
 use crate::{monotonic_ms, monotonic_ns, nlog, reset_engine_lifecycle_state};
 
 // ---------- NDK 原生绑定 (EGL / Android Native Window) ----------
@@ -1072,7 +1073,7 @@ unsafe fn free_render_context(
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-unsafe fn skip_frame_native(ctx: *mut c_void) {
+pub(crate) unsafe fn skip_frame_native(ctx: *mut c_void) {
     let _ = with_api(|api| {
         let flags = (api.mpv_render_context_update)(ctx);
         if flags & MPV_RENDER_UPDATE_FRAME == 0 {
@@ -1096,14 +1097,6 @@ unsafe fn skip_frame_native(ctx: *mut c_void) {
         ];
         let _ = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
     });
-}
-
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum DrawOutcome {
-    Presented,
-    Skipped,
-    ContextLost,
 }
 
 #[cfg(target_os = "android")]
@@ -1433,6 +1426,7 @@ unsafe fn recover_gl_context(
     true
 }
 
+#[allow(dead_code)]
 #[cfg(target_os = "android")]
 unsafe fn draw_and_recover(
     core: &mut EglCore,
@@ -1457,7 +1451,7 @@ unsafe fn draw_and_recover(
     }
 }
 
-unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
+pub(crate) unsafe extern "C" fn mpv_update_callback(_ctx: *mut c_void) {
     if !G_FRAME_GATE.try_acquire() {
         return;
     }
@@ -1533,6 +1527,158 @@ pub fn destroy_render_context_sync() {
     }
 }
 
+// ---------- 策略模式：EGL / OpenGL ES 渲染策略实现 ----------
+
+#[cfg(target_os = "android")]
+pub struct EglRenderStrategy {
+    core: EglCore,
+    slot: SurfaceSlot,
+}
+
+#[cfg(target_os = "android")]
+unsafe impl Send for EglRenderStrategy {}
+#[cfg(target_os = "android")]
+unsafe impl Sync for EglRenderStrategy {}
+
+#[cfg(target_os = "android")]
+impl EglRenderStrategy {
+    pub(crate) fn new(core: EglCore, slot: SurfaceSlot) -> Self {
+        Self { core, slot }
+    }
+}
+
+#[cfg(target_os = "android")]
+impl RenderStrategy for EglRenderStrategy {
+    fn name(&self) -> &'static str {
+        "OpenGL ES (EGL)"
+    }
+
+    fn backend_type(&self) -> RenderBackend {
+        RenderBackend::OpenGlEs
+    }
+
+    fn attach_surface(&mut self, window: *mut c_void, mpv_render_ctx: &mut *mut c_void) -> Result<(), i32> {
+        let _ = unsafe { revive_dead_pipeline(&mut self.core, mpv_render_ctx) };
+        unsafe { self.slot.attach(window, self.core.context, self.core.context_major, self.core.visual_id) }
+    }
+
+    fn detach_surface(&mut self) {
+        unsafe { self.slot.detach() };
+    }
+
+    fn is_ready(&self) -> bool {
+        self.slot.is_ready()
+    }
+
+    fn ensure_render_context(&mut self, mpv_render_ctx: &mut *mut c_void) -> bool {
+        unsafe { ensure_render_context(mpv_render_ctx) };
+        !mpv_render_ctx.is_null()
+    }
+
+    fn free_render_context(&mut self, mpv_render_ctx: &mut *mut c_void) {
+        unsafe { free_render_context(self.core.display, self.core.context, mpv_render_ctx) };
+    }
+
+    fn draw_frame(&mut self, mpv_render_ctx: *mut c_void, force: bool) -> DrawOutcome {
+        if !self.slot.is_ready() || mpv_render_ctx.is_null() {
+            return DrawOutcome::Skipped;
+        }
+        if G_SESSION.render_dead.load(Ordering::Acquire) {
+            return DrawOutcome::Skipped;
+        }
+        unsafe {
+            let outcome = draw_frame_native(self.core.display, self.slot.surface(), mpv_render_ctx, force);
+            if outcome == DrawOutcome::ContextLost {
+                nlog("EGL: eglSwapBuffers 报告上下文丢失，开始重建管线");
+                let mut ctx_box = mpv_render_ctx;
+                if recover_gl_context(&mut self.core, &mut self.slot, &mut ctx_box) {
+                    return draw_frame_native(self.core.display, self.slot.surface(), ctx_box, true);
+                }
+            }
+            outcome
+        }
+    }
+
+    fn skip_frame(&mut self, mpv_render_ctx: *mut c_void) {
+        if !mpv_render_ctx.is_null() {
+            unsafe { skip_frame_native(mpv_render_ctx) };
+        }
+    }
+
+    fn destroy(&mut self) {
+        unsafe {
+            self.slot.detach();
+            self.core.destroy();
+        }
+    }
+}
+
+pub static G_PREFER_VULKAN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "android")]
+unsafe fn init_egl_strategy() -> Result<EglRenderStrategy, String> {
+    let display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if display == EGL_NO_DISPLAY {
+        return Err("eglGetDisplay".into());
+    }
+
+    let mut major: EGLint = 0;
+    let mut minor: EGLint = 0;
+    if eglInitialize(display, &mut major, &mut minor) != EGL_TRUE {
+        return Err("eglInitialize".into());
+    }
+    nlog(&format!("EGL: 初始化完成 version={major}.{minor}"));
+
+    let chosen = match choose_egl_config(display, false) {
+        Some(c) => c,
+        None => return Err("choose_egl_config".into()),
+    };
+
+    let mut context: EGLContext = EGL_NO_CONTEXT;
+    let mut context_major: EGLint = 0;
+    for v in CONTEXT_CLIENT_VERSIONS {
+        context = EglCore::create_context_with_major(display, chosen.config, v);
+        if context != EGL_NO_CONTEXT {
+            nlog(&format!("EGL: 成功创建 OpenGL ES 上下文 (v{v})"));
+            context_major = v;
+            break;
+        }
+    }
+    if context == EGL_NO_CONTEXT {
+        return Err("eglCreateContext(all-versions)".into());
+    }
+
+    probe_graphics_environment(display, context);
+
+    let core = EglCore {
+        display,
+        config: chosen.config,
+        context,
+        context_major,
+        visual_id: chosen.visual_id,
+    };
+
+    let slot = SurfaceSlot::new(display, chosen.config);
+    Ok(EglRenderStrategy::new(core, slot))
+}
+
+#[cfg(target_os = "android")]
+unsafe fn create_render_strategy() -> Result<Box<dyn RenderStrategy>, String> {
+    if G_PREFER_VULKAN.load(Ordering::Acquire) {
+        nlog("渲染策略: 配置优先请求 Vulkan 渲染后端");
+        match crate::vulkan::VulkanRenderStrategy::new() {
+            Ok(vk) => {
+                nlog("渲染策略: 成功加载 Vulkan 策略");
+                return Ok(Box::new(vk));
+            }
+            Err(e) => {
+                nlog(&format!("渲染策略: Vulkan 不可用 ({e})，平滑降级至 EGL 策略"));
+            }
+        }
+    }
+    init_egl_strategy().map(|egl| Box::new(egl) as Box<dyn RenderStrategy>)
+}
+
 pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
     let owner_tid = logical_thread_id();
     if let Ok(mut affinity) = G_AFFINITY.lock() {
@@ -1542,95 +1688,57 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
 
     #[cfg(target_os = "android")]
     unsafe {
-        let display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        if display == EGL_NO_DISPLAY {
-            egl_failure("eglGetDisplay");
-            return;
-        }
-
-        let mut major: EGLint = 0;
-        let mut minor: EGLint = 0;
-        if eglInitialize(display, &mut major, &mut minor) != EGL_TRUE {
-            egl_failure("eglInitialize");
-            return;
-        }
-        nlog(&format!("EGL: 初始化完成 version={major}.{minor}"));
-
-        let chosen = match choose_egl_config(display, false) {
-            Some(c) => c,
-            None => return,
-        };
-
-        let mut context: EGLContext = EGL_NO_CONTEXT;
-        let mut context_major: EGLint = 0;
-        for v in CONTEXT_CLIENT_VERSIONS {
-            context = EglCore::create_context_with_major(display, chosen.config, v);
-            if context != EGL_NO_CONTEXT {
-                nlog(&format!("EGL: 成功创建 OpenGL ES 上下文 (v{v})"));
-                context_major = v;
-                break;
+        let mut strategy: Box<dyn RenderStrategy> = match create_render_strategy() {
+            Ok(s) => s,
+            Err(e) => {
+                egl_failure(&format!("create_render_strategy: {e}"));
+                return;
             }
-        }
-        if context == EGL_NO_CONTEXT {
-            egl_failure("eglCreateContext(all-versions)");
-            return;
-        }
-
-        probe_graphics_environment(display, context);
-
-        let mut core = EglCore {
-            display,
-            config: chosen.config,
-            context,
-            context_major,
-            visual_id: chosen.visual_id,
         };
 
-        let mut slot = SurfaceSlot::new(display, chosen.config);
+        nlog(&format!("渲染线程: 当前活跃渲染策略为 [{}]", strategy.name()));
+
         let mut mpv_render_ctx: *mut c_void = std::ptr::null_mut();
 
         while let Ok(cmd) = receiver.recv() {
             match cmd {
                 RenderCommand::AttachSurface(NativeWindowPtr(window)) => {
-                    nlog("EGL: 收到 AttachSurface 命令");
-                    let pipeline_ok = revive_dead_pipeline(&mut core, &mut mpv_render_ctx);
-                    match slot.attach(window, core.context, core.context_major, core.visual_id) {
-                        Ok(()) => {
-                            let ready = slot.is_ready();
-                            G_SESSION.render_slot_ready.store(ready, Ordering::Release);
-                            if ready {
-                                ensure_render_context(&mut mpv_render_ctx);
-                            }
-                            nlog(&format!(
-                                "EGL: attach 完成 ready={} ctx_null={}",
-                                ready,
-                                mpv_render_ctx.is_null()
-                            ));
-                            // A loadfile may have beaten this attach: mpv initializes its VO at
-                            // file load and permanently disables video ("Video: no video") when
-                            // no render context exists yet. Ask the event thread to re-check;
-                            // it owns mpv property access and validates before re-arming.
-                            if ready && G_SESSION.file_loaded_reached.load(Ordering::Acquire) {
-                                G_SESSION.pending_vo_check.store(true, Ordering::Release);
-                                request_vo_check_wakeup();
+                    nlog(&format!("{}: 收到 AttachSurface 命令", strategy.name()));
+                    let _ = strategy.attach_surface(window, &mut mpv_render_ctx);
+                    let ready = strategy.is_ready();
+                    G_SESSION.render_slot_ready.store(ready, Ordering::Release);
+                    if ready {
+                        let ctx_ok = strategy.ensure_render_context(&mut mpv_render_ctx);
+                        if !ctx_ok && strategy.backend_type() != RenderBackend::OpenGlEs {
+                            nlog("Vulkan: mpv_render_context 创建不受支持，自动无缝降级至 EGL 策略");
+                            strategy.destroy();
+                            if let Ok(mut egl_strat) = init_egl_strategy() {
+                                let _ = egl_strat.attach_surface(window, &mut mpv_render_ctx);
+                                egl_strat.ensure_render_context(&mut mpv_render_ctx);
+                                strategy = Box::new(egl_strat);
                             }
                         }
-                        Err(err) => {
-                            nlog(&format!(
-                                "EGL: attach 失败 (error=0x{err:X}) pipeline_ok={pipeline_ok}"
-                            ));
-                        }
+                    }
+                    nlog(&format!(
+                        "{}: attach 完成 ready={} ctx_null={}",
+                        strategy.name(),
+                        ready,
+                        mpv_render_ctx.is_null()
+                    ));
+                    if ready && G_SESSION.file_loaded_reached.load(Ordering::Acquire) {
+                        G_SESSION.pending_vo_check.store(true, Ordering::Release);
+                        request_vo_check_wakeup();
                     }
                 }
                 RenderCommand::DetachSurface => {
-                    slot.detach();
+                    strategy.detach_surface();
                     G_SESSION.render_slot_ready.store(false, Ordering::Release);
-                    nlog("EGL: Surface 已解绑 (EGLContext 与 render context 常驻)");
+                    nlog(&format!("{}: Surface 已解绑", strategy.name()));
                 }
                 RenderCommand::Redraw => {
                     let awaiting = G_SESSION.awaiting_first_frame.load(Ordering::Acquire);
                     let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
-                    let ready = slot.is_ready();
+                    let ready = strategy.is_ready();
                     crate::tracelog(
                         "NATIVE_CMD_REDRAW",
                         &format!("slot_ready={ready}, awaiting_first_frame={awaiting}, file_loaded={file_loaded}"),
@@ -1639,33 +1747,29 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         crate::tracelog("NATIVE_REDRAW_SKIPPED_AWAITING_FIRST_FRAME", "");
                         continue;
                     }
-                    nlog("EGL: 收到 Redraw 命令");
-                    if slot.is_ready() && !mpv_render_ctx.is_null() {
-                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, true);
+                    nlog(&format!("{}: 收到 Redraw 命令", strategy.name()));
+                    if ready && !mpv_render_ctx.is_null() {
+                        strategy.draw_frame(mpv_render_ctx, true);
                     }
                 }
                 RenderCommand::NotifyFrame => {
                     G_FRAME_GATE.release();
-                    if slot.is_ready() {
-                        ensure_render_context(&mut mpv_render_ctx);
-                        draw_and_recover(&mut core, &mut slot, &mut mpv_render_ctx, false);
+                    if strategy.is_ready() {
+                        strategy.ensure_render_context(&mut mpv_render_ctx);
+                        strategy.draw_frame(mpv_render_ctx, false);
                     } else if !mpv_render_ctx.is_null() {
-                        skip_frame_native(mpv_render_ctx);
+                        strategy.skip_frame(mpv_render_ctx);
                     }
                 }
                 RenderCommand::DestroyContext(ack) => {
-                    nlog("EGL: 收到 DestroyContext 请求，开始销毁 mpv_render_context");
-                    if !mpv_render_ctx.is_null() {
-                        free_render_context(core.display, core.context, &mut mpv_render_ctx);
-                        nlog("EGL: mpv_render_context 已在渲染线程安全释放");
-                    }
+                    nlog(&format!("{}: 收到 DestroyContext 请求，开始销毁 mpv_render_context", strategy.name()));
+                    strategy.free_render_context(&mut mpv_render_ctx);
                     let _ = ack.send(());
                 }
                 RenderCommand::Shutdown => {
-                    nlog("EGL: 渲染线程正在退出并清理资源");
-                    free_render_context(core.display, core.context, &mut mpv_render_ctx);
-                    slot.detach();
-                    core.destroy();
+                    nlog(&format!("{}: 渲染线程正在退出并清理资源", strategy.name()));
+                    strategy.free_render_context(&mut mpv_render_ctx);
+                    strategy.destroy();
                     reset_engine_lifecycle_state();
                     if let Ok(mut affinity) = G_AFFINITY.lock() {
                         affinity.release(owner_tid);

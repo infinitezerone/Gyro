@@ -36,6 +36,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setVoRenderer(renderer: String) {
+        viewModelScope.launch {
+            repository.setVoRenderer(renderer)
+        }
+    }
+
     fun setDefaultHwdec(hwdec: String) {
         viewModelScope.launch {
             repository.setDefaultHwdec(hwdec)

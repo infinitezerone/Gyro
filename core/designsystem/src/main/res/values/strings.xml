@@ -137,6 +137,13 @@
 
     <!-- Settings: Decoder & Video -->
     <string name="settings_group_decoder">解码与视频</string>
+    <string name="settings_vo_renderer">渲染引擎与管线</string>
+    <string name="settings_vo_libmpv">OpenGL ES (经典高效 · Hable电影色调)</string>
+    <string name="settings_vo_gpu_next">gpu-next (libplacebo · BT.2446a高保真HDR)</string>
+    <string name="stats_render_pipeline">渲染管线</string>
+    <string name="stats_render_backend">渲染引擎</string>
+    <string name="stats_tone_mapping">色调映射</string>
+    <string name="stats_texture_scaler">纹理重采样</string>
     <string name="settings_default_hwdec">默认解码器</string>
     <string name="settings_hwdec_mediacodec">硬件加速 (MediaCodec)</string>
     <string name="settings_hwdec_copy">硬件复制 (MediaCodec-Copy)</string>

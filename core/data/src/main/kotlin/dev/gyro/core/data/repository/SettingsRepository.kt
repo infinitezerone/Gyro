@@ -27,6 +27,7 @@ interface SettingsRepository {
     suspend fun setBackgroundPlayMode(mode: String): UserSettings
     suspend fun setSeekStepSeconds(seconds: Int): UserSettings
     suspend fun setDefaultHwdec(hwdec: String): UserSettings
+    suspend fun setVoRenderer(renderer: String): UserSettings
     suspend fun setSubAutoLoad(enabled: Boolean): UserSettings
     suspend fun setGesturesEnabled(enabled: Boolean): UserSettings
 
@@ -77,6 +78,9 @@ class DefaultSettingsRepository @Inject constructor(
 
     override suspend fun setDefaultHwdec(hwdec: String) =
         updateSettings { it.copy(defaultHwdec = hwdec) }
+
+    override suspend fun setVoRenderer(renderer: String) =
+        updateSettings { it.copy(voRenderer = renderer) }
 
     override suspend fun setSubAutoLoad(enabled: Boolean) =
         updateSettings { it.copy(subAutoLoad = enabled) }

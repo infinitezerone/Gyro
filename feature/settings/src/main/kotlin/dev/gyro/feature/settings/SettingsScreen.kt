@@ -71,6 +71,7 @@ fun SettingsScreen(
         onUpdateBgPlay = { viewModel.setBackgroundPlayMode(it) },
         onUpdateSeekStep = { viewModel.setSeekStepSeconds(it) },
         onUpdateHwdec = { viewModel.setDefaultHwdec(it) },
+        onUpdateVoRenderer = { viewModel.setVoRenderer(it) },
         onUpdateSubAutoLoad = { viewModel.setSubAutoLoad(it) },
         onUpdateGestures = { viewModel.setGesturesEnabled(it) },
         modifier = modifier
@@ -89,6 +90,7 @@ fun SettingsContent(
     onUpdateBgPlay: (String) -> Unit,
     onUpdateSeekStep: (Int) -> Unit,
     onUpdateHwdec: (String) -> Unit,
+    onUpdateVoRenderer: (String) -> Unit = {},
     onUpdateSubAutoLoad: (Boolean) -> Unit,
     onUpdateGestures: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -96,6 +98,7 @@ fun SettingsContent(
     var showSeekStepDialog by remember { mutableStateOf(false) }
     var showBgPlayDialog by remember { mutableStateOf(false) }
     var showHwdecDialog by remember { mutableStateOf(false) }
+    var showVoDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -164,6 +167,15 @@ fun SettingsContent(
             // 2. 解码与视频
             item {
                 PreferenceGroup(title = stringResource(R.string.settings_group_decoder)) {
+                    val voLabel = when (settings.voRenderer) {
+                        dev.gyro.core.model.VO_GPU_NEXT -> stringResource(R.string.settings_vo_gpu_next)
+                        else -> stringResource(R.string.settings_vo_libmpv)
+                    }
+                    PreferenceClickItem(
+                        title = stringResource(R.string.settings_vo_renderer),
+                        value = voLabel,
+                        onClick = { showVoDialog = true }
+                    )
                     val hwdecLabel = when (settings.defaultHwdec) {
                         "mediacodec" -> stringResource(R.string.settings_hwdec_mediacodec)
                         "mediacodec-copy" -> stringResource(R.string.settings_hwdec_copy)

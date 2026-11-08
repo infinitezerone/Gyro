@@ -1929,6 +1929,44 @@ private fun AspectTabContent(
                 }
             }
         }
+        // 3. 渲染管线配置
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.stats_render_pipeline),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_render_backend),
+                        value = "OpenGL ES · EGL Pipeline"
+                    )
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_tone_mapping),
+                        value = "Hable (电影级保真 · 动态防过曝)"
+                    )
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_texture_scaler),
+                        value = "Spline36 (三次多项式样条插值)"
+                    )
+                    MediaInfoRow(
+                        label = "HDR 峰值亮度计算",
+                        value = "hdr-compute-peak = yes (已开启)"
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -2093,6 +2131,44 @@ private fun StatsTabContent(
                             fontSize = 12.sp
                         )
                     }
+                }
+            }
+        }
+        // 3. 渲染管线配置
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.stats_render_pipeline),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF64B5F6),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_render_backend),
+                        value = "OpenGL ES · EGL Pipeline"
+                    )
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_tone_mapping),
+                        value = "Hable (电影级保真 · 动态防过曝)"
+                    )
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_texture_scaler),
+                        value = "Spline36 (三次多项式样条插值)"
+                    )
+                    MediaInfoRow(
+                        label = "HDR 峰值亮度计算",
+                        value = "hdr-compute-peak = yes (已开启)"
+                    )
                 }
             }
         }

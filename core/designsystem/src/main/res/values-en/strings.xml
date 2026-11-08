@@ -127,6 +127,13 @@
     <string name="settings_bg_play_off">Disabled</string>
     <!-- Settings: Decoder & Video -->
     <string name="settings_group_decoder">Decoder &amp; Video</string>
+    <string name="settings_vo_renderer">Render Engine &amp; Pipeline</string>
+    <string name="settings_vo_libmpv">OpenGL ES (Classic · Filmic Hable)</string>
+    <string name="settings_vo_gpu_next">gpu-next (libplacebo · BT.2446a HDR)</string>
+    <string name="stats_render_pipeline">Render Pipeline</string>
+    <string name="stats_render_backend">Render Engine</string>
+    <string name="stats_tone_mapping">Tone Mapping</string>
+    <string name="stats_texture_scaler">Texture Scaler</string>
     <string name="settings_default_hwdec">Default Decoder</string>
     <string name="settings_hwdec_mediacodec">Hardware Accelerated (MediaCodec)</string>
     <string name="settings_hwdec_copy">Hardware Copy (MediaCodec-Copy)</string>
