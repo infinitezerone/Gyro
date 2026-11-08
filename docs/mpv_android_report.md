@@ -4,9 +4,7 @@
 
 - **筛选范围**：从全部 816 条评论中深度筛选同时涉及 **MPV** 与 **Android / 安卓 / 手机移动端** 的讨论。
 - **匹配结果**：共筛选出 **34 条** 高度相关评论（包含主评与楼中楼深度对话）。
-- **导出文件位置**：
-  - CSV 表格（含 Excel 友好编码）：[mpv_android_comments.csv](file:///d:/program/Android/Gyro/mpv_android_comments.csv)
-  - 完整 JSON 数据：[mpv_android_comments.json](file:///d:/program/Android/Gyro/mpv_android_comments.json)
+- **导出文件**：原始 CSV/JSON 抓取产物已随仓库卫生清理移除，本报告为保留的分析结论。
 
 ---
 

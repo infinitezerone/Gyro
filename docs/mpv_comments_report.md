@@ -5,9 +5,7 @@
 - **目标视频**：[【VLC、PotPlayer、MPV怎么选？优缺点一次讲透】](https://www.bilibili.com/video/BV1FfKr6iELb/)
 - **抓取范围**：该视频下的全部主评论与楼中楼展开回复（共抓取 816 条评论数据）
 - **MPV 相关评论总数**：**160 条**（涉及 89 个独立讨论主题帖）
-- **导出文件位置**：
-  - CSV 表格（含 Excel 友好编码）：[mpv_comments.csv](file:///d:/program/Android/Gyro/mpv_comments.csv)
-  - 完整 JSON 数据：[mpv_comments.json](file:///d:/program/Android/Gyro/mpv_comments.json)
+- **导出文件**：原始 CSV/JSON 抓取产物已随仓库卫生清理移除，本报告为保留的分析结论。
 
 ---
 
@@ -87,9 +85,9 @@ mindmap
 
 ---
 
-## 四、 本地数据字段说明
+## 四、 抓取数据字段说明
 
-已在工作区生成的 `mpv_comments.csv` 包含以下字段：
+原始抓取所用 `mpv_comments.csv`（已清理）包含以下字段：
 
 | 字段名称 | 说明 |
 | :--- | :--- |
