@@ -186,12 +186,16 @@ fun PlayerScreen(
     var statsOverlayEnabled by remember { mutableStateOf(false) }
 
     // 实时码率波形采样序列（环形缓存，每 500ms 采样一次）
+    // 性能优化：仅当用户开启常驻诊断浮层，或抽屉切至统计/设置中心时才启动采样协程；关闭时自动取消协程，零后台 CPU / 零 UI 重组开销
     val bitrateHistory = remember { androidx.compose.runtime.mutableStateListOf<Long>() }
     var liveVideoBitrate by remember { mutableLongStateOf(0L) }
     var liveAudioBitrate by remember { mutableLongStateOf(0L) }
+    val isStatsActive = statsOverlayEnabled ||
+        playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.STATS ||
+        playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.SETTINGS_HUB
 
-    LaunchedEffect(isPlaying) {
-        if (!isPlaying) return@LaunchedEffect
+    LaunchedEffect(isPlaying, isStatsActive) {
+        if (!isPlaying || !isStatsActive) return@LaunchedEffect
         while (true) {
             val (vLive, aLive) = engine.queryLiveBitrate()
             val currentV: Long = if (vLive > 0L) {
