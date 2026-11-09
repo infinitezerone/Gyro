@@ -1,9 +1,7 @@
 package dev.gyro.player
 
 import android.content.pm.ActivityInfo
-import android.app.PictureInPictureUiState
 import android.content.res.Configuration
-import android.view.MotionEvent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -343,29 +341,6 @@ class MainActivity : ComponentActivity() {
      * clears it.
      */
     private var wasInPipMode = false
-
-    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
-            val dm = resources.displayMetrics
-            val bottomNavZone = dm.heightPixels - (48 * dm.density)
-            if (ev.rawY >= bottomNavZone) {
-                playerViewModel.triggerForceHideControls()
-            }
-        }
-        return super.dispatchTouchEvent(ev)
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        playerViewModel.triggerForceHideControls()
-    }
-
-    override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
-        super.onPictureInPictureUiStateChanged(pipState)
-        if (Build.VERSION.SDK_INT >= 35 && pipState.isTransitioningToPip) {
-            playerViewModel.triggerForceHideControls()
-        }
-    }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
