@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.sp
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
+import dev.gyro.feature.player.component.sheet.common.SheetChip
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
@@ -79,7 +81,7 @@ internal fun SpeedTabContent(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (Math.abs(currentSpeed - 1.0f) < 0.01f) "标准播放速率 (原速)" else "自定义变速播放中",
+                    text = if (Math.abs(currentSpeed - 1.0f) < 0.01f) "正常速度" else "变速播放",
                     fontSize = 13.sp,
                     color = SheetTextSecondaryColor
                 )
@@ -97,7 +99,7 @@ internal fun SpeedTabContent(
                     ) {
                         Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("恢复 1.0x 原速", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("恢复 1.0x", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -105,13 +107,7 @@ internal fun SpeedTabContent(
 
         // Section 1: 预设倍速矩阵
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "快捷预设倍速",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            SheetSectionHeader("预设倍速", modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
 
             val row1 = listOf(0.5f, 0.75f, 1.0f, 1.25f)
             Row(
@@ -119,10 +115,10 @@ internal fun SpeedTabContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 row1.forEach { sp ->
-                    FilterChip(
+                    SheetChip(
                         selected = Math.abs(currentSpeed - sp) < 0.01f,
                         onClick = { callbacks.onSelectSpeed(sp) },
-                        label = { Text("${sp}x") },
+                        label = "${sp}x",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -134,10 +130,10 @@ internal fun SpeedTabContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 row2.forEach { sp ->
-                    FilterChip(
+                    SheetChip(
                         selected = Math.abs(currentSpeed - sp) < 0.01f,
                         onClick = { callbacks.onSelectSpeed(sp) },
-                        label = { Text("${sp}x") },
+                        label = "${sp}x",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -145,35 +141,19 @@ internal fun SpeedTabContent(
         }
 
         // Section 2: 无级精细调速
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = SheetCardColor,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "无级精细微调",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = SheetTextColor
-                    )
-                    Text(
-                        text = "0.25x - 3.0x",
-                        fontSize = 12.sp,
-                        color = SheetTextColor.copy(alpha = 0.5f)
-                    )
-                }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SheetSectionHeader("精细调节", modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = SheetCardColor,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -223,6 +203,7 @@ internal fun SpeedTabContent(
                     }
                 }
             }
+        }
         }
     }
 }

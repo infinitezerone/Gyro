@@ -4,11 +4,15 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.Display
+import android.view.PixelCopy
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -30,6 +34,10 @@ import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -255,6 +263,49 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Captures the current visible frame directly from the hardware [SurfaceView]
+     * using [PixelCopy], completely bypassing decoder memory access restrictions
+     * (such as zero-copy MediaCodec hardware decoding).
+     */
+    suspend fun captureBitmap(): Bitmap? = withContext(Dispatchers.Main) {
+        val s = holder.surface
+        if (s == null || !s.isValid || width <= 0 || height <= 0) {
+            EngineLog.w(TAG, "captureBitmap aborted: surface valid=${s?.isValid}, size=${width}x$height")
+            return@withContext null
+        }
+        val bitmap = try {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        } catch (t: Throwable) {
+            EngineLog.e(TAG, "captureBitmap Bitmap.createBitmap failed", t)
+            return@withContext null
+        }
+        suspendCancellableCoroutine { continuation ->
+            val handler = Handler(Looper.getMainLooper())
+            try {
+                PixelCopy.request(
+                    this@GyroSurfaceView,
+                    bitmap,
+                    { copyResult ->
+                        if (copyResult == PixelCopy.SUCCESS) {
+                            EngineLog.i(TAG, "captureBitmap PixelCopy SUCCESS: ${bitmap.width}x${bitmap.height}")
+                            continuation.resume(bitmap)
+                        } else {
+                            EngineLog.w(TAG, "captureBitmap PixelCopy failed: code=$copyResult")
+                            bitmap.recycle()
+                            continuation.resume(null)
+                        }
+                    },
+                    handler
+                )
+            } catch (e: Throwable) {
+                EngineLog.e(TAG, "captureBitmap PixelCopy.request exception", e)
+                bitmap.recycle()
+                continuation.resume(null)
+            }
+        }
+    }
+
     fun applyContentFrameRate(fps: Float) {
         EngineLog.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
         contentFrameRate = fps
@@ -380,13 +431,18 @@ fun GyroPlayerSurface(
     engine: GyroPlayerEngine? = null,
     videoDimensions: VideoDimensions? = null,
     videoFrameRate: Float? = null,
-    onAppliedBufferSizeChanged: ((androidx.compose.ui.unit.IntSize) -> Unit)? = null
+    onAppliedBufferSizeChanged: ((androidx.compose.ui.unit.IntSize) -> Unit)? = null,
+    onSurfaceViewAvailable: ((GyroSurfaceView) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val surfaceView = remember {
         GyroSurfaceView(context).apply {
             this.engine = engine
+            onSurfaceViewAvailable?.invoke(this)
         }
+    }
+    LaunchedEffect(surfaceView) {
+        onSurfaceViewAvailable?.invoke(surfaceView)
     }
 
     // Tell the engine up front whether the panel can present HDR. Without it mpv is told to

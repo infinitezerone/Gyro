@@ -30,6 +30,7 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.ColorSliderRow
 import dev.gyro.feature.player.component.sheet.common.FilterSwitchRow
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 
@@ -49,23 +50,17 @@ internal fun AudiovisualTabContent(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. 画质滤波优化
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "画质优化",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SheetSectionHeader("画质优化", modifier = Modifier.padding(start = 4.dp))
 
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = SheetCardColor,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 FilterSwitchRow(
                     title = stringResource(R.string.effects_deband),
-                    description = stringResource(R.string.effects_deband_desc),
+                    description = "消除暗场与色彩断层",
                     checked = state.deband,
                     onCheckedChange = callbacks.onSetDeband
                 )
@@ -75,18 +70,11 @@ internal fun AudiovisualTabContent(
         // 2. 画面色彩校准卡片
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.effects_color_group),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = SheetAccentBlue
-                )
+                SheetSectionHeader(stringResource(R.string.effects_color_group), modifier = Modifier.padding(start = 4.dp))
 
                 val hasColorModifications =
                     state.brightness != 0 || state.contrast != 0 || state.saturation != 0

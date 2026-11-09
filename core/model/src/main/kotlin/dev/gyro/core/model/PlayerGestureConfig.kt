@@ -42,7 +42,7 @@ data class PlayerGestureConfig(
     val isDoubleTapPlayPauseEnabled: Boolean = true,
     val isLongPressSpeedEnabled: Boolean = true,
     val swapVolumeAndBrightness: Boolean = false,
-    val verticalSwipeMode: VerticalSwipeMode = VerticalSwipeMode.BRIGHTNESS_AND_VOLUME,
+    val verticalSwipeMode: VerticalSwipeMode = VerticalSwipeMode.SWITCH_VIDEO,
     val doubleTapSeekSeconds: Int = 10,
     val longPressSpeed: Float = 2.0f,
     val edgeExclusionPx: Float = 72f,

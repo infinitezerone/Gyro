@@ -238,7 +238,11 @@ class PlayerGestureNode(
                                 callbacks.onSeekStart(dragStartPosMs)
                             } else if (abs(dragDelta.y) > abs(dragDelta.x) * 1.5f) {
                                 if (config.verticalSwipeMode == dev.gyro.core.model.VerticalSwipeMode.SWITCH_VIDEO) {
-                                    dragMode = DragMode.VERTICAL_SWITCH_VIDEO
+                                    // Yield vertical drag to parent VerticalPager for native TikTok feed scrolling
+                                    cancelTapTimers()
+                                    longPressJob?.cancel()
+                                    longPressJob = null
+                                    return@awaitEachGesture
                                 } else {
                                     val isLeft = downPosition.x < size.width / 2f
                                     val isBrightnessTarget = if (config.swapVolumeAndBrightness) !isLeft else isLeft
@@ -317,15 +321,6 @@ class PlayerGestureNode(
                             val deltaRatio = (deltaY / dragSpan) * config.volumeSensitivity
                             callbacks.onVolumeUpdate(deltaRatio)
                         }
-                        DragMode.VERTICAL_SWITCH_VIDEO -> {
-                            pointer.consume()
-                            val totalDeltaY = pointer.position.y - downPosition.y
-                            val thresholdPx = (size.height * 0.10f).coerceIn(80f, 220f)
-                            if (abs(totalDeltaY) >= thresholdPx) {
-                                val isNext = totalDeltaY < 0 // 向上划：下一集；向下划：上一集
-                                callbacks.onHudStateChange(GestureHudState.SwitchVideo(isNext))
-                            }
-                        }
                         else -> {
                             // Ignored edge drag
                         }
@@ -360,18 +355,6 @@ class PlayerGestureNode(
                 cancelTapTimers()
                 if (dragMode == DragMode.HORIZONTAL_SEEK) {
                     callbacks.onSeekEnd(lastSeekTargetMs)
-                } else if (dragMode == DragMode.VERTICAL_SWITCH_VIDEO) {
-                    val totalDeltaY = lastPointerPosition.y - downPosition.y
-                    val thresholdPx = (size.height * 0.10f).coerceIn(80f, 220f)
-                    if (totalDeltaY < -thresholdPx) {
-                        // 向上滑切换下一集
-                        callbacks.onHudStateChange(GestureHudState.SwitchVideo(isNext = true))
-                        callbacks.onPlayNext()
-                    } else if (totalDeltaY > thresholdPx) {
-                        // 向下滑切换上一集
-                        callbacks.onHudStateChange(GestureHudState.SwitchVideo(isNext = false))
-                        callbacks.onPlayPrevious()
-                    }
                 }
                 dragMode = DragMode.UNDETERMINED
                 coroutineScope.launch {

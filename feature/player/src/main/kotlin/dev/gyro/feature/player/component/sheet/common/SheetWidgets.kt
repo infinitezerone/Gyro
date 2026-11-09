@@ -38,18 +38,71 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// —— Sheet 简约白主题（二级界面走明亮白调，与播放器浮层的暗玻璃形成节奏对比） ——
-internal val SheetBgColor = Color(0xFFFAFAFA)
-internal val SheetCardColor = Color(0xFFF1F3F5)
-internal val SheetCardAltColor = Color(0xFFE9ECEF)
-internal val SheetTrackColor = Color(0xFFD6DAE0)
-internal val SheetTextColor = Color(0xFF1C1E21)
-internal val SheetTextSecondaryColor = Color(0xFF5F6570)
+// —— 统一深色高质感设计规范（与播放器悬浮层、全局设置和暗色沉浸主题完全统一） ——
+internal val SheetBgColor = Color(0xFF14161D)
+internal val SheetCardColor = Color(0xFF1C202B)
+internal val SheetCardAltColor = Color(0xFF242938)
+internal val SheetTrackColor = Color(0xFF333A4D)
+internal val SheetTextColor = Color.White
+internal val SheetTextSecondaryColor = Color.White.copy(alpha = 0.65f)
 
-// 强调色收敛为蓝系一个，辅以可读性更强的深绿/深琥珀
-internal val SheetAccentBlue = Color(0xFF1976D2)
-internal val SheetGreen = Color(0xFF2E7D32)
-internal val SheetAmber = Color(0xFFB26A00)
+// 强调色：统一科技蓝，辅以翠绿/暖琥珀
+internal val SheetAccentBlue = Color(0xFF2196F3)
+internal val SheetGreen = Color(0xFF4CAF50)
+internal val SheetAmber = Color(0xFFFFB74D)
+
+/**
+ * 设置大厅与二级设置分类分组小标题 (SheetSectionHeader)
+ */
+@Composable
+internal fun SheetSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = title,
+        style = TextStyle(
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = SheetAccentBlue
+        ),
+        modifier = modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 4.dp)
+    )
+}
+
+/**
+ * 统一现代微磨砂胶囊筛选/预设项 (SheetChip)
+ */
+@Composable
+internal fun SheetChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) SheetAccentBlue.copy(alpha = 0.22f) else SheetCardColor,
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (selected) 1.dp else 0.5.dp,
+            color = if (selected) SheetAccentBlue else Color.White.copy(alpha = 0.08f)
+        ),
+        modifier = modifier.height(36.dp)
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) SheetAccentBlue else SheetTextColor
+            )
+        }
+    }
+}
 
 /**
  * 现代轻量级设置卡片项 (SettingsHubItem)
@@ -66,6 +119,7 @@ internal fun SettingsHubItem(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
         color = SheetCardColor,
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 4.dp)

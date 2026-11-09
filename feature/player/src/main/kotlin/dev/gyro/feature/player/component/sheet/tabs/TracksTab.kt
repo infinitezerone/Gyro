@@ -41,6 +41,8 @@ import dev.gyro.feature.player.component.sheet.common.FilterSwitchRow
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
+import dev.gyro.feature.player.component.sheet.common.SheetChip
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetGreen
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
@@ -68,16 +70,11 @@ internal fun SubtitlesTabContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 2.dp),
+                    .padding(end = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.sheet_tab_subtitles),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = SheetAccentBlue
-                )
+                SheetSectionHeader(stringResource(R.string.sheet_tab_subtitles))
                 Text(
                     text = stringResource(R.string.subtitle_count_format, state.subtitleTracks.size),
                     style = MaterialTheme.typography.bodySmall,
@@ -86,8 +83,8 @@ internal fun SubtitlesTabContent(
             }
 
             TrackItem(
-                title = stringResource(R.string.track_none_subtitle),
-                subtitle = "Off",
+                title = "关闭字幕",
+                subtitle = "",
                 isSelected = state.subtitleTracks.none { it.isSelected },
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.ClosedCaption,
@@ -149,16 +146,11 @@ internal fun SubtitlesTabContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 2.dp),
+                    .padding(end = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.secondary_sub_section),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = SheetAccentBlue
-                )
+                SheetSectionHeader(stringResource(R.string.secondary_sub_section))
                 Text(
                     text = stringResource(
                         if (state.secondarySubId > 0) R.string.secondary_sub_on else R.string.secondary_sub_off
@@ -169,8 +161,8 @@ internal fun SubtitlesTabContent(
             }
 
             TrackItem(
-                title = stringResource(R.string.secondary_sub_disable),
-                subtitle = "Off",
+                title = "关闭次字幕",
+                subtitle = "",
                 isSelected = state.secondarySubId <= 0,
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.ClosedCaption,
@@ -191,23 +183,27 @@ internal fun SubtitlesTabContent(
 
         // 3. 字幕同步校准
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = stringResource(R.string.subtitles_sync_group),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            SheetSectionHeader(stringResource(R.string.subtitles_sync_group))
 
-            SyncCalibrationItem(
-                label = stringResource(R.string.sync_sub_delay),
-                currentSec = state.subDelaySec,
-                accentColor = SheetAccentBlue,
-                onValueChange = callbacks.onSetSubDelay
-            )
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = SheetCardColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Box(modifier = Modifier.padding(14.dp)) {
+                    SyncCalibrationItem(
+                        label = stringResource(R.string.sync_sub_delay),
+                        currentSec = state.subDelaySec,
+                        accentColor = SheetAccentBlue,
+                        onValueChange = callbacks.onSetSubDelay
+                    )
+                }
+            }
         }
 
         // 3. 字幕样式微调 (尺寸与位置)
@@ -224,7 +220,7 @@ internal fun SubtitlesTabContent(
                     .padding(14.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.sub_scale_title),
+                    text = "字幕字号",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = SheetTextColor
@@ -235,10 +231,10 @@ internal fun SubtitlesTabContent(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(0.8, 1.0, 1.2, 1.5).forEach { scale ->
-                        FilterChip(
+                        SheetChip(
                             selected = Math.abs(state.subScale - scale) < 0.05,
                             onClick = { callbacks.onSetSubScale(scale) },
-                            label = { Text("${scale}x") },
+                            label = "${scale}x",
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -247,7 +243,7 @@ internal fun SubtitlesTabContent(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = stringResource(R.string.sub_pos_title),
+                    text = "字幕位置",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = SheetTextColor
@@ -262,10 +258,10 @@ internal fun SubtitlesTabContent(
                         95L to stringResource(R.string.sub_pos_raised),
                         90L to stringResource(R.string.sub_pos_middle)
                     ).forEach { (pos, label) ->
-                        FilterChip(
+                        SheetChip(
                             selected = state.subPos == pos,
                             onClick = { callbacks.onSetSubPos(pos) },
-                            label = { Text(label) },
+                            label = label,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -295,16 +291,11 @@ internal fun AudioTabContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 2.dp),
+                    .padding(end = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.sheet_tab_audio),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = SheetGreen
-                )
+                SheetSectionHeader(stringResource(R.string.sheet_tab_audio))
                 Text(
                     text = stringResource(R.string.audio_track_count_format, state.audioTracks.size),
                     style = MaterialTheme.typography.bodySmall,
@@ -320,7 +311,7 @@ internal fun AudioTabContent(
                         title = track.title ?: "音频轨道 #${track.id}",
                         subtitle = track.lang?.uppercase() ?: "Standard Audio",
                         isSelected = track.isSelected,
-                        accentColor = SheetGreen,
+                        accentColor = SheetAccentBlue,
                         icon = Icons.AutoMirrored.Filled.VolumeUp,
                         onClick = { callbacks.onSelectTrack("audio", track.id) }
                     )
@@ -329,17 +320,11 @@ internal fun AudioTabContent(
         }
 
         // 2. 音效增强 (夜间模式 / 声道混缩)
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = stringResource(R.string.effects_audio_group),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetGreen,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SheetSectionHeader(stringResource(R.string.effects_audio_group))
 
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = SheetCardColor,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -347,8 +332,8 @@ internal fun AudioTabContent(
             ) {
                 Column {
                     FilterSwitchRow(
-                        title = stringResource(R.string.effects_night_dialogue),
-                        description = stringResource(R.string.effects_night_dialogue_desc),
+                        title = "夜间模式",
+                        description = "增强对白清晰度，抑制突发大音量",
                         checked = state.nightMode,
                         onCheckedChange = callbacks.onSetNightMode
                     )
@@ -357,8 +342,8 @@ internal fun AudioTabContent(
                         color = SheetCardAltColor
                     )
                     FilterSwitchRow(
-                        title = stringResource(R.string.effects_stereo_downmix),
-                        description = stringResource(R.string.effects_stereo_downmix_desc),
+                        title = "立体声混缩",
+                        description = "多声道合并输出为双声道",
                         checked = state.stereoDownmix,
                         onCheckedChange = callbacks.onSetStereoDownmix
                     )
@@ -368,23 +353,27 @@ internal fun AudioTabContent(
 
         // 3. 声音延迟校准卡片
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = stringResource(R.string.audio_sync_group),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetGreen,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            SheetSectionHeader(stringResource(R.string.audio_sync_group))
 
-            SyncCalibrationItem(
-                label = stringResource(R.string.sync_audio_delay),
-                currentSec = state.audioDelaySec,
-                accentColor = SheetGreen,
-                onValueChange = callbacks.onSetAudioDelay
-            )
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = SheetCardColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Box(modifier = Modifier.padding(14.dp)) {
+                    SyncCalibrationItem(
+                        label = stringResource(R.string.sync_audio_delay),
+                        currentSec = state.audioDelaySec,
+                        accentColor = SheetAccentBlue,
+                        onValueChange = callbacks.onSetAudioDelay
+                    )
+                }
+            }
         }
     }
 }

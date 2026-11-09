@@ -166,4 +166,40 @@ class PlayerGestureTest {
         callbacks.onSettleZoom()
         assertTrue(settleZoomCalled)
     }
+
+    @Test
+    fun testDefaultPlayerGestureCallbacksVerticalSwitchDelegation() {
+        var startCalled = false
+        var recordedDeltaY = 0f
+        var endRecordedDeltaY = 0f
+
+        val callbacks = DefaultPlayerGestureCallbacks(
+            context = null,
+            currentPosMs = { 0L },
+            durationMs = { 0L },
+            scrubState = null,
+            zoomScale = { 1.0f },
+            onZoomChange = { _, _, _, _ -> },
+            onResetZoom = {},
+            onSettleZoom = {},
+            onSingleTap = {},
+            onDoubleTapSeek = {},
+            onDoubleTapPlayPause = {},
+            onFastForwardStart = {},
+            onFastForwardEnd = {},
+            onHudStateChange = {},
+            onVerticalSwitchDragStart = { startCalled = true },
+            onVerticalSwitchDragUpdate = { recordedDeltaY = it },
+            onVerticalSwitchDragEnd = { endRecordedDeltaY = it }
+        )
+
+        callbacks.onVerticalSwitchDragStart()
+        assertTrue(startCalled)
+
+        callbacks.onVerticalSwitchDragUpdate(-150f)
+        assertEquals(-150f, recordedDeltaY, 0.001f)
+
+        callbacks.onVerticalSwitchDragEnd(-200f)
+        assertEquals(-200f, endRecordedDeltaY, 0.001f)
+    }
 }

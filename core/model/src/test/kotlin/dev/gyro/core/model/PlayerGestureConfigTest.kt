@@ -21,6 +21,7 @@ class PlayerGestureConfigTest {
         assertTrue("isDoubleTapPlayPauseEnabled defaults to true", config.isDoubleTapPlayPauseEnabled)
         assertTrue("isLongPressSpeedEnabled defaults to true", config.isLongPressSpeedEnabled)
         assertFalse("swapVolumeAndBrightness defaults to false", config.swapVolumeAndBrightness)
+        assertEquals("verticalSwipeMode defaults to SWITCH_VIDEO", VerticalSwipeMode.SWITCH_VIDEO, config.verticalSwipeMode)
 
         // Values & Sensitivities
         assertEquals(10, config.doubleTapSeekSeconds)

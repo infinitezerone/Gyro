@@ -138,8 +138,8 @@ fun PlayerBottomBar(
                 Text(
                     text = formatTime(displayPos),
                     style = TextStyle(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
                         color = Color.White,
                         fontFeatureSettings = "tnum",
                         shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
@@ -148,9 +148,9 @@ fun PlayerBottomBar(
                 Text(
                     text = secondaryTimeText,
                     style = TextStyle(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = Color.White.copy(alpha = 0.70f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.65f),
                         fontFeatureSettings = "tnum",
                         shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
                     )
@@ -204,8 +204,8 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 4. AB 循环按钮（仅在激活状态或横屏时展示）
-                if (abLoopASeconds >= 0 || isLandscape) {
+                // 3. AB 循环按钮（仅在激活状态或横屏时展示）
+                if (isLandscape && abLoopASeconds >= 0) {
                     val abStateLabel = when {
                         abLoopASeconds >= 0 && abLoopBSeconds >= 0 -> "循环中"
                         abLoopASeconds >= 0 -> "A✓ 设B"
@@ -217,23 +217,40 @@ fun PlayerBottomBar(
                         onClick = onCycleAbLoop,
                         color = abColor
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+
+                // 4. 字幕快开钮（横屏时展示；竖屏收纳于顶部菜单或面板）
+                if (isLandscape) {
+                    GyroCircleActionButton(
+                        onClick = onToggleSubtitle,
+                        onLongClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                        icon = Icons.Default.ClosedCaption,
+                        contentDescription = stringResource(R.string.sheet_tab_subtitles),
+                        size = 38.dp,
+                        iconSize = 22.dp,
+                        containerColor = Color.Transparent,
+                        contentColor = if (subtitleEnabled) GyroColors.PrimaryLight else Color.White.copy(alpha = 0.50f),
+                        border = null
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                 }
 
-                // 5. 字幕快开钮（单击切换开启/关闭，长按呼出字幕选择与设置面板）
-                GyroCircleActionButton(
-                    onClick = onToggleSubtitle,
-                    onLongClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
-                    icon = Icons.Default.ClosedCaption,
-                    contentDescription = stringResource(R.string.sheet_tab_subtitles),
-                    size = 38.dp,
-                    iconSize = 22.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = if (subtitleEnabled) GyroColors.PrimaryLight else Color.White.copy(alpha = 0.50f),
-                    border = null
-                )
-
-                Spacer(modifier = Modifier.width(2.dp))
+                // 5. 画面比例（横屏展示；竖屏收纳于设置面板，避免挤占）
+                if (isLandscape) {
+                    val aspectLabel = when (resizeMode) {
+                        ResizeMode.FIT -> "适屏"
+                        ResizeMode.CROP -> "填充"
+                        ResizeMode.STRETCH -> "拉伸"
+                        ResizeMode.ASPECT_16_9 -> "16:9"
+                        ResizeMode.ASPECT_21_9 -> "21:9"
+                    }
+                    PlayerTextActionButton(
+                        text = aspectLabel,
+                        onClick = { onOpenSheetTab(PlayerSheetTab.ASPECT) }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
 
                 // 6. 播放列表 / 选集 (有连播列表时呈现)
                 if (hasPrevious || hasNext) {
@@ -241,10 +258,10 @@ fun PlayerBottomBar(
                         text = stringResource(R.string.cd_playlist),
                         onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) }
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                 }
 
-                // 倍速
+                // 7. 倍速（竖屏横屏均保留）
                 PlayerTextActionButton(
                     text = "${speed}x",
                     onClick = { onOpenSheetTab(PlayerSheetTab.SPEED) }
@@ -252,22 +269,7 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // 画面比例 (中文规范)
-                val aspectLabel = when (resizeMode) {
-                    ResizeMode.FIT -> "适屏"
-                    ResizeMode.CROP -> "填充"
-                    ResizeMode.STRETCH -> "拉伸"
-                    ResizeMode.ASPECT_16_9 -> "16:9"
-                    ResizeMode.ASPECT_21_9 -> "21:9"
-                }
-                PlayerTextActionButton(
-                    text = aspectLabel,
-                    onClick = { onOpenSheetTab(PlayerSheetTab.ASPECT) }
-                )
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // 7. 【全屏 / 退出全屏】（主流播放器标准右下角入口）
+                // 8. 【全屏 / 退出全屏】（主流播放器标准右下角入口）
                 GyroCircleActionButton(
                     onClick = onToggleOrientation,
                     icon = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
@@ -298,8 +300,8 @@ private fun PlayerTextActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    color: Color = Color.White.copy(alpha = 0.90f),
-    fontSize: TextUnit = 13.sp,
+    color: Color = Color.White.copy(alpha = 0.95f),
+    fontSize: TextUnit = 14.sp,
     fontWeight: FontWeight = FontWeight.SemiBold
 ) {
     Box(

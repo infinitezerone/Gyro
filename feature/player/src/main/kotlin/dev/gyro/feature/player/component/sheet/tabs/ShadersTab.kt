@@ -34,6 +34,7 @@ import dev.gyro.core.model.GlslShader
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.TrackItem
@@ -55,17 +56,11 @@ internal fun ShadersTabContent(
     ) {
         // 1. 预设 GLSL 画质滤镜
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "GLSL 画质渲染滤镜",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
-            )
+            SheetSectionHeader("GLSL 画质渲染滤镜")
 
             TrackItem(
-                title = stringResource(R.string.shader_off),
-                subtitle = stringResource(R.string.common_off),
+                title = "关闭滤镜",
+                subtitle = "",
                 isSelected = state.shaderState.activeShader == GlslShader.OFF,
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.AutoAwesome,
@@ -74,7 +69,7 @@ internal fun ShadersTabContent(
 
             TrackItem(
                 title = stringResource(R.string.shader_anime4k),
-                subtitle = stringResource(R.string.shader_desc_anime4k),
+                subtitle = "画质超分与线条锐化",
                 isSelected = state.shaderState.activeShader == GlslShader.ANIME4K,
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.AutoAwesome,
@@ -84,22 +79,18 @@ internal fun ShadersTabContent(
 
         // 2. 自定义着色器
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = stringResource(R.string.shader_custom),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            SheetSectionHeader(stringResource(R.string.shader_custom))
 
             Surface(
                 onClick = { callbacks.onImportCustomShader() },
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = SheetCardColor,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -124,7 +115,7 @@ internal fun ShadersTabContent(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = stringResource(R.string.shader_import_saf),
+                            text = "导入本地 .glsl 滤镜",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             color = SheetAccentBlue

@@ -28,3 +28,5 @@ mpv_android_comments.*
 
 
 .mimosa/
+
+*.perfetto-trace

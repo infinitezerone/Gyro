@@ -41,6 +41,7 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetAmber
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
@@ -65,24 +66,12 @@ internal fun AspectTabContent(
     ) {
         // 1. 画面显示比例
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "画面显示比例",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
-            )
+            SheetSectionHeader("画面比例")
 
             ResizeMode.entries.forEach { mode ->
                 TrackItem(
                     title = mode.label,
-                    subtitle = when (mode) {
-                        ResizeMode.FIT -> stringResource(R.string.aspect_fit_desc)
-                        ResizeMode.CROP -> stringResource(R.string.aspect_crop_desc)
-                        ResizeMode.STRETCH -> stringResource(R.string.aspect_stretch_desc)
-                        ResizeMode.ASPECT_16_9 -> stringResource(R.string.aspect_16_9_desc)
-                        ResizeMode.ASPECT_21_9 -> stringResource(R.string.aspect_21_9_desc)
-                    },
+                    subtitle = "",
                     isSelected = state.currentResizeMode == mode,
                     accentColor = SheetAccentBlue,
                     icon = Icons.Default.AspectRatio,
@@ -93,22 +82,18 @@ internal fun AspectTabContent(
 
         // 2. 硬件加速解码
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = "解码加速",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            SheetSectionHeader("解码加速")
 
             val isHw = state.hwdec.contains("mediacodec")
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = SheetCardColor,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -140,14 +125,14 @@ internal fun AspectTabContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = stringResource(R.string.stats_hwdec_title),
+                                text = if (isHw) "硬件解码 (MediaCodec)" else "软件解码 (CPU)",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = SheetTextColor
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
+                                text = if (isHw) "低功耗 · 高流畅" else "兼容模式",
                                 fontSize = 12.sp,
                                 color = if (isHw) SheetGreen else SheetAmber,
                                 fontWeight = FontWeight.Medium
@@ -165,7 +150,7 @@ internal fun AspectTabContent(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = stringResource(if (isHw) R.string.stats_switch_to_sw else R.string.stats_switch_to_hw),
+                            text = if (isHw) "切换软解" else "开启硬解",
                             fontSize = 12.sp
                         )
                     }
@@ -177,21 +162,17 @@ internal fun AspectTabContent(
         if (state.isHdr || state.hdrFormat.isNotEmpty()) {
             val formatName = if (state.hdrFormat.isNotEmpty()) state.hdrFormat else "HDR"
             Column(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = "色彩范围与高动态",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = SheetAccentBlue,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+                SheetSectionHeader("高动态范围")
 
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = SheetCardColor,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
                 ) {
                     Row(
                         modifier = Modifier
@@ -216,14 +197,14 @@ internal fun AspectTabContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "$formatName (10-bit 色深)",
+                                text = formatName,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = SheetTextColor
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "真 10-bit 高动态渲染 · 物理峰值点亮",
+                                text = "10-bit 高动态范围输出",
                                 fontSize = 12.sp,
                                 color = SheetAmber,
                                 fontWeight = FontWeight.Medium

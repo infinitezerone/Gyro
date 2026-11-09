@@ -8,6 +8,13 @@ import android.net.Uri
 import android.os.Build
 import android.util.Rational
 import android.view.WindowManager
+import android.util.Size
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +23,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +41,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.runtime.snapshotFlow
+import dev.gyro.core.model.VerticalSwipeMode
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
@@ -42,6 +68,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +84,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -93,6 +125,7 @@ import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
+import dev.gyro.engine.ui.GyroSurfaceView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -151,24 +184,65 @@ fun PlayerScreen(
     // 常驻诊断浮层开关（STATS sheet 中切换；会话级状态，跨播放切换保留由用户重新开关）
     var statsOverlayEnabled by remember { mutableStateOf(false) }
 
-    // 截图：写入应用专属 Pictures 目录后交由 MediaScanner 收录相册
+    var surfaceViewRef by remember { mutableStateOf<GyroSurfaceView?>(null) }
+
+    // 截图：优先通过 PixelCopy 从硬件合成缓冲无损抓取当前帧，并写入系统 MediaStore 相册
     fun takeScreenshot() {
-        val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES) ?: return
-        val file = java.io.File(dir, "Gyro_${System.currentTimeMillis()}.jpg")
         scope.launch(Dispatchers.IO) {
-            val ok = engine.screenshotToFile(file)
-            if (ok) {
-                android.media.MediaScannerConnection.scanFile(
-                    context,
-                    arrayOf(file.absolutePath),
-                    arrayOf("image/jpeg"),
-                    null
-                )
+            val sv = surfaceViewRef
+            var saved = false
+            if (sv != null) {
+                val bitmap = sv.captureBitmap()
+                if (bitmap != null) {
+                    val uri = runCatching {
+                        val filename = "Gyro_${System.currentTimeMillis()}.jpg"
+                        val contentValues = android.content.ContentValues().apply {
+                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
+                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Gyro")
+                                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                            }
+                        }
+                        val resolver = context.contentResolver
+                        val insertUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                        if (insertUri != null) {
+                            resolver.openOutputStream(insertUri)?.use { os ->
+                                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, os)
+                            }
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                contentValues.clear()
+                                contentValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                                resolver.update(insertUri, contentValues, null, null)
+                            }
+                        }
+                        insertUri
+                    }.getOrNull()
+                    bitmap.recycle()
+                    saved = (uri != null)
+                }
+            }
+            if (!saved) {
+                // 回退到 mpv screenshot-to-file
+                val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
+                if (dir != null) {
+                    val file = java.io.File(dir, "Gyro_${System.currentTimeMillis()}.jpg")
+                    val ok = engine.screenshotToFile(file)
+                    if (ok) {
+                        android.media.MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(file.absolutePath),
+                            arrayOf("image/jpeg"),
+                            null
+                        )
+                        saved = true
+                    }
+                }
             }
             withContext(Dispatchers.Main) {
                 android.widget.Toast.makeText(
                     context,
-                    context.getString(if (ok) R.string.screenshot_saved else R.string.screenshot_failed),
+                    context.getString(if (saved) R.string.screenshot_saved else R.string.screenshot_failed),
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             }
@@ -217,6 +291,42 @@ fun PlayerScreen(
     val currentPlaylistIndex by playlistMgr.currentIndex.collectAsState()
     val hasPrevious = playlistMgr.hasPrevious
     val hasNext = playlistMgr.hasNext
+
+    // In-memory poster bitmap cache to eliminate blank/black flashes during swipe transitions
+    val thumbnailCache = remember { mutableStateMapOf<String, android.graphics.Bitmap>() }
+    LaunchedEffect(playlist) {
+        withContext(Dispatchers.IO) {
+            playlist.forEach { item ->
+                val uriStr = item.uriString
+                if (!thumbnailCache.containsKey(uriStr)) {
+                    val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return@forEach
+                    val bmp = runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == "content") {
+                            context.contentResolver.loadThumbnail(uri, Size(720, 1280), null)
+                        } else {
+                            val path = uri.path ?: uriStr
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                android.media.ThumbnailUtils.createVideoThumbnail(
+                                    java.io.File(path),
+                                    Size(720, 1280),
+                                    null
+                                )
+                            } else {
+                                @Suppress("DEPRECATION")
+                                android.media.ThumbnailUtils.createVideoThumbnail(
+                                    path,
+                                    android.provider.MediaStore.Images.Thumbnails.MINI_KIND
+                                )
+                            }
+                        }
+                    }.getOrNull()
+                    if (bmp != null) {
+                        thumbnailCache[uriStr] = bmp
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(currentUri) {
         if (currentUri != null && viewModel.activeUri.value != currentUri) {
@@ -602,7 +712,7 @@ fun PlayerScreen(
     val isSwitching = sessionState is dev.gyro.engine.session.PlaybackSessionState.Switching
     var isShutterReady by remember(activeUri, sessionState) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri, sessionState) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, sessionState, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, resizeMode) {
+    LaunchedEffect(activeUri, sessionState, firstFrameRendered, geometryReady, videoContainerSize, videoAspect) {
         SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect, isSwitching=$isSwitching")
         if (isSwitching || !firstFrameRendered) {
             isShutterReady = false
@@ -669,6 +779,73 @@ fun PlayerScreen(
             } ?: Modifier.fillMaxSize()
             ResizeMode.STRETCH -> Modifier.fillMaxSize()
         }
+        val pageCount = playlist.size.coerceAtLeast(1)
+        val initialPage = currentPlaylistIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        val pagerState = rememberPagerState(
+            initialPage = initialPage,
+            pageCount = { pageCount }
+        )
+
+        LaunchedEffect(currentPlaylistIndex, pageCount) {
+            if (currentPlaylistIndex in 0 until pageCount && pagerState.currentPage != currentPlaylistIndex && !pagerState.isScrollInProgress) {
+                pagerState.scrollToPage(currentPlaylistIndex)
+            }
+        }
+
+        LaunchedEffect(pagerState) {
+            snapshotFlow { pagerState.settledPage }
+                .collect { settledPage ->
+                    if (settledPage in playlist.indices && settledPage != currentPlaylistIndex) {
+                        playlistMgr.playAtIndex(settledPage)?.let { playMediaItem(it) }
+                    }
+                }
+        }
+
+        LaunchedEffect(pagerState.isScrollInProgress) {
+            if (pagerState.isScrollInProgress) {
+                playerState.showControls = false
+            }
+        }
+
+        val pageOffset by remember {
+            derivedStateOf {
+                val scrollPos = pagerState.currentPage + pagerState.currentPageOffsetFraction
+                currentPlaylistIndex.toFloat() - scrollPos
+            }
+        }
+
+        val isSheetActive = !isLandscape && playerState.activeSheetTab != null
+
+        // 竖屏下弹起抽屉时：横屏视频平滑上移至上半区中央，竖屏短视频保持原始全屏比例不缩放
+        val density = LocalDensity.current
+        val statusBarInsetPx = with(density) { WindowInsets.statusBars.asPaddingValues().calculateTopPadding().toPx() }
+
+        val targetShiftY = remember(isSheetActive, containerSize, videoAspect, statusBarInsetPx) {
+            if (!isSheetActive || containerSize.height <= 0) {
+                0f
+            } else if (videoAspect >= 1.0f) {
+                // 横屏视频 (16:9 / 21:9 / 4:3)：平滑上移至上半区视口正中央，完全脱离底部抽屉遮挡
+                val totalH = containerSize.height.toFloat()
+                val topWindowH = totalH * 0.48f // 底部抽屉占 52%，上半区视口占 48%
+                val topPadding = statusBarInsetPx + with(density) { 8.dp.toPx() }
+                val targetCenterY = (topPadding + topWindowH) / 2f
+                val origCenterY = totalH / 2f
+                targetCenterY - origCenterY
+            } else {
+                // 竖屏短视频 (9:16)：保持全屏正常比例播放（如抖音/TikTok 展开底栏时一样），绝不缩放变形，微幅上移保持核心视觉焦点
+                -with(density) { 40.dp.toPx() }
+            }
+        }
+
+        val animatedSheetShiftY by animateFloatAsState(
+            targetValue = if (isSheetActive) targetShiftY else 0f,
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
+            label = "sheetVideoShiftY"
+        )
+
+        // A1. Persistent GyroPlayerSurface - stays attached to the engine and translates
+        // in lockstep with the active page offset. Avoids SurfaceView destruction and
+        // recreation across page swipes, eliminating BLASTBufferQueue locks and buffer drops.
         GyroPlayerSurface(
             modifier = videoContainerModifier
                 .align(Alignment.Center)
@@ -684,24 +861,61 @@ fun PlayerScreen(
                     }
                 }
                 .graphicsLayer {
+                    val containerH = containerSize.height.toFloat()
+                    val offsetY = if (containerH > 0f) pageOffset * containerH else 0f
                     scaleX = zoomState.scale
                     scaleY = zoomState.scale
                     translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
-                    translationY = (videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y
+                    translationY = offsetY + animatedSheetShiftY +
+                        ((videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y)
                     transformOrigin = zoomState.transformOrigin
                 },
             engine = engine,
             videoDimensions = videoDimensions,
-            videoFrameRate = videoFrameRate
+            videoFrameRate = videoFrameRate,
+            onSurfaceViewAvailable = { surfaceViewRef = it }
         )
 
-        // A2. Shutter over the file-switch window.
-        if (showShutter) {
+        val activePlaylistItem = playlist.getOrNull(currentPlaylistIndex)
+        val isCurrentVideoReady = activePlaylistItem != null &&
+            activePlaylistItem.uriString == activeUri?.toString() &&
+            firstFrameRendered &&
+            !isSwitching
+
+        // A2. VerticalPager for Douyin-style feed
+        VerticalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = !playerState.isLocked &&
+                !isPipLayout &&
+                gestureConfig.verticalSwipeMode == VerticalSwipeMode.SWITCH_VIDEO &&
+                zoomState.scale <= 1.05f,
+            key = { page -> playlist.getOrNull(page)?.uriString ?: page }
+        ) { page ->
+            val item = playlist.getOrNull(page)
+            val isActive = page == currentPlaylistIndex
+            val showPoster = !isActive || !isCurrentVideoReady
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black)
-            )
+                    .then(if (isActive) gestureModifier else Modifier),
+                contentAlignment = Alignment.Center
+            ) {
+                // If not active, or if active but the new video's first frame is not ready yet:
+                // keep the cached thumbnail poster visible, smoothly crossfading once the first frame renders.
+                AnimatedVisibility(
+                    visible = showPoster,
+                    enter = fadeIn(tween(100)),
+                    exit = fadeOut(tween(150))
+                ) {
+                    VideoPagePoster(
+                        item = item,
+                        thumbnailCache = thumbnailCache,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
         }
 
         // A3. Playback error card - a failed load must be visible, not a black screen that
@@ -753,12 +967,6 @@ fun PlayerScreen(
             }
         }
 
-        // B. Gesture Interaction Layer (Under HUD and Controls Overlay)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(gestureModifier)
-        )
 
         // C. Buffering Spinner
         if (playbackState == PlaybackState.BUFFERING && !isPipLayout) {
@@ -995,8 +1203,21 @@ fun PlayerScreen(
         }
 
         // G. Modal Tabbed Settings & Calibrator Bottom Sheet
-        playerState.activeSheetTab?.let { tab ->
-            if (!isPipLayout && !hideChrome) {
+        AnimatedVisibility(
+            visible = playerState.activeSheetTab != null && !isPipLayout && !hideChrome,
+            enter = if (isLandscape) {
+                slideInHorizontally(initialOffsetX = { it }) + fadeIn()
+            } else {
+                slideInVertically(initialOffsetY = { it }) + fadeIn()
+            },
+            exit = if (isLandscape) {
+                slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+            } else {
+                slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            }
+        ) {
+            playerState.activeSheetTab?.let { tab ->
+                if (!isPipLayout && !hideChrome) {
                 val timePosMs by engine.timePosMs.collectAsState()
                 val fps = snapshot.fps
                 val droppedFrames = snapshot.droppedFrames
@@ -1008,6 +1229,7 @@ fun PlayerScreen(
                 }
                 PlayerSettingsSheet(
                     initialTab = tab,
+                    isLandscape = isLandscape,
                     state = PlayerSheetUiState(
                         playlist = playlist,
                         currentPlaylistIndex = currentPlaylistIndex,
@@ -1088,6 +1310,94 @@ fun PlayerScreen(
                         playerState.showControls()
                     }
                 )
+            }
+        }
+    }
+}
+}
+
+/**
+ * 抖音风格短视频流上一集/下一集真实封面与标题预览 (VideoPagePoster)
+ */
+@Composable
+private fun VideoPagePoster(
+    item: VideoMediaItem?,
+    thumbnailCache: Map<String, android.graphics.Bitmap> = emptyMap(),
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val uriStr = item?.uriString
+    val cachedBitmap = uriStr?.let { thumbnailCache[it] }
+    var bitmap by remember(uriStr) { mutableStateOf(cachedBitmap) }
+
+    LaunchedEffect(uriStr, cachedBitmap) {
+        if (cachedBitmap != null) {
+            bitmap = cachedBitmap
+            return@LaunchedEffect
+        }
+        val uri = runCatching { Uri.parse(uriStr ?: "") }.getOrNull() ?: return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == "content") {
+                    context.contentResolver.loadThumbnail(uri, Size(720, 1280), null)
+                } else {
+                    val path = uri.path ?: (uriStr ?: "")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        android.media.ThumbnailUtils.createVideoThumbnail(
+                            java.io.File(path),
+                            Size(720, 1280),
+                            null
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        android.media.ThumbnailUtils.createVideoThumbnail(
+                            path,
+                            android.provider.MediaStore.Images.Thumbnails.MINI_KIND
+                        )
+                    }
+                }
+            }.getOrNull()
+        }
+        if (loaded != null) {
+            bitmap = loaded
+            uriStr?.let { (thumbnailCache as? MutableMap<String, android.graphics.Bitmap>)?.put(it, loaded) }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(64.dp)
+                )
+                if (item != null) {
+                    Text(
+                        text = item.displayName,
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }

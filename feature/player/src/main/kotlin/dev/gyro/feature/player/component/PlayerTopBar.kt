@@ -181,7 +181,7 @@ fun PlayerTopBar(
                     border = null
                 )
             } else {
-                // 竖屏：画中画直达，音频/字幕/设置收纳于 ⋮ 更多菜单
+                // 竖屏：画中画直达，设置直达直接打开综合设置抽屉
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
@@ -193,65 +193,16 @@ fun PlayerTopBar(
                     border = null
                 )
                 Spacer(modifier = Modifier.width(2.dp))
-                Box {
-                    GyroCircleActionButton(
-                        onClick = { menuExpanded = true },
-                        icon = Icons.Default.MoreVert,
-                        contentDescription = stringResource(R.string.cd_settings),
-                        size = 38.dp,
-                        iconSize = 22.dp,
-                        containerColor = Color.Transparent,
-                        contentColor = Color.White,
-                        border = null
-                    )
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.sheet_tab_subtitles)) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.ClosedCaption,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenSheetTab(PlayerSheetTab.SUBTITLES)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.sheet_tab_audio)) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Audiotrack,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenSheetTab(PlayerSheetTab.AUDIO)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.cd_settings)) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Settings,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenSheetTab(PlayerSheetTab.SETTINGS_HUB)
-                            }
-                        )
-                    }
-                }
+                GyroCircleActionButton(
+                    onClick = { onOpenSheetTab(PlayerSheetTab.SETTINGS_HUB) },
+                    icon = Icons.Default.Settings,
+                    contentDescription = stringResource(R.string.cd_settings),
+                    size = 38.dp,
+                    iconSize = 22.dp,
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    border = null
+                )
             }
         }
     }

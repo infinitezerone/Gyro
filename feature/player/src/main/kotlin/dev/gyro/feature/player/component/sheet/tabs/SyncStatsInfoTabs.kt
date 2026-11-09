@@ -44,6 +44,7 @@ import dev.gyro.feature.player.component.sheet.common.FilterSwitchRow
 import dev.gyro.feature.player.component.sheet.common.MediaInfoGroup
 import dev.gyro.feature.player.component.sheet.common.MediaInfoRow
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetAmber
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
@@ -65,22 +66,55 @@ internal fun SyncTabContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        SyncCalibrationItem(
-            label = stringResource(R.string.sync_sub_delay),
-            currentSec = state.subDelaySec,
-            onValueChange = callbacks.onSetSubDelay
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            SheetSectionHeader(stringResource(R.string.sync_sub_delay))
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = SheetCardColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Box(modifier = Modifier.padding(14.dp)) {
+                    SyncCalibrationItem(
+                        label = stringResource(R.string.sync_sub_delay),
+                        currentSec = state.subDelaySec,
+                        accentColor = SheetAccentBlue,
+                        onValueChange = callbacks.onSetSubDelay
+                    )
+                }
+            }
+        }
 
-        HorizontalDivider(color = SheetTrackColor)
-
-        SyncCalibrationItem(
-            label = stringResource(R.string.sync_audio_delay),
-            currentSec = state.audioDelaySec,
-            onValueChange = callbacks.onSetAudioDelay
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            SheetSectionHeader(stringResource(R.string.sync_audio_delay))
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = SheetCardColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Box(modifier = Modifier.padding(14.dp)) {
+                    SyncCalibrationItem(
+                        label = stringResource(R.string.sync_audio_delay),
+                        currentSec = state.audioDelaySec,
+                        accentColor = SheetAccentBlue,
+                        onValueChange = callbacks.onSetAudioDelay
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -107,21 +141,15 @@ internal fun StatsTabContent(
         ) {
             FilterSwitchRow(
                 title = stringResource(R.string.stats_overlay_toggle),
-                description = "控制层隐藏时在画面左上角显示 fps / 丢帧 / 解码器",
+                description = "在画面角落显示实时帧率与丢帧",
                 checked = state.statsOverlayEnabled,
                 onCheckedChange = callbacks.onToggleStatsOverlay
             )
         }
 
         // 1. 实时性能监控卡片
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "实时播放性能",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SheetSectionHeader("实时播放性能", modifier = Modifier.padding(start = 4.dp))
 
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -199,14 +227,8 @@ internal fun StatsTabContent(
         }
 
         // 2. 解码器模式切换
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "解码配置",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SheetSectionHeader("解码配置", modifier = Modifier.padding(start = 4.dp))
 
             val isHw = state.hwdec.contains("mediacodec")
             Surface(
@@ -276,14 +298,8 @@ internal fun StatsTabContent(
         }
 
         // 3. 渲染管线配置
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = stringResource(R.string.stats_render_pipeline),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SheetSectionHeader(stringResource(R.string.stats_render_pipeline), modifier = Modifier.padding(start = 4.dp))
 
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -300,15 +316,15 @@ internal fun StatsTabContent(
                     )
                     MediaInfoRow(
                         label = stringResource(R.string.stats_tone_mapping),
-                        value = "Hable (电影级保真 · 动态防过曝)"
+                        value = "Hable"
                     )
                     MediaInfoRow(
                         label = stringResource(R.string.stats_texture_scaler),
-                        value = "Spline36 (三次多项式样条插值)"
+                        value = "Spline36"
                     )
                     MediaInfoRow(
-                        label = "HDR 峰值亮度计算",
-                        value = "hdr-compute-peak = yes (已开启)"
+                        label = "HDR 峰值亮度",
+                        value = "已开启"
                     )
                 }
             }

@@ -107,15 +107,14 @@ fun BoxScope.PlayerHudOverlay(
         ) {
             val total = durationMs()
             if (total > 0L) {
-                val (targetMs, deltaMs) = when {
-                    hudState is GestureHudState.Seek -> hudState.targetMs to hudState.deltaMs
-                    scrubState.isActive -> ((scrubState.fraction * total).toLong()) to null
-                    else -> 0L to null
+                val targetMs = when {
+                    hudState is GestureHudState.Seek -> hudState.targetMs
+                    scrubState.isActive -> (scrubState.fraction * total).toLong()
+                    else -> 0L
                 }
                 ScrubTimePreview(
                     targetMs = targetMs,
-                    totalMs = total,
-                    deltaMs = deltaMs
+                    totalMs = total
                 )
             }
         }
@@ -298,59 +297,43 @@ fun BoxScope.PlayerHudOverlay(
 }
 
 /**
- * Top-center capsule showing the scrub target time while dragging the progress bar or gesture seeking.
- * 屏幕正上方统一时间与增减量预览，不被手指遮挡。
+ * 屏幕正上方拖拽进度时间预览（纯净大字无胶囊，一眼看清，视野开阔通透）
  */
 @Composable
 private fun ScrubTimePreview(
     targetMs: Long,
-    totalMs: Long,
-    deltaMs: Long? = null
+    totalMs: Long
 ) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Black.copy(alpha = 0.75f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
-        shadowElevation = 6.dp,
-        modifier = Modifier.height(36.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = formatTime(targetMs),
-                style = TextStyle(
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontFeatureSettings = "tnum"
+        Text(
+            text = formatTime(targetMs),
+            style = TextStyle(
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontFeatureSettings = "tnum",
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.90f),
+                    blurRadius = 12f
                 )
             )
-            if (deltaMs != null && deltaMs != 0L) {
-                val sign = if (deltaMs > 0) "+" else "-"
-                val absSec = (kotlin.math.abs(deltaMs) + 500L) / 1000L
-                val deltaText = "($sign${formatTime(absSec * 1000L)})"
-                Text(
-                    text = deltaText,
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (deltaMs > 0) Color(0xFF81C784) else Color(0xFFFF8A65),
-                        fontFeatureSettings = "tnum"
-                    )
-                )
-            }
-            Text(
-                text = "/ " + formatTime(totalMs),
-                style = TextStyle(
-                    fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.60f),
-                    fontFeatureSettings = "tnum"
+        )
+        Text(
+            text = " / " + formatTime(totalMs),
+            style = TextStyle(
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.70f),
+                fontFeatureSettings = "tnum",
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.90f),
+                    blurRadius = 12f
                 )
             )
-        }
+        )
     }
 }
 

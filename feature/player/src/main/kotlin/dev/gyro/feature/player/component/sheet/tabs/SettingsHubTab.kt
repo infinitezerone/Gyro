@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VideoLibrary
+import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,8 +46,31 @@ internal fun SettingsHubTabContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // 1. 画面比例、解码与渲染
-        val hwDesc = if (state.hwdec.contains("mediacodec")) "硬解 (MediaCodec)" else "软解 (CPU)"
+        // ========== 1. 播放控制 ==========
+        SheetSectionHeader("播放控制")
+
+        if (state.playlist.size > 1 || state.chapters.isNotEmpty()) {
+            val plText = if (state.playlist.size > 1) "${state.currentPlaylistIndex + 1} / ${state.playlist.size}" else ""
+            val chText = if (state.chapters.isNotEmpty()) " · ${state.chapters.size} 章节" else ""
+            val combined = "$plText$chText".trim().removePrefix("· ").trim()
+            SettingsHubItem(
+                title = stringResource(R.string.sheet_tab_playlist),
+                subtitle = combined,
+                icon = Icons.Default.VideoLibrary,
+                iconTint = SheetAccentBlue,
+                onClick = { onNavigate(PlayerSheetTab.PLAYLIST) }
+            )
+        }
+
+        SettingsHubItem(
+            title = stringResource(R.string.sheet_tab_speed),
+            subtitle = "${state.currentSpeed}x",
+            icon = Icons.Default.Speed,
+            iconTint = SheetAccentBlue,
+            onClick = { onNavigate(PlayerSheetTab.SPEED) }
+        )
+
+        val hwDesc = if (state.hwdec.contains("mediacodec")) "硬解" else "软解"
         val hdrDesc = if (state.hdrFormat.isNotEmpty()) " · ${state.hdrFormat}" else ""
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_aspect),
@@ -55,71 +80,38 @@ internal fun SettingsHubTabContent(
             onClick = { onNavigate(PlayerSheetTab.ASPECT) }
         )
 
-        // 2. 音轨与音效
+        // ========== 2. 声画配置 ==========
+        SheetSectionHeader("声画配置")
+
         val currentAudioName = state.audioTracks.firstOrNull { it.isSelected }?.title
             ?: stringResource(R.string.track_none_audio)
-        val nightDesc = if (state.nightMode) "夜间音效已开" else "标准立体声"
+        val nightDesc = if (state.nightMode) " · 夜间模式" else ""
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_audio),
-            subtitle = "$currentAudioName · $nightDesc",
+            subtitle = "$currentAudioName$nightDesc",
             icon = Icons.AutoMirrored.Filled.VolumeUp,
             iconTint = SheetAccentBlue,
             onClick = { onNavigate(PlayerSheetTab.AUDIO) }
         )
 
-        // 3. 字幕管理与微调
-        val currentSubName = state.subtitleTracks.firstOrNull { it.isSelected }?.title ?: "已关闭"
+        val currentSubName = state.subtitleTracks.firstOrNull { it.isSelected }?.title ?: "关闭"
         val delayDesc = if (Math.abs(state.subDelaySec) > 0.01) {
-            "延迟 ${String.format(Locale.US, "%.1f", state.subDelaySec)}s"
+            " · 延迟 ${String.format(Locale.US, "%.1f", state.subDelaySec)}s"
         } else {
-            "无延迟"
+            ""
         }
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_subtitles),
-            subtitle = "$currentSubName · $delayDesc",
+            subtitle = "$currentSubName$delayDesc",
             icon = Icons.Default.ClosedCaption,
             iconTint = SheetAccentBlue,
             onClick = { onNavigate(PlayerSheetTab.SUBTITLES) }
         )
 
-        // 4. 播放速度
-        SettingsHubItem(
-            title = stringResource(R.string.sheet_tab_speed),
-            subtitle = "当前倍速: ${state.currentSpeed}x",
-            icon = Icons.Default.Speed,
-            iconTint = SheetAccentBlue,
-            onClick = { onNavigate(PlayerSheetTab.SPEED) }
-        )
-
-        // 5. 着色器与 Anime4K
-        val shaderLabel = if (state.shaderState.activeShader != GlslShader.OFF) {
-            state.shaderState.displayName ?: state.shaderState.activeShader.name
-        } else {
-            "原生渲染 (未开启)"
-        }
-        SettingsHubItem(
-            title = stringResource(R.string.sheet_tab_shaders),
-            subtitle = shaderLabel,
-            icon = Icons.Default.AutoAwesome,
-            iconTint = SheetAccentBlue,
-            onClick = { onNavigate(PlayerSheetTab.SHADERS) }
-        )
-
-        // 6. 视听画质增强
-        val debandDesc = if (state.deband) "去色带已开 · 色彩校准" else "色彩与明暗调节"
-        SettingsHubItem(
-            title = stringResource(R.string.sheet_tab_audiovisual),
-            subtitle = debandDesc,
-            icon = Icons.Default.Tune,
-            iconTint = SheetAccentBlue,
-            onClick = { onNavigate(PlayerSheetTab.AUDIOVISUAL) }
-        )
-
-        // 7. A/V 同步校准
         val syncDesc = if (Math.abs(state.subDelaySec) > 0.01 || Math.abs(state.audioDelaySec) > 0.01) {
             "字幕 ${String.format(Locale.US, "%.1f", state.subDelaySec)}s · 音频 ${String.format(Locale.US, "%.1f", state.audioDelaySec)}s"
         } else {
-            "音画同步微调"
+            "已同步"
         }
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_sync),
@@ -129,11 +121,38 @@ internal fun SettingsHubTabContent(
             onClick = { onNavigate(PlayerSheetTab.SYNC) }
         )
 
-        // 8. 实时性能与统计
+        // ========== 3. 画质增强 ==========
+        SheetSectionHeader("画质增强")
+
+        val shaderLabel = if (state.shaderState.activeShader != GlslShader.OFF) {
+            state.shaderState.displayName ?: state.shaderState.activeShader.name
+        } else {
+            "已关闭"
+        }
+        SettingsHubItem(
+            title = stringResource(R.string.sheet_tab_shaders),
+            subtitle = shaderLabel,
+            icon = Icons.Default.AutoAwesome,
+            iconTint = SheetAccentBlue,
+            onClick = { onNavigate(PlayerSheetTab.SHADERS) }
+        )
+
+        val debandDesc = if (state.deband) "去色带已开" else "默认"
+        SettingsHubItem(
+            title = stringResource(R.string.sheet_tab_audiovisual),
+            subtitle = debandDesc,
+            icon = Icons.Default.Tune,
+            iconTint = SheetAccentBlue,
+            onClick = { onNavigate(PlayerSheetTab.AUDIOVISUAL) }
+        )
+
+        // ========== 4. 系统与诊断 ==========
+        SheetSectionHeader("系统与诊断")
+
         val resDesc = if (state.videoWidth > 0 && state.videoHeight > 0) {
             "${state.videoWidth}×${state.videoHeight} · ${String.format(Locale.US, "%.1f", state.fps)} FPS"
         } else {
-            "实时性能与媒体详情"
+            "性能监控"
         }
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_stats),
@@ -143,10 +162,9 @@ internal fun SettingsHubTabContent(
             onClick = { onNavigate(PlayerSheetTab.STATS) }
         )
 
-        // 9. 媒体文件信息
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_info),
-            subtitle = state.mediaInfo?.title ?: "容器、编解码与码流详情",
+            subtitle = state.mediaInfo?.title ?: "文件与编码",
             icon = Icons.Default.Info,
             iconTint = SheetAccentBlue,
             onClick = { onNavigate(PlayerSheetTab.INFO) }

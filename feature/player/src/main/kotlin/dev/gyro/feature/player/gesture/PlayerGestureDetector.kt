@@ -70,6 +70,9 @@ fun Modifier.playerGestures(
     onPlayPrevious: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
     videoBounds: (() -> androidx.compose.ui.geometry.Rect?)? = null,
+    onVerticalSwitchDragStart: (() -> Unit)? = null,
+    onVerticalSwitchDragUpdate: ((Float) -> Unit)? = null,
+    onVerticalSwitchDragEnd: ((Float) -> Unit)? = null,
     config: PlayerGestureConfig = PlayerGestureConfig()
 ): Modifier {
     val density = LocalDensity.current
@@ -111,7 +114,10 @@ fun Modifier.playerGestures(
         onSeekTo,
         onPlayPrevious,
         onPlayNext,
-        videoBounds
+        videoBounds,
+        onVerticalSwitchDragStart,
+        onVerticalSwitchDragUpdate,
+        onVerticalSwitchDragEnd
     ) {
         DefaultPlayerGestureCallbacks(
             context = context,
@@ -133,7 +139,10 @@ fun Modifier.playerGestures(
             onSeekTo = onSeekTo,
             onPlayPrevious = onPlayPrevious,
             onPlayNext = onPlayNext,
-            getVideoBounds = videoBounds
+            getVideoBounds = videoBounds,
+            onVerticalSwitchDragStart = onVerticalSwitchDragStart,
+            onVerticalSwitchDragUpdate = onVerticalSwitchDragUpdate,
+            onVerticalSwitchDragEnd = onVerticalSwitchDragEnd
         )
     }
 

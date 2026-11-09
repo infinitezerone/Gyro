@@ -32,6 +32,9 @@ interface PlayerGestureCallbacks {
     fun onVolumeUpdate(deltaRatio: Float) {}
     fun onPlayPrevious() {}
     fun onPlayNext() {}
+    fun onVerticalSwitchDragStart() {}
+    fun onVerticalSwitchDragUpdate(deltaY: Float) {}
+    fun onVerticalSwitchDragEnd(deltaY: Float) {}
     fun onHudStateChange(state: GestureHudState) {}
 
     fun getCurrentPositionMs(): Long = 0L
@@ -65,7 +68,10 @@ class DefaultPlayerGestureCallbacks(
     private val onSeekTo: ((Long) -> Unit)? = null,
     private val onPlayPrevious: (() -> Unit)? = null,
     private val onPlayNext: (() -> Unit)? = null,
-    private val getVideoBounds: (() -> androidx.compose.ui.geometry.Rect?)? = null
+    private val getVideoBounds: (() -> androidx.compose.ui.geometry.Rect?)? = null,
+    private val onVerticalSwitchDragStart: (() -> Unit)? = null,
+    private val onVerticalSwitchDragUpdate: ((Float) -> Unit)? = null,
+    private val onVerticalSwitchDragEnd: ((Float) -> Unit)? = null
 ) : PlayerGestureCallbacks {
 
     override fun getVideoBounds(): androidx.compose.ui.geometry.Rect? = getVideoBounds?.invoke()
@@ -115,6 +121,18 @@ class DefaultPlayerGestureCallbacks(
     override fun onPlayNext() {
         performHaptic()
         onPlayNext?.invoke()
+    }
+
+    override fun onVerticalSwitchDragStart() {
+        onVerticalSwitchDragStart?.invoke()
+    }
+
+    override fun onVerticalSwitchDragUpdate(deltaY: Float) {
+        onVerticalSwitchDragUpdate?.invoke(deltaY)
+    }
+
+    override fun onVerticalSwitchDragEnd(deltaY: Float) {
+        onVerticalSwitchDragEnd?.invoke(deltaY)
     }
 
     override fun onZoomPan(zoomChange: Float, panDelta: Offset, centroid: Offset, isPinch: Boolean) {

@@ -145,31 +145,31 @@
     <string name="stats_texture_scaler">纹理重采样</string>
     <string name="settings_default_hwdec">硬件加速解码</string>
     <string name="settings_hwdec_mediacodec">硬件解码 (MediaCodec · 推荐)</string>
-    <string name="settings_hwdec_mediacodec_desc">专用芯片硬解，功耗最低、发热最小</string>
+    <string name="settings_hwdec_mediacodec_desc">专用硬件解码，功耗低</string>
     <string name="settings_hwdec_copy">硬件解码回写模式 (mediacodec-copy)</string>
-    <string name="settings_hwdec_copy_desc">兼顾硬解与视频滤镜后处理，显存略有增加</string>
+    <string name="settings_hwdec_copy_desc">硬件解码并支持滤镜后处理</string>
     <string name="settings_hwdec_sw">软件解码 (CPU 软解)</string>
-    <string name="settings_hwdec_sw_desc">完全由 CPU 运算，仅在硬解花屏或异常时备用</string>
+    <string name="settings_hwdec_sw_desc">CPU 软件解码，兼容性好</string>
     <string name="settings_hwdec_active_mediacodec">已启用芯片硬解 (最省电)</string>
     <string name="settings_hwdec_active_copy">已启用硬解回写 (支持后处理)</string>
     <string name="settings_hwdec_active_sw">已启用 CPU 软解 (高负载)</string>
     <string name="settings_hdr_output">HDR 显示模式</string>
     <string name="settings_hdr_output_auto">自适应点亮 (真 10-bit HDR · 推荐)</string>
-    <string name="settings_hdr_output_auto_desc">遇到 HDR/杜比视界且屏幕支持时，激发屏幕峰值高光与原生 10-bit 色深</string>
+    <string name="settings_hdr_output_auto_desc">屏幕支持时启用高动态范围输出</string>
     <string name="settings_hdr_output_sdr">色调映射 (SDR 映射 · 省电护眼)</string>
-    <string name="settings_hdr_output_sdr_desc">着色器将高光压缩至 SDR 范围，不激发屏幕强光，夜间不刺眼且省电</string>
+    <string name="settings_hdr_output_sdr_desc">色调映射为标准动态范围 (SDR)</string>
     <string name="settings_hdr_active_auto">物理点亮 (真 10-bit HDR 峰值高光)</string>
     <string name="settings_hdr_active_sdr">色调映射 (SDR 映射 · 省电护眼)</string>
 
     <!-- Settings: Audio & Subtitles -->
     <string name="settings_group_subtitles">字幕与音频</string>
     <string name="settings_sub_autoload">自动加载外挂字幕</string>
-    <string name="settings_sub_autoload_desc">自动匹配同目录同名字幕</string>
+    <string name="settings_sub_autoload_desc">自动加载同目录同名字幕</string>
 
     <!-- Settings: Gestures -->
     <string name="settings_group_gestures">手势控制</string>
     <string name="settings_gestures_enabled">屏幕触控手势</string>
-    <string name="settings_gestures_enabled_desc">左侧亮度、右侧音量、双击快进</string>
+    <string name="settings_gestures_enabled_desc">支持滑动手势与双击快进</string>
 
     <!-- Settings: About -->
     <string name="settings_group_about">关于</string>
@@ -180,7 +180,7 @@
     <!-- Settings: Storage & Folders -->
     <string name="settings_group_storage">存储与媒体库</string>
     <string name="settings_folders_manage">已授权目录管理</string>
-    <string name="settings_folders_manage_desc">管理 SAF 授权的外部文件夹与扫描源</string>
+    <string name="settings_folders_manage_desc">管理媒体扫描目录</string>
 
     <!-- Folders Management Screen -->
     <string name="folders_title">已授权目录</string>
@@ -223,15 +223,15 @@
     <string name="shader_custom">自定义着色器</string>
     <string name="shader_import_saf">导入本地着色器 (.glsl)</string>
     <string name="shader_active_badge">生效中</string>
-    <string name="shader_desc_anime4k">高质量动漫线条重建与高阶超分辨率重构</string>
-    <string name="shader_desc_custom">从设备本地加载用户提供的 GLSL 着色器文件</string>
+    <string name="shader_desc_anime4k">动漫线条与超分辨率增强</string>
+    <string name="shader_desc_custom">导入本地 .glsl 着色器文件</string>
     <string name="shader_import_success">着色器加载成功</string>
     <string name="shader_import_error">着色器文件读取失败</string>
 
     <!-- R2: Custom mpv.conf Configuration -->
     <string name="settings_group_advanced">高级配置</string>
     <string name="settings_mpv_conf">mpv.conf 高级配置</string>
-    <string name="settings_mpv_conf_desc">自定义 mpv 原生配置文件与底层参数注入</string>
+    <string name="settings_mpv_conf_desc">自定义 mpv 原生配置文件</string>
     <string name="mpv_config_title">mpv.conf 编辑器</string>
     <string name="mpv_config_save">保存并应用</string>
     <string name="mpv_config_reset_default">恢复默认配置</string>
@@ -257,7 +257,7 @@
     <string name="hud_volume_overdrive_hint">(支持 200% 超频)</string>
     <string name="audio_limiter_active">防破音压限保护生效中</string>
     <string name="effects_deband">一键去色带 (Deband)</string>
-    <string name="effects_deband_desc">消除视频暗场与色彩渐变中的断层与色块</string>
+    <string name="effects_deband_desc">消除暗场与色彩渐变断层</string>
     <string name="effects_color_group">画面色彩调节</string>
     <string name="effects_color_brightness">画面亮度</string>
     <string name="effects_color_contrast">画面对比度</string>
@@ -265,9 +265,9 @@
     <string name="effects_color_reset">重置色彩</string>
     <string name="effects_audio_group">音频增强滤镜</string>
     <string name="effects_night_dialogue">夜间对白增强 (dynaudnorm)</string>
-    <string name="effects_night_dialogue_desc">动态响度均衡，抑制剧烈爆音并提升人声对白清晰度</string>
+    <string name="effects_night_dialogue_desc">增强对白清晰度，抑制突发大音量</string>
     <string name="effects_stereo_downmix">立体声下混 (Stereo Downmix)</string>
-    <string name="effects_stereo_downmix_desc">将 5.1/7.1 多声道音频下混为双声道立体声输出</string>
+    <string name="effects_stereo_downmix_desc">多声道合并输出为双声道</string>
 
     <!-- R5: System Integration & Background MediaSession -->
     <string name="notification_channel_name">媒体播放</string>
@@ -277,28 +277,34 @@
 
     <!-- R7: MX Player Style Custom Gestures -->
     <string name="settings_group_gestures_detail">手势与操控设置</string>
-    <string name="settings_group_gestures_detail_desc">配置屏幕滑动、双击行为、长按倍速与手势灵敏度</string>
+    <string name="settings_group_gestures_detail_desc">配置滑动手势、双击与长按倍速</string>
     <string name="gesture_settings_title">手势与操控设置</string>
     <string name="settings_gesture_switches_group">手势开关</string>
     <string name="settings_gesture_vertical_mode">垂直滑动功能</string>
     <string name="settings_gesture_vertical_mode_vol_bright">调节音量与亮度 (左右分栏)</string>
-    <string name="settings_gesture_vertical_mode_switch_video">切换视频 (上滑下一集 / 下滑上一集)</string>
+    <string name="settings_gesture_vertical_mode_switch_video">切换视频 (抖音式上下滑动)</string>
+    <string name="gesture_swipe_next">上滑切换下一集</string>
+    <string name="gesture_release_next">松手切换下一集</string>
+    <string name="gesture_swipe_prev">下滑切换上一集</string>
+    <string name="gesture_release_prev">松手切换上一集</string>
+    <string name="gesture_no_next_video">已经是最后一个视频了</string>
+    <string name="gesture_no_prev_video">已经是第一个视频了</string>
     <string name="settings_gesture_volume">垂直滑动调节音量</string>
-    <string name="settings_gesture_volume_desc">屏幕右侧上下滑动调节音量（支持 200% 超频增益）</string>
+    <string name="settings_gesture_volume_desc">右侧上下滑动调节音量</string>
     <string name="settings_gesture_brightness">垂直滑动调节亮度</string>
-    <string name="settings_gesture_brightness_desc">屏幕左侧上下滑动调节屏幕亮度</string>
+    <string name="settings_gesture_brightness_desc">左侧上下滑动调节亮度</string>
     <string name="settings_gesture_seek">水平滑动进度调节</string>
-    <string name="settings_gesture_seek_desc">屏幕水平横向滑动进行快退与快进</string>
+    <string name="settings_gesture_seek_desc">水平滑动快退与快进</string>
     <string name="settings_gesture_double_tap_seek">双击边缘快退/快进</string>
-    <string name="settings_gesture_double_tap_seek_desc">双击左侧快退，双击右侧快进</string>
+    <string name="settings_gesture_double_tap_seek_desc">双击左右侧快退与快进</string>
     <string name="settings_gesture_double_tap_play">双击中心播放/暂停</string>
-    <string name="settings_gesture_double_tap_play_desc">双击屏幕中央区域切换播放与暂停</string>
+    <string name="settings_gesture_double_tap_play_desc">双击中央区域播放或暂停</string>
     <string name="settings_gesture_long_press_speed">长按屏幕倍速播放</string>
-    <string name="settings_gesture_long_press_speed_desc">长按屏幕以指定倍速播放，松开恢复正常倍速</string>
+    <string name="settings_gesture_long_press_speed_desc">长按临时倍速播放</string>
     <string name="settings_gesture_zoom">双指缩放与自由拖拽</string>
-    <string name="settings_gesture_zoom_desc">双指捏合缩放画面，缩放后可自由拖动平移</string>
+    <string name="settings_gesture_zoom_desc">双指缩放与拖动平移画面</string>
     <string name="settings_gesture_swap_sides">左右手习惯对调</string>
-    <string name="settings_gesture_swap_sides_desc">将左侧改为调节音量，右侧改为调节亮度</string>
+    <string name="settings_gesture_swap_sides_desc">交换左右侧音量与亮度调节</string>
     <string name="settings_gesture_tuning_group">手势参数调节</string>
     <string name="settings_gesture_seek_seconds">双击快进步长</string>
     <string name="settings_gesture_seek_seconds_val">%d 秒</string>
@@ -323,7 +329,7 @@
     <string name="settings_gesture_group_playback">播放控制手势</string>
     <string name="settings_gesture_group_advanced">高级手势</string>
     <string name="settings_gesture_reset_dialog_title">恢复默认手势设置？</string>
-    <string name="settings_gesture_reset_dialog_desc">此操作将所有手势开关、快进步长与倍速档位恢复为默认推荐配置。</string>
+    <string name="settings_gesture_reset_dialog_desc">将所有手势设置恢复为默认值。</string>
 
     <string name="cd_screenshot">截图</string>
     <string name="screenshot_saved">截图已保存</string>

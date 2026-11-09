@@ -268,7 +268,13 @@
     <string name="settings_gesture_switches_group">Gesture Switches</string>
     <string name="settings_gesture_vertical_mode">Vertical Swipe Action</string>
     <string name="settings_gesture_vertical_mode_vol_bright">Volume &amp; Brightness (Left/Right)</string>
-    <string name="settings_gesture_vertical_mode_switch_video">Switch Video (Swipe Up: Next / Down: Prev)</string>
+    <string name="settings_gesture_vertical_mode_switch_video">Switch Video (TikTok-style Vertical Swipe)</string>
+    <string name="gesture_swipe_next">Swipe up for next</string>
+    <string name="gesture_release_next">Release for next</string>
+    <string name="gesture_swipe_prev">Swipe down for previous</string>
+    <string name="gesture_release_prev">Release for previous</string>
+    <string name="gesture_no_next_video">Already the last video</string>
+    <string name="gesture_no_prev_video">Already the first video</string>
     <string name="settings_gesture_volume">Vertical Swipe Volume</string>
     <string name="settings_gesture_volume_desc">Swipe vertically on right side to adjust volume (supports 200%% overdrive)</string>
     <string name="settings_gesture_brightness">Vertical Swipe Brightness</string>
