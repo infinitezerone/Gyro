@@ -79,6 +79,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -440,6 +441,9 @@ fun PlayerScreen(
     val isPipLayout = pipState.isPipLayout
     val hideChrome = pipState.shouldHideChrome
 
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var wasLandscapeBeforePip by rememberSaveable { mutableStateOf(false) }
+
     // 3. UI Interactive States via PlayerState
     val screenEntryEpoch by viewModel.screenEntryEpoch.collectAsState()
     LaunchedEffect(screenEntryEpoch) {
@@ -447,7 +451,18 @@ fun PlayerScreen(
     }
     var wasInPipLayout by remember { mutableStateOf(false) }
     LaunchedEffect(isPipLayout) {
-        if (wasInPipLayout && !isPipLayout) playerState.showControls = false
+        if (!wasInPipLayout && isPipLayout) {
+            // 记录进入 PiP 前是否为横屏
+            wasLandscapeBeforePip = isLandscape
+        } else if (wasInPipLayout && !isPipLayout) {
+            // 从 PiP 返回时恢复横屏朝向并显示控制栏
+            if (wasLandscapeBeforePip) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                wasLandscapeBeforePip = false
+            }
+            playerState.showControls = true
+            playerState.resetControlsTimeout()
+        }
         wasInPipLayout = isPipLayout
     }
 
@@ -461,8 +476,6 @@ fun PlayerScreen(
     LaunchedEffect(Unit) {
         powerMonitor.startMonitoring(this)
     }
-
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     // Reset zoom state on orientation change so portrait pan offsets don't displace video in landscape
     LaunchedEffect(isLandscape) {

@@ -193,24 +193,30 @@ fun rememberIsInPipMode(): Boolean {
  * allowing controls to disappear before the system captures the initial snapshot.
  */
 @Composable
-fun rememberIsTransitioningToPip(activity: ComponentActivity?): Boolean {
+fun rememberIsTransitioningToPip(activity: ComponentActivity?, isInPipMode: Boolean): Boolean {
     if (activity == null) return false
     var isTransitioning by remember(activity) { mutableStateOf(false) }
 
+    // When returning from PiP or when mode changes, clear transition flag
+    LaunchedEffect(isInPipMode) {
+        isTransitioning = false
+    }
+
     DisposableEffect(activity) {
-        var wasTransitioning = false
         val listener = Consumer<PictureInPictureUiStateCompat> { state ->
-            if (state.isTransitioningToPip) {
-                wasTransitioning = true
-                isTransitioning = true
-            } else if (wasTransitioning && !activity.isInPictureInPictureMode) {
-                wasTransitioning = false
+            isTransitioning = state.isTransitioningToPip && !activity.isInPictureInPictureMode
+        }
+        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            // Coming back to foreground (expanding PiP) always clears transitioning
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 isTransitioning = false
             }
         }
         activity.addOnPictureInPictureUiStateChangedListener(listener)
+        activity.lifecycle.addObserver(lifecycleObserver)
         onDispose {
             activity.removeOnPictureInPictureUiStateChangedListener(listener)
+            activity.lifecycle.removeObserver(lifecycleObserver)
         }
     }
 
@@ -290,7 +296,7 @@ class PlayerPipState internal constructor(
      * True when any PiP transition signal (transitioning gesture, manual request, or leaving hint)
      * indicates controls and chrome should be hidden before window shrinking.
      */
-    val shouldHideChrome: Boolean get() = isLeavingForeground || pipRequested || isTransitioning
+    val shouldHideChrome: Boolean get() = !isInPipMode && (isLeavingForeground || pipRequested || isTransitioning)
 
     /** True while PiP transition or exit settle is active, used to freeze buffer relocking. */
     val isTransitionActive: Boolean get() = isSettling || isInPipMode
@@ -314,7 +320,7 @@ fun rememberPlayerPipState(
 ): PlayerPipState {
     val isInPipMode = rememberIsInPipMode()
     val isPipWindow = rememberIsPipWindow(activity)
-    val isTransitioning = rememberIsTransitioningToPip(activity)
+    val isTransitioning = rememberIsTransitioningToPip(activity, isInPipMode)
     val isLeavingForeground = rememberUserLeavingHint()
 
     var pipRequested by remember { mutableStateOf(false) }
