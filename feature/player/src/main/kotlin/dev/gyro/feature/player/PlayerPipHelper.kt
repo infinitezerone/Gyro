@@ -193,23 +193,37 @@ fun rememberIsInPipMode(): Boolean {
  * allowing controls to disappear before the system captures the initial snapshot.
  */
 @Composable
-fun rememberIsTransitioningToPip(activity: ComponentActivity?, isInPipMode: Boolean): Boolean {
+fun rememberIsTransitioningToPip(
+    activity: ComponentActivity?,
+    isInPipMode: Boolean,
+    onControlsHide: () -> Unit
+): Boolean {
     if (activity == null) return false
     var isTransitioning by remember(activity) { mutableStateOf(false) }
 
-    // When returning from PiP or when mode changes, clear transition flag
     LaunchedEffect(isInPipMode) {
-        isTransitioning = false
+        if (!isInPipMode) {
+            isTransitioning = false
+        }
     }
 
     DisposableEffect(activity) {
+        var wasTransitioning = false
         val listener = Consumer<PictureInPictureUiStateCompat> { state ->
-            isTransitioning = state.isTransitioningToPip && !activity.isInPictureInPictureMode
+            if (state.isTransitioningToPip) {
+                wasTransitioning = true
+                isTransitioning = true
+                onControlsHide()
+            } else if (wasTransitioning && !activity.isInPictureInPictureMode) {
+                wasTransitioning = false
+                isTransitioning = false
+            }
         }
         val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
             // Coming back to foreground (expanding PiP) always clears transitioning
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 isTransitioning = false
+                wasTransitioning = false
             }
         }
         activity.addOnPictureInPictureUiStateChangedListener(listener)
@@ -253,14 +267,17 @@ fun rememberIsPipWindow(activity: ComponentActivity?): Boolean {
  * shrinks is keyed on this signal instead.
  */
 @Composable
-fun rememberUserLeavingHint(): Boolean {
+fun rememberUserLeavingHint(onControlsHide: () -> Unit): Boolean {
     val context = LocalContext.current
     val activity = remember(context) { context.findComponentActivity() } ?: return false
 
     var leaving by remember(activity) { mutableStateOf(false) }
 
     DisposableEffect(activity) {
-        val hintListener = Runnable { leaving = true }
+        val hintListener = Runnable {
+            leaving = true
+            onControlsHide()
+        }
         val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
             // Coming back to the front (from PiP or from another app) clears the flag.
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) leaving = false
@@ -293,10 +310,10 @@ class PlayerPipState internal constructor(
     val isPipLayout: Boolean get() = isPipWindow || isInPipMode
 
     /**
-     * True when any PiP transition signal (transitioning gesture, manual request, or leaving hint)
+     * True when in PiP layout or when entering PiP (transitioning gesture, manual request, or leaving hint)
      * indicates controls and chrome should be hidden before window shrinking.
      */
-    val shouldHideChrome: Boolean get() = !isInPipMode && (isLeavingForeground || pipRequested || isTransitioning)
+    val shouldHideChrome: Boolean get() = isPipLayout || isLeavingForeground || pipRequested || isTransitioning
 
     /** True while PiP transition or exit settle is active, used to freeze buffer relocking. */
     val isTransitionActive: Boolean get() = isSettling || isInPipMode
@@ -318,10 +335,20 @@ fun rememberPlayerPipState(
     videoSourceRect: Rect?,
     onControlsVisibilityChange: (Boolean) -> Unit
 ): PlayerPipState {
+    val onControlsHide = remember(onControlsVisibilityChange) {
+        { onControlsVisibilityChange(false) }
+    }
     val isInPipMode = rememberIsInPipMode()
     val isPipWindow = rememberIsPipWindow(activity)
-    val isTransitioning = rememberIsTransitioningToPip(activity, isInPipMode)
-    val isLeavingForeground = rememberUserLeavingHint()
+    val isTransitioning = rememberIsTransitioningToPip(activity, isInPipMode, onControlsHide)
+    val isLeavingForeground = rememberUserLeavingHint(onControlsHide)
+
+    val isPipLayout = isPipWindow || isInPipMode
+    LaunchedEffect(isPipLayout) {
+        if (isPipLayout) {
+            onControlsVisibilityChange(false)
+        }
+    }
 
     var pipRequested by remember { mutableStateOf(false) }
 
@@ -383,11 +410,12 @@ fun rememberPlayerPipState(
     }
 
     val coroutineScope = rememberCoroutineScope()
+    val latestOnControlsVisibilityChange by rememberUpdatedState(onControlsVisibilityChange)
     val enterPipAction = remember(activity, context, isPlaying, targetAspectRatio, videoSourceRect) {
         {
             if (!pipRequested && activity != null) {
                 pipRequested = true
-                onControlsVisibilityChange(false)
+                latestOnControlsVisibilityChange(false)
                 coroutineScope.launch {
                     withFrameNanos {}
                     withFrameNanos {}
@@ -401,7 +429,6 @@ fun rememberPlayerPipState(
                     val entered = activity.enterPictureInPictureMode(params)
                     if (!entered) {
                         pipRequested = false
-                        onControlsVisibilityChange(true)
                     }
                 }
             }

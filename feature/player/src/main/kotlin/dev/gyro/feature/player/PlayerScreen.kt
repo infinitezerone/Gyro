@@ -442,7 +442,18 @@ fun PlayerScreen(
     val hideChrome = pipState.shouldHideChrome
 
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    var wasLandscapeBeforePip by rememberSaveable { mutableStateOf(false) }
+    var orientationBeforePip by rememberSaveable {
+        mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
+    }
+
+    // 在普通全屏播放时（非 PiP 也非正在转入 PiP），持续记录实际屏幕朝向
+    if (!isPipLayout && !hideChrome) {
+        orientationBeforePip = if (isLandscape) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        }
+    }
 
     // 3. UI Interactive States via PlayerState
     val screenEntryEpoch by viewModel.screenEntryEpoch.collectAsState()
@@ -451,17 +462,13 @@ fun PlayerScreen(
     }
     var wasInPipLayout by remember { mutableStateOf(false) }
     LaunchedEffect(isPipLayout) {
-        if (!wasInPipLayout && isPipLayout) {
-            // 记录进入 PiP 前是否为横屏
-            wasLandscapeBeforePip = isLandscape
-        } else if (wasInPipLayout && !isPipLayout) {
-            // 从 PiP 返回时恢复横屏朝向并显示控制栏
-            if (wasLandscapeBeforePip) {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                wasLandscapeBeforePip = false
+        if (wasInPipLayout && !isPipLayout) {
+            // 从 PiP 返回全屏：严格恢复进入前的屏幕朝向（横屏进回横屏，竖屏进回竖屏）
+            if (orientationBeforePip != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                activity?.requestedOrientation = orientationBeforePip
             }
-            playerState.showControls = true
-            playerState.resetControlsTimeout()
+            // 返回后不自动弹出控制栏，保持纯净视频画面；用户点击屏幕即可呼出控制栏
+            playerState.showControls = false
         }
         wasInPipLayout = isPipLayout
     }
