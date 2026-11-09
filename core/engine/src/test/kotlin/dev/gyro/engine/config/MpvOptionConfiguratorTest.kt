@@ -57,7 +57,7 @@ class MpvOptionConfiguratorTest {
         assertEquals("display-resample", bridge.options["video-sync"])
         assertEquals("8MiB", bridge.options["demuxer-max-bytes"])
         // Defaults still fill every key the user did not provide.
-        assertEquals("${32 * 1024 * 1024}", bridge.options["demuxer-max-back-bytes"])
+        assertEquals("${64 * 1024 * 1024}", bridge.options["demuxer-max-back-bytes"])
     }
 
     @Test
