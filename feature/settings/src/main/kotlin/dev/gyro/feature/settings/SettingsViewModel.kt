@@ -24,6 +24,18 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAutoPip(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setAutoPip(enabled)
+        }
+    }
+
+    fun setBackgroundAudio(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setBackgroundAudio(enabled)
+        }
+    }
+
     fun setBackgroundPlayMode(mode: String) {
         viewModelScope.launch {
             repository.setBackgroundPlayMode(mode)

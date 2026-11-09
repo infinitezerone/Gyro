@@ -24,6 +24,8 @@ interface SettingsRepository {
     suspend fun updateGestureConfig(transform: (PlayerGestureConfig) -> PlayerGestureConfig)
 
     suspend fun setAutoResume(enabled: Boolean): UserSettings
+    suspend fun setAutoPip(enabled: Boolean): UserSettings
+    suspend fun setBackgroundAudio(enabled: Boolean): UserSettings
     suspend fun setBackgroundPlayMode(mode: String): UserSettings
     suspend fun setSeekStepSeconds(seconds: Int): UserSettings
     suspend fun setDefaultHwdec(hwdec: String): UserSettings
@@ -65,6 +67,12 @@ class DefaultSettingsRepository @Inject constructor(
 
     override suspend fun setAutoResume(enabled: Boolean) =
         updateSettings { it.copy(autoResume = enabled) }
+
+    override suspend fun setAutoPip(enabled: Boolean) =
+        updateSettings { it.copy(autoPip = enabled) }
+
+    override suspend fun setBackgroundAudio(enabled: Boolean) =
+        updateSettings { it.copy(backgroundAudio = enabled) }
 
     override suspend fun setBackgroundPlayMode(mode: String) =
         updateSettings { it.copy(backgroundPlayMode = mode) }

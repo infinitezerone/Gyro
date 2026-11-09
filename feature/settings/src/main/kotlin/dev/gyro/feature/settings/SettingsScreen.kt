@@ -68,6 +68,8 @@ fun SettingsScreen(
         onNavigateToMpvConfig = onNavigateToMpvConfig,
         onNavigateToGestures = onNavigateToGestures,
         onUpdateAutoResume = { viewModel.setAutoResume(it) },
+        onUpdateAutoPip = { viewModel.setAutoPip(it) },
+        onUpdateBackgroundAudio = { viewModel.setBackgroundAudio(it) },
         onUpdateBgPlay = { viewModel.setBackgroundPlayMode(it) },
         onUpdateSeekStep = { viewModel.setSeekStepSeconds(it) },
         onUpdateHwdec = { viewModel.setDefaultHwdec(it) },
@@ -87,7 +89,9 @@ fun SettingsContent(
     onNavigateToMpvConfig: () -> Unit = {},
     onNavigateToGestures: () -> Unit = {},
     onUpdateAutoResume: (Boolean) -> Unit,
-    onUpdateBgPlay: (String) -> Unit,
+    onUpdateAutoPip: (Boolean) -> Unit = {},
+    onUpdateBackgroundAudio: (Boolean) -> Unit = {},
+    onUpdateBgPlay: (String) -> Unit = {},
     onUpdateSeekStep: (Int) -> Unit,
     onUpdateHwdec: (String) -> Unit,
     onUpdateHdrOutput: (String) -> Unit = {},
@@ -96,7 +100,6 @@ fun SettingsContent(
     modifier: Modifier = Modifier
 ) {
     var showSeekStepDialog by remember { mutableStateOf(false) }
-    var showBgPlayDialog by remember { mutableStateOf(false) }
     var showHwdecDialog by remember { mutableStateOf(false) }
     var showHdrDialog by remember { mutableStateOf(false) }
 
@@ -145,21 +148,24 @@ fun SettingsContent(
                         onCheckedChange = onUpdateAutoResume
                     )
 
+                    PreferenceSwitchItem(
+                        title = stringResource(R.string.settings_auto_pip),
+                        description = stringResource(R.string.settings_auto_pip_desc),
+                        checked = settings.autoPip,
+                        onCheckedChange = onUpdateAutoPip
+                    )
+
+                    PreferenceSwitchItem(
+                        title = stringResource(R.string.settings_bg_audio),
+                        description = stringResource(R.string.settings_bg_audio_desc),
+                        checked = settings.backgroundAudio,
+                        onCheckedChange = onUpdateBackgroundAudio
+                    )
+
                     PreferenceClickItem(
                         title = stringResource(R.string.settings_seek_step),
                         value = stringResource(R.string.settings_seek_step_val, settings.seekStepSeconds),
                         onClick = { showSeekStepDialog = true }
-                    )
-
-                    val bgPlayLabel = when (settings.backgroundPlayMode) {
-                        "pip" -> stringResource(R.string.settings_bg_play_pip)
-                        "audio_only" -> stringResource(R.string.settings_bg_play_audio)
-                        else -> stringResource(R.string.settings_bg_play_off)
-                    }
-                    PreferenceClickItem(
-                        title = stringResource(R.string.settings_bg_play),
-                        value = bgPlayLabel,
-                        onClick = { showBgPlayDialog = true }
                     )
                 }
             }
@@ -278,25 +284,7 @@ fun SettingsContent(
         )
     }
 
-    // 单选弹窗: 后台播放
-    if (showBgPlayDialog) {
-        val modes = listOf("pip", "audio_only", "off")
-        val options = listOf(
-            DialogOption(stringResource(R.string.settings_bg_play_pip), "切换后台或切出应用时以画中画窗口悬浮播放"),
-            DialogOption(stringResource(R.string.settings_bg_play_audio), "切换后台时关闭视频画面，仅保留音频在后台播放"),
-            DialogOption(stringResource(R.string.settings_bg_play_off), "切换后台时立即暂停播放")
-        )
-        SingleChoiceDialog(
-            title = stringResource(R.string.settings_bg_play),
-            options = options,
-            selectedIndex = modes.indexOf(settings.backgroundPlayMode).coerceAtLeast(0),
-            onSelect = { idx ->
-                onUpdateBgPlay(modes[idx])
-                showBgPlayDialog = false
-            },
-            onDismiss = { showBgPlayDialog = false }
-        )
-    }
+
 
     // 单选弹窗: 默认解码器
     if (showHwdecDialog) {

@@ -123,6 +123,10 @@
     <string name="settings_auto_resume_desc">Automatically resume from last playback position</string>
     <string name="settings_seek_step">Seek Step</string>
     <string name="settings_seek_step_val">%d seconds</string>
+    <string name="settings_auto_pip">Auto Picture-in-Picture</string>
+    <string name="settings_auto_pip_desc">Automatically play in a floating window when leaving app</string>
+    <string name="settings_bg_audio">Background Audio</string>
+    <string name="settings_bg_audio_desc">Continue playing audio when leaving app or screen is off</string>
     <string name="settings_bg_play">Background Playback</string>
     <string name="settings_bg_play_pip">Auto Picture-in-Picture</string>
     <string name="settings_bg_play_audio">Audio Only</string>

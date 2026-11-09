@@ -344,7 +344,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (isInPictureInPictureMode) wasInPipMode = true
+        if (isInPictureInPictureMode) {
+            wasInPipMode = true
+        } else if (isFinishing) {
+            // Dismissed PiP window via close button ('X')
+            if (::playerEngine.isInitialized) {
+                playerViewModel.saveCurrentProgress()
+                playerEngine.pause()
+                playerEngine.detachSurface()
+            }
+            PlaybackService.stop(this)
+            wasInPipMode = false
+        }
     }
 
     override fun onResume() {
@@ -354,22 +365,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (!isInPictureInPictureMode && ::playerEngine.isInitialized && playerEngine.isPlaying.value) {
-            // Detach video surface for headless EGL_NO_SURFACE operation in background
+        if (!::playerEngine.isInitialized) return
+
+        // When the PiP window is dismissed or dragged away by user, onStop is called.
+        // In Android, onStop is NEVER called while the PiP window is visible on screen.
+        // Therefore, if wasInPipMode is true (or isInPictureInPictureMode is reported during teardown),
+        // the user has explicitly closed the PiP window -> pause immediately!
+        if (wasInPipMode || isInPictureInPictureMode) {
+            wasInPipMode = false
+            playerViewModel.saveCurrentProgress()
+            playerEngine.pause()
             playerEngine.detachSurface()
-            val bgMode = settingsViewModel.settings.value.backgroundPlayMode
-            // Dismissing the PiP window is an explicit "done watching": pause for real instead
-            // of falling into background audio, even when backgroundPlayMode would keep it alive.
-            if (wasInPipMode || bgMode == "off") {
-                playerViewModel.saveCurrentProgress()
-                playerEngine.pause()
-            } else {
-                // Launch foreground service for background audio playback
+            PlaybackService.stop(this)
+            return
+        }
+
+        // Normal backgrounding (leaving app to home/recents without PiP, or screen turned off)
+        if (playerEngine.isPlaying.value) {
+            playerEngine.detachSurface()
+            val bgAudioEnabled = settingsViewModel.settings.value.backgroundAudio
+            if (bgAudioEnabled) {
                 runCatching {
                     PlaybackService.start(this)
                 }.onFailure { e ->
                     Log.w("MainActivity", "Failed to start PlaybackService from background", e)
                 }
+            } else {
+                playerViewModel.saveCurrentProgress()
+                playerEngine.pause()
             }
         }
     }

@@ -445,7 +445,7 @@ fun PlayerScreen(
     }
 
     val isPipLayout = isPipWindow || isInPipMode
-    val autoPipEnabled = settings.backgroundPlayMode == "pip"
+    val autoPipEnabled = settings.autoPip
 
     // Sync PiP params dynamically for Android 12+ (API 31+) swipe-up auto-enter
     LaunchedEffect(isPlaying, autoPipEnabled, targetAspectRatio, videoSourceRect) {

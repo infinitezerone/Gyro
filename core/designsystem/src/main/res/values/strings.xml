@@ -132,6 +132,10 @@
     <string name="settings_auto_resume_desc">自动恢复上次播放进度</string>
     <string name="settings_seek_step">快进步长</string>
     <string name="settings_seek_step_val">%d 秒</string>
+    <string name="settings_auto_pip">自动画中画</string>
+    <string name="settings_auto_pip_desc">切回桌面时自动以小窗悬浮播放</string>
+    <string name="settings_bg_audio">后台音频播放</string>
+    <string name="settings_bg_audio_desc">切出应用或锁屏时继续在后台播放音频</string>
     <string name="settings_bg_play">后台播放</string>
     <string name="settings_bg_play_pip">自动画中画</string>
     <string name="settings_bg_play_audio">仅纯音频</string>

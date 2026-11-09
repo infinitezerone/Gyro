@@ -44,6 +44,8 @@ object TestData {
 
     fun testUserSettings(
         autoResume: Boolean = true,
+        autoPip: Boolean = true,
+        backgroundAudio: Boolean = false,
         backgroundPlayMode: String = "pip",
         seekStepSeconds: Int = 10,
         defaultHwdec: String = "mediacodec",
@@ -52,6 +54,8 @@ object TestData {
         gestureConfig: PlayerGestureConfig = PlayerGestureConfig()
     ): UserSettings = UserSettings(
         autoResume = autoResume,
+        autoPip = autoPip,
+        backgroundAudio = backgroundAudio,
         backgroundPlayMode = backgroundPlayMode,
         seekStepSeconds = seekStepSeconds,
         defaultHwdec = defaultHwdec,

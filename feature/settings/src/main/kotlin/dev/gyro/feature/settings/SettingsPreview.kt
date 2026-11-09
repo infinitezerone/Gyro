@@ -24,6 +24,8 @@ fun SettingsScreenPreview() {
     ) {
         val mockSettings = UserSettings(
             autoResume = true,
+            autoPip = true,
+            backgroundAudio = false,
             backgroundPlayMode = "pip",
             seekStepSeconds = 10,
             defaultHwdec = "mediacodec",
@@ -38,6 +40,8 @@ fun SettingsScreenPreview() {
             onNavigateToMpvConfig = {},
             onNavigateToGestures = {},
             onUpdateAutoResume = {},
+            onUpdateAutoPip = {},
+            onUpdateBackgroundAudio = {},
             onUpdateBgPlay = {},
             onUpdateSeekStep = {},
             onUpdateHwdec = {},

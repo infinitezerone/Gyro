@@ -38,7 +38,9 @@ const val HDR_OUTPUT_SDR = "sdr"
 @Serializable
 data class UserSettings(
     val autoResume: Boolean = true,
-    val backgroundPlayMode: String = "pip", // "pip", "audio_only", "off"
+    val autoPip: Boolean = true,
+    val backgroundAudio: Boolean = false,
+    val backgroundPlayMode: String = "pip", // Deprecated: preserved for backward compatibility
     val seekStepSeconds: Int = 10, // 5, 10, 15, 30
     val defaultHwdec: String = HWDEC_HARDWARE, // HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE
     val voRenderer: String = VO_LIBMPV, // VO_LIBMPV, VO_GPU_NEXT
