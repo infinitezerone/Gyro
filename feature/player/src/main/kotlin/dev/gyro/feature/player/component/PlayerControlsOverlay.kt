@@ -3,14 +3,6 @@ package dev.gyro.feature.player.component
 import dev.gyro.feature.player.PlayerScrubState
 
 import android.content.res.Configuration
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -100,17 +92,13 @@ fun BoxScope.PlayerControlsOverlay(
     val showControls = isVisible || scrubState.isActive
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 顶部与底部沉浸式非线性暗角渐变（为主流播放器设计核心，消弭生硬浮岛感）
-        AnimatedVisibility(
-            visible = showControls && !isLocked,
-            enter = fadeIn(animationSpec = tween(220)),
-            exit = fadeOut(animationSpec = tween(180))
-        ) {
+        // 1. 顶部与底部沉浸式非线性暗角渐变（零动画，随控制层瞬时显隐）
+        if (showControls && !isLocked) {
             val topScrimHeight = if (isLandscape) 100.dp else 70.dp
             val bottomScrimHeight = if (isLandscape) 120.dp else 80.dp
 
             Box(modifier = Modifier.fillMaxSize()) {
-                // 顶部向下淡出暗角（从状态栏向下自然淡出）
+                // 顶部向下淡出暗角
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -127,7 +115,7 @@ fun BoxScope.PlayerControlsOverlay(
                         )
                 )
 
-                // 底部向上淡出暗角（从控制行向上自然淡出）
+                // 底部向上淡出暗角
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -146,56 +134,53 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 2. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart）
-        // 动画规格与顶底栏全局对齐（入场 220ms，退场 180ms 同步渐隐缩放），避免延后遗留
-        AnimatedVisibility(
-            visible = isVisible && !scrubState.isActive,
-            enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.85f, animationSpec = tween(220)),
-            exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.85f, animationSpec = tween(180)),
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .displayCutoutPadding()
-                .padding(start = 14.dp)
-        ) {
-            GyroCircleActionButton(
-                onClick = onToggleLock,
-                icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
-                containerColor = if (isLocked) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.45f),
-                contentColor = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.90f),
-                border = BorderStroke(0.5.dp, if (isLocked) Color(0xFFFFB74D).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.20f)),
-                size = 40.dp,
-                iconSize = 20.dp
-            )
+        // 2. 锁屏浮动悬浮按键（零动画，瞬时响应）
+        if (isVisible && !scrubState.isActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .displayCutoutPadding()
+                    .padding(start = 14.dp)
+            ) {
+                GyroCircleActionButton(
+                    onClick = onToggleLock,
+                    icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
+                    containerColor = if (isLocked) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.45f),
+                    contentColor = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.90f),
+                    border = BorderStroke(0.5.dp, if (isLocked) Color(0xFFFFB74D).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.20f)),
+                    size = 40.dp,
+                    iconSize = 20.dp
+                )
+            }
         }
 
-        // 2.5. 截图浮动悬浮按键（位于右侧中央边缘 Alignment.CenterEnd，右拇指黄金盲操点）
-        AnimatedVisibility(
-            visible = isVisible && !isLocked && !scrubState.isActive,
-            enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.85f, animationSpec = tween(220)),
-            exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.85f, animationSpec = tween(180)),
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .displayCutoutPadding()
-                .padding(end = 14.dp)
-        ) {
-            GyroCircleActionButton(
-                onClick = onScreenshot,
-                icon = Icons.Default.PhotoCamera,
-                contentDescription = stringResource(R.string.cd_screenshot),
-                containerColor = Color.Black.copy(alpha = 0.45f),
-                contentColor = Color.White.copy(alpha = 0.90f),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
-                size = 40.dp,
-                iconSize = 20.dp
-            )
+        // 2.5. 截图浮动悬浮按键（零动画，瞬时响应）
+        if (isVisible && !isLocked && !scrubState.isActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .displayCutoutPadding()
+                    .padding(end = 14.dp)
+            ) {
+                GyroCircleActionButton(
+                    onClick = onScreenshot,
+                    icon = Icons.Default.PhotoCamera,
+                    contentDescription = stringResource(R.string.cd_screenshot),
+                    containerColor = Color.Black.copy(alpha = 0.45f),
+                    contentColor = Color.White.copy(alpha = 0.90f),
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
+                    size = 40.dp,
+                    iconSize = 20.dp
+                )
+            }
         }
 
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏胶囊按键（置于【视频画面正下方居中】，下移 60dp）
-        if (!isLandscape) {
+        // 2. 竖屏模式下的全屏胶囊按键（零动画，瞬时响应）
+        if (!isLandscape && isVisible && !scrubState.isActive) {
             val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
                 Modifier
                     .align(Alignment.TopCenter)
@@ -206,12 +191,7 @@ fun BoxScope.PlayerControlsOverlay(
                     .offset(y = 180.dp)
             }
 
-            AnimatedVisibility(
-                visible = isVisible && !scrubState.isActive,
-                enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.9f, animationSpec = tween(220)),
-                exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.9f, animationSpec = tween(180)),
-                modifier = bottomModifier
-            ) {
+            Box(modifier = bottomModifier) {
                 GyroPillButton(
                     text = stringResource(R.string.cd_enter_fullscreen),
                     icon = Icons.Default.Fullscreen,
@@ -224,57 +204,50 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 3. 顶部操作栏（未锁屏且可见时展示；拖拽进度条期间让位于屏幕正上方的时间预览）
-        AnimatedVisibility(
-            visible = isVisible && !scrubState.isActive,
-            enter = fadeIn() + slideInVertically(animationSpec = tween(220)) { -it / 2 },
-            exit = fadeOut() + slideOutVertically(animationSpec = tween(180)) { -it / 2 },
-            modifier = Modifier.align(Alignment.TopCenter)
-        ) {
-            PlayerTopBar(
-                title = title,
-                isLandscape = isLandscape,
-                onBack = onBack,
-                onEnterPiP = onEnterPiP,
-                onOpenSheetTab = onOpenSheetTab,
-                onScreenshot = onScreenshot,
-                hdrFormat = hdrFormat
-            )
+        // 3. 顶部操作栏（零动画，瞬时响应）
+        if (isVisible && !scrubState.isActive) {
+            Box(modifier = Modifier.align(Alignment.TopCenter)) {
+                PlayerTopBar(
+                    title = title,
+                    isLandscape = isLandscape,
+                    onBack = onBack,
+                    onEnterPiP = onEnterPiP,
+                    onOpenSheetTab = onOpenSheetTab,
+                    onScreenshot = onScreenshot,
+                    hdrFormat = hdrFormat
+                )
+            }
         }
 
-        // 4. 底部控制栏（通栏长进度条 + 主流多功能操作行）
-        // 拖动屏幕 Seek 时仅显示进度条（不显示任何其他底部控件），通过 PlayerBottomBar 底部等高占位确保进度条绝对不发生下坠位移。
-        AnimatedVisibility(
-            visible = showControls,
-            enter = fadeIn() + slideInVertically(animationSpec = tween(220)) { it / 2 },
-            exit = fadeOut() + slideOutVertically(animationSpec = tween(180)) { it / 2 },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            PlayerBottomBar(
-                isVisible = isVisible,
-                isLandscape = isLandscape,
-                isPlaying = isPlaying,
-                timePosMs = timePosMs,
-                durationMs = durationMs,
-                bufferedPosMs = bufferedPosMs,
-                speed = speed,
-                resizeMode = resizeMode,
-                scrubState = scrubState,
-                hasPrevious = hasPrevious,
-                hasNext = hasNext,
-                onTogglePlayPause = onTogglePlayPause,
-                onPlayPrevious = onPlayPrevious,
-                onPlayNext = onPlayNext,
-                onSeekToFraction = onSeekToFraction,
-                subtitleEnabled = subtitleEnabled,
-                onToggleSubtitle = onToggleSubtitle,
-                abLoopASeconds = abLoopASeconds,
-                abLoopBSeconds = abLoopBSeconds,
-                onCycleAbLoop = onCycleAbLoop,
-                onOpenSheetTab = onOpenSheetTab,
-                onToggleOrientation = onToggleOrientation,
-                chapters = chapters
-            )
+        // 4. 底部控制栏（零动画，瞬时响应）
+        if (showControls) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                PlayerBottomBar(
+                    isVisible = isVisible,
+                    isLandscape = isLandscape,
+                    isPlaying = isPlaying,
+                    timePosMs = timePosMs,
+                    durationMs = durationMs,
+                    bufferedPosMs = bufferedPosMs,
+                    speed = speed,
+                    resizeMode = resizeMode,
+                    scrubState = scrubState,
+                    hasPrevious = hasPrevious,
+                    hasNext = hasNext,
+                    onTogglePlayPause = onTogglePlayPause,
+                    onPlayPrevious = onPlayPrevious,
+                    onPlayNext = onPlayNext,
+                    onSeekToFraction = onSeekToFraction,
+                    subtitleEnabled = subtitleEnabled,
+                    onToggleSubtitle = onToggleSubtitle,
+                    abLoopASeconds = abLoopASeconds,
+                    abLoopBSeconds = abLoopBSeconds,
+                    onCycleAbLoop = onCycleAbLoop,
+                    onOpenSheetTab = onOpenSheetTab,
+                    onToggleOrientation = onToggleOrientation,
+                    chapters = chapters
+                )
+            }
         }
     }
 }
