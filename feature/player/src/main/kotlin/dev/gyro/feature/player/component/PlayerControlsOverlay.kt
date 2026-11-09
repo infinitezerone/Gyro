@@ -147,11 +147,11 @@ fun BoxScope.PlayerControlsOverlay(
         }
 
         // 2. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart）
-        // 锁屏状态下遵循成熟播放器规范：静止时自动淡出以保护全屏纯净，点击屏幕任意位置呼出解锁按键；拖动进度时隐藏
+        // 动画规格与顶底栏全局对齐（入场 220ms，退场 180ms 同步渐隐缩放），避免延后遗留
         AnimatedVisibility(
             visible = isVisible && !scrubState.isActive,
-            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-            exit = fadeOut(),
+            enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.85f, animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.85f, animationSpec = tween(180)),
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .displayCutoutPadding()
@@ -172,8 +172,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 2.5. 截图浮动悬浮按键（位于右侧中央边缘 Alignment.CenterEnd，右拇指黄金盲操点）
         AnimatedVisibility(
             visible = isVisible && !isLocked && !scrubState.isActive,
-            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-            exit = fadeOut(),
+            enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.85f, animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.85f, animationSpec = tween(180)),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .displayCutoutPadding()
@@ -208,8 +208,8 @@ fun BoxScope.PlayerControlsOverlay(
 
             AnimatedVisibility(
                 visible = isVisible && !scrubState.isActive,
-                enter = fadeIn() + scaleIn(initialScale = 0.9f),
-                exit = fadeOut(),
+                enter = fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.9f, animationSpec = tween(220)),
+                exit = fadeOut(animationSpec = tween(180)) + scaleOut(targetScale = 0.9f, animationSpec = tween(180)),
                 modifier = bottomModifier
             ) {
                 GyroPillButton(
