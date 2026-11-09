@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -173,6 +174,17 @@ class GyroSurfaceView @JvmOverloads constructor(
     /** Surface whose window the engine currently holds, for the ownership check in `surfaceDestroyed`. */
     private var attachedSurface: Surface? = null
 
+    /**
+     * Set to true while entering or settling after exiting PiP mode.
+     * Prevents buffer reallocation and mpv redraw churn during transition animation.
+     */
+    @Volatile
+    var pipTransitionActive: Boolean = false
+        set(value) {
+            field = value
+            EngineLog.d(TAG, "pipTransitionActive = $value")
+        }
+
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
@@ -199,6 +211,7 @@ class GyroSurfaceView @JvmOverloads constructor(
      */
     fun lockBufferSizeToVideo(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
+        if (pipTransitionActive) return
         if (width == lockedWidth && height == lockedHeight) return
         if (lockedWidth > 0 && lockedHeight > 0) {
             val lockedAspect = lockedWidth.toDouble() / lockedHeight
@@ -258,7 +271,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
         // Repaint so a paused player follows a relock. A playing one is already producing frames at
         // whatever size EGL reports, which is the number the renderer trusts.
-        if (target.geometry.firstFrameRendered.value) {
+        if (!pipTransitionActive && target.geometry.firstFrameRendered.value) {
             target.redraw()
         }
     }
@@ -431,6 +444,7 @@ fun GyroPlayerSurface(
     engine: GyroPlayerEngine? = null,
     videoDimensions: VideoDimensions? = null,
     videoFrameRate: Float? = null,
+    pipTransitionActive: Boolean = false,
     onAppliedBufferSizeChanged: ((androidx.compose.ui.unit.IntSize) -> Unit)? = null,
     onSurfaceViewAvailable: ((GyroSurfaceView) -> Unit)? = null
 ) {
@@ -443,6 +457,10 @@ fun GyroPlayerSurface(
     }
     LaunchedEffect(surfaceView) {
         onSurfaceViewAvailable?.invoke(surfaceView)
+    }
+
+    SideEffect {
+        surfaceView.pipTransitionActive = pipTransitionActive
     }
 
     // Tell the engine up front whether the panel can present HDR. Without it mpv is told to

@@ -428,65 +428,17 @@ fun PlayerScreen(
         } else null
     }
 
-    val isInPipMode = rememberIsInPipMode()
-    val isPipWindow = rememberIsPipWindow(componentActivity)
-
-    val leavingForeground = rememberUserLeavingHint()
-    var pipRequested by remember { mutableStateOf(false) }
-    val hideChrome = leavingForeground || pipRequested
-
-    LaunchedEffect(isInPipMode) {
-        pipRequested = false
-    }
-    LaunchedEffect(pipRequested) {
-        if (!pipRequested) return@LaunchedEffect
-        delay(PIP_ENTER_TIMEOUT_MS)
-        pipRequested = false
-    }
-
-    val isPipLayout = isPipWindow || isInPipMode
-    val autoPipEnabled = settings.autoPip
-
-    // Sync PiP params dynamically for Android 12+ (API 31+) swipe-up auto-enter
-    LaunchedEffect(isPlaying, autoPipEnabled, targetAspectRatio, videoSourceRect) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && componentActivity != null) {
-            val params = buildPipParams(
-                context = context,
-                isPlaying = isPlaying,
-                aspectRatio = targetAspectRatio,
-                sourceRect = videoSourceRect,
-                autoEnter = isPlaying && autoPipEnabled
-            )
-            componentActivity.setPictureInPictureParams(params)
-        }
-    }
-
-    // Auto-enter PiP on Android 8.0 - 11 (API 26-30) via UserLeaveHintListener.
-    val latestIsPlaying by rememberUpdatedState(isPlaying)
-    val latestAutoPipEnabled by rememberUpdatedState(autoPipEnabled)
-    val latestAspectRatio by rememberUpdatedState(targetAspectRatio)
-    val latestSourceRect by rememberUpdatedState(videoSourceRect)
-    DisposableEffect(componentActivity) {
-        val act = componentActivity ?: return@DisposableEffect onDispose { }
-        val hintListener = Runnable {
-            if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R &&
-                latestIsPlaying && latestAutoPipEnabled
-            ) {
-                val params = buildPipParams(
-                    context = act,
-                    isPlaying = latestIsPlaying,
-                    aspectRatio = latestAspectRatio,
-                    sourceRect = latestSourceRect,
-                    autoEnter = true
-                )
-                act.enterPictureInPictureMode(params)
-            }
-        }
-        act.addOnUserLeaveHintListener(hintListener)
-        onDispose {
-            act.removeOnUserLeaveHintListener(hintListener)
-        }
-    }
+    // 统一管控画中画生命周期、转场防残影与动态参数协商
+    val pipState = rememberPlayerPipState(
+        activity = componentActivity,
+        isPlaying = isPlaying,
+        autoPipEnabled = settings.autoPip,
+        targetAspectRatio = targetAspectRatio,
+        videoSourceRect = videoSourceRect,
+        onControlsVisibilityChange = { playerState.showControls = it }
+    )
+    val isPipLayout = pipState.isPipLayout
+    val hideChrome = pipState.shouldHideChrome
 
     // 3. UI Interactive States via PlayerState
     val screenEntryEpoch by viewModel.screenEntryEpoch.collectAsState()
@@ -910,6 +862,7 @@ fun PlayerScreen(
             engine = engine,
             videoDimensions = videoDimensions,
             videoFrameRate = videoFrameRate,
+            pipTransitionActive = pipState.isTransitionActive,
             onSurfaceViewAvailable = { surfaceViewRef = it }
         )
 
@@ -1201,27 +1154,7 @@ fun PlayerScreen(
                     playerState.activeSheetTab = tab
                 },
                 onEnterPiP = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && componentActivity != null) {
-                        if (pipRequested) return@PlayerControlsOverlay
-                        pipRequested = true
-                        playerState.showControls = false
-                        scope.launch {
-                            withFrameNanos { }
-                            withFrameNanos { }
-                            val params = buildPipParams(
-                                context = context,
-                                isPlaying = isPlaying,
-                                aspectRatio = targetAspectRatio,
-                                sourceRect = videoSourceRect,
-                                autoEnter = true
-                            )
-                            val entered = componentActivity.enterPictureInPictureMode(params)
-                            if (!entered) {
-                                pipRequested = false
-                                playerState.showControls = true
-                            }
-                        }
-                    }
+                    pipState.enterPip()
                 },
                 onToggleOrientation = {
                     activity?.let { act ->

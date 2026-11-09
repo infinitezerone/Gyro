@@ -15,18 +15,25 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.app.PictureInPictureUiStateCompat
 import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
 import dev.gyro.engine.model.ResizeMode
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Action for toggling play/pause inside system Picture-in-Picture window */
 const val PIP_ACTION_TOGGLE = "dev.gyro.player.action.PIP_TOGGLE"
@@ -39,6 +46,12 @@ private const val PIP_TOGGLE_REQUEST_CODE = 1001
  * nobody clears cannot leave the player without controls.
  */
 const val PIP_ENTER_TIMEOUT_MS = 1_500L
+
+/**
+ * Delay following PiP exit to allow the window resizing animation to settle before
+ * resuming standard buffer allocation.
+ */
+const val PIP_EXIT_SETTLE_MS = 300L
 
 /**
  * Builds the interactive Play/Pause action for the system PiP window.
@@ -175,6 +188,36 @@ fun rememberIsInPipMode(): Boolean {
 }
 
 /**
+ * Reactively listens to Activity Picture-in-Picture UI transition state.
+ * Fires at the immediate start of swipe-to-home gestures (before the window shrinks)
+ * allowing controls to disappear before the system captures the initial snapshot.
+ */
+@Composable
+fun rememberIsTransitioningToPip(activity: ComponentActivity?): Boolean {
+    if (activity == null) return false
+    var isTransitioning by remember(activity) { mutableStateOf(false) }
+
+    DisposableEffect(activity) {
+        var wasTransitioning = false
+        val listener = Consumer<PictureInPictureUiStateCompat> { state ->
+            if (state.isTransitioningToPip) {
+                wasTransitioning = true
+                isTransitioning = true
+            } else if (wasTransitioning && !activity.isInPictureInPictureMode) {
+                wasTransitioning = false
+                isTransitioning = false
+            }
+        }
+        activity.addOnPictureInPictureUiStateChangedListener(listener)
+        onDispose {
+            activity.removeOnPictureInPictureUiStateChangedListener(listener)
+        }
+    }
+
+    return isTransitioning
+}
+
+/**
  * Detects whether the current window geometry represents a floating PiP window.
  * Compares current container bounds against maximumWindowMetrics. PiP windows
  * are strictly smaller than maximum screen metrics in both width and height.
@@ -225,6 +268,151 @@ fun rememberUserLeavingHint(): Boolean {
     }
 
     return leaving
+}
+
+/**
+ * Unified reactive Picture-in-Picture state and controls for the player screen.
+ */
+@Stable
+class PlayerPipState internal constructor(
+    val isInPipMode: Boolean,
+    val isPipWindow: Boolean,
+    val isTransitioning: Boolean,
+    val isSettling: Boolean,
+    val isLeavingForeground: Boolean,
+    val pipRequested: Boolean,
+    private val enterPipAction: () -> Unit
+) {
+    /** True when either geometry or system mode indicates the player is in PiP floating layout. */
+    val isPipLayout: Boolean get() = isPipWindow || isInPipMode
+
+    /**
+     * True when any PiP transition signal (transitioning gesture, manual request, or leaving hint)
+     * indicates controls and chrome should be hidden before window shrinking.
+     */
+    val shouldHideChrome: Boolean get() = isLeavingForeground || pipRequested || isTransitioning
+
+    /** True while PiP transition or exit settle is active, used to freeze buffer relocking. */
+    val isTransitionActive: Boolean get() = isSettling || isInPipMode
+
+    /** Manually triggers PiP entry with frame-synced control concealment. */
+    fun enterPip() = enterPipAction()
+}
+
+/**
+ * Consolidates PiP state observation, Android 12+ dynamic parameters, Android 8-11 hint listener,
+ * and frame-synced manual PiP entry into a single structured hook.
+ */
+@Composable
+fun rememberPlayerPipState(
+    activity: ComponentActivity?,
+    isPlaying: Boolean,
+    autoPipEnabled: Boolean,
+    targetAspectRatio: Rational,
+    videoSourceRect: Rect?,
+    onControlsVisibilityChange: (Boolean) -> Unit
+): PlayerPipState {
+    val isInPipMode = rememberIsInPipMode()
+    val isPipWindow = rememberIsPipWindow(activity)
+    val isTransitioning = rememberIsTransitioningToPip(activity)
+    val isLeavingForeground = rememberUserLeavingHint()
+
+    var pipRequested by remember { mutableStateOf(false) }
+
+    var isSettling by remember { mutableStateOf(isInPipMode) }
+    LaunchedEffect(isInPipMode) {
+        pipRequested = false
+        if (isInPipMode) {
+            isSettling = true
+        } else if (isSettling) {
+            delay(PIP_EXIT_SETTLE_MS)
+            isSettling = false
+        }
+    }
+
+    LaunchedEffect(pipRequested) {
+        if (!pipRequested) return@LaunchedEffect
+        delay(PIP_ENTER_TIMEOUT_MS)
+        pipRequested = false
+    }
+
+    val context = LocalContext.current
+    LaunchedEffect(activity, isPlaying, autoPipEnabled, targetAspectRatio, videoSourceRect) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
+            val params = buildPipParams(
+                context = context,
+                isPlaying = isPlaying,
+                aspectRatio = targetAspectRatio,
+                sourceRect = videoSourceRect,
+                autoEnter = isPlaying && autoPipEnabled
+            )
+            activity.setPictureInPictureParams(params)
+        }
+    }
+
+    val latestIsPlaying by rememberUpdatedState(isPlaying)
+    val latestAutoPipEnabled by rememberUpdatedState(autoPipEnabled)
+    val latestAspectRatio by rememberUpdatedState(targetAspectRatio)
+    val latestSourceRect by rememberUpdatedState(videoSourceRect)
+    DisposableEffect(activity) {
+        val act = activity ?: return@DisposableEffect onDispose {}
+        val hintListener = Runnable {
+            if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O..Build.VERSION_CODES.R &&
+                latestIsPlaying && latestAutoPipEnabled
+            ) {
+                val params = buildPipParams(
+                    context = act,
+                    isPlaying = latestIsPlaying,
+                    aspectRatio = latestAspectRatio,
+                    sourceRect = latestSourceRect,
+                    autoEnter = true
+                )
+                act.enterPictureInPictureMode(params)
+            }
+        }
+        act.addOnUserLeaveHintListener(hintListener)
+        onDispose {
+            act.removeOnUserLeaveHintListener(hintListener)
+        }
+    }
+
+    val coroutineScope = rememberCoroutineScope()
+    val enterPipAction = remember(activity, context, isPlaying, targetAspectRatio, videoSourceRect) {
+        {
+            if (!pipRequested && activity != null) {
+                pipRequested = true
+                onControlsVisibilityChange(false)
+                coroutineScope.launch {
+                    withFrameNanos {}
+                    withFrameNanos {}
+                    val params = buildPipParams(
+                        context = context,
+                        isPlaying = isPlaying,
+                        aspectRatio = targetAspectRatio,
+                        sourceRect = videoSourceRect,
+                        autoEnter = true
+                    )
+                    val entered = activity.enterPictureInPictureMode(params)
+                    if (!entered) {
+                        pipRequested = false
+                        onControlsVisibilityChange(true)
+                    }
+                }
+            }
+        }
+    }
+
+    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, enterPipAction) {
+        PlayerPipState(
+            isInPipMode = isInPipMode,
+            isPipWindow = isPipWindow,
+            isTransitioning = isTransitioning,
+            isSettling = isSettling,
+            isLeavingForeground = isLeavingForeground,
+            pipRequested = pipRequested,
+            enterPipAction = enterPipAction
+        )
+    }
 }
 
 /**
