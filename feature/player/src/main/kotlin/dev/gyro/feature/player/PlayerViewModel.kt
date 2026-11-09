@@ -88,6 +88,13 @@ class PlayerViewModel @Inject constructor(
         _screenEntryEpoch.value += 1
     }
 
+    private val _forceHideControlsSignal = MutableStateFlow(0L)
+    val forceHideControlsSignal: StateFlow<Long> = _forceHideControlsSignal.asStateFlow()
+
+    fun triggerForceHideControls() {
+        _forceHideControlsSignal.value = System.nanoTime()
+    }
+
     fun openUri(
         uri: Uri,
         forceReload: Boolean = false,

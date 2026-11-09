@@ -460,6 +460,12 @@ fun PlayerScreen(
     LaunchedEffect(screenEntryEpoch) {
         playerState.showControls = true
     }
+    val forceHideControlsSignal by viewModel.forceHideControlsSignal.collectAsState()
+    LaunchedEffect(forceHideControlsSignal) {
+        if (forceHideControlsSignal != 0L) {
+            playerState.showControls = false
+        }
+    }
     var wasInPipLayout by remember { mutableStateOf(false) }
     LaunchedEffect(isPipLayout) {
         if (wasInPipLayout && !isPipLayout) {
@@ -514,7 +520,7 @@ fun PlayerScreen(
         playerState.lastInteractionTrigger
     ) {
         if (playerState.showControls && isPlaying && !scrubState.isActive &&
-            !playerState.isLocked && !isPipLayout && playerState.activeSheetTab == null
+            !isPipLayout && playerState.activeSheetTab == null
         ) {
             delay(3500L)
             playerState.showControls = false
