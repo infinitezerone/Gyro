@@ -32,6 +32,8 @@ data class PlaybackSnapshot(
     val fps: Double = 0.0,
     val droppedFrames: Long = 0L,
     val vsyncRatio: Double = 0.0,
+    val videoBitrate: Long = 0L,
+    val audioBitrate: Long = 0L,
 
     // Video geometry
     val videoDimensions: VideoDimensions = VideoDimensions(0, 0),

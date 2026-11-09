@@ -77,6 +77,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -183,6 +184,38 @@ fun PlayerScreen(
 
     // 常驻诊断浮层开关（STATS sheet 中切换；会话级状态，跨播放切换保留由用户重新开关）
     var statsOverlayEnabled by remember { mutableStateOf(false) }
+
+    // 实时码率波形采样序列（环形缓存，每 500ms 采样一次）
+    val bitrateHistory = remember { androidx.compose.runtime.mutableStateListOf<Long>() }
+    var liveVideoBitrate by remember { mutableLongStateOf(0L) }
+    var liveAudioBitrate by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying) return@LaunchedEffect
+        while (true) {
+            val (vLive, aLive) = engine.queryLiveBitrate()
+            val currentV: Long = if (vLive > 0L) {
+                vLive
+            } else if (snapshot.videoBitrate > 0L) {
+                snapshot.videoBitrate
+            } else {
+                0L
+            }
+            if (currentV > 0L) {
+                liveVideoBitrate = currentV
+                bitrateHistory.add(currentV)
+                if (bitrateHistory.size > 50) {
+                    bitrateHistory.removeAt(0)
+                }
+            }
+            if (aLive > 0L) {
+                liveAudioBitrate = aLive
+            } else if (snapshot.audioBitrate > 0L) {
+                liveAudioBitrate = snapshot.audioBitrate
+            }
+            kotlinx.coroutines.delay(500L)
+        }
+    }
 
     var surfaceViewRef by remember { mutableStateOf<GyroSurfaceView?>(null) }
 
@@ -1079,6 +1112,7 @@ fun PlayerScreen(
                 hwdec = snapshot.hwdecCurrent,
                 vsyncRatio = snapshot.vsyncRatio,
                 speed = snapshot.speed,
+                bitrate = liveVideoBitrate,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .displayCutoutPadding()
@@ -1248,6 +1282,9 @@ fun PlayerScreen(
                         hwdec = hwdecCurrent,
                         fps = fps,
                         droppedFrames = droppedFrames,
+                        videoBitrate = liveVideoBitrate,
+                        audioBitrate = liveAudioBitrate,
+                        bitrateHistory = bitrateHistory.toList(),
                         videoWidth = videoDimensions.width,
                         videoHeight = videoDimensions.height,
                         powerMetrics = powerMetrics,

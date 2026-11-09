@@ -1,5 +1,25 @@
 package dev.gyro.feature.player.component.sheet.tabs
 
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.fillMaxSize
+
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import dev.gyro.feature.player.component.sheet.common.formatBitrate
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,6 +141,319 @@ internal fun SyncTabContent(
 /**
  * 实时性能统计 (StatsTab)：性能卡 + 解码切换 + 渲染管线。
  */
+
+/**
+ * 实时码率波形走势图 (LiveBitrateChart)
+ */
+@Composable
+internal fun LiveBitrateChart(
+    bitrateHistory: List<Long>,
+    currentBitrate: Long,
+    audioBitrate: Long = 0L,
+    fps: Double = 0.0,
+    droppedFrames: Long = 0L,
+    modifier: Modifier = Modifier
+) {
+    val peakBitrate = remember(bitrateHistory, currentBitrate) {
+        maxOf(bitrateHistory.maxOrNull() ?: currentBitrate, currentBitrate, 1_000_000L)
+    }
+    val avgBitrate = remember(bitrateHistory, currentBitrate) {
+        if (bitrateHistory.isNotEmpty()) {
+            bitrateHistory.average().toLong()
+        } else {
+            currentBitrate
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = SheetCardColor,
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // 1. 顶部标题与实时呼吸指示灯
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "实时视频码率",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SheetTextColor
+                    )
+                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                    val pulseAlpha by infiniteTransition.animateFloat(
+                        initialValue = 0.35f,
+                        targetValue = 1.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulseAlpha"
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = SheetAccentBlue.copy(alpha = pulseAlpha),
+                        modifier = Modifier.size(7.dp)
+                    ) {}
+                    Text(
+                        text = "LIVE",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SheetAccentBlue
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "峰值", fontSize = 10.sp, color = SheetTextSecondaryColor)
+                        Text(
+                            text = formatBitrate(peakBitrate),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SheetAmber,
+                            style = TextStyle(fontFeatureSettings = "tnum")
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "均值", fontSize = 10.sp, color = SheetTextSecondaryColor)
+                        Text(
+                            text = formatBitrate(avgBitrate),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SheetTextColor,
+                            style = TextStyle(fontFeatureSettings = "tnum")
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 瞬时码率大数展示
+            Text(
+                text = formatBitrate(currentBitrate),
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = SheetAccentBlue,
+                style = TextStyle(fontFeatureSettings = "tnum")
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 2. 实时平滑走势曲线 Canvas
+            val samples = if (bitrateHistory.size >= 2) {
+                bitrateHistory
+            } else if (bitrateHistory.size == 1) {
+                listOf(bitrateHistory[0], bitrateHistory[0])
+            } else if (currentBitrate > 0) {
+                listOf(currentBitrate, currentBitrate)
+            } else {
+                emptyList()
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(115.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.25f))
+            ) {
+                if (samples.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "正在采样码率波形...",
+                            fontSize = 12.sp,
+                            color = SheetTextSecondaryColor
+                        )
+                    }
+                } else {
+                    val maxVal = maxOf(samples.maxOrNull() ?: 1L, 100_000L).toFloat() * 1.15f
+                    val gridColor = Color.White.copy(alpha = 0.06f)
+                    val lineColor = SheetAccentBlue
+
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 6.dp, vertical = 8.dp)
+                    ) {
+                        val w = size.width
+                        val h = size.height
+
+                        // 三条基准参考虚线
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, 0f),
+                            end = Offset(w, 0f),
+                            strokeWidth = 1f
+                        )
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, h * 0.5f),
+                            end = Offset(w, h * 0.5f),
+                            strokeWidth = 1f
+                        )
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, h),
+                            end = Offset(w, h),
+                            strokeWidth = 1f
+                        )
+
+                        val stepX = w / (samples.size - 1).coerceAtLeast(1)
+                        val points = samples.mapIndexed { idx, value ->
+                            val x = idx * stepX
+                            val y = h - ((value.toFloat() / maxVal).coerceIn(0f, 1f) * (h - 4f))
+                            Offset(x, y)
+                        }
+
+                        val linePath = Path()
+                        val fillPath = Path()
+
+                        linePath.moveTo(points.first().x, points.first().y)
+                        fillPath.moveTo(points.first().x, h)
+                        fillPath.lineTo(points.first().x, points.first().y)
+
+                        for (i in 0 until points.size - 1) {
+                            val p0 = points[i]
+                            val p1 = points[i + 1]
+                            val cx = (p0.x + p1.x) / 2f
+                            linePath.cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                            fillPath.cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                        }
+
+                        fillPath.lineTo(points.last().x, h)
+                        fillPath.close()
+
+                        // 曲线下部渐变着色
+                        drawPath(
+                            path = fillPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    lineColor.copy(alpha = 0.35f),
+                                    lineColor.copy(alpha = 0.05f),
+                                    Color.Transparent
+                                ),
+                                startY = 0f,
+                                endY = h
+                            )
+                        )
+
+                        // 贝塞尔走势曲线
+                        drawPath(
+                            path = linePath,
+                            color = lineColor,
+                            style = Stroke(
+                                width = 2.5.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round
+                            )
+                        )
+
+                        // 顶端最新采样动态指示光圈
+                        val lastPoint = points.last()
+                        drawCircle(
+                            color = lineColor.copy(alpha = 0.30f),
+                            radius = 7.dp.toPx(),
+                            center = lastPoint
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.dp.toPx(),
+                            center = lastPoint
+                        )
+                    }
+
+                    // 刻度标尺读数
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatBitrate((maxVal * 0.95f).toLong()),
+                            fontSize = 9.sp,
+                            color = SheetTextSecondaryColor.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = "0 kbps",
+                            fontSize = 9.sp,
+                            color = SheetTextSecondaryColor.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 3. 关联播放性能指标小卡片组
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MetricChip(
+                    label = "实时帧率",
+                    value = if (fps > 0) String.format(Locale.US, "%.1f FPS", fps) else "--",
+                    modifier = Modifier.weight(1f)
+                )
+                MetricChip(
+                    label = "丢帧计数",
+                    value = "$droppedFrames 帧",
+                    valueColor = if (droppedFrames > 0) SheetAmber else SheetGreen,
+                    modifier = Modifier.weight(1f)
+                )
+                if (audioBitrate > 0) {
+                    MetricChip(
+                        label = "音频码率",
+                        value = formatBitrate(audioBitrate),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricChip(
+    label: String,
+    value: String,
+    valueColor: Color = SheetTextColor,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = SheetCardAltColor,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(text = label, fontSize = 10.sp, color = SheetTextSecondaryColor)
+            Text(
+                text = value,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = valueColor,
+                style = TextStyle(fontFeatureSettings = "tnum")
+            )
+        }
+    }
+}
+
 @Composable
 internal fun StatsTabContent(
     state: PlayerSheetUiState,
@@ -133,7 +466,16 @@ internal fun StatsTabContent(
             .padding(horizontal = 20.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 0. 常驻诊断浮层开关（控制层隐藏时在画面角落显示紧凑性能胶囊）
+        // 1. 实时码率波形走势图 (核心图表)
+        LiveBitrateChart(
+            bitrateHistory = state.bitrateHistory,
+            currentBitrate = state.videoBitrate,
+            audioBitrate = state.audioBitrate,
+            fps = state.fps,
+            droppedFrames = state.droppedFrames
+        )
+
+        // 2. 常驻性能浮层开关
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = SheetCardColor,
@@ -141,89 +483,10 @@ internal fun StatsTabContent(
         ) {
             FilterSwitchRow(
                 title = stringResource(R.string.stats_overlay_toggle),
-                description = "在画面角落显示实时帧率与丢帧",
+                description = "在画面角落显示实时帧率与码率",
                 checked = state.statsOverlayEnabled,
                 onCheckedChange = callbacks.onToggleStatsOverlay
             )
-        }
-
-        // 1. 实时性能监控卡片
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SheetSectionHeader("实时播放性能", modifier = Modifier.padding(start = 4.dp))
-
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = SheetCardColor,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MediaInfoRow(
-                        label = stringResource(R.string.stats_resolution),
-                        value = if (state.videoWidth > 0 && state.videoHeight > 0) {
-                            "${state.videoWidth} × ${state.videoHeight}"
-                        } else {
-                            stringResource(R.string.stats_pending)
-                        }
-                    )
-                    MediaInfoRow(
-                        label = stringResource(R.string.stats_framerate),
-                        value = "${String.format(Locale.US, "%.1f", state.fps)} FPS"
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            stringResource(R.string.stats_dropped_frames),
-                            fontSize = 13.sp,
-                            color = SheetTextSecondaryColor
-                        )
-                        Text(
-                            text = "${state.droppedFrames}",
-                            style = TextStyle(
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (state.droppedFrames > 0) SheetAmber else SheetTextColor,
-                                fontFeatureSettings = "tnum"
-                            )
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            stringResource(R.string.stats_decoder),
-                            fontSize = 13.sp,
-                            color = SheetTextSecondaryColor
-                        )
-                        val isHw = state.hwdec.contains("mediacodec")
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = (if (isHw) SheetGreen else SheetAmber).copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isHw) SheetGreen else SheetAmber,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                    state.powerMetrics?.let { pm ->
-                        MediaInfoRow(
-                            label = stringResource(R.string.stats_power),
-                            value = "${String.format(Locale.US, "%.2f", pm.powerWatts)} W"
-                        )
-                    }
-                }
-            }
         }
 
         // 2. 解码器模式切换

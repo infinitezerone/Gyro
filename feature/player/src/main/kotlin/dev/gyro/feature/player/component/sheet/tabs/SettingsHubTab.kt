@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VideoLibrary
 import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
+import dev.gyro.feature.player.component.sheet.common.formatBitrate
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -149,14 +150,11 @@ internal fun SettingsHubTabContent(
         // ========== 4. 系统与诊断 ==========
         SheetSectionHeader("系统与诊断")
 
-        val resDesc = if (state.videoWidth > 0 && state.videoHeight > 0) {
-            "${state.videoWidth}×${state.videoHeight} · ${String.format(Locale.US, "%.1f", state.fps)} FPS"
-        } else {
-            "性能监控"
-        }
+        val bitStr = if (state.videoBitrate > 0) " · ${formatBitrate(state.videoBitrate)}" else ""
+        val fpsStr = if (state.fps > 0) "${String.format(Locale.US, "%.1f", state.fps)} FPS" else "实时码率走势"
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_stats),
-            subtitle = resDesc,
+            subtitle = "$fpsStr$bitStr",
             icon = Icons.Default.Info,
             iconTint = SheetAccentBlue,
             onClick = { onNavigate(PlayerSheetTab.STATS) }

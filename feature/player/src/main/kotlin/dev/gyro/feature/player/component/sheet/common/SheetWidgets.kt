@@ -364,3 +364,17 @@ internal fun FilledTonalAction(
         content = content
     )
 }
+
+/**
+ * 格式化码率字符串 (bps -> Mbps / kbps)
+ */
+internal fun formatBitrate(bps: Long): String {
+    if (bps <= 0) return "--"
+    val mbps = bps / 1_000_000.0
+    val kbps = bps / 1_000.0
+    return if (mbps >= 1.0) {
+        String.format(java.util.Locale.US, "%.2f Mbps", mbps)
+    } else {
+        String.format(java.util.Locale.US, "%.0f kbps", kbps)
+    }
+}

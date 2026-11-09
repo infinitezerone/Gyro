@@ -349,6 +349,7 @@ fun StatsDiagnosticOverlay(
     hwdec: String,
     vsyncRatio: Double,
     speed: Float,
+    bitrate: Long = 0L,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -358,6 +359,14 @@ fun StatsDiagnosticOverlay(
         modifier = modifier
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            val bitStr = if (bitrate >= 1_000_000L) {
+                String.format(java.util.Locale.US, "%.1fM", bitrate / 1_000_000.0)
+            } else if (bitrate >= 1_000L) {
+                String.format(java.util.Locale.US, "%.0fK", bitrate / 1_000.0)
+            } else {
+                "--"
+            }
+            DiagnosticRow(label = "BITRATE", value = bitStr)
             DiagnosticRow(
                 label = "FPS",
                 value = if (fps > 0) String.format(java.util.Locale.US, "%.1f", fps) else "--"

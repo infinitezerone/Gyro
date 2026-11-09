@@ -47,6 +47,8 @@ open class PlaybackLifecycleController(
         bridge.observeProperty("frame-drop-count", MpvNativeBridge.Format.INT64)
         bridge.observeProperty("vsync-ratio", MpvNativeBridge.Format.DOUBLE)
         bridge.observeProperty("media-title", MpvNativeBridge.Format.STRING)
+        bridge.observeProperty("video-bitrate", MpvNativeBridge.Format.INT64)
+        bridge.observeProperty("audio-bitrate", MpvNativeBridge.Format.INT64)
     }
 
     override fun onEvent(event: MpvEvent) {
@@ -130,6 +132,8 @@ open class PlaybackLifecycleController(
             }
             is MpvEvent.LongProperty -> when (event.name) {
                 "frame-drop-count" -> store.update { it.copy(droppedFrames = event.value) }
+                "video-bitrate" -> store.update { it.copy(videoBitrate = event.value) }
+                "audio-bitrate" -> store.update { it.copy(audioBitrate = event.value) }
             }
             is MpvEvent.DoubleProperty -> when (event.name) {
                 "speed" -> store.update { it.copy(speed = event.value.toFloat()) }

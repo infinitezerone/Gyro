@@ -317,6 +317,16 @@ class GyroPlayerEngine(
         if (isInitialized.get()) bridge.rebuildSurface()
     }
 
+    fun queryLiveBitrate(): Pair<Long, Long> {
+        val v = bridge.getPropertyLong("video-bitrate")?.takeIf { it > 0 }
+            ?: bridge.getPropertyLong("packet-video-bitrate")?.takeIf { it > 0 }
+            ?: 0L
+        val a = bridge.getPropertyLong("audio-bitrate")?.takeIf { it > 0 }
+            ?: bridge.getPropertyLong("packet-audio-bitrate")?.takeIf { it > 0 }
+            ?: 0L
+        return v to a
+    }
+
     fun queryMediaInfo(
         fallbackTitle: String = "",
         fallbackUri: String = "",
