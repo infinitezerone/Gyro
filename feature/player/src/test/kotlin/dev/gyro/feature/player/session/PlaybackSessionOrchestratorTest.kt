@@ -47,7 +47,7 @@ class PlaybackSessionOrchestratorTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
 
-    private val testDispatcher = StandardTestDispatcher()
+    private var testDispatcher = StandardTestDispatcher()
 
     private lateinit var testContext: Context
     private lateinit var fakeBridge: FakeMpvNativeBridge
@@ -69,6 +69,7 @@ class PlaybackSessionOrchestratorTest {
 
     @Before
     fun setUp() {
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
 
         val filesDir = tempFolder.newFolder("orchestrator_test")

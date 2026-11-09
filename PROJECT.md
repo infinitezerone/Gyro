@@ -164,3 +164,27 @@ Notes for later:
   this device; measure with Choreographer instead.
 - If judder returns, log `frame-drop-count` while playing: a growing count means mpv is dropping, a
   static count with visible judder means the compositor is discarding frames we still submit.
+
+### gpu-next, Dolby Vision and HDR output
+
+Status: HDR10/HLG lighting is wired end to end; gpu-next (and therefore Dolby Vision) is not
+reachable with the current dependency.
+
+- `dev.jdtech.mpv:libmpv:1.0.0` bundles **mpv v0.41.0**, whose render API only exposes
+  `libmpv_gpu` (`video/out/gpu/libmpv_gpu.c`). `MPV_RENDER_PARAM_BACKEND` does not exist in
+  `render.h` (the enum ends at `SW_POINTER = 20`), and unknown render params are skipped silently,
+  so asking for `vo-backend=gpu-next` returns success while the session keeps running `vo_gpu`.
+  Upstream support is still an open draft (mpv-player/mpv#16818), absent from v0.42.0 as well.
+  `GPU_NEXT_RENDER_API_SUPPORTED` (`:core:model`) encodes this; the UI offers the switch only when
+  it is true, and `MpvOptionConfigurator` refuses to apply libplacebo-only options when it is not.
+- HDR path: `hdr-capable` (a fake option intercepted in `jni.rs`) tells the EGL layer to pick a
+  10-bit config before the first surface exists; `hdr-output` still drives the per-file decision.
+  `EGL_GL_COLORSPACE_BT2020_PQ` is requested in `SurfaceSlot::create_window_surface` for every
+  creation path (attach, format-change rebuild, recovery).
+- The window surface carries its colourspace, so `GyroSurfaceView.surfaceChanged` asks for a
+  rebuild (`RenderCommand::RebuildSurface`) when the buffer format flips between 8-bit and 10-bit.
+- `displayHdrCapable` (`VideoGeometryCoordinator.setDisplayHdrCapable`, fed by `Display.isHdr`)
+  gates PQ output itself, not just the window colour mode: on an SDR panel mpv must tone-map
+  instead of being told `target-trc=pq`.
+- Switching the renderer or the HDR mode at runtime cannot re-pick the EGL config; it is chosen
+  once per render thread, so a mode change that needs 10 extra bits takes effect on next start.

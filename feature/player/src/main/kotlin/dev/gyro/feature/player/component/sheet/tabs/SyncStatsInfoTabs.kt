@@ -294,46 +294,13 @@ internal fun StatsTabContent(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    val isGpuNext = state.voRenderer == dev.gyro.core.model.VO_GPU_NEXT
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.stats_render_backend),
-                                fontSize = 13.sp,
-                                color = SheetTextSecondaryColor
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (isGpuNext) "gpu-next (libplacebo)" else "OpenGL ES (EGL Pipeline)",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isGpuNext) SheetAccentBlue else SheetGreen
-                            )
-                        }
-                        callbacks.onToggleVoRenderer?.let { toggle ->
-                            FilledTonalButton(
-                                onClick = toggle,
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = SheetCardAltColor,
-                                    contentColor = SheetTextColor
-                                ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = if (isGpuNext) "切至 OpenGL ES" else "切至 gpu-next",
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
+                    MediaInfoRow(
+                        label = stringResource(R.string.stats_render_backend),
+                        value = "OpenGL ES (EGL Pipeline)"
+                    )
                     MediaInfoRow(
                         label = stringResource(R.string.stats_tone_mapping),
-                        value = if (isGpuNext) "Reinhard (通透自然 · 动态保真)" else "Hable (电影级保真 · 动态防过曝)"
+                        value = "Hable (电影级保真 · 动态防过曝)"
                     )
                     MediaInfoRow(
                         label = stringResource(R.string.stats_texture_scaler),

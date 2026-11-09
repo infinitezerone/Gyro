@@ -33,7 +33,7 @@ pub use self::frame::{
 pub use self::probe::{G_GPU_RENDERER, G_GPU_VENDOR, G_ZERO_COPY_SAFE};
 pub use self::thread::{
     clear_render_thread, destroy_render_context_sync, ensure_render_thread, native_render_loop,
-    render_sender, RenderCommand, G_FRAME_GATE, G_PREFER_VULKAN,
+    render_sender, RenderCommand, G_FRAME_GATE,
 };
 pub use crate::strategy::{DrawOutcome, RenderBackend, RenderStrategy};
 
@@ -117,18 +117,28 @@ impl SessionState {
 
 pub static G_SESSION: SessionState = SessionState::new();
 pub static G_RENDER_EPOCH: AtomicU64 = AtomicU64::new(0);
+pub static G_HDR_OUTPUT: AtomicBool = AtomicBool::new(false);
+/// Whether this session may output HDR at all (user mode is not SDR).
+///
+/// Known before the EGL surface exists, unlike [`G_HDR_OUTPUT`], which only becomes true once the
+/// loaded file turns out to be HDR. The EGL config is chosen once per render thread, so the
+/// 10-bit decision has to be made from this flag rather than from the per-file one.
+pub static G_HDR_CAPABLE: AtomicBool = AtomicBool::new(false);
 
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-static G_REQUESTED_VO: Mutex<String> = Mutex::new(String::new());
-
-pub fn set_requested_vo(vo: &str) {
-    if let Ok(mut g) = G_REQUESTED_VO.lock() {
-        *g = vo.to_string();
-    }
+pub fn set_hdr_output(enabled: bool) {
+    G_HDR_OUTPUT.store(enabled, Ordering::Release);
 }
 
-pub fn get_requested_vo() -> String {
-    G_REQUESTED_VO.lock().map(|g| g.clone()).unwrap_or_default()
+pub fn is_hdr_output() -> bool {
+    G_HDR_OUTPUT.load(Ordering::Acquire)
+}
+
+pub fn set_hdr_capable(capable: bool) {
+    G_HDR_CAPABLE.store(capable, Ordering::Release);
+}
+
+pub fn is_hdr_capable() -> bool {
+    G_HDR_CAPABLE.load(Ordering::Acquire)
 }
 
 #[cfg(test)]

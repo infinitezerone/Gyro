@@ -19,6 +19,7 @@ pub static G_GPU_VENDOR: OnceLock<String> = OnceLock::new();
 pub(crate) unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLContext) {
     let mut renderer_str = String::from("unknown");
     let mut vendor_str = String::from("unknown");
+    let mut version_str = String::from("unknown");
     let mut has_image_base = false;
     let mut has_android_native = false;
     let mut has_oes_external = false;
@@ -45,6 +46,10 @@ pub(crate) unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLCon
             if !v_ptr.is_null() {
                 vendor_str = CStr::from_ptr(v_ptr).to_string_lossy().into_owned();
             }
+            let ver_ptr = get_str(GL_VERSION);
+            if !ver_ptr.is_null() {
+                version_str = CStr::from_ptr(ver_ptr).to_string_lossy().into_owned();
+            }
             let ext_ptr = get_str(GL_EXTENSIONS);
             if !ext_ptr.is_null() {
                 let gl_exts = CStr::from_ptr(ext_ptr).to_string_lossy();
@@ -61,7 +66,7 @@ pub(crate) unsafe fn probe_graphics_environment(display: EGLDisplay, ctx: EGLCon
     let _ = G_GPU_VENDOR.set(vendor_str.clone());
 
     nlog(&format!(
-        "PROBE: GPU='{renderer_str}' Vendor='{vendor_str}' ZeroCopySafe={is_zero_copy} (img_base={has_image_base}, native_buf={has_android_native}, oes_ext={has_oes_external})"
+        "PROBE: Version='{version_str}' GPU='{renderer_str}' Vendor='{vendor_str}' ZeroCopySafe={is_zero_copy} (img_base={has_image_base}, native_buf={has_android_native}, oes_ext={has_oes_external})"
     ));
 }
 

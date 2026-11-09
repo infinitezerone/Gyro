@@ -58,6 +58,32 @@ class VideoGeometryCoordinator(
     private val _resizeMode = store.property({ it.resizeMode }) { s, v -> s.copy(resizeMode = v) }
     val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
+    private val _isHdr = store.property({ it.isHdr }) { s, v -> s.copy(isHdr = v) }
+    val isHdr: StateFlow<Boolean> = _isHdr.asStateFlow()
+
+    private val _hdrFormat = store.property({ it.hdrFormat }) { s, v -> s.copy(hdrFormat = v) }
+    val hdrFormat: StateFlow<String> = _hdrFormat.asStateFlow()
+
+    /**
+     * Whether the panel can actually present HDR.
+     *
+     * Only the view can answer this (`Display.isHdr`), and without it an SDR panel would still be
+     * told to output PQ: mpv would skip tone-mapping and the picture would turn washed out.
+     * Defaults to true so a missed report keeps the previous behaviour rather than killing HDR.
+     */
+    @Volatile
+    private var displayHdrCapable = true
+
+    fun setDisplayHdrCapable(capable: Boolean) {
+        if (displayHdrCapable == capable) return
+        displayHdrCapable = capable
+        updateHdrState()
+    }
+
+    fun onHdrOutputModeChanged() {
+        updateHdrState()
+    }
+
     override fun registerObservers() {
         bridge.observeProperty("dwidth", MpvNativeBridge.Format.INT64)
         bridge.observeProperty("dheight", MpvNativeBridge.Format.INT64)
@@ -115,6 +141,8 @@ class VideoGeometryCoordinator(
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false
         _videoFrameRate.value = 0f
+        _isHdr.value = false
+        _hdrFormat.value = ""
         if (initialWidth > 0 && initialHeight > 0) {
             val aspect = initialWidth.toFloat() / initialHeight
             val dims = VideoDimensions(initialWidth, initialHeight)
@@ -134,8 +162,12 @@ class VideoGeometryCoordinator(
             _sessionState.value = PlaybackSessionState.Presenting(url, VideoDimensions(0, 0), 1.0f)
             _firstFrameRendered.value = true
             _geometryReady.value = true
+            _isHdr.value = false
+            _hdrFormat.value = ""
             return
         }
+
+        updateHdrState()
 
         // Prioritize demux dimensions from container track header (accurate and available immediately)
         val targetDims = getDemuxDimensions() ?: getVoDimensions()
@@ -230,12 +262,18 @@ class VideoGeometryCoordinator(
                 }
             }
         }
+        updateHdrState()
     }
     fun onSessionEnded() {
         _sessionState.value = PlaybackSessionState.Ended
         _firstFrameRendered.value = false
         _geometryReady.value = false
         _videoFrameRate.value = 0f
+        _isHdr.value = false
+        _hdrFormat.value = ""
+        bridge.setPropertyString("hdr-output", "no")
+        bridge.setPropertyString("target-trc", "auto")
+        bridge.setPropertyString("target-prim", "auto")
     }
 
     override fun reset() {
@@ -246,6 +284,63 @@ class VideoGeometryCoordinator(
         _videoFrameRate.value = 0f
         _videoDimensions.value = VideoDimensions(0, 0)
         _videoAspect.value = 0f
+        _isHdr.value = false
+        _hdrFormat.value = ""
+        bridge.setPropertyString("hdr-output", "no")
+        bridge.setPropertyString("target-trc", "auto")
+        bridge.setPropertyString("target-prim", "auto")
+    }
+
+    private fun updateHdrState() {
+        val gamma = bridge.getPropertyString("video-params/gamma")?.lowercase()?.trim() ?: ""
+        val colormatrix = bridge.getPropertyString("video-params/colormatrix")?.lowercase()?.trim() ?: ""
+
+        var isDoviTrack = false
+        val count = bridge.getLong("track-list/count") ?: 0L
+        for (i in 0 until count) {
+            if (bridge.getPropertyString("track-list/$i/type") == "video") {
+                val codec = bridge.getPropertyString("track-list/$i/codec")?.lowercase() ?: ""
+                val fName = bridge.getPropertyString("track-list/$i/format-name")?.lowercase() ?: ""
+                if (codec.contains("dovi") || codec.contains("dvhe") || codec.contains("dvh1") ||
+                    fName.contains("dovi") || fName.contains("dolby")) {
+                    isDoviTrack = true
+                    break
+                }
+            }
+        }
+
+        val isDovi = colormatrix.contains("dolby") || colormatrix.contains("dovi") || isDoviTrack
+        val isPq = gamma == "pq"
+        val isHlg = gamma == "hlg"
+
+        val format = when {
+            isDovi -> "Dolby Vision"
+            isPq -> "HDR10"
+            isHlg -> "HLG"
+            else -> ""
+        }
+
+        val allowHdrLighting = store.current.hdrOutputMode != dev.gyro.core.model.HDR_OUTPUT_SDR &&
+            displayHdrCapable
+
+        // Standard HDR10 and HLG can be physically lit up by vo=gpu on 10-bit displays.
+        // Dolby Vision Profile 5 (ICtCp) is skipped from PQ hardware lighting to avoid severe purple/green tint on vo_gpu.
+        val canLightUp = !isDovi && (isPq || isHlg)
+        val hdr = allowHdrLighting && canLightUp
+
+        if (_isHdr.value != hdr || _hdrFormat.value != format) {
+            _isHdr.value = hdr
+            _hdrFormat.value = format
+            bridge.setPropertyString("hdr-output", if (hdr) "yes" else "no")
+            if (hdr) {
+                bridge.setPropertyString("target-trc", "pq")
+                bridge.setPropertyString("target-prim", "bt.2020")
+            } else {
+                bridge.setPropertyString("target-trc", "auto")
+                bridge.setPropertyString("target-prim", "auto")
+            }
+            SwitchTrace.log("HDR_STATE", "isHdr=$hdr, format=$format, gamma=$gamma, colormatrix=$colormatrix")
+        }
     }
 
     /**

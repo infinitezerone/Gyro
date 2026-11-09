@@ -44,11 +44,12 @@ internal fun SettingsHubTabContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // 1. 画面比例与解码
-        val hwDesc = if (state.hwdec.contains("mediacodec")) "硬件解码 (MediaCodec)" else "软件解码"
+        // 1. 画面比例、解码与渲染
+        val hwDesc = if (state.hwdec.contains("mediacodec")) "硬解 (MediaCodec)" else "软解 (CPU)"
+        val hdrDesc = if (state.hdrFormat.isNotEmpty()) " · ${state.hdrFormat}" else ""
         SettingsHubItem(
             title = stringResource(R.string.sheet_tab_aspect),
-            subtitle = "${state.currentResizeMode.label} · $hwDesc",
+            subtitle = "${state.currentResizeMode.label} · $hwDesc$hdrDesc",
             icon = Icons.Default.AspectRatio,
             iconTint = SheetAccentBlue,
             onClick = { onNavigate(PlayerSheetTab.ASPECT) }

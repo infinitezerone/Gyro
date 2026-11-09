@@ -22,6 +22,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import dev.gyro.engine.model.ResizeMode
 
+private val sampleChapters = listOf(
+    dev.gyro.core.model.ChapterInfo(0, "Introduction", 0L),
+    dev.gyro.core.model.ChapterInfo(1, "Part 1 - Awakening", 120_000L),
+    dev.gyro.core.model.ChapterInfo(2, "Part 2 - The Journey", 300_000L),
+    dev.gyro.core.model.ChapterInfo(3, "Credits", 540_000L)
+)
+
 @Preview(
     name = "Portrait Controls - Full Screen",
     device = "spec:width=411dp,height=891dp",
@@ -46,13 +53,6 @@ fun PlayerControlsPortraitPreview() {
         ) {
             Text("Simulated 16:9 Video Frame", color = Color.White.copy(alpha = 0.6f))
         }
-
-        val sampleChapters = listOf(
-            dev.gyro.core.model.ChapterInfo(0, "Introduction", 0L),
-            dev.gyro.core.model.ChapterInfo(1, "Part 1 - Awakening", 120_000L),
-            dev.gyro.core.model.ChapterInfo(2, "Part 2 - The Journey", 300_000L),
-            dev.gyro.core.model.ChapterInfo(3, "Credits", 540_000L)
-        )
 
         PlayerControlsOverlay(
             isVisible = true,
@@ -111,7 +111,8 @@ fun PlayerControlsLandscapePreview() {
             onToggleOrientation = {},
             onBack = {},
             onEnterPiP = {},
-            onToggleLock = {}
+            onToggleLock = {},
+            chapters = sampleChapters
         )
     }
 }
@@ -156,7 +157,7 @@ fun PlayerMediaInfoSheetPreview() {
                 videoHeight = 1080,
                 mediaInfo = sampleMediaInfo
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -184,7 +185,7 @@ fun PlayerAudiovisualSheetPreview() {
                 nightMode = true,
                 stereoDownmix = false
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -210,7 +211,7 @@ fun PlayerSettingsHubPreview() {
                 videoWidth = 1920,
                 videoHeight = 1080
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -242,7 +243,7 @@ fun PlayerPlaylistSheetPreview() {
                     dev.gyro.core.model.ChapterInfo(1, "Main Part", 90000L)
                 )
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -273,7 +274,7 @@ fun PlayerSubtitlesSheetPreview() {
                 subScale = 1.2,
                 subPos = 100L
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -302,7 +303,7 @@ fun PlayerAudioSheetPreview() {
                 tracks = sampleTracks,
                 audioDelaySec = -0.2
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -323,7 +324,7 @@ fun PlayerSpeedSheetPreview() {
         PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.SPEED,
             state = PlayerSheetUiState(currentSpeed = 1.25f),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -344,7 +345,7 @@ fun PlayerAspectSheetPreview() {
         PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.ASPECT,
             state = PlayerSheetUiState(),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -371,7 +372,7 @@ fun PlayerStatsSheetPreview() {
                 videoWidth = 3840,
                 videoHeight = 2160
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }
@@ -397,7 +398,7 @@ fun PlayerShadersSheetPreview() {
                     displayName = "Anime4K"
                 )
             ),
-            callbacks = PlayerSheetCallbacks(onToggleVoRenderer = {})
+            callbacks = PlayerSheetCallbacks()
         )
     }
 }

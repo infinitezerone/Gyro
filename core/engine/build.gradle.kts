@@ -13,7 +13,6 @@ val nativeAbis: List<String> = providers.gradleProperty("gyro.nativeAbis")
 // cargo-ndk writes <abi>/libgyro_engine.so under this directory, which is registered as a
 // generated jniLibs source below.
 val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs")
-val vulkanJniLibsDir = layout.buildDirectory.dir("vulkanJniLibs")
 
 fun resolveRustTool(toolName: String): String {
     val cargoHome = System.getenv("CARGO_HOME")?.takeIf { it.isNotBlank() }
@@ -79,22 +78,6 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     outputs.dir(rustJniLibsDir)
 }
 
-val setupVulkanMpv = tasks.register<Copy>("setupVulkanMpv") {
-    group = "build"
-    description = "Prepares prebuilt Vulkan-enabled libmpv bundle for arm64-v8a"
-    val localCacheDir = file("${System.getProperty("user.home")}/.gyro-cache/vulkan-bundle/arm64-v8a")
-    val scratchDir = file("C:/Users/12784/.gemini/antigravity/brain/7c1d0250-a3a0-4951-a2d6-2c3010234b22/scratch/vulkan_bundle/arm64-v8a")
-    val sourceDir = if (localCacheDir.exists() && localCacheDir.resolve("libmpv.so").exists()) {
-        localCacheDir
-    } else {
-        scratchDir
-    }
-    from(sourceDir) {
-        include("*.so")
-    }
-    into(vulkanJniLibsDir.map { it.dir("arm64-v8a") })
-}
-
 android {
     namespace = "dev.gyro.engine"
 
@@ -125,7 +108,6 @@ android {
 androidComponents {
     onVariants { variant ->
         variant.sources.jniLibs?.addStaticSourceDirectory(rustJniLibsDir.get().asFile.absolutePath)
-        variant.sources.jniLibs?.addStaticSourceDirectory(vulkanJniLibsDir.get().asFile.absolutePath)
     }
 }
 
@@ -133,17 +115,14 @@ androidComponents {
 // fills it, so wire it explicitly for every variant.
 tasks.named("preBuild").configure {
     dependsOn(cargoNdkBuild)
-    dependsOn(setupVulkanMpv)
 }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
     .configureEach {
         dependsOn(cargoNdkBuild)
-        dependsOn(setupVulkanMpv)
     }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("NativeLibs") }
     .configureEach {
         dependsOn(cargoNdkBuild)
-        dependsOn(setupVulkanMpv)
     }
 
 dependencies {

@@ -48,6 +48,7 @@ pub const EGL_NON_CONFORMANT_CONFIG: EGLint = 0x3051;
 
 pub const GL_VENDOR: u32 = 0x1F00;
 pub const GL_RENDERER: u32 = 0x1F01;
+pub const GL_VERSION: u32 = 0x1F02;
 pub const GL_EXTENSIONS: u32 = 0x1F03;
 
 /// Upper bound on how long the DestroyContext *caller* waits for the render thread's ack.

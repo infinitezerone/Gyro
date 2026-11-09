@@ -30,11 +30,14 @@ interface PlayerGestureCallbacks {
     fun onBrightnessUpdate(deltaRatio: Float) {}
     fun onVolumeStart() {}
     fun onVolumeUpdate(deltaRatio: Float) {}
+    fun onPlayPrevious() {}
+    fun onPlayNext() {}
     fun onHudStateChange(state: GestureHudState) {}
 
     fun getCurrentPositionMs(): Long = 0L
     fun getDurationMs(): Long = 0L
     fun getZoomScale(): Float = 1.0f
+    fun getVideoBounds(): androidx.compose.ui.geometry.Rect? = null
 }
 
 /**
@@ -58,8 +61,14 @@ class DefaultPlayerGestureCallbacks(
     private val onFastForwardEnd: () -> Unit,
     private val onHudStateChange: (GestureHudState) -> Unit,
     private val onSoftwareVolumeChange: ((Double) -> Unit)? = null,
-    private val getSoftwareVolume: (() -> Double)? = null
+    private val getSoftwareVolume: (() -> Double)? = null,
+    private val onSeekTo: ((Long) -> Unit)? = null,
+    private val onPlayPrevious: (() -> Unit)? = null,
+    private val onPlayNext: (() -> Unit)? = null,
+    private val getVideoBounds: (() -> androidx.compose.ui.geometry.Rect?)? = null
 ) : PlayerGestureCallbacks {
+
+    override fun getVideoBounds(): androidx.compose.ui.geometry.Rect? = getVideoBounds?.invoke()
 
     private val activity: Activity? = context?.findActivity()
     private val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -98,6 +107,16 @@ class DefaultPlayerGestureCallbacks(
         onFastForwardEnd.invoke()
     }
 
+    override fun onPlayPrevious() {
+        performHaptic()
+        onPlayPrevious?.invoke()
+    }
+
+    override fun onPlayNext() {
+        performHaptic()
+        onPlayNext?.invoke()
+    }
+
     override fun onZoomPan(zoomChange: Float, panDelta: Offset, centroid: Offset, isPinch: Boolean) {
         onZoomChange.invoke(zoomChange, panDelta, centroid, isPinch)
     }
@@ -125,7 +144,11 @@ class DefaultPlayerGestureCallbacks(
         val currentMs = currentPosMs()
         scrubState?.let {
             it.end(it.fraction)
-            onDoubleTapSeek.invoke(finalMs - currentMs)
+            if (onSeekTo != null) {
+                onSeekTo.invoke(finalMs)
+            } else {
+                onDoubleTapSeek.invoke(finalMs - currentMs)
+            }
         }
     }
 

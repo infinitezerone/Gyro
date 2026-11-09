@@ -28,6 +28,7 @@ class PlayerGestureConfigTest {
         assertEquals(72f, config.edgeExclusionPx, 0.001f)
         assertEquals(1.0f, config.volumeSensitivity, 0.001f)
         assertEquals(1.0f, config.brightnessSensitivity, 0.001f)
+        assertEquals(1.0f, config.seekSensitivity, 0.001f)
 
         // Timeouts
         assertEquals(450L, config.longPressTimeoutMs)

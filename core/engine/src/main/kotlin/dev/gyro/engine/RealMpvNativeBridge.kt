@@ -42,6 +42,10 @@ open class RealMpvNativeBridge : MpvNativeBridge {
         GyroNative.redraw()
     }
 
+    override fun rebuildSurface() {
+        GyroNative.rebuildSurface()
+    }
+
     override fun command(cmd: Array<out String>) {
         GyroNative.command(cmd)
     }

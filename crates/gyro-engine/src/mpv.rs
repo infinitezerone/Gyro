@@ -42,12 +42,9 @@ pub const MPV_RENDER_PARAM_API_TYPE: c_int = 1;
 pub const MPV_RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
 pub const MPV_RENDER_PARAM_OPENGL_FBO: c_int = 3;
 pub const MPV_RENDER_PARAM_FLIP_Y: c_int = 4;
-pub const MPV_RENDER_PARAM_VULKAN_INIT_PARAMS: c_int = 6;
-pub const MPV_RENDER_PARAM_VULKAN_IMAGE: c_int = 7;
 pub const MPV_RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
 pub const MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME: c_int = 12;
 pub const MPV_RENDER_PARAM_SKIP_RENDERING: c_int = 13;
-pub const MPV_RENDER_PARAM_BACKEND: c_int = 21;
 
 /// `mpv_render_frame_info.flags` bit: the queued "frame" is a redraw, not a new picture.
 ///
@@ -82,25 +79,6 @@ pub struct MpvOpenGLFbo {
     pub w: c_int,
     pub h: c_int,
     pub internal_format: c_int,
-}
-
-#[repr(C)]
-pub struct MpvVulkanInitParams {
-    pub instance: *mut c_void,
-    pub physical_device: *mut c_void,
-    pub device: *mut c_void,
-    pub queue: *mut c_void,
-    pub queue_family_index: u32,
-    pub get_instance_proc_addr: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
-}
-
-#[repr(C)]
-pub struct MpvVulkanImage {
-    pub image: u64,
-    pub image_layout: u32,
-    pub format: u32,
-    pub width: c_int,
-    pub height: c_int,
 }
 
 macro_rules! sym {

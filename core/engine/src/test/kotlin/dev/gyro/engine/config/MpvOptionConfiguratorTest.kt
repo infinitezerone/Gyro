@@ -115,20 +115,35 @@ class MpvOptionConfiguratorTest {
     }
 
     @Test
-    fun gpuNextEnablesVulkanAndCopyBackHardwareDecoding() {
+    fun gpuNextRequestFallsBackToGpuBecauseRenderApiHasNoSuchBackend() {
         val configurator = MpvOptionConfigurator()
         val bridge = FakeMpvNativeBridge()
 
         configurator.apply(
             bridge,
             emptyMap(),
-            UserSettings(voRenderer = dev.gyro.core.model.VO_GPU_NEXT)
+            UserSettings()
         )
 
-        assertEquals("vulkan", bridge.options["gpu-api"])
-        assertEquals("androidvk", bridge.options["gpu-context"])
-        assertEquals("gpu-next", bridge.options["vo-backend"])
-        assertEquals("gpu-next", bridge.options["vo"])
-        assertEquals("mediacodec-copy,mediacodec", bridge.options["hwdec"])
+        // libmpv's render API runs vo=libmpv with opengl and auto fbo format
+        assertEquals("opengl", bridge.options["gpu-api"])
+        assertEquals("libmpv", bridge.options["vo"])
+        assertEquals("hable", bridge.options["tone-mapping"])
+        assertEquals("mediacodec,mediacodec-copy", bridge.options["hwdec"])
+    }
+
+    @Test
+    fun hdrCapableFollowsOutputMode() {
+        val autoBridge = FakeMpvNativeBridge()
+        MpvOptionConfigurator().apply(autoBridge, emptyMap(), UserSettings())
+        assertEquals("yes", autoBridge.options["hdr-capable"])
+
+        val sdrBridge = FakeMpvNativeBridge()
+        MpvOptionConfigurator().apply(
+            sdrBridge,
+            emptyMap(),
+            UserSettings(hdrOutputMode = dev.gyro.core.model.HDR_OUTPUT_SDR)
+        )
+        assertEquals("no", sdrBridge.options["hdr-capable"])
     }
 }

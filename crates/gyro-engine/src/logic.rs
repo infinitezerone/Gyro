@@ -668,10 +668,11 @@ static CONFIG_ATTEMPTS_10BIT: [EglConfigRequest; 8] = [
 /// `EGL_WINDOW_BIT`; the explicit tier covers a driver that ignores that default and would
 /// otherwise hand back a config `eglCreateWindowSurface` rejects.
 ///
-/// `prefer_10bit` is off until the HDR output path exists: a `RGBA1010102` window only pays off
-/// together with `EGL_GL_COLORSPACE_BT2020_PQ` / `_HLG` window attributes, which is what media3
-/// passes in `GlUtil.createEglSurface` for HDR content. Asking for 10 bits without them merely
-/// triples the scanout bandwidth and leaves SDR content on a wider buffer for no visible gain.
+/// `prefer_10bit` is driven by the session's HDR capability (`hdr-capable`, i.e. the user has not
+/// forced SDR output): an HDR window surface needs `EGL_GL_COLORSPACE_BT2020_PQ` on a config with
+/// 10-bit components, and the config is chosen once per render thread — long before any file is
+/// known to be HDR. Asking for 10 bits has a scanout-bandwidth cost, so the attempts list falls
+/// back to `RGBA8888` on drivers that cannot provide it.
 pub fn egl_config_attempts(prefer_10bit: bool) -> &'static [EglConfigRequest] {
     if prefer_10bit {
         &CONFIG_ATTEMPTS_10BIT

@@ -50,6 +50,7 @@ internal object GyroNative {
     external fun attachSurface(surface: Surface)
     external fun detachSurface()
     external fun redraw()
+    external fun rebuildSurface()
 
     external fun command(cmd: Array<out String>)
     external fun setOptionString(name: String, value: String): Int

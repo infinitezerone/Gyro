@@ -62,6 +62,15 @@ interface MpvNativeBridge {
      */
     fun redraw()
 
+    /**
+     * Recreates the EGL window surface on the current window.
+     *
+     * The surface colourspace (SDR vs BT.2020/PQ) is fixed when the surface is created, so the
+     * view calls this after it changed the window's buffer format for HDR output. No-op when
+     * nothing is attached.
+     */
+    fun rebuildSurface() {}
+
     // ---------- Commands and Options ----------
 
     /**

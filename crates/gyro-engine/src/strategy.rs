@@ -1,4 +1,4 @@
-//! 渲染策略模式抽象（OpenGL ES / Vulkan 渲染后端统一解耦接口）
+//! 渲染策略模式抽象（OpenGL ES 渲染后端接口）
 
 use std::ffi::c_void;
 
@@ -12,7 +12,6 @@ pub enum DrawOutcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderBackend {
     OpenGlEs,
-    Vulkan,
 }
 
 pub trait RenderStrategy: Send {
@@ -20,6 +19,13 @@ pub trait RenderStrategy: Send {
     fn backend_type(&self) -> RenderBackend;
     fn attach_surface(&mut self, window: *mut c_void, mpv_render_ctx: &mut *mut c_void) -> Result<(), i32>;
     fn detach_surface(&mut self);
+    /// Recreates the window surface in place, keeping the same native window.
+    ///
+    /// Needed because the surface colourspace (SDR vs BT.2020/PQ) is fixed at creation time and
+    /// must follow the per-file HDR decision without a detach/attach round trip.
+    fn rebuild_surface(&mut self) -> Result<(), i32> {
+        Ok(())
+    }
     fn is_ready(&self) -> bool;
     fn ensure_render_context(&mut self, mpv_render_ctx: &mut *mut c_void) -> bool;
     fn free_render_context(&mut self, mpv_render_ctx: &mut *mut c_void);

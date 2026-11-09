@@ -156,9 +156,11 @@ class GyroPlayerEngine(
         userOptions: Map<String, String> = configurator.currentState.userOptions,
         settings: UserSettings = configurator.currentState.settings,
     ) {
+        store.update { it.copy(hdrOutputMode = settings.hdrOutputMode) }
         userOptions["af"]?.let { audio.userBaseAf = it }
         if (isInitialized.get()) {
             configurator.applyRuntimeUpdate(bridge, settings, userOptions)
+            geometry.onHdrOutputModeChanged()
         } else {
             configurator.updateConfig(userOptions, settings)
         }
@@ -304,6 +306,16 @@ class GyroPlayerEngine(
     }
     fun detachSurface(surface: Any? = null) = loadCoordinator.detachSurface(surface)
     fun redraw() = loadCoordinator.redraw()
+
+    /**
+     * Rebuilds the render surface after the view switched its buffer format (8-bit <-> 10-bit).
+     *
+     * HDR is decided per file, long after the surface was first attached, so the PQ colourspace
+     * can only be applied by recreating the window surface once the new format is in effect.
+     */
+    fun requestSurfaceRebuild() {
+        if (isInitialized.get()) bridge.rebuildSurface()
+    }
 
     fun queryMediaInfo(
         fallbackTitle: String = "",

@@ -102,6 +102,8 @@
     <!-- Content Descriptions for Accessibility -->
     <string name="cd_play">Play</string>
     <string name="cd_pause">Pause</string>
+    <string name="cd_rewind_10">Rewind 10 seconds</string>
+    <string name="cd_forward_10">Forward 10 seconds</string>
     <string name="cd_prev_video">Previous Video</string>
     <string name="cd_next_video">Next Video</string>
     <string name="cd_playlist">Playlist</string>
@@ -126,18 +128,28 @@
     <string name="settings_bg_play_audio">Audio Only</string>
     <string name="settings_bg_play_off">Disabled</string>
     <!-- Settings: Decoder & Video -->
-    <string name="settings_group_decoder">Decoder &amp; Video</string>
-    <string name="settings_vo_renderer">Render Engine &amp; Pipeline</string>
-    <string name="settings_vo_libmpv">OpenGL ES (Classic · Filmic Hable)</string>
-    <string name="settings_vo_gpu_next">gpu-next (libplacebo · BT.2446a HDR)</string>
+    <string name="settings_group_decoder">Decoding &amp; Video Rendering</string>
     <string name="stats_render_pipeline">Render Pipeline</string>
     <string name="stats_render_backend">Render Engine</string>
     <string name="stats_tone_mapping">Tone Mapping</string>
     <string name="stats_texture_scaler">Texture Scaler</string>
-    <string name="settings_default_hwdec">Default Decoder</string>
-    <string name="settings_hwdec_mediacodec">Hardware Accelerated (MediaCodec)</string>
-    <string name="settings_hwdec_copy">Hardware Copy (MediaCodec-Copy)</string>
-    <string name="settings_hwdec_sw">Software Decoding (CPU Softdec)</string>
+    <string name="settings_default_hwdec">Hardware Decoding</string>
+    <string name="settings_hwdec_mediacodec">Hardware Decoding (MediaCodec · Recommended)</string>
+    <string name="settings_hwdec_mediacodec_desc">Dedicated hardware chip, minimal battery consumption</string>
+    <string name="settings_hwdec_copy">Hardware Copy-back (mediacodec-copy)</string>
+    <string name="settings_hwdec_copy_desc">Hardware decoding with post-processing filter support</string>
+    <string name="settings_hwdec_sw">Software Decoding (CPU)</string>
+    <string name="settings_hwdec_sw_desc">CPU decoding fallback when hardware decoding fails or glitches</string>
+    <string name="settings_hwdec_active_mediacodec">Hardware chip decoding active</string>
+    <string name="settings_hwdec_active_copy">Hardware copy-back active</string>
+    <string name="settings_hwdec_active_sw">CPU software decoding active</string>
+    <string name="settings_hdr_output">HDR Display Mode</string>
+    <string name="settings_hdr_output_auto">Physical HDR (10-bit · Recommended)</string>
+    <string name="settings_hdr_output_auto_desc">Triggers panel peak brightness and native 10-bit color for HDR and Dolby Vision</string>
+    <string name="settings_hdr_output_sdr">Tone-mapping (SDR · Eye-friendly)</string>
+    <string name="settings_hdr_output_sdr_desc">Compresses highlights to SDR range without bright glare, saving battery in dim rooms</string>
+    <string name="settings_hdr_active_auto">Physical HDR (Peak brightness &amp; 10-bit)</string>
+    <string name="settings_hdr_active_sdr">Tone-mapping (SDR · Eye-friendly)</string>
     <!-- Settings: Audio & Subtitles -->
     <string name="settings_group_subtitles">Subtitles &amp; Audio</string>
     <string name="settings_sub_autoload">Auto-load Subtitles</string>
@@ -212,7 +224,7 @@
     <string name="mpv_config_saved_toast">Configuration saved successfully</string>
     <string name="mpv_config_reset_dialog_title">Reset mpv.conf to Default?</string>
     <string name="mpv_config_reset_dialog_desc">This will discard all custom parameters and restore default settings.</string>
-    <string name="mpv_config_hint">One option per line, e.g.:\nvo=gpu-next\ngpu-context=android\n# GUI settings have highest priority and override matching options</string>
+    <string name="mpv_config_hint">One option per line, e.g.:\nscale=spline36\nhdr-compute-peak=yes\n# vo / wid / idle / keep-open / gpu-context are owned by the engine and ignored here\n# GUI settings have highest priority and override matching options</string>
     <string name="mpv_config_help_title">Configuration Guide</string>
     <string name="mpv_config_help_desc">Supports standard mpv syntax (key=value or key). GUI settings (such as hardware decoding, aspect ratio, and color filters) always maintain highest priority at runtime.</string>
 
@@ -254,6 +266,9 @@
     <string name="settings_group_gestures_detail_desc">Configure swipe gestures, double-tap seek, long-press speed, and sensitivity</string>
     <string name="gesture_settings_title">Gesture Settings</string>
     <string name="settings_gesture_switches_group">Gesture Switches</string>
+    <string name="settings_gesture_vertical_mode">Vertical Swipe Action</string>
+    <string name="settings_gesture_vertical_mode_vol_bright">Volume &amp; Brightness (Left/Right)</string>
+    <string name="settings_gesture_vertical_mode_switch_video">Switch Video (Swipe Up: Next / Down: Prev)</string>
     <string name="settings_gesture_volume">Vertical Swipe Volume</string>
     <string name="settings_gesture_volume_desc">Swipe vertically on right side to adjust volume (supports 200%% overdrive)</string>
     <string name="settings_gesture_brightness">Vertical Swipe Brightness</string>

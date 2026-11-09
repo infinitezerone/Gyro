@@ -29,6 +29,7 @@ sealed class GestureHudState {
     data class Seek(val targetMs: Long, val deltaMs: Long, val totalMs: Long) : GestureHudState()
     data class DoubleTap(val side: DoubleTapSide, val seconds: Int) : GestureHudState()
     data class Speed(val speed: Float) : GestureHudState()
+    data class SwitchVideo(val isNext: Boolean) : GestureHudState()
 }
 
 /**
@@ -65,6 +66,10 @@ fun Modifier.playerGestures(
     onHudStateChange: (GestureHudState) -> Unit,
     onSoftwareVolumeChange: ((Double) -> Unit)? = null,
     getSoftwareVolume: (() -> Double)? = null,
+    onSeekTo: ((Long) -> Unit)? = null,
+    onPlayPrevious: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
+    videoBounds: (() -> androidx.compose.ui.geometry.Rect?)? = null,
     config: PlayerGestureConfig = PlayerGestureConfig()
 ): Modifier {
     val density = LocalDensity.current
@@ -102,7 +107,11 @@ fun Modifier.playerGestures(
         onFastForwardEnd,
         onHudStateChange,
         onSoftwareVolumeChange,
-        getSoftwareVolume
+        getSoftwareVolume,
+        onSeekTo,
+        onPlayPrevious,
+        onPlayNext,
+        videoBounds
     ) {
         DefaultPlayerGestureCallbacks(
             context = context,
@@ -120,7 +129,11 @@ fun Modifier.playerGestures(
             onFastForwardEnd = onFastForwardEnd,
             onHudStateChange = onHudStateChange,
             onSoftwareVolumeChange = onSoftwareVolumeChange,
-            getSoftwareVolume = getSoftwareVolume
+            getSoftwareVolume = getSoftwareVolume,
+            onSeekTo = onSeekTo,
+            onPlayPrevious = onPlayPrevious,
+            onPlayNext = onPlayNext,
+            getVideoBounds = videoBounds
         )
     }
 

@@ -11,13 +11,20 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
@@ -58,6 +65,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +88,7 @@ import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.gesture.*
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
@@ -189,6 +199,18 @@ fun PlayerScreen(
     val vmActiveUri by viewModel.activeUri.collectAsState()
     val engineCurrentUri = snapshot.currentUri
     val activeUri = vmActiveUri ?: engineCurrentUri ?: currentUri
+
+    val hdrFormat = snapshot.hdrFormat
+    var showFormatBadgeToast by remember { mutableStateOf(false) }
+    LaunchedEffect(activeUri, hdrFormat) {
+        if (hdrFormat.isNotBlank()) {
+            showFormatBadgeToast = true
+            delay(3200L)
+            showFormatBadgeToast = false
+        } else {
+            showFormatBadgeToast = false
+        }
+    }
 
     val playlistMgr = playlistManager ?: engine.playlist
     val playlist by playlistMgr.items.collectAsState()
@@ -558,6 +580,16 @@ fun PlayerScreen(
             getSoftwareVolume = {
                 engine.state.value.softwareVolume
             },
+            onSeekTo = { targetMs ->
+                engine.seekTo(targetMs)
+            },
+            onPlayPrevious = {
+                viewModel.playPrevious()
+            },
+            onPlayNext = {
+                viewModel.playNext()
+            },
+            videoBounds = { composeVideoBounds },
             config = gestureConfig
         )
     } else {
@@ -787,8 +819,48 @@ fun PlayerScreen(
             PlayerHudOverlay(
                 hudState = playerState.gestureHudState,
                 scrubState = scrubState,
-                durationMs = { durationMs }
+                durationMs = { durationMs },
+                swapVolumeAndBrightness = gestureConfig.swapVolumeAndBrightness
             )
+        }
+
+        // E1. 杜比视界 / HDR 格式入场标识 (进入播放界面弹出，3秒后自动淡出)
+        if (!isPipLayout && !hideChrome) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showFormatBadgeToast,
+                enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { -it / 2 }),
+                exit = fadeOut(tween(600)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .displayCutoutPadding()
+                    .statusBarsPadding()
+                    .padding(top = 64.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xD91E1E1E),
+                    border = BorderStroke(
+                        1.dp,
+                        if (hdrFormat.contains("Dolby", ignoreCase = true)) Color(0x80FFC107) else Color(0x40FFFFFF)
+                    ),
+                    shadowElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (hdrFormat.contains("Dolby", ignoreCase = true)) "DOLBY VISION" else hdrFormat,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (hdrFormat.contains("Dolby", ignoreCase = true)) Color(0xFFFFC107) else Color.White,
+                                letterSpacing = 1.sp
+                            )
+                        )
+                    }
+                }
+            }
         }
 
         // E2. 常驻诊断浮层（控制层隐藏时显示，替代 mpv stats 页核心读数）
@@ -917,7 +989,8 @@ fun PlayerScreen(
                 },
                 onBack = onBack,
                 chapters = chapters,
-                videoBottomDp = videoBottomDp
+                videoBottomDp = videoBottomDp,
+                hdrFormat = hdrFormat
             )
         }
 
@@ -965,7 +1038,8 @@ fun PlayerScreen(
                         saturation = saturation,
                         nightMode = nightMode,
                         stereoDownmix = stereoDownmix,
-                        voRenderer = liveSettings.voRenderer
+                        isHdr = snapshot.isHdr,
+                        hdrFormat = snapshot.hdrFormat
                     ),
                     callbacks = PlayerSheetCallbacks(
                         onSelectPlaylistItem = { idx ->
@@ -1000,7 +1074,6 @@ fun PlayerScreen(
                         onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
                         onToggleHwdec = { engine.toggleHwdec() },
                         onToggleStatsOverlay = { statsOverlayEnabled = it },
-                        onToggleVoRenderer = { viewModel.toggleVoRenderer() },
                         onAddExternalSubtitle = {
                             subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
                         },

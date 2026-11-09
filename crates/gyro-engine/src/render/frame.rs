@@ -10,12 +10,12 @@ use std::time::Instant;
 use super::types::*;
 use super::egl::{egl_error_name, egl_failure, EglCore, SurfaceSlot};
 use super::thread::assert_render_thread;
-use super::{get_requested_vo, G_MPVP, G_RENDER_EPOCH, G_SESSION};
+use super::{G_MPVP, G_RENDER_EPOCH, G_SESSION};
 use crate::logic::{ContextRecovery, FirstFrameGate, RecoveryVerdict};
 use crate::mpv::{
     mpv_handle_guarded, with_api, with_api_logged, MpvOpenGLFbo, MpvOpenGLInitParams,
     MpvRenderFrameInfo, MpvRenderParam, MPV_ERROR_SUCCESS, MPV_FORMAT_INT64,
-    MPV_RENDER_FRAME_INFO_REDRAW, MPV_RENDER_PARAM_API_TYPE, MPV_RENDER_PARAM_BACKEND,
+    MPV_RENDER_FRAME_INFO_REDRAW, MPV_RENDER_PARAM_API_TYPE,
     MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, MPV_RENDER_PARAM_FLIP_Y,
     MPV_RENDER_PARAM_NEXT_FRAME_INFO, MPV_RENDER_PARAM_OPENGL_FBO,
     MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, MPV_RENDER_PARAM_SKIP_RENDERING, MPV_RENDER_UPDATE_FRAME,
@@ -351,63 +351,25 @@ pub unsafe fn ensure_render_context(mpv_render_ctx: &mut *mut c_void) {
             b'g' as c_char, b'l' as c_char, 0,
         ];
 
-        let mut backend_name = [
-            b'g' as c_char, b'p' as c_char, b'u' as c_char, b'-' as c_char,
-            b'n' as c_char, b'e' as c_char, b'x' as c_char, b't' as c_char, 0,
+        let mut params = [
+            MpvRenderParam {
+                param_type: MPV_RENDER_PARAM_API_TYPE,
+                data: api_type.as_mut_ptr() as *mut c_void,
+            },
+            MpvRenderParam {
+                param_type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
+                data: &mut init_params as *mut _ as *mut c_void,
+            },
+            MpvRenderParam {
+                param_type: 0,
+                data: std::ptr::null_mut(),
+            },
         ];
-
-        let requested_vo = get_requested_vo();
-        let use_gpu_next = requested_vo == "gpu-next";
-        let mut rc = -1;
-
-        if use_gpu_next {
-            let mut params_gpu_next = [
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_API_TYPE,
-                    data: api_type.as_mut_ptr() as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_BACKEND,
-                    data: backend_name.as_mut_ptr() as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
-                    data: &mut init_params as *mut _ as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: 0,
-                    data: std::ptr::null_mut(),
-                },
-            ];
-            rc = (api.mpv_render_context_create)(mpv_render_ctx, handle, params_gpu_next.as_mut_ptr());
-            if rc == MPV_ERROR_SUCCESS && !mpv_render_ctx.is_null() {
-                nlog("EGL: mpv_render_context (gpu-next/libplacebo) 创建成功");
-            } else {
-                nlog(&format!("EGL: gpu-next backend create failed rc={rc}, falling back to legacy OpenGL"));
-            }
-        }
-
-        if rc != MPV_ERROR_SUCCESS {
-            let mut params = [
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_API_TYPE,
-                    data: api_type.as_mut_ptr() as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
-                    data: &mut init_params as *mut _ as *mut c_void,
-                },
-                MpvRenderParam {
-                    param_type: 0,
-                    data: std::ptr::null_mut(),
-                },
-            ];
-            rc = (api.mpv_render_context_create)(mpv_render_ctx, handle, params.as_mut_ptr());
-            if rc == MPV_ERROR_SUCCESS && !mpv_render_ctx.is_null() {
-                nlog("EGL: mpv_render_context (legacy OpenGL) 创建成功");
-            } else {
-                nlog(&format!("EGL: mpv_render_context 创建失败 rc={rc}"));
-            }
+        let rc = (api.mpv_render_context_create)(mpv_render_ctx, handle, params.as_mut_ptr());
+        if rc == MPV_ERROR_SUCCESS && !mpv_render_ctx.is_null() {
+            nlog("EGL: mpv_render_context (OpenGL) 创建成功");
+        } else {
+            nlog(&format!("EGL: mpv_render_context 创建失败 rc={rc}"));
         }
 
         if rc == MPV_ERROR_SUCCESS && !mpv_render_ctx.is_null() {
@@ -523,11 +485,12 @@ pub unsafe fn draw_frame_native(
             return DrawOutcome::Skipped;
         }
 
+        let prefer_hdr = super::is_hdr_output();
         let fbo = MpvOpenGLFbo {
             fbo: 0,
             w,
             h,
-            internal_format: 0,
+            internal_format: if prefer_hdr { 0x805F } else { 0 },
         };
         let flip: c_int = 1;
         let pts_fn = get_egl_presentation_time_fn();

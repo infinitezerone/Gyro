@@ -71,7 +71,7 @@ fun SettingsScreen(
         onUpdateBgPlay = { viewModel.setBackgroundPlayMode(it) },
         onUpdateSeekStep = { viewModel.setSeekStepSeconds(it) },
         onUpdateHwdec = { viewModel.setDefaultHwdec(it) },
-        onUpdateVoRenderer = { viewModel.setVoRenderer(it) },
+        onUpdateHdrOutput = { viewModel.setHdrOutputMode(it) },
         onUpdateSubAutoLoad = { viewModel.setSubAutoLoad(it) },
         onUpdateGestures = { viewModel.setGesturesEnabled(it) },
         modifier = modifier
@@ -90,7 +90,7 @@ fun SettingsContent(
     onUpdateBgPlay: (String) -> Unit,
     onUpdateSeekStep: (Int) -> Unit,
     onUpdateHwdec: (String) -> Unit,
-    onUpdateVoRenderer: (String) -> Unit = {},
+    onUpdateHdrOutput: (String) -> Unit = {},
     onUpdateSubAutoLoad: (Boolean) -> Unit,
     onUpdateGestures: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -98,7 +98,7 @@ fun SettingsContent(
     var showSeekStepDialog by remember { mutableStateOf(false) }
     var showBgPlayDialog by remember { mutableStateOf(false) }
     var showHwdecDialog by remember { mutableStateOf(false) }
-    var showVoDialog by remember { mutableStateOf(false) }
+    var showHdrDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -164,27 +164,34 @@ fun SettingsContent(
                 }
             }
 
-            // 2. 解码与视频
+            // 2. 解码与视频渲染
             item {
                 PreferenceGroup(title = stringResource(R.string.settings_group_decoder)) {
-                    val voLabel = when (settings.voRenderer) {
-                        dev.gyro.core.model.VO_GPU_NEXT -> stringResource(R.string.settings_vo_gpu_next)
-                        else -> stringResource(R.string.settings_vo_libmpv)
-                    }
-                    PreferenceClickItem(
-                        title = stringResource(R.string.settings_vo_renderer),
-                        value = voLabel,
-                        onClick = { showVoDialog = true }
-                    )
-                    val hwdecLabel = when (settings.defaultHwdec) {
-                        "mediacodec" -> stringResource(R.string.settings_hwdec_mediacodec)
-                        "mediacodec-copy" -> stringResource(R.string.settings_hwdec_copy)
-                        else -> stringResource(R.string.settings_hwdec_sw)
+                    val (hwdecLabel, hwdecDesc) = when (settings.defaultHwdec) {
+                        "mediacodec" ->
+                            "MediaCodec 硬解" to stringResource(R.string.settings_hwdec_active_mediacodec)
+                        "mediacodec-copy" ->
+                            "MediaCodec-Copy" to stringResource(R.string.settings_hwdec_active_copy)
+                        else ->
+                            "CPU 软解" to stringResource(R.string.settings_hwdec_active_sw)
                     }
                     PreferenceClickItem(
                         title = stringResource(R.string.settings_default_hwdec),
                         value = hwdecLabel,
+                        description = hwdecDesc,
                         onClick = { showHwdecDialog = true }
+                    )
+                    val (hdrLabel, hdrDesc) = when (settings.hdrOutputMode) {
+                        dev.gyro.core.model.HDR_OUTPUT_SDR ->
+                            "色调映射 (SDR)" to stringResource(R.string.settings_hdr_active_sdr)
+                        else ->
+                            "自适应点亮 (真 HDR)" to stringResource(R.string.settings_hdr_active_auto)
+                    }
+                    PreferenceClickItem(
+                        title = stringResource(R.string.settings_hdr_output),
+                        value = hdrLabel,
+                        description = hdrDesc,
+                        onClick = { showHdrDialog = true }
                     )
                 }
             }
@@ -261,7 +268,7 @@ fun SettingsContent(
         val options = listOf(5, 10, 15, 30)
         SingleChoiceDialog(
             title = stringResource(R.string.settings_seek_step),
-            options = options.map { stringResource(R.string.settings_seek_step_val, it) },
+            options = options.map { DialogOption(stringResource(R.string.settings_seek_step_val, it)) },
             selectedIndex = options.indexOf(settings.seekStepSeconds).coerceAtLeast(0),
             onSelect = { idx ->
                 onUpdateSeekStep(options[idx])
@@ -274,14 +281,14 @@ fun SettingsContent(
     // 单选弹窗: 后台播放
     if (showBgPlayDialog) {
         val modes = listOf("pip", "audio_only", "off")
-        val labels = listOf(
-            stringResource(R.string.settings_bg_play_pip),
-            stringResource(R.string.settings_bg_play_audio),
-            stringResource(R.string.settings_bg_play_off)
+        val options = listOf(
+            DialogOption(stringResource(R.string.settings_bg_play_pip), "切换后台或切出应用时以画中画窗口悬浮播放"),
+            DialogOption(stringResource(R.string.settings_bg_play_audio), "切换后台时关闭视频画面，仅保留音频在后台播放"),
+            DialogOption(stringResource(R.string.settings_bg_play_off), "切换后台时立即暂停播放")
         )
         SingleChoiceDialog(
             title = stringResource(R.string.settings_bg_play),
-            options = labels,
+            options = options,
             selectedIndex = modes.indexOf(settings.backgroundPlayMode).coerceAtLeast(0),
             onSelect = { idx ->
                 onUpdateBgPlay(modes[idx])
@@ -291,42 +298,57 @@ fun SettingsContent(
         )
     }
 
-    // 单选弹窗: 渲染引擎与管线
-    if (showVoDialog) {
-        val voModes = listOf(dev.gyro.core.model.VO_LIBMPV, dev.gyro.core.model.VO_GPU_NEXT)
-        val labels = listOf(
-            stringResource(R.string.settings_vo_libmpv),
-            stringResource(R.string.settings_vo_gpu_next)
-        )
-        SingleChoiceDialog(
-            title = stringResource(R.string.settings_vo_renderer),
-            options = labels,
-            selectedIndex = voModes.indexOf(settings.voRenderer).coerceAtLeast(0),
-            onSelect = { idx ->
-                onUpdateVoRenderer(voModes[idx])
-                showVoDialog = false
-            },
-            onDismiss = { showVoDialog = false }
-        )
-    }
-
     // 单选弹窗: 默认解码器
     if (showHwdecDialog) {
         val hwdecModes = listOf(HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE)
-        val labels = listOf(
-            stringResource(R.string.settings_hwdec_mediacodec),
-            stringResource(R.string.settings_hwdec_copy),
-            stringResource(R.string.settings_hwdec_sw)
+        val options = listOf(
+            DialogOption(
+                title = stringResource(R.string.settings_hwdec_mediacodec),
+                description = stringResource(R.string.settings_hwdec_mediacodec_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.settings_hwdec_copy),
+                description = stringResource(R.string.settings_hwdec_copy_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.settings_hwdec_sw),
+                description = stringResource(R.string.settings_hwdec_sw_desc)
+            )
         )
         SingleChoiceDialog(
             title = stringResource(R.string.settings_default_hwdec),
-            options = labels,
+            options = options,
             selectedIndex = hwdecModes.indexOf(settings.defaultHwdec).coerceAtLeast(0),
             onSelect = { idx ->
                 onUpdateHwdec(hwdecModes[idx])
                 showHwdecDialog = false
             },
             onDismiss = { showHwdecDialog = false }
+        )
+    }
+
+    // 单选弹窗: HDR 输出模式
+    if (showHdrDialog) {
+        val modes = listOf(dev.gyro.core.model.HDR_OUTPUT_AUTO, dev.gyro.core.model.HDR_OUTPUT_SDR)
+        val options = listOf(
+            DialogOption(
+                title = stringResource(R.string.settings_hdr_output_auto),
+                description = stringResource(R.string.settings_hdr_output_auto_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.settings_hdr_output_sdr),
+                description = stringResource(R.string.settings_hdr_output_sdr_desc)
+            )
+        )
+        SingleChoiceDialog(
+            title = stringResource(R.string.settings_hdr_output),
+            options = options,
+            selectedIndex = modes.indexOf(settings.hdrOutputMode).coerceAtLeast(0),
+            onSelect = { idx ->
+                onUpdateHdrOutput(modes[idx])
+                showHdrDialog = false
+            },
+            onDismiss = { showHdrDialog = false }
         )
     }
 }
@@ -440,10 +462,17 @@ private fun PreferenceInfoItem(
     }
 }
 
+private data class DialogOption(
+    val title: String,
+    val description: String? = null,
+    /** False renders the row greyed out and ignores taps (unavailable on this build). */
+    val enabled: Boolean = true
+)
+
 @Composable
 private fun SingleChoiceDialog(
     title: String,
-    options: List<String>,
+    options: List<DialogOption>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit
@@ -460,24 +489,40 @@ private fun SingleChoiceDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelect(index) }
+                            .clickable(enabled = option.enabled) { onSelect(index) }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = index == selectedIndex,
                             onClick = { onSelect(index) },
+                            enabled = option.enabled,
                             colors = RadioButtonDefaults.colors(
                                 selectedColor = GyroColors.Primary,
                                 unselectedColor = GyroColors.TextSecondary
                             )
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = option,
-                            fontSize = 15.sp,
-                            color = GyroColors.TextPrimary
-                        )
+                        Column {
+                            Text(
+                                text = option.title,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (option.enabled) {
+                                    GyroColors.TextPrimary
+                                } else {
+                                    GyroColors.TextSecondary
+                                }
+                            )
+                            if (option.description != null) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = option.description,
+                                    fontSize = 12.sp,
+                                    color = GyroColors.TextSecondary
+                                )
+                            }
+                        }
                     }
                 }
             }

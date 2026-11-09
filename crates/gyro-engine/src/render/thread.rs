@@ -17,6 +17,8 @@ use crate::{nlog, reset_engine_lifecycle_state};
 pub enum RenderCommand {
     AttachSurface(NativeWindowPtr),
     DetachSurface,
+    /// Recreate the window surface on the same window, honouring the current HDR colourspace.
+    RebuildSurface,
     Redraw,
     NotifyFrame,
     DestroyContext(std::sync::mpsc::SyncSender<()>),
@@ -111,22 +113,8 @@ pub fn destroy_render_context_sync() {
     }
 }
 
-pub static G_PREFER_VULKAN: AtomicBool = AtomicBool::new(false);
-
 #[cfg(target_os = "android")]
 unsafe fn create_render_strategy() -> Result<Box<dyn RenderStrategy>, String> {
-    if G_PREFER_VULKAN.load(Ordering::Acquire) {
-        nlog("渲染策略: 配置优先请求 Vulkan 渲染后端");
-        match crate::vulkan::VulkanRenderStrategy::new() {
-            Ok(vk) => {
-                nlog("渲染策略: 成功加载 Vulkan 策略");
-                return Ok(Box::new(vk));
-            }
-            Err(e) => {
-                nlog(&format!("渲染策略: Vulkan 不可用 ({e})，平滑降级至 EGL 策略"));
-            }
-        }
-    }
     init_egl_strategy().map(|egl| Box::new(egl) as Box<dyn RenderStrategy>)
 }
 
@@ -154,44 +142,12 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
         while let Ok(cmd) = receiver.recv() {
             match cmd {
                 RenderCommand::AttachSurface(NativeWindowPtr(window)) => {
-                    let prefer_vulkan = G_PREFER_VULKAN.load(Ordering::Acquire);
-                    let current_is_vulkan = strategy.backend_type() == RenderBackend::Vulkan;
-                    if prefer_vulkan != current_is_vulkan {
-                        nlog(&format!(
-                            "渲染线程: 策略与偏好不一致 (prefer_vulkan={}, current={})，正在无缝热重载渲染策略",
-                            prefer_vulkan,
-                            strategy.name()
-                        ));
-                        strategy.free_render_context(&mut mpv_render_ctx);
-                        strategy.destroy();
-                        match create_render_strategy() {
-                            Ok(new_strat) => {
-                                strategy = new_strat;
-                                nlog(&format!("渲染线程: 已成功切换活跃渲染策略为 [{}]", strategy.name()));
-                            }
-                            Err(e) => {
-                                nlog(&format!("渲染线程: 策略重建失败: {e}，尝试回退 EGL"));
-                                if let Ok(egl) = init_egl_strategy() {
-                                    strategy = Box::new(egl);
-                                }
-                            }
-                        }
-                    }
                     nlog(&format!("{}: 收到 AttachSurface 命令", strategy.name()));
                     let _ = strategy.attach_surface(window, &mut mpv_render_ctx);
                     let ready = strategy.is_ready();
                     G_SESSION.render_slot_ready.store(ready, Ordering::Release);
                     if ready {
-                        let ctx_ok = strategy.ensure_render_context(&mut mpv_render_ctx);
-                        if !ctx_ok && strategy.backend_type() != RenderBackend::OpenGlEs {
-                            nlog("Vulkan: mpv_render_context 创建不受支持，自动无缝降级至 EGL 策略");
-                            strategy.destroy();
-                            if let Ok(mut egl_strat) = init_egl_strategy() {
-                                let _ = egl_strat.attach_surface(window, &mut mpv_render_ctx);
-                                egl_strat.ensure_render_context(&mut mpv_render_ctx);
-                                strategy = Box::new(egl_strat);
-                            }
-                        }
+                        strategy.ensure_render_context(&mut mpv_render_ctx);
                     }
                     nlog(&format!(
                         "{}: attach 完成 ready={} ctx_null={}",
@@ -208,6 +164,30 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     strategy.detach_surface();
                     G_SESSION.render_slot_ready.store(false, Ordering::Release);
                     nlog(&format!("{}: Surface 已解绑", strategy.name()));
+                }
+                RenderCommand::RebuildSurface => {
+                    if !strategy.is_ready() {
+                        nlog(&format!("{}: 忽略 Surface 重建（当前无 surface）", strategy.name()));
+                        continue;
+                    }
+                    match strategy.rebuild_surface() {
+                        Ok(()) => {
+                            G_SESSION.render_slot_ready.store(strategy.is_ready(), Ordering::Release);
+                            nlog(&format!(
+                                "{}: Surface 已按当前 HDR 状态重建 (hdr={}, ready={})",
+                                strategy.name(),
+                                crate::render::is_hdr_output(),
+                                strategy.is_ready()
+                            ));
+                            if !mpv_render_ctx.is_null() {
+                                strategy.draw_frame(mpv_render_ctx, true);
+                            }
+                        }
+                        Err(err) => {
+                            G_SESSION.render_slot_ready.store(false, Ordering::Release);
+                            nlog(&format!("{}: Surface 重建失败 err={err}", strategy.name()));
+                        }
+                    }
                 }
                 RenderCommand::Redraw => {
                     let awaiting = G_SESSION.awaiting_first_frame.load(Ordering::Acquire);

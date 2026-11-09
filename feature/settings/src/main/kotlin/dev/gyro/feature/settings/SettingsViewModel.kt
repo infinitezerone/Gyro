@@ -1,4 +1,4 @@
-﻿package dev.gyro.feature.settings
+package dev.gyro.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -36,9 +36,9 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setVoRenderer(renderer: String) {
+    fun setHdrOutputMode(mode: String) {
         viewModelScope.launch {
-            repository.setVoRenderer(renderer)
+            repository.setHdrOutputMode(mode)
         }
     }
 

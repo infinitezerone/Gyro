@@ -321,6 +321,20 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_redraw(
     }
 }
 
+/// Recreates the EGL window surface on the current window.
+///
+/// Called after the view changed the window's buffer format (8-bit <-> 10-bit) so the surface is
+/// rebuilt with the HDR colourspace matching it. No-op when nothing is attached.
+#[no_mangle]
+pub extern "system" fn Java_dev_gyro_engine_GyroNative_rebuildSurface(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    if let Some(sender) = render_sender() {
+        let _ = sender.send(RenderCommand::RebuildSurface);
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_dev_gyro_engine_GyroNative_command(
     mut env: JNIEnv,
@@ -366,17 +380,16 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setOptionString(
         let v = jstr_to_cstring(&mut env, &value)?;
         let n_str = n.to_str().unwrap_or("");
         let v_str = v.to_str().unwrap_or("");
-        if n_str == "vo" || n_str == "vo-backend" {
-            crate::render::set_requested_vo(v_str);
+        if n_str == "hdr-output" {
+            let enable_hdr = v_str == "yes" || v_str == "auto" || v_str == "true" || v_str == "1";
+            crate::render::set_hdr_output(enable_hdr);
+            return Ok(0);
         }
-        if n_str == "gpu-api" {
-            if v_str == "vulkan" {
-                crate::render::G_PREFER_VULKAN.store(true, Ordering::Release);
-            } else if v_str == "opengl" {
-                crate::render::G_PREFER_VULKAN.store(false, Ordering::Release);
-            }
-        }
-        if n_str == "vo-backend" {
+        if n_str == "hdr-capable" {
+            // Not an mpv option: decides whether the EGL config may be 10-bit, which has to be
+            // known before the render surface (and therefore before any file) exists.
+            let capable = v_str == "yes" || v_str == "auto" || v_str == "true" || v_str == "1";
+            crate::render::set_hdr_capable(capable);
             return Ok(0);
         }
         with_api(|api| unsafe {
@@ -529,7 +542,18 @@ pub extern "system" fn Java_dev_gyro_engine_GyroNative_setPropertyString(
     value: JString,
 ) {
     let _ = (|| -> Result<(), String> {
+        let n_str_res = (|| -> Result<String, String> {
+            let n = jstr_to_cstring(&mut env, &name)?;
+            Ok(n.to_str().unwrap_or("").to_string())
+        })();
         let v = jstr_to_cstring(&mut env, &value)?;
+        if let Ok(ref n_str) = n_str_res {
+            if n_str == "hdr-output" {
+                let v_str = v.to_str().unwrap_or("");
+                let enable_hdr = v_str == "yes" || v_str == "auto" || v_str == "true" || v_str == "1";
+                crate::render::set_hdr_output(enable_hdr);
+            }
+        }
         with_property_cstr(&mut env, &name, |n| {
             with_api(|api| unsafe {
                 let (_guard, handle) = mpv_handle_guarded()?;

@@ -27,6 +27,7 @@ data class PlaybackSnapshot(
 
     // Decode / timing diagnostics
     val hwdecCurrent: String = "",
+    val hdrOutputMode: String = dev.gyro.core.model.HDR_OUTPUT_AUTO,
     val speed: Float = 1.0f,
     val fps: Double = 0.0,
     val droppedFrames: Long = 0L,
@@ -39,6 +40,8 @@ data class PlaybackSnapshot(
     val geometryReady: Boolean = false,
     val firstFrameRendered: Boolean = false,
     val resizeMode: ResizeMode = ResizeMode.FIT,
+    val isHdr: Boolean = false,
+    val hdrFormat: String = "",
 
     // Tracks, chapters & shaders
     val tracks: List<TrackInfo> = emptyList(),

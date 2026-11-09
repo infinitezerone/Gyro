@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -166,6 +168,67 @@ internal fun AspectTabContent(
                             text = stringResource(if (isHw) R.string.stats_switch_to_sw else R.string.stats_switch_to_hw),
                             fontSize = 12.sp
                         )
+                    }
+                }
+            }
+        }
+
+        // 4. HDR / 杜比视界状态
+        if (state.isHdr || state.hdrFormat.isNotEmpty()) {
+            val formatName = if (state.hdrFormat.isNotEmpty()) state.hdrFormat else "HDR"
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "色彩范围与高动态",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = SheetAccentBlue,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = SheetCardColor,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(SheetAmber.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = SheetAmber,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "$formatName (10-bit 色深)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SheetTextColor
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "真 10-bit 高动态渲染 · 物理峰值点亮",
+                                fontSize = 12.sp,
+                                color = SheetAmber,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }

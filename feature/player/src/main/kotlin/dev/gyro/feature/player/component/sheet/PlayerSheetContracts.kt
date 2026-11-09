@@ -46,7 +46,8 @@ data class PlayerSheetUiState(
     val saturation: Int = 0,
     val nightMode: Boolean = false,
     val stereoDownmix: Boolean = false,
-    val voRenderer: String = dev.gyro.core.model.VO_LIBMPV
+    val isHdr: Boolean = false,
+    val hdrFormat: String = ""
 ) {
     val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "audio" } }
     val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "sub" } }
@@ -80,7 +81,6 @@ class PlayerSheetCallbacks(
     val onSetSubPos: (Long) -> Unit = {},
     val onToggleHwdec: () -> Unit = {},
     val onToggleStatsOverlay: (Boolean) -> Unit = {},
-    val onToggleVoRenderer: (() -> Unit)? = null,
     val onAddExternalSubtitle: () -> Unit = {},
     val onOpenFullSettings: () -> Unit = {}
 )

@@ -48,6 +48,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.PlayerGestureConfig
+import dev.gyro.core.model.VerticalSwipeMode
 
 @Composable
 fun GestureSettingsScreen(
@@ -62,6 +63,7 @@ fun GestureSettingsScreen(
         availableSeekSteps = uiState.availableSeekSteps,
         availableSpeedMultipliers = uiState.availableSpeedMultipliers,
         onBack = onBack,
+        onSetVerticalSwipeMode = { viewModel.setVerticalSwipeMode(it) },
         onSetVolumeEnabled = { viewModel.setVolumeGestureEnabled(it) },
         onSetBrightnessEnabled = { viewModel.setBrightnessGestureEnabled(it) },
         onSetInvertSwipeDirections = { viewModel.setInvertSwipeDirections(it) },
@@ -84,6 +86,7 @@ fun GestureSettingsContent(
     availableSeekSteps: List<Int>,
     availableSpeedMultipliers: List<Float>,
     onBack: () -> Unit,
+    onSetVerticalSwipeMode: (VerticalSwipeMode) -> Unit = {},
     onSetVolumeEnabled: (Boolean) -> Unit,
     onSetBrightnessEnabled: (Boolean) -> Unit,
     onSetInvertSwipeDirections: (Boolean) -> Unit,
@@ -97,6 +100,7 @@ fun GestureSettingsContent(
     onResetToDefault: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showVerticalModeDialog by remember { mutableStateOf(false) }
     var showSeekStepDialog by remember { mutableStateOf(false) }
     var showSpeedMultiplierDialog by remember { mutableStateOf(false) }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
@@ -152,24 +156,35 @@ fun GestureSettingsContent(
                         R.string.settings_gesture_group_vertical
                     )
                 )
-                FloatingPreferenceSwitchItem(
-                    title = stringResource(R.string.settings_gesture_volume),
-                    description = stringResource(R.string.settings_gesture_volume_desc),
-                    checked = config.isVolumeEnabled,
-                    onCheckedChange = onSetVolumeEnabled
+                FloatingPreferenceClickItem(
+                    title = stringResource(R.string.settings_gesture_vertical_mode),
+                    value = if (config.verticalSwipeMode == VerticalSwipeMode.SWITCH_VIDEO) {
+                        stringResource(R.string.settings_gesture_vertical_mode_switch_video)
+                    } else {
+                        stringResource(R.string.settings_gesture_vertical_mode_vol_bright)
+                    },
+                    onClick = { showVerticalModeDialog = true }
                 )
-                FloatingPreferenceSwitchItem(
-                    title = stringResource(R.string.settings_gesture_brightness),
-                    description = stringResource(R.string.settings_gesture_brightness_desc),
-                    checked = config.isBrightnessEnabled,
-                    onCheckedChange = onSetBrightnessEnabled
-                )
-                FloatingPreferenceSwitchItem(
-                    title = stringResource(R.string.settings_gesture_swap_sides),
-                    description = stringResource(R.string.settings_gesture_swap_sides_desc),
-                    checked = config.swapVolumeAndBrightness,
-                    onCheckedChange = onSetInvertSwipeDirections
-                )
+                if (config.verticalSwipeMode == VerticalSwipeMode.BRIGHTNESS_AND_VOLUME) {
+                    FloatingPreferenceSwitchItem(
+                        title = stringResource(R.string.settings_gesture_volume),
+                        description = stringResource(R.string.settings_gesture_volume_desc),
+                        checked = config.isVolumeEnabled,
+                        onCheckedChange = onSetVolumeEnabled
+                    )
+                    FloatingPreferenceSwitchItem(
+                        title = stringResource(R.string.settings_gesture_brightness),
+                        description = stringResource(R.string.settings_gesture_brightness_desc),
+                        checked = config.isBrightnessEnabled,
+                        onCheckedChange = onSetBrightnessEnabled
+                    )
+                    FloatingPreferenceSwitchItem(
+                        title = stringResource(R.string.settings_gesture_swap_sides),
+                        description = stringResource(R.string.settings_gesture_swap_sides_desc),
+                        checked = config.swapVolumeAndBrightness,
+                        onCheckedChange = onSetInvertSwipeDirections
+                    )
+                }
             }
 
             // 2. Horizontal & Seeking Gestures
@@ -251,6 +266,26 @@ fun GestureSettingsContent(
                 )
             }
         }
+    }
+
+    // Vertical Swipe Mode Dialog
+    if (showVerticalModeDialog) {
+        val options = listOf(
+            stringResource(R.string.settings_gesture_vertical_mode_vol_bright),
+            stringResource(R.string.settings_gesture_vertical_mode_switch_video)
+        )
+        val selectedIdx = if (config.verticalSwipeMode == VerticalSwipeMode.SWITCH_VIDEO) 1 else 0
+        SingleChoiceDialog(
+            title = stringResource(R.string.settings_gesture_vertical_mode),
+            options = options,
+            selectedIndex = selectedIdx,
+            onSelect = { idx ->
+                val newMode = if (idx == 1) VerticalSwipeMode.SWITCH_VIDEO else VerticalSwipeMode.BRIGHTNESS_AND_VOLUME
+                onSetVerticalSwipeMode(newMode)
+                showVerticalModeDialog = false
+            },
+            onDismiss = { showVerticalModeDialog = false }
+        )
     }
 
     // Seek Step Dialog (5s, 10s, 15s, 30s)

@@ -1,7 +1,12 @@
 package dev.gyro.engine.config
 
+import dev.gyro.core.model.GPU_NEXT_RENDER_API_SUPPORTED
+import dev.gyro.core.model.HDR_OUTPUT_SDR
 import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.UserSettings
+import dev.gyro.core.model.VO_GPU
+import dev.gyro.core.model.VO_GPU_NEXT
+import dev.gyro.core.model.VO_LIBMPV
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.trace.EngineLog
 import java.util.concurrent.atomic.AtomicReference
@@ -142,6 +147,10 @@ class MpvOptionConfigurator {
         val subAuto = if (settings.subAutoLoad) "all" else "no"
         bridge.setOptionString("sub-auto", subAuto)
         bridge.setPropertyString("sub-auto", subAuto)
+
+        if (!userOptions.containsKey("tone-mapping")) {
+            bridge.setPropertyString("tone-mapping", "hable")
+        }
     }
 
     private fun applyUserOptions(bridge: MpvNativeBridge, userOptions: Map<String, String>) {
@@ -163,17 +172,10 @@ class MpvOptionConfigurator {
         userOptions: Map<String, String>,
         settings: UserSettings
     ) {
-        val voBackend = if (settings.voRenderer == dev.gyro.core.model.VO_GPU_NEXT) {
-            dev.gyro.core.model.VO_GPU_NEXT
-        } else {
-            dev.gyro.core.model.VO_LIBMPV
-        }
-        val isGpuNext = voBackend == dev.gyro.core.model.VO_GPU_NEXT
-
         val userHwdec = settings.defaultHwdec.trim()
         val requestedHwdec = userHwdec.ifBlank { HWDEC_HARDWARE }
         val hwdecConfig = if (requestedHwdec == HWDEC_HARDWARE) {
-            if (isGpuNext) "mediacodec-copy,mediacodec" else "$HWDEC_HARDWARE,mediacodec-copy"
+            "$HWDEC_HARDWARE,mediacodec-copy"
         } else {
             requestedHwdec
         }
@@ -184,20 +186,40 @@ class MpvOptionConfigurator {
 
         bridge.setOptionString("sub-auto", if (settings.subAutoLoad) "all" else "no")
 
-        // Engine lifecycle invariants: legacy/EGL requires vo=libmpv, while modern Vulkan uses vo=gpu-next.
-        bridge.setOptionString("vo-backend", voBackend)
-        if (isGpuNext) {
-            bridge.setOptionString("vo", dev.gyro.core.model.VO_GPU_NEXT)
-            bridge.setOptionString("gpu-api", "vulkan")
-            bridge.setOptionString("gpu-context", "androidvk")
-        } else {
-            bridge.setOptionString("vo", dev.gyro.core.model.VO_LIBMPV)
-            bridge.setOptionString("gpu-api", "opengl")
-        }
+        // Engine lifecycle invariants: mpv_render_context requires vo=libmpv with OpenGL ES.
+        bridge.setOptionString("vo", "libmpv")
+        bridge.setOptionString("gpu-api", "opengl")
+        bridge.setOptionString("fbo-format", "auto")
+        bridge.setOptionString("hdr-output", "no")
+        // Not an mpv option: it reaches the native EGL layer, which needs the answer before the
+        // first surface exists to pick a 10-bit config for the PQ window surface.
+        bridge.setOptionString("hdr-capable", if (settings.hdrOutputMode == HDR_OUTPUT_SDR) "no" else "yes")
         bridge.setOptionString("idle", "yes")
         bridge.setOptionString("keep-open", "yes")
         bridge.setOptionString("ao", "audiotrack,opensles")
         bridge.setOptionString("volume-max", "200.0")
+
+        if (!userOptions.containsKey("scale")) {
+            bridge.setOptionString("scale", "spline36")
+        }
+        if (!userOptions.containsKey("cscale")) {
+            bridge.setOptionString("cscale", "spline36")
+        }
+        if (!userOptions.containsKey("dscale")) {
+            bridge.setOptionString("dscale", "mitchell")
+        }
+        if (!userOptions.containsKey("correct-downscaling")) {
+            bridge.setOptionString("correct-downscaling", "yes")
+        }
+        if (!userOptions.containsKey("linear-downscaling")) {
+            bridge.setOptionString("linear-downscaling", "yes")
+        }
+        if (!userOptions.containsKey("sigmoid-upscaling")) {
+            bridge.setOptionString("sigmoid-upscaling", "yes")
+        }
+        if (!userOptions.containsKey("dither-depth")) {
+            bridge.setOptionString("dither-depth", "auto")
+        }
 
         if (!userOptions.containsKey("video-sync")) {
             bridge.setOptionString("video-sync", "audio")
@@ -212,8 +234,7 @@ class MpvOptionConfigurator {
             bridge.setOptionString("demuxer-readahead-secs", "20")
         }
         if (!userOptions.containsKey("tone-mapping")) {
-            val defaultToneMapping = if (voBackend == dev.gyro.core.model.VO_GPU_NEXT) "reinhard" else "hable"
-            bridge.setOptionString("tone-mapping", defaultToneMapping)
+            bridge.setOptionString("tone-mapping", "hable")
         }
         if (!userOptions.containsKey("hdr-compute-peak")) {
             bridge.setOptionString("hdr-compute-peak", "yes")

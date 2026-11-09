@@ -35,6 +35,12 @@ class GestureSettingsViewModel @Inject constructor(
 
     // --- Vertical Gestures ---
 
+    fun setVerticalSwipeMode(mode: dev.gyro.core.model.VerticalSwipeMode) {
+        viewModelScope.launch {
+            repository.updateGestureConfig { it.copy(verticalSwipeMode = mode) }
+        }
+    }
+
     fun setVolumeGestureEnabled(enabled: Boolean) {
         viewModelScope.launch {
             repository.updateGestureConfig { it.copy(isVolumeEnabled = enabled) }

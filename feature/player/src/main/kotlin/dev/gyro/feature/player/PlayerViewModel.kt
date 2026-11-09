@@ -110,20 +110,6 @@ class PlayerViewModel @Inject constructor(
         orchestrator.saveCurrentProgress()
     }
 
-    fun toggleVoRenderer() {
-        viewModelScope.launch {
-            val current = settings.value.voRenderer
-            val next = if (current == dev.gyro.core.model.VO_GPU_NEXT) {
-                dev.gyro.core.model.VO_LIBMPV
-            } else {
-                dev.gyro.core.model.VO_GPU_NEXT
-            }
-            settingsRepository.setVoRenderer(next)
-            val defaultToneMapping = if (next == dev.gyro.core.model.VO_GPU_NEXT) "reinhard" else "hable"
-            engine.video.setToneMapping(defaultToneMapping)
-        }
-    }
-
     public override fun onCleared() {
         super.onCleared()
         // Only transient load work is cancelled: the orchestrator's periodic checkpoint is a

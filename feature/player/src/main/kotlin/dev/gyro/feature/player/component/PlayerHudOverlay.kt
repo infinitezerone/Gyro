@@ -3,16 +3,16 @@ package dev.gyro.feature.player.component
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
+import dev.gyro.core.designsystem.theme.GyroColors
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
-import androidx.compose.foundation.layout.Column
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -85,39 +89,47 @@ fun BoxScope.PlayerHudOverlay(
     hudState: GestureHudState,
     scrubState: PlayerScrubState,
     durationMs: () -> Long,
+    swapVolumeAndBrightness: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        // 0. Top-Center Scrub Time Preview（拖拽进度条时，屏幕正上方显示目标时间）
+        // 0. Top-Center Scrub & Gesture Seek Time Preview（拖拽进度条或屏幕水平滑动快进/快退，屏幕正上方显示目标时间与偏差）
+        val isSeeking = scrubState.isActive || hudState is GestureHudState.Seek
         AnimatedVisibility(
-            visible = scrubState.isActive && durationMs() > 0L,
+            visible = isSeeking && durationMs() > 0L,
             enter = fadeIn(animationSpec = tween(100)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
-                .padding(top = 16.dp)
+                .padding(top = 64.dp)
         ) {
             val total = durationMs()
             if (total > 0L) {
+                val (targetMs, deltaMs) = when {
+                    hudState is GestureHudState.Seek -> hudState.targetMs to hudState.deltaMs
+                    scrubState.isActive -> ((scrubState.fraction * total).toLong()) to null
+                    else -> 0L to null
+                }
                 ScrubTimePreview(
-                    targetMs = (scrubState.fraction * total).toLong(),
-                    totalMs = total
+                    targetMs = targetMs,
+                    totalMs = total,
+                    deltaMs = deltaMs
                 )
             }
         }
-        // 1. Center Floating Capsule Slider (Volume / Brightness) — 居中呈现，避开顶栏与底栏
+
+        // 1. 屏幕正上方浮动胶囊滑块（音量 / 亮度 HUD，位于顶部舒适可视区，下移至 64dp，避开挖孔与顶栏）
         AnimatedVisibility(
             visible = hudState is GestureHudState.Brightness || hudState is GestureHudState.Volume,
-            enter = fadeIn(animationSpec = tween(150)) + scaleIn(
-                initialScale = 0.9f,
-                animationSpec = tween(150)
-            ),
-            exit = fadeOut(animationSpec = tween(300)),
+            enter = fadeIn(animationSpec = tween(150)) + slideInVertically(animationSpec = tween(150)) { -it / 2 },
+            exit = fadeOut(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(200)) { -it / 2 },
             modifier = Modifier
-                .align(Alignment.Center)
+                .align(Alignment.TopCenter)
                 .displayCutoutPadding()
+                .statusBarsPadding()
+                .padding(top = 64.dp)
         ) {
             when (hudState) {
                 is GestureHudState.Brightness -> {
@@ -163,7 +175,7 @@ fun BoxScope.PlayerHudOverlay(
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
-                .padding(top = 16.dp)
+                .padding(top = 64.dp)
         ) {
             val speedState = hudState as? GestureHudState.Speed
             if (speedState != null) {
@@ -198,59 +210,87 @@ fun BoxScope.PlayerHudOverlay(
             }
         }
 
-        // 3. YouTube-Style Curved Ripple Arc with Pulsing Seconds (Left / Right)
+        // 2.5. 屏幕正上方切集指示胶囊（上下滑动直接切视频）
         AnimatedVisibility(
-            visible = hudState is GestureHudState.DoubleTap,
-            enter = fadeIn(animationSpec = tween(100)),
-            exit = fadeOut(animationSpec = tween(250)),
-            modifier = Modifier.fillMaxSize()
+            visible = hudState is GestureHudState.SwitchVideo,
+            enter = fadeIn(animationSpec = tween(150)) + slideInVertically(animationSpec = tween(150)) { -it / 2 },
+            exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(animationSpec = tween(300)) { -it / 2 },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .displayCutoutPadding()
+                .statusBarsPadding()
+                .padding(top = 64.dp)
         ) {
-            val doubleTapState = hudState as? GestureHudState.DoubleTap
-            if (doubleTapState != null) {
-                val isLeft = doubleTapState.side == DoubleTapSide.LEFT
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = if (isLeft) Alignment.CenterStart else Alignment.CenterEnd
+            val switchState = hudState as? GestureHudState.SwitchVideo
+            if (switchState != null) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.75f),
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.height(38.dp)
                 ) {
-                    // 半圆扩散微光波纹弧 (Curved Ripple Arc)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.38f)
-                            .clip(
-                                if (isLeft) {
-                                    RoundedCornerShape(topEndPercent = 100, bottomEndPercent = 100)
-                                } else {
-                                    RoundedCornerShape(topStartPercent = 100, bottomStartPercent = 100)
-                                }
-                            )
-                            .background(Color.White.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isLeft) Icons.Default.FastRewind else Icons.Default.FastForward,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Text(
-                                text = stringResource(
-                                    if (isLeft) R.string.hud_rewind_seconds else R.string.hud_forward_seconds,
-                                    doubleTapState.seconds
-                                ),
-                                style = TextStyle(
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    fontFeatureSettings = "tnum"
-                                )
-                            )
-                        }
+                        Icon(
+                            imageVector = if (switchState.isNext) Icons.Default.SkipNext else Icons.Default.SkipPrevious,
+                            contentDescription = null,
+                            tint = GyroColors.PrimaryLight,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = if (switchState.isNext) stringResource(R.string.cd_next_video) else stringResource(R.string.cd_prev_video),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
+                }
+            }
+        }
+
+        // 3. 纯透明双击快进/快退指示（无胶囊背景、无圆圈，仅保留纯净文字与箭头图标）
+        val doubleTapState = hudState as? GestureHudState.DoubleTap
+        val isDoubleTapLeft = doubleTapState?.side == DoubleTapSide.LEFT
+        AnimatedVisibility(
+            visible = doubleTapState != null,
+            enter = fadeIn(animationSpec = tween(100)) + scaleIn(initialScale = 0.85f),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier
+                .align(if (isDoubleTapLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                .displayCutoutPadding()
+                .padding(horizontal = 64.dp)
+        ) {
+            if (doubleTapState != null) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isDoubleTapLeft) Icons.Default.FastRewind else Icons.Default.FastForward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Text(
+                        text = stringResource(
+                            if (isDoubleTapLeft) R.string.hud_rewind_seconds else R.string.hud_forward_seconds,
+                            doubleTapState.seconds
+                        ),
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontFeatureSettings = "tnum",
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.90f),
+                                blurRadius = 8f
+                            )
+                        )
+                    )
                 }
             }
         }
@@ -258,13 +298,14 @@ fun BoxScope.PlayerHudOverlay(
 }
 
 /**
- * Top-center capsule showing the scrub target time while dragging the progress bar.
- * 替代原 ScrubBar 内的跟随气泡：位置固定在屏幕正上方，不被手指遮挡。
+ * Top-center capsule showing the scrub target time while dragging the progress bar or gesture seeking.
+ * 屏幕正上方统一时间与增减量预览，不被手指遮挡。
  */
 @Composable
 private fun ScrubTimePreview(
     targetMs: Long,
-    totalMs: Long
+    totalMs: Long,
+    deltaMs: Long? = null
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -276,7 +317,7 @@ private fun ScrubTimePreview(
         Row(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = formatTime(targetMs),
@@ -287,6 +328,20 @@ private fun ScrubTimePreview(
                     fontFeatureSettings = "tnum"
                 )
             )
+            if (deltaMs != null && deltaMs != 0L) {
+                val sign = if (deltaMs > 0) "+" else "-"
+                val absSec = (kotlin.math.abs(deltaMs) + 500L) / 1000L
+                val deltaText = "($sign${formatTime(absSec * 1000L)})"
+                Text(
+                    text = deltaText,
+                    style = TextStyle(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (deltaMs > 0) Color(0xFF81C784) else Color(0xFFFF8A65),
+                        fontFeatureSettings = "tnum"
+                    )
+                )
+            }
             Text(
                 text = "/ " + formatTime(totalMs),
                 style = TextStyle(
@@ -363,29 +418,32 @@ private fun DiagnosticRow(label: String, value: String) {
 }
 
 /**
- * Center floating capsule slider for Volume & Brightness.
- */@Composable
+ * 屏幕正上方浮动胶囊滑块 (TopCapsuleSlider)：
+ * 居于屏幕正上方顶部中央 (Alignment.TopCenter)，彻底避免遮挡正中间画面核心与底部字幕区。
+ */
+@Composable
 private fun TopCapsuleSlider(
     icon: ImageVector,
     contentDescription: String,
     ratio: Float,
     percentage: Int,
     activeColor: Color,
-    isOverdrive: Boolean = false
+    isOverdrive: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     val borderColor = if (isOverdrive) {
-        Color(0xFFFF9800).copy(alpha = 0.6f)
+        Color(0xFFFF9800).copy(alpha = 0.60f)
     } else {
         Color.White.copy(alpha = 0.15f)
     }
-    val capsuleWidth = if (isOverdrive) 264.dp else 210.dp
+    val capsuleWidth = if (isOverdrive) 240.dp else 200.dp
 
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = Color.Black.copy(alpha = 0.75f),
         border = BorderStroke(if (isOverdrive) 1.dp else 0.5.dp, borderColor),
         shadowElevation = 6.dp,
-        modifier = Modifier
+        modifier = modifier
             .width(capsuleWidth)
             .height(38.dp)
     ) {
@@ -394,7 +452,7 @@ private fun TopCapsuleSlider(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Icon(
                 imageVector = icon,
@@ -403,7 +461,7 @@ private fun TopCapsuleSlider(
                 modifier = Modifier.size(18.dp)
             )
 
-            // Horizontal Progress Bar Track (with smooth physics interpolation)
+            // 水平进度条平滑物理插值
             val animatedRatio by animateFloatAsState(
                 targetValue = ratio.coerceIn(0f, 1f),
                 animationSpec = spring(stiffness = Spring.StiffnessHigh, dampingRatio = Spring.DampingRatioNoBouncy),
@@ -419,14 +477,14 @@ private fun TopCapsuleSlider(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(animatedRatio)
                         .fillMaxHeight()
+                        .fillMaxWidth(animatedRatio)
                         .clip(RoundedCornerShape(2.dp))
                         .background(activeColor)
                 )
             }
 
-            // Percentage Text
+            // 百分比数值
             Text(
                 text = "$percentage%",
                 style = TextStyle(
@@ -439,7 +497,7 @@ private fun TopCapsuleSlider(
                 modifier = Modifier.width(36.dp)
             )
 
-            // Overdrive badge hint text (when > 100%)
+            // 超驱动指示
             if (isOverdrive) {
                 Text(
                     text = stringResource(R.string.hud_volume_overdrive_hint),

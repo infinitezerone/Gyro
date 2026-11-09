@@ -1,6 +1,10 @@
 package dev.gyro.engine.ui
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.util.AttributeSet
@@ -145,6 +149,15 @@ class GyroSurfaceView @JvmOverloads constructor(
     var appliedBufferHeight by mutableIntStateOf(0)
         private set
 
+    /**
+     * Pixel format the platform last reported through [surfaceChanged], 0 before the first call.
+     *
+     * The surface colourspace is baked into the EGL surface, so a format change (8-bit <-> 10-bit
+     * for HDR) has to rebuild it; the callback is the only reliable signal that the new format is
+     * actually in effect.
+     */
+    private var appliedFormat = 0
+
     /** Frame rate of the content on screen, 0 when the system should pick. */
     private var contentFrameRate = 0f
 
@@ -188,6 +201,18 @@ class GyroSurfaceView @JvmOverloads constructor(
         lockBufferSize(holder, width, height)
     }
 
+    /**
+     * Sets the buffer format to 10-bit RGBA_1010102 when HDR output is enabled,
+     * or standard RGBA_8888 for SDR content.
+     */
+    fun setHdrOutput(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val format = if (enabled) PixelFormat.RGBA_1010102 else PixelFormat.RGBA_8888
+            holder?.setFormat(format)
+            EngineLog.i(TAG, "setHdrOutput: enabled=$enabled, format=$format")
+        }
+    }
+
     override fun surfaceCreated(holder: SurfaceHolder) {
         EngineLog.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
         attach(holder.surface)
@@ -196,8 +221,10 @@ class GyroSurfaceView @JvmOverloads constructor(
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         appliedBufferWidth = width
         appliedBufferHeight = height
-        SwitchTrace.log("SURFACE_CHANGED", "view=${width}x$height buffer=${lockedWidth}x$lockedHeight")
-        EngineLog.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight")
+        val formatChanged = appliedFormat != 0 && appliedFormat != format
+        appliedFormat = format
+        SwitchTrace.log("SURFACE_CHANGED", "view=${width}x$height buffer=${lockedWidth}x$lockedHeight format=$format")
+        EngineLog.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight format=$format")
         if (lockedWidth <= 0 || lockedHeight <= 0) {
             // No video dimensions have arrived yet: let the buffer follow the view so first paint
             // has something to draw into. [lockBufferSizeToVideo] re-locks once mpv reports size.
@@ -211,6 +238,14 @@ class GyroSurfaceView @JvmOverloads constructor(
         if (!target.isSurfaceAttached && holder.surface?.isValid == true) {
             EngineLog.i(TAG, "surfaceChanged -> re-attach unbound surface")
             attach(holder.surface)
+            return
+        }
+        // An HDR switch flips the window between 8-bit and 10-bit buffers. The EGL surface was
+        // created for the previous format and carries its colourspace, so it has to be rebuilt;
+        // rebuilding also repaints, which makes the redraw below redundant.
+        if (formatChanged) {
+            EngineLog.i(TAG, "surfaceChanged -> buffer format changed to $format, rebuilding render surface")
+            target.requestSurfaceRebuild()
             return
         }
         // Repaint so a paused player follows a relock. A playing one is already producing frames at
@@ -354,6 +389,34 @@ fun GyroPlayerSurface(
         }
     }
 
+    // Tell the engine up front whether the panel can present HDR. Without it mpv is told to
+    // output PQ on an SDR display, where it skips tone-mapping and the picture washes out.
+    LaunchedEffect(engine) {
+        engine?.geometry?.setDisplayHdrCapable(context.displaySupportsHdr())
+    }
+
+    val isHdr by (engine?.geometry?.isHdr ?: remember { MutableStateFlow(false) }).collectAsState()
+    LaunchedEffect(isHdr) {
+        val activity = context.findActivity()
+        val canHdr = isHdr && context.displaySupportsHdr()
+        surfaceView.setHdrOutput(canHdr)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            activity?.window?.colorMode = if (canHdr) {
+                ActivityInfo.COLOR_MODE_HDR
+            } else {
+                ActivityInfo.COLOR_MODE_DEFAULT
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.findActivity()?.window?.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+            }
+        }
+    }
+
     DisposableEffect(engine) {
         surfaceView.engine = engine
         onDispose {
@@ -410,4 +473,21 @@ fun GyroPlayerSurface(
         },
         modifier = modifier
     )
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+/** True when the current display advertises HDR support to the platform. */
+@Suppress("DEPRECATION")
+private fun Context.displaySupportsHdr(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    val display = findActivity()?.windowManager?.defaultDisplay ?: return false
+    return display.isHdr
 }

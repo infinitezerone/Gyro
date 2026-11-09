@@ -18,7 +18,30 @@ use crate::strategy::{DrawOutcome, RenderBackend, RenderStrategy};
 use crate::nlog;
 
 pub const EGL_BAD_SURFACE: EGLint = 0x300D;
+pub const EGL_CONTEXT_MAJOR_VERSION_KHR: EGLint = 0x3098;
+pub const EGL_CONTEXT_MINOR_VERSION_KHR: EGLint = 0x30FB;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct GlVersionAttempt {
+    pub major: EGLint,
+    pub minor: EGLint,
+}
+
+pub const CONTEXT_VERSION_ATTEMPTS: [GlVersionAttempt; 4] = [
+    GlVersionAttempt { major: 3, minor: 2 },
+    GlVersionAttempt { major: 3, minor: 1 },
+    GlVersionAttempt { major: 3, minor: 0 },
+    GlVersionAttempt { major: 2, minor: 0 },
+];
+
 pub const CONTEXT_CLIENT_VERSIONS: [EGLint; 2] = [3, 2];
+
+/// `EGL_GL_COLORSPACE_KHR`: window surface colourspace selector.
+#[cfg(target_os = "android")]
+const EGL_GL_COLORSPACE_KHR: EGLint = 0x309D;
+/// `EGL_GL_COLORSPACE_BT2020_PQ_EXT`: HDR10 (PQ/BT.2020) window colours.
+#[cfg(target_os = "android")]
+const EGL_GL_COLORSPACE_BT2020_PQ_EXT: EGLint = 0x3340;
 
 pub fn egl_error_name(code: EGLint) -> &'static str {
     match code {
@@ -167,22 +190,45 @@ pub struct EglCore {
 
 impl EglCore {
     #[cfg(target_os = "android")]
+    pub unsafe fn create_context_with_version(
+        display: EGLDisplay,
+        config: EGLConfig,
+        major: EGLint,
+        minor: EGLint,
+    ) -> EGLContext {
+        let attribs = [
+            EGL_CONTEXT_MAJOR_VERSION_KHR, major,
+            EGL_CONTEXT_MINOR_VERSION_KHR, minor,
+            EGL_NONE,
+        ];
+        let ctx = eglCreateContext(display, config, EGL_NO_CONTEXT, attribs.as_ptr());
+        if ctx != EGL_NO_CONTEXT {
+            return ctx;
+        }
+        if minor == 0 {
+            let legacy_attribs = [EGL_CONTEXT_CLIENT_VERSION, major, EGL_NONE];
+            eglCreateContext(display, config, EGL_NO_CONTEXT, legacy_attribs.as_ptr())
+        } else {
+            EGL_NO_CONTEXT
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub unsafe fn create_context_with_version(
+        _display: EGLDisplay,
+        _config: EGLConfig,
+        _major: EGLint,
+        _minor: EGLint,
+    ) -> EGLContext {
+        std::ptr::null_mut()
+    }
+
     pub unsafe fn create_context_with_major(
         display: EGLDisplay,
         config: EGLConfig,
         major: EGLint,
     ) -> EGLContext {
-        let attribs = [EGL_CONTEXT_CLIENT_VERSION, major, EGL_NONE];
-        eglCreateContext(display, config, EGL_NO_CONTEXT, attribs.as_ptr())
-    }
-
-    #[cfg(not(target_os = "android"))]
-    pub unsafe fn create_context_with_major(
-        _display: EGLDisplay,
-        _config: EGLConfig,
-        _major: EGLint,
-    ) -> EGLContext {
-        std::ptr::null_mut()
+        Self::create_context_with_version(display, config, major, 0)
     }
 
     #[cfg(target_os = "android")]
@@ -194,12 +240,12 @@ impl EglCore {
             self.context = EGL_NO_CONTEXT;
         }
 
-        for major in CONTEXT_CLIENT_VERSIONS {
-            let ctx = Self::create_context_with_major(self.display, self.config, major);
+        for attempt in CONTEXT_VERSION_ATTEMPTS {
+            let ctx = Self::create_context_with_version(self.display, self.config, attempt.major, attempt.minor);
             if ctx != EGL_NO_CONTEXT {
-                nlog(&format!("EGL: 上下文重建成功 (GLES v{major})"));
+                nlog(&format!("EGL: 上下文重建成功 (GLES v{}.{})", attempt.major, attempt.minor));
                 self.context = ctx;
-                self.context_major = major;
+                self.context_major = attempt.major;
                 return true;
             }
         }
@@ -371,6 +417,7 @@ pub struct SurfaceSlot {
     pub config: EGLConfig,
     pub surface: EGLSurface,
     pub window: *mut ANativeWindow,
+    pub dummy_pbuffer: EGLSurface,
 }
 
 impl SurfaceSlot {
@@ -380,6 +427,7 @@ impl SurfaceSlot {
             config,
             surface: EGL_NO_SURFACE,
             window: std::ptr::null_mut(),
+            dummy_pbuffer: EGL_NO_SURFACE,
         }
     }
 
@@ -389,6 +437,31 @@ impl SurfaceSlot {
 
     pub fn surface(&self) -> EGLSurface {
         self.surface
+    }
+
+    /// Creates the window surface, asking for BT.2020/PQ scanout when the current file is HDR.
+    ///
+    /// The colourspace is a per-surface attribute, so every creation path (first attach, rebuild
+    /// after the buffer format changed, recovery) must go through here. Requesting PQ against a
+    /// config without 10-bit components fails and falls back to the default colourspace, which is
+    /// also what an SDR panel gets.
+    #[cfg(target_os = "android")]
+    unsafe fn create_window_surface(&self, window: *mut ANativeWindow) -> EGLSurface {
+        if super::is_hdr_output() {
+            let hdr_attribs = [
+                EGL_GL_COLORSPACE_KHR,
+                EGL_GL_COLORSPACE_BT2020_PQ_EXT,
+                EGL_NONE,
+            ];
+            let surface = eglCreateWindowSurface(self.display, self.config, window, hdr_attribs.as_ptr());
+            if surface != EGL_NO_SURFACE {
+                nlog("EGL: 成功创建 BT2020_PQ HDR Window Surface ✨");
+                return surface;
+            }
+            nlog("EGL: BT2020_PQ colorspace 失败，回退默认 colorspace");
+        }
+        let attribs = [EGL_NONE];
+        eglCreateWindowSurface(self.display, self.config, window, attribs.as_ptr())
     }
 
     pub unsafe fn attach(
@@ -416,10 +489,9 @@ impl SurfaceSlot {
                 return Ok(());
             }
 
-            self.detach();
+            self.detach_with_context(context);
 
-            let attribs = [EGL_NONE];
-            let surface = eglCreateWindowSurface(self.display, self.config, new_window, attribs.as_ptr());
+            let surface = self.create_window_surface(new_window);
             if surface == EGL_NO_SURFACE {
                 let err = egl_failure("eglCreateWindowSurface");
                 window_ref(-2, "attach(createSurface failed) release handoff");
@@ -453,12 +525,26 @@ impl SurfaceSlot {
         }
     }
 
-    pub unsafe fn detach(&mut self) {
+    pub unsafe fn detach_with_context(&mut self, context: EGLContext) {
         #[cfg(target_os = "android")]
         {
             assert_render_thread("SurfaceSlot::detach");
-            if self.surface != EGL_NO_SURFACE {
+            if self.dummy_pbuffer == EGL_NO_SURFACE && self.display != EGL_NO_DISPLAY && !self.config.is_null() {
+                let attribs = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
+                self.dummy_pbuffer = eglCreatePbufferSurface(self.display, self.config, attribs.as_ptr());
+            }
+
+            if self.dummy_pbuffer != EGL_NO_SURFACE && context != EGL_NO_CONTEXT {
+                if eglMakeCurrent(self.display, self.dummy_pbuffer, self.dummy_pbuffer, context) != EGL_TRUE {
+                    let _ = egl_failure("eglMakeCurrent(pbuffer)");
+                }
+            } else if context != EGL_NO_CONTEXT {
+                let _ = eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, context);
+            } else {
                 eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            }
+
+            if self.surface != EGL_NO_SURFACE {
                 if eglDestroySurface(self.display, self.surface) != EGL_TRUE {
                     egl_failure("eglDestroySurface");
                 }
@@ -470,6 +556,10 @@ impl SurfaceSlot {
                 self.window = std::ptr::null_mut();
             }
         }
+    }
+
+    pub unsafe fn detach(&mut self) {
+        self.detach_with_context(EGL_NO_CONTEXT);
     }
 
     pub unsafe fn drop_surface(&mut self) {
@@ -495,8 +585,8 @@ impl SurfaceSlot {
             if self.window.is_null() {
                 return Ok(());
             }
-            let attribs = [EGL_NONE];
-            let surface = eglCreateWindowSurface(self.display, self.config, self.window, attribs.as_ptr());
+            self.drop_surface();
+            let surface = self.create_window_surface(self.window);
             if surface == EGL_NO_SURFACE {
                 let err = egl_failure("eglCreateWindowSurface(rebuild)");
                 return Err(err);
@@ -550,7 +640,14 @@ impl RenderStrategy for EglRenderStrategy {
     }
 
     fn detach_surface(&mut self) {
-        unsafe { self.slot.detach() };
+        unsafe { self.slot.detach_with_context(self.core.context) };
+    }
+
+    fn rebuild_surface(&mut self) -> Result<(), i32> {
+        unsafe {
+            self.slot.drop_surface();
+            self.slot.rebuild_surface(self.core.context, self.core.context_major)
+        }
     }
 
     fn is_ready(&self) -> bool {
@@ -615,18 +712,32 @@ pub(crate) unsafe fn init_egl_strategy() -> Result<EglRenderStrategy, String> {
         }
         nlog(&format!("EGL: 初始化完成 version={major}.{minor}"));
 
-        let chosen = match choose_egl_config(display, false) {
+        let prefer_10bit = super::is_hdr_capable();
+        let chosen = match choose_egl_config(display, prefer_10bit) {
             Some(c) => c,
             None => return Err("choose_egl_config".into()),
         };
+        // The config is picked once per render thread; log the bit depth that was actually granted
+        // so an HDR surface that silently fell back to 8 bits is visible in logcat.
+        nlog(&format!(
+            "EGL: config r/g/b/a={}/{}/{}/{} (prefer_10bit={})",
+            config_attrib(display, chosen.config, EGL_RED_SIZE, 0),
+            config_attrib(display, chosen.config, EGL_GREEN_SIZE, 0),
+            config_attrib(display, chosen.config, EGL_BLUE_SIZE, 0),
+            config_attrib(display, chosen.config, EGL_ALPHA_SIZE, 0),
+            prefer_10bit,
+        ));
 
         let mut context: EGLContext = EGL_NO_CONTEXT;
         let mut context_major: EGLint = 0;
-        for v in CONTEXT_CLIENT_VERSIONS {
-            context = EglCore::create_context_with_major(display, chosen.config, v);
+        for attempt in CONTEXT_VERSION_ATTEMPTS {
+            context = EglCore::create_context_with_version(display, chosen.config, attempt.major, attempt.minor);
             if context != EGL_NO_CONTEXT {
-                nlog(&format!("EGL: 成功创建 OpenGL ES 上下文 (v{v})"));
-                context_major = v;
+                nlog(&format!(
+                    "EGL: 成功创建 OpenGL ES 上下文 (v{}.{})",
+                    attempt.major, attempt.minor
+                ));
+                context_major = attempt.major;
                 break;
             }
         }
