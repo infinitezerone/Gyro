@@ -147,9 +147,9 @@ fun BoxScope.PlayerControlsOverlay(
         }
 
         // 2. 锁屏浮动悬浮按键（位于左侧中央边缘 Alignment.CenterStart）
-        // 锁屏状态下遵循成熟播放器规范：静止时自动淡出以保护全屏纯净，点击屏幕任意位置呼出解锁按键
+        // 锁屏状态下遵循成熟播放器规范：静止时自动淡出以保护全屏纯净，点击屏幕任意位置呼出解锁按键；拖动进度时隐藏
         AnimatedVisibility(
-            visible = isVisible,
+            visible = isVisible && !scrubState.isActive,
             enter = fadeIn() + scaleIn(initialScale = 0.85f),
             exit = fadeOut(),
             modifier = Modifier
@@ -207,7 +207,7 @@ fun BoxScope.PlayerControlsOverlay(
             }
 
             AnimatedVisibility(
-                visible = isVisible,
+                visible = isVisible && !scrubState.isActive,
                 enter = fadeIn() + scaleIn(initialScale = 0.9f),
                 exit = fadeOut(),
                 modifier = bottomModifier

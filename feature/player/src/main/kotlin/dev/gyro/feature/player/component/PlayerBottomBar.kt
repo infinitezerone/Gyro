@@ -118,8 +118,61 @@ fun PlayerBottomBar(
             )
         }
 
-        // 行 2：操作控制行（当控制层可见时展示；拖动屏幕时不显示任何底部控件，仅保留 44dp 等高占位确保进度条绝对不下坠）
-        if (isVisible) {
+        // 时间显示 [05:20 / 45:30] 或 [05:20 / -40:10]（点击切换总时长/剩余时间）
+        var showRemainingTime by remember { mutableStateOf(false) }
+        val secondaryTimeText = if (showRemainingTime && totalMs > 0L) {
+            val remainingMs = (totalMs - displayPos).coerceAtLeast(0L)
+            " / -${formatTime(remainingMs)}"
+        } else {
+            " / ${formatTime(totalMs)}"
+        }
+
+        val timeHubContent: @Composable () -> Unit = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { showRemainingTime = !showRemainingTime }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = formatTime(displayPos),
+                    style = TextStyle(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        fontFeatureSettings = "tnum",
+                        shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
+                    )
+                )
+                Text(
+                    text = secondaryTimeText,
+                    style = TextStyle(
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = Color.White.copy(alpha = 0.70f),
+                        fontFeatureSettings = "tnum",
+                        shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
+                    )
+                )
+            }
+        }
+
+        // 行 2：操作控制行
+        // 拖动屏幕改变进度时：除了底部的时间hub，只显示进度条（彻底隐藏播放/暂停、倍速、选集、全屏等按钮）；
+        // 平时控制层可见时：展示完整的核心操作行；
+        // 其余情况（不可见且非拖动）：44dp 占位保证尺寸稳定不发生下坠位移。
+        if (scrubState.isActive) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                timeHubContent()
+            }
+        } else if (isVisible) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -146,43 +199,8 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // 2. 时间显示 [05:20 / 45:30] 或 [05:20 / -40:10]（点击切换总时长/剩余时间）
-                var showRemainingTime by remember { mutableStateOf(false) }
-                val secondaryTimeText = if (showRemainingTime && totalMs > 0L) {
-                    val remainingMs = (totalMs - displayPos).coerceAtLeast(0L)
-                    " / -${formatTime(remainingMs)}"
-                } else {
-                    " / ${formatTime(totalMs)}"
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { showRemainingTime = !showRemainingTime }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = formatTime(displayPos),
-                        style = TextStyle(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            fontFeatureSettings = "tnum",
-                            shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
-                        )
-                    )
-                    Text(
-                        text = secondaryTimeText,
-                        style = TextStyle(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = Color.White.copy(alpha = 0.70f),
-                            fontFeatureSettings = "tnum",
-                            shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
-                        )
-                    )
-                }
+                // 2. 时间显示（时间hub）
+                timeHubContent()
 
                 Spacer(modifier = Modifier.weight(1f))
 
