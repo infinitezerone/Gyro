@@ -7,15 +7,6 @@ import dev.gyro.engine.session.PlaybackSessionState
 
 /**
  * One consistent view of every slow-moving playback fact the UI renders.
- *
- * Owned by [dev.gyro.engine.state.PlaybackStore] as one container. Controllers write through the
- * store and expose only read-only projections of these fields, so there is no second source of
- * truth and no pair of fields read from different events.
- *
- * Deliberately excluded: [dev.gyro.engine.GyroPlayerEngine.timePosMs] and
- * [dev.gyro.engine.GyroPlayerEngine.bufferedPosMs]. They change at report frequency, and folding
- * them in would recompose the whole player surface several times a second for a value only the
- * scrub bar reads.
  */
 data class PlaybackSnapshot(
     // Playback identity & lifecycle

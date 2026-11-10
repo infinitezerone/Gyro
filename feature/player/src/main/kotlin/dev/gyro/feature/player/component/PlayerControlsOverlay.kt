@@ -84,6 +84,7 @@ fun BoxScope.PlayerControlsOverlay(
     onToggleOrientation: () -> Unit,
     onBack: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
+    ambientColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Transparent,
     videoBottomDp: Dp? = null,
     hdrFormat: String = "",
     hwdec: String = "",
@@ -249,7 +250,8 @@ fun BoxScope.PlayerControlsOverlay(
                     onCycleAbLoop = onCycleAbLoop,
                     onOpenSheetTab = onOpenSheetTab,
                     onToggleOrientation = onToggleOrientation,
-                    chapters = chapters
+                    chapters = chapters,
+                    ambientColor = ambientColor
                 )
             }
         }

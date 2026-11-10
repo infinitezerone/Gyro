@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -89,6 +90,26 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
+    // Android Photo & Video Picker (PickVisualMedia)
+    val pickVisualMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri?.let {
+            val singleItem = VideoMediaItem(
+                id = System.currentTimeMillis(),
+                uriString = it.toString(),
+                displayName = it.lastPathSegment ?: "Video",
+                durationMs = 0L,
+                sizeBytes = 0L,
+                width = 0,
+                height = 0,
+                dateModified = 0L,
+                folderName = ""
+            )
+            onPlayVideo(singleItem, listOf(singleItem))
+        }
+    }
+
     // SAF File Picker
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -140,7 +161,15 @@ fun HomeScreen(
     HomeContent(
         uiState = uiState,
         onPlayVideo = onPlayVideo,
-        onOpenFile = { openDocumentLauncher.launch(arrayOf("video/*")) },
+        onOpenFile = {
+            if (ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)) {
+                pickVisualMediaLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                )
+            } else {
+                openDocumentLauncher.launch(arrayOf("video/*"))
+            }
+        },
         onPickFolder = { openFolderLauncher.launch(null) },
         onOpenSettings = onOpenSettings,
         onRequestPermission = { permissionLauncher.launch(requiredPermission) },

@@ -1,7 +1,6 @@
 package dev.gyro.player
 
 import android.content.pm.ActivityInfo
-import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,66 +20,49 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
+import androidx.core.content.IntentCompat
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
-import android.view.KeyEvent
-import androidx.core.content.IntentCompat
-import androidx.core.net.toUri
 import dagger.hilt.android.AndroidEntryPoint
-import dev.gyro.core.data.repository.MpvConfigRepository
-import dev.gyro.engine.session.MediaSessionManager
-import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
-import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.navigation.Screen
-import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.player.service.PlaybackService
 import dev.gyro.feature.home.HomeScreen
-import dev.gyro.feature.home.HomeViewModel
 import dev.gyro.feature.player.PlayerScreen
 import dev.gyro.feature.player.PlayerViewModel
 import dev.gyro.feature.settings.SettingsScreen
-import dev.gyro.feature.settings.SettingsViewModel
 import dev.gyro.feature.settings.folders.FolderManagementScreen
-import dev.gyro.feature.settings.folders.FolderManagementViewModel
 import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
+import dev.gyro.player.service.PlaybackService
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-// Material 3 navigation motion specs: fixed-duration tweens instead of springs — a spring
-// settles asymptotically, so its tail keeps the screen sub-pixel drifting after it looks done.
 private val navSpatialSpec = tween<IntOffset>(300, easing = FastOutSlowInEasing)
 private val navSpatialFloatSpec = tween<Float>(300, easing = FastOutSlowInEasing)
 private val navEffectsSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
 
+/**
+ * Single-Activity host adhering to Now in Android architecture guidelines.
+ * All feature logic, playback control, viewmodels, and playlist coordination are decentralized
+ * into their respective screens.
+ */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    @Inject lateinit var playerEngine: GyroPlayerEngine
-    @Inject lateinit var orchestrator: PlaybackSessionOrchestrator
-    @Inject lateinit var settingsRepository: SettingsRepository
-    @Inject lateinit var mpvConfigRepository: MpvConfigRepository
-    @Inject lateinit var mediaSessionManager: MediaSessionManager
-    private val homeViewModel: HomeViewModel by viewModels()
-    private val settingsViewModel: SettingsViewModel by viewModels()
-    private val playerViewModel: PlayerViewModel by viewModels()
+    private val viewModel: MainActivityViewModel by viewModels()
     private val incomingIntentUri = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,44 +77,17 @@ class MainActivity : ComponentActivity() {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
-        // Enable wide color gamut (Display P3) by default for vibrant color reproduction matching system gallery
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            @Suppress("DEPRECATION")
-            val isWide = windowManager.defaultDisplay?.isWideColorGamut == true
-            if (isWide) {
-                window.colorMode = ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-            }
-        }
-
-        // The engine takes configuration as values, not repositories. The first emission of the
-        // DataStore flow is the real persisted value; reading a StateFlow here would have handed
-        // mpv the defaults while the disk was still loading.
-        lifecycleScope.launch {
-            val settings = settingsRepository.settings.first()
-            playerEngine.configure(
-                userOptions = mpvConfigRepository.getParsedOptions(),
-                settings = settings,
-            )
-            handleIntent(intent)
-            settingsRepository.settings.collect { updatedSettings ->
-                playerEngine.updateSettings(settings = updatedSettings)
-            }
-        }
+        handleIntent(intent)
 
         setContent {
             val backStack = rememberNavBackStack(Screen.Home)
             val intentUri by incomingIntentUri.collectAsState()
-            val settings by settingsViewModel.settings.collectAsState()
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
-                    orchestrator.setSingleAndPlay(uri, uri.lastPathSegment ?: "Video")
                     val top = backStack.lastOrNull()
-                    if (top is Screen.Player) {
-                        if (top.uri == uri) return@LaunchedEffect
-                        backStack.removeAt(backStack.lastIndex)
-                    }
-                    playerViewModel.notifyScreenEntry()
+                    if (top is Screen.Player && top.uri == uri) return@LaunchedEffect
                     backStack.add(Screen.Player(uri))
                 }
             }
@@ -151,8 +106,6 @@ class MainActivity : ComponentActivity() {
                         if (backStack.size > 1) {
                             val popped = backStack.removeAt(backStack.lastIndex)
                             if (popped is Screen.Player) {
-                                playerEngine.pause()
-                                playerEngine.abandonAudioFocus()
                                 if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                                     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                 }
@@ -162,11 +115,6 @@ class MainActivity : ComponentActivity() {
                             finish()
                         }
                     },
-                    // Material 3 "Forward and Backward" navigation transitions (same family as
-                    // BgmPlus): the incoming screen pushes in from the right edge with the outgoing
-                    // one retreating to a quarter-width parallax, and popping plays the exact
-                    // reverse. No scene-type branching: Nav3 hands these lambdas an internal
-                    // scene wrapper, so every key/type comparison against Screen never matched.
                     transitionSpec = {
                         slideInHorizontally(
                             initialOffsetX = { fullWidth -> fullWidth },
@@ -221,10 +169,9 @@ class MainActivity : ComponentActivity() {
                     entryProvider = entryProvider {
                         entry<Screen.Home> {
                             HomeScreen(
-                                viewModel = homeViewModel,
+                                viewModel = hiltViewModel(),
                                 onPlayVideo = { item, currentList ->
-                                    orchestrator.setPlaylistAndPlay(currentList, item)
-                                    playerViewModel.notifyScreenEntry()
+                                    viewModel.onPlayVideo(item, currentList)
                                     val itemAndroidUri = item.uriString.toUri()
                                     backStack.add(Screen.Player(itemAndroidUri))
                                 },
@@ -235,15 +182,12 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         entry<Screen.Player> { playerScreen ->
+                            val playerViewModel: PlayerViewModel = hiltViewModel()
+                            playerViewModel.initialize(playerScreen.uri)
                             PlayerScreen(
-                                engine = playerEngine,
-                                currentUri = playerScreen.uri,
-                                settings = settings,
                                 viewModel = playerViewModel,
+                                currentUri = playerScreen.uri,
                                 onBack = {
-                                    playerViewModel.saveCurrentProgress()
-                                    playerEngine.pause()
-                                    playerEngine.abandonAudioFocus()
                                     if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                     }
@@ -258,7 +202,7 @@ class MainActivity : ComponentActivity() {
                         }
                         entry<Screen.Settings> {
                             SettingsScreen(
-                                viewModel = settingsViewModel,
+                                viewModel = hiltViewModel(),
                                 onBack = {
                                     backStack.removeAt(backStack.lastIndex)
                                 },
@@ -279,7 +223,6 @@ class MainActivity : ComponentActivity() {
                                 viewModel = hiltViewModel(),
                                 onBack = {
                                     backStack.removeAt(backStack.lastIndex)
-                                    homeViewModel.refreshVideos()
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -287,11 +230,6 @@ class MainActivity : ComponentActivity() {
                         entry<Screen.MpvConfigEditor> {
                             MpvConfigEditorScreen(
                                 onBack = {
-                                    lifecycleScope.launch {
-                                        playerEngine.updateSettings(
-                                            userOptions = mpvConfigRepository.getParsedOptions()
-                                        )
-                                    }
                                     backStack.removeAt(backStack.lastIndex)
                                 },
                                 modifier = Modifier.fillMaxSize()
@@ -341,89 +279,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Returning to the foreground: dismiss the background audio notification service
-        // so it does not stay pinned in the status bar while the user is actively viewing the video.
         PlaybackService.dismiss(this)
-    }
-
-    /**
-     * Set when the system moves the activity into PiP and consulted by [onStop]: after a PiP
-     * stop there is no [onResume] in between, so the flag surviving to [onStop] means the user
-     * dismissed the PiP window. A fullscreen return always passes through [onResume], which
-     * clears it.
-     */
-    private var wasInPipMode = false
-
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (isInPictureInPictureMode) {
-            wasInPipMode = true
-        } else if (isFinishing) {
-            // Dismissed PiP window via close button ('X')
-            if (::playerEngine.isInitialized) {
-                playerViewModel.saveCurrentProgress()
-                playerEngine.pause()
-                playerEngine.detachSurface()
-            }
-            PlaybackService.stop(this)
-            wasInPipMode = false
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        wasInPipMode = false
     }
 
     override fun onStop() {
         super.onStop()
-        if (!::playerEngine.isInitialized) return
-
-        // When the PiP window is dismissed or dragged away by user, onStop is called.
-        // In Android, onStop is NEVER called while the PiP window is visible on screen.
-        // Therefore, if wasInPipMode is true (or isInPictureInPictureMode is reported during teardown),
-        // the user has explicitly closed the PiP window -> pause immediately!
-        if (wasInPipMode || isInPictureInPictureMode) {
-            wasInPipMode = false
-            playerViewModel.saveCurrentProgress()
-            playerEngine.pause()
-            playerEngine.detachSurface()
+        val shouldStartBgAudio = viewModel.handleAppStop(isInPictureInPictureMode)
+        if (shouldStartBgAudio) {
+            runCatching {
+                PlaybackService.start(this)
+            }.onFailure { e ->
+                Log.w("MainActivity", "Failed to start PlaybackService from background", e)
+            }
+        } else {
             PlaybackService.stop(this)
-            return
         }
-
-        // Normal backgrounding (leaving app to home/recents without PiP, or screen turned off)
-        if (playerEngine.isPlaying.value) {
-            playerEngine.detachSurface()
-            val bgAudioEnabled = settingsViewModel.settings.value.backgroundAudio
-            if (bgAudioEnabled) {
-                runCatching {
-                    PlaybackService.start(this)
-                }.onFailure { e ->
-                    Log.w("MainActivity", "Failed to start PlaybackService from background", e)
-                }
-            } else {
-                playerViewModel.saveCurrentProgress()
-                playerEngine.pause()
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        if (isChangingConfigurations) return
-        if (!PlaybackService.isRunning) {
-            orchestrator.saveCurrentProgress()
-            if (::playerEngine.isInitialized) {
-                playerEngine.release()
-            }
-        }
-    }
-
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (::mediaSessionManager.isInitialized && mediaSessionManager.handleKeyEvent(event)) {
-            return true
-        }
-        return super.dispatchKeyEvent(event)
     }
 }

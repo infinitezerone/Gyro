@@ -29,6 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.res.stringResource
@@ -78,6 +80,7 @@ fun PlayerBottomBar(
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onToggleOrientation: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
+    ambientColor: Color = Color.Transparent,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -86,6 +89,15 @@ fun PlayerBottomBar(
             .displayCutoutPadding()
             .navigationBarsPadding()
             .padding(bottom = 6.dp)
+            .then(
+                if (ambientColor != Color.Transparent) {
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, ambientColor.copy(alpha = 0.28f))
+                        )
+                    )
+                } else Modifier
+            )
     ) {
         val totalMs = durationMs()
         val rawPos = if (scrubState.isActive) {

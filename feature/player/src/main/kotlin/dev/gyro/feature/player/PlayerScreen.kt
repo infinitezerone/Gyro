@@ -16,6 +16,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -139,11 +143,11 @@ import java.util.Locale
 
 @Composable
 fun PlayerScreen(
-    engine: GyroPlayerEngine,
+    viewModel: PlayerViewModel,
+    engine: GyroPlayerEngine = viewModel.engine,
     currentUri: Uri? = null,
     settings: UserSettings = UserSettings(),
     playlistManager: PlaylistManager? = null,
-    viewModel: PlayerViewModel,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -156,8 +160,37 @@ fun PlayerScreen(
     val playerState = rememberPlayerState(activity = activity, scope = scope)
 
     // Handle system back gesture / back button to return to Home Screen
-    BackHandler {
-        onBack()
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    PredictiveBackHandler { progress ->
+        try {
+            progress.collect { backEvent ->
+                backProgress = backEvent.progress
+            }
+            viewModel.onUserExit()
+            onBack()
+        } catch (_: Throwable) {
+            backProgress = 0f
+        }
+    }
+
+    // Dynamic color space: Enable Display P3 Wide Color Gamut while playing video, restore sRGB on exit
+    DisposableEffect(componentActivity) {
+        val window = componentActivity?.window ?: return@DisposableEffect onDispose {}
+        val previousColorMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            window.colorMode
+        } else 0
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            @Suppress("DEPRECATION")
+            val isWide = componentActivity.windowManager.defaultDisplay?.isWideColorGamut == true
+            if (isWide) {
+                window.colorMode = ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+            }
+        }
+        onDispose {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                window.colorMode = previousColorMode
+            }
+        }
     }
 
     // 1. Engine & Playback States
@@ -368,16 +401,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(currentUri) {
-        if (currentUri != null && viewModel.activeUri.value != currentUri) {
-            val item = playlist.firstOrNull { it.uriString == currentUri.toString() }
-            viewModel.openUri(
-                currentUri,
-                initialWidth = item?.width ?: 0,
-                initialHeight = item?.height ?: 0
-            )
-        }
-    }
+    val currentPosterBitmap = activeUri?.let { thumbnailCache[it.toString()] }
+    val dynamicPalette = dev.gyro.feature.player.util.rememberPlayerPalette(currentPosterBitmap)
 
     fun openUri(uri: Uri) {
         val item = playlist.firstOrNull { it.uriString == uri.toString() }
@@ -435,10 +460,13 @@ fun PlayerScreen(
     val pipState = rememberPlayerPipState(
         activity = componentActivity,
         isPlaying = isPlaying,
-        autoPipEnabled = settings.autoPip,
+        autoPipEnabled = liveSettings.autoPip,
         targetAspectRatio = targetAspectRatio,
         videoSourceRect = videoSourceRect,
-        onControlsVisibilityChange = { playerState.showControls = it }
+        onControlsVisibilityChange = { playerState.showControls = it },
+        onPipDismissed = {
+            viewModel.onUserExit()
+        }
     )
     val isPipLayout = pipState.isPipLayout
     val hideChrome = pipState.shouldHideChrome
@@ -588,9 +616,9 @@ fun PlayerScreen(
         }
     }
 
-    val dynamicConfig = settings.gestureConfig
-    val gestureConfig = remember(dynamicConfig, settings.gesturesEnabled, playerState.isLocked) {
-        if (!settings.gesturesEnabled) {
+    val dynamicConfig = liveSettings.gestureConfig
+    val gestureConfig = remember(dynamicConfig, liveSettings.gesturesEnabled, playerState.isLocked) {
+        if (!liveSettings.gesturesEnabled) {
             dynamicConfig.copy(
                 isLocked = playerState.isLocked,
                 isVolumeEnabled = false,
@@ -770,6 +798,26 @@ fun PlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
+            .graphicsLayer {
+                if (backProgress > 0f) {
+                    val scale = 1f - (backProgress * 0.1f)
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = 1f - (backProgress * 0.2f)
+                }
+            }
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                    when (keyEvent.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_SPACE,
+                        android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                            engine.togglePlayPause()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
             .clipToBounds()
             .onSizeChanged {
                 containerSize = it
@@ -1148,11 +1196,11 @@ fun PlayerScreen(
                 },
                 onRewind10 = {
                     playerState.resetControlsTimeout()
-                    engine.seekRelative(-settings.seekStepSeconds * 1000L)
+                    engine.seekRelative(-liveSettings.seekStepSeconds * 1000L)
                 },
                 onForward10 = {
                     playerState.resetControlsTimeout()
-                    engine.seekRelative(settings.seekStepSeconds * 1000L)
+                    engine.seekRelative(liveSettings.seekStepSeconds * 1000L)
                 },
                 subtitleEnabled = subtitleEnabled,
                 onToggleSubtitle = {
@@ -1191,9 +1239,13 @@ fun PlayerScreen(
                         }
                     }
                 },
-                onBack = onBack,
+                onBack = {
+                    viewModel.onUserExit()
+                    onBack()
+                },
                 chapters = chapters,
                 videoBottomDp = videoBottomDp,
+                ambientColor = dynamicPalette.darkMutedColor,
                 hdrFormat = hdrFormat,
                 hwdec = hwdecCurrent,
                 onCycleHwdec = {

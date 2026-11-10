@@ -14,5 +14,7 @@ android {
 
 dependencies {
     // The player is the only feature that talks to the native engine directly.
+    implementation(project(":core:engine-api"))
     implementation(project(":core:engine"))
+    implementation(libs.androidx.palette)
 }

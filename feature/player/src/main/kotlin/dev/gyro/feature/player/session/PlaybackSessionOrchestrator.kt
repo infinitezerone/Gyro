@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import javax.inject.Singleton
 
 private const val CHECKPOINT_INTERVAL_MS = 10_000L
 private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
@@ -35,7 +34,6 @@ private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
  * - Event-driven & periodic progress persistence via [PlaybackHistoryRepository]
  * - Auto-resume detection and duration resolution
  */
-@Singleton
 class PlaybackSessionOrchestrator(
     val engine: GyroPlayerEngine,
     val settingsRepository: SettingsRepository,

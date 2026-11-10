@@ -126,7 +126,11 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("NativeLibs") }
     }
 
 dependencies {
+    api(project(":core:engine-api"))
     api(project(":core:model"))
+    api(libs.androidx.media3.session)
+    api(libs.androidx.media3.common)
+    implementation(libs.androidx.mediarouter)
     implementation(libs.libmpv)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

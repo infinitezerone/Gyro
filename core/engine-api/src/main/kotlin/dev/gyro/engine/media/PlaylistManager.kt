@@ -71,5 +71,12 @@ class PlaylistManager {
         _currentIndex.value = 0
     }
 
-    fun setSingle(uri: Any, displayName: String) = setSingle(uri.toString(), displayName)
+    fun setSingle(uri: android.net.Uri, displayName: String) {
+        setSingle(uri.toString(), displayName)
+    }
+
+    fun clear() {
+        _items.value = emptyList()
+        _currentIndex.value = -1
+    }
 }

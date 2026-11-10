@@ -11,3 +11,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 }
+
+dependencies {
+    implementation(libs.coil.compose)
+    implementation(libs.coil.video)
+}

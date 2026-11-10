@@ -8,11 +8,18 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.gyro.core.data.repository.MpvConfigRepository
+import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.session.MediaSessionManager
-import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
+import dev.gyro.player.MainActivity
 import dev.gyro.player.service.PlaybackService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Singleton
 
 @Module
@@ -21,8 +28,32 @@ object PlayerModule {
 
     @Provides
     @Singleton
-    fun provideGyroPlayerEngine(@ApplicationContext context: Context): GyroPlayerEngine {
-        return GyroPlayerEngine(context)
+    fun provideGyroPlayerEngine(
+        @ApplicationContext context: Context,
+        settingsRepository: SettingsRepository,
+        mpvConfigRepository: MpvConfigRepository
+    ): GyroPlayerEngine {
+        val engine = GyroPlayerEngine(context)
+        CoroutineScope(Dispatchers.Default + SupervisorJob()).launch {
+            val initialSettings = settingsRepository.settings.first()
+            engine.configure(
+                userOptions = mpvConfigRepository.getParsedOptions(),
+                settings = initialSettings
+            )
+            settingsRepository.settings.collect { updatedSettings ->
+                engine.updateSettings(
+                    settings = updatedSettings,
+                    userOptions = mpvConfigRepository.getParsedOptions()
+                )
+            }
+        }
+        return engine
+    }
+
+    @Provides
+    @Singleton
+    fun providePlayerEngine(engine: GyroPlayerEngine): dev.gyro.engine.api.PlayerEngine {
+        return engine
     }
 
     @Provides
@@ -36,8 +67,7 @@ object PlayerModule {
     fun provideMediaSessionManager(
         @ApplicationContext context: Context,
         engine: GyroPlayerEngine,
-        playlistManager: PlaylistManager,
-        orchestrator: PlaybackSessionOrchestrator
+        playlistManager: PlaylistManager
     ): MediaSessionManager {
         val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(context, PlaybackService::class.java)
         val buttonPendingIntent = PendingIntent.getService(
@@ -50,14 +80,16 @@ object PlayerModule {
             context = context,
             engine = engine,
             playlistManager = playlistManager,
-            mediaButtonReceiver = buttonPendingIntent
+            mediaButtonReceiver = buttonPendingIntent,
+            sessionActivityPendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         ).apply {
-            onSkipToNext = {
-                orchestrator.playNext()
-            }
-            onSkipToPrevious = {
-                orchestrator.playPrevious()
-            }
             onStopRequested = {
                 PlaybackService.stop(context)
             }

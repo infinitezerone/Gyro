@@ -3,17 +3,15 @@ package dev.gyro.engine.session
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.MediaMetadata
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
+import android.graphics.Bitmap
 import android.net.Uri
-import android.os.SystemClock
+import android.os.Looper
 import android.view.KeyEvent
-import androidx.core.content.IntentCompat
-import dev.gyro.core.model.VideoMediaItem
+import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionToken
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import dev.gyro.engine.media.PlaylistManager
+import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,32 +20,33 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Manages the Android platform [MediaSession], keeping [PlaybackState] and [MediaMetadata]
- * synchronized with [GyroPlayerEngine] and [PlaylistManager], and routing transport/headset
- * controls back to the engine.
+ * Manages the Media3 [MediaSession], keeping state and metadata synchronized with
+ * [GyroPlayerEngine] via [MpvPlayerAdapter], and routing transport controls back to the engine.
  */
 class MediaSessionManager(
     private val context: Context,
     val engine: GyroPlayerEngine,
     val playlistManager: PlaylistManager = engine.playlist,
     private val mediaButtonReceiver: PendingIntent? = null,
+    private val sessionActivityPendingIntent: PendingIntent? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
-    private val uriParser: (String) -> Uri = { Uri.parse(it) }
+    private val uriParser: (String) -> Uri = { Uri.parse(it) },
+    looper: Looper? = null
 ) : MediaSessionControls {
     companion object {
         private const val TAG = "MediaSessionManager"
         const val MEDIA_SESSION_TAG = "GyroMediaSession"
 
         const val SUPPORTED_ACTIONS: Long =
-            PlaybackState.ACTION_PLAY or
-            PlaybackState.ACTION_PAUSE or
-            PlaybackState.ACTION_PLAY_PAUSE or
-            PlaybackState.ACTION_STOP or
-            PlaybackState.ACTION_SEEK_TO or
-            PlaybackState.ACTION_FAST_FORWARD or
-            PlaybackState.ACTION_REWIND or
-            PlaybackState.ACTION_SKIP_TO_NEXT or
-            PlaybackState.ACTION_SKIP_TO_PREVIOUS
+            android.media.session.PlaybackState.ACTION_PLAY or
+            android.media.session.PlaybackState.ACTION_PAUSE or
+            android.media.session.PlaybackState.ACTION_PLAY_PAUSE or
+            android.media.session.PlaybackState.ACTION_STOP or
+            android.media.session.PlaybackState.ACTION_SEEK_TO or
+            android.media.session.PlaybackState.ACTION_FAST_FORWARD or
+            android.media.session.PlaybackState.ACTION_REWIND or
+            android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT or
+            android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS
     }
 
     data class PlaybackStateSnapshot(
@@ -61,14 +60,38 @@ class MediaSessionManager(
         val title: String,
         val artist: String,
         val durationMs: Long,
-        val art: android.graphics.Bitmap? = null
+        val art: Bitmap? = null
     )
 
-    private var mediaSession: MediaSession? = null
+    val playerAdapter: MpvPlayerAdapter? = try {
+        val resolvedLooper = looper ?: Looper.myLooper() ?: try {
+            Looper.getMainLooper()
+        } catch (_: Throwable) {
+            null
+        }
+        if (resolvedLooper != null) {
+            MpvPlayerAdapter(
+                engine = engine,
+                playlistManager = playlistManager,
+                coroutineScope = coroutineScope,
+                onSkipToNext = { skipToNext() },
+                onSkipToPrevious = { skipToPrevious() },
+                looper = resolvedLooper
+            )
+        } else {
+            null
+        }
+    } catch (t: Throwable) {
+        EngineLog.w(TAG, "MpvPlayerAdapter skipped or failed in current environment: ${t.message}")
+        null
+    }
 
-    val sessionToken: MediaSession.Token?
+    var mediaSession: MediaSession? = null
+        private set
+
+    val sessionToken: SessionToken?
         get() = try {
-            mediaSession?.sessionToken
+            mediaSession?.token
         } catch (_: Throwable) {
             null
         }
@@ -79,64 +102,28 @@ class MediaSessionManager(
     var onSkipToNext: (() -> Boolean)? = null
     var onSkipToPrevious: (() -> Boolean)? = null
 
-    private val sessionCallback = object : MediaSession.Callback() {
-        override fun onPlay() {
-            this@MediaSessionManager.play()
-        }
-
-        override fun onPause() {
-            this@MediaSessionManager.pause()
-        }
-
-        override fun onStop() {
-            this@MediaSessionManager.stop()
-        }
-
-        override fun onSeekTo(pos: Long) {
-            this@MediaSessionManager.seekTo(pos)
-        }
-
-        override fun onSkipToNext() {
-            this@MediaSessionManager.skipToNext()
-        }
-
-        override fun onSkipToPrevious() {
-            this@MediaSessionManager.skipToPrevious()
-        }
-
-        override fun onFastForward() {
-            engine.seekRelative(10_000L)
-        }
-
-        override fun onRewind() {
-            engine.seekRelative(-10_000L)
-        }
-
-        override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
-            val keyEvent = IntentCompat.getParcelableExtra(mediaButtonIntent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-            if (handleKeyEvent(keyEvent)) {
-                return true
-            }
-            return try {
-                super.onMediaButtonEvent(mediaButtonIntent)
-            } catch (_: Throwable) {
-                false
-            }
-        }
-    }
+    private var currentArt: Bitmap? = null
+    var mediaRouter: androidx.mediarouter.media.MediaRouter? = null
+        private set
 
     init {
         try {
-            val session = MediaSession(context, MEDIA_SESSION_TAG)
-            session.setCallback(sessionCallback)
-            mediaButtonReceiver?.let {
-                @Suppress("DEPRECATION")
-                session.setMediaButtonReceiver(it)
-            }
-            session.isActive = true
-            mediaSession = session
+            mediaRouter = androidx.mediarouter.media.MediaRouter.getInstance(context)
         } catch (t: Throwable) {
-            EngineLog.w(TAG, "MediaSession initialization skipped or failed: ${t.message}")
+            EngineLog.w(TAG, "MediaRouter skipped or failed: ${t.message}")
+        }
+        val adapter = playerAdapter
+        if (adapter != null) {
+            try {
+                val builder = MediaSession.Builder(context, adapter)
+                    .setId(MEDIA_SESSION_TAG)
+                if (sessionActivityPendingIntent != null) {
+                    builder.setSessionActivity(sessionActivityPendingIntent)
+                }
+                mediaSession = builder.build()
+            } catch (t: Throwable) {
+                EngineLog.w(TAG, "MediaSession initialization skipped or failed: ${t.message}")
+            }
         }
 
         startObservingEngine()
@@ -144,79 +131,74 @@ class MediaSessionManager(
 
     private fun startObservingEngine() {
         coroutineScope.launch {
-            launch {
-                var lastIsPlaying: Boolean? = null
-                var lastState: EnginePlaybackState? = null
-                var lastSpeed: Float? = null
-                var lastTitle: String? = null
-                var lastDurationMs: Long? = null
+            var lastIsPlaying: Boolean? = null
+            var lastTitle: String? = null
+            var lastDurationMs: Long? = null
 
-                engine.state.collect { snapshot ->
-                    val playingChanged = snapshot.isPlaying != lastIsPlaying
-                    val stateChanged =
-                        playingChanged || snapshot.playbackState != lastState || snapshot.speed != lastSpeed
-                    val metadataChanged =
-                        snapshot.mediaTitle != lastTitle || snapshot.durationMs != lastDurationMs
+            engine.state.collect { snapshot ->
+                val playingChanged = snapshot.isPlaying != lastIsPlaying
+                val metadataChanged =
+                    snapshot.mediaTitle != lastTitle || snapshot.durationMs != lastDurationMs
 
-                    lastIsPlaying = snapshot.isPlaying
-                    lastState = snapshot.playbackState
-                    lastSpeed = snapshot.speed
-                    lastTitle = snapshot.mediaTitle
-                    lastDurationMs = snapshot.durationMs
+                lastIsPlaying = snapshot.isPlaying
+                lastTitle = snapshot.mediaTitle
+                lastDurationMs = snapshot.durationMs
 
-                    if (stateChanged) {
-                        updatePlaybackState()
-                    }
-                    if (playingChanged) {
-                        onPlaybackStateChanged?.invoke(snapshot.isPlaying)
-                    }
-                    if (metadataChanged) {
-                        updateMetadata()
-                        onMetadataChanged?.invoke()
-                    }
+                if (playingChanged) {
+                    onPlaybackStateChanged?.invoke(snapshot.isPlaying)
                 }
-            }
-            var lastReportedPos = 0L
-            launch {
-                engine.timePosMs.collect { pos ->
-                    // Android's PlaybackState automatically extrapolates playback position based on
-                    // updateTime and speed when STATE_PLAYING. Updating on every 50ms progress tick
-                    // floods system_server Binder IPC. Only update on large position discontinuities (seeks)
-                    // or periodic low-frequency sync.
-                    if (kotlin.math.abs(pos - lastReportedPos) >= 2000L) {
-                        lastReportedPos = pos
-                        updatePlaybackState()
-                    }
+                if (metadataChanged) {
+                    onMetadataChanged?.invoke()
                 }
             }
         }
     }
 
     override fun play() {
-        engine.play()
+        if (playerAdapter != null) {
+            playerAdapter.play()
+        } else {
+            engine.play()
+        }
     }
 
     override fun pause() {
-        engine.pause()
+        if (playerAdapter != null) {
+            playerAdapter.pause()
+        } else {
+            engine.pause()
+        }
     }
 
     override fun togglePlayPause() {
-        engine.togglePlayPause()
+        if (playerAdapter != null) {
+            if (playerAdapter.isPlaying) {
+                pause()
+            } else {
+                play()
+            }
+        } else {
+            engine.togglePlayPause()
+        }
     }
 
     fun stop() {
-        engine.pause()
+        if (playerAdapter != null) {
+            playerAdapter.stop()
+        } else {
+            engine.pause()
+        }
         onStopRequested?.invoke()
     }
 
     fun seekTo(positionMs: Long) {
-        engine.seekTo(positionMs)
+        if (playerAdapter != null) {
+            playerAdapter.seekTo(positionMs)
+        } else {
+            engine.seekTo(positionMs)
+        }
     }
 
-    // The raw playlist fallback below only fires when the host has not wired onSkipToNext /
-    // onSkipToPrevious (e.g. headless tests). In production PlaybackService routes skips through
-    // PlaybackSessionOrchestrator, which adds auto-resume position and companion subtitles that
-    // this fallback deliberately does not replicate.
     override fun skipToNext(): Boolean {
         val handled = onSkipToNext?.invoke()
         if (handled == true) return true
@@ -284,10 +266,10 @@ class MediaSessionManager(
         val engineState = snapshot.playbackState
 
         val state = when {
-            engineState == EnginePlaybackState.BUFFERING -> PlaybackState.STATE_BUFFERING
-            isPlaying -> PlaybackState.STATE_PLAYING
-            engineState == EnginePlaybackState.ENDED -> PlaybackState.STATE_STOPPED
-            else -> PlaybackState.STATE_PAUSED
+            engineState == EnginePlaybackState.BUFFERING -> android.media.session.PlaybackState.STATE_BUFFERING
+            isPlaying -> android.media.session.PlaybackState.STATE_PLAYING
+            engineState == EnginePlaybackState.ENDED -> android.media.session.PlaybackState.STATE_STOPPED
+            else -> android.media.session.PlaybackState.STATE_PAUSED
         }
 
         return PlaybackStateSnapshot(
@@ -297,33 +279,6 @@ class MediaSessionManager(
             actions = SUPPORTED_ACTIONS
         )
     }
-
-    fun buildPlaybackState(): PlaybackState? {
-        val snapshot = getPlaybackStateSnapshot()
-        return try {
-            PlaybackState.Builder()
-                .setActions(snapshot.actions)
-                .setState(snapshot.state, snapshot.positionMs, snapshot.speed, SystemClock.elapsedRealtime())
-                .build()
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun updatePlaybackState(): PlaybackState? {
-        return try {
-            val state = buildPlaybackState()
-            if (state != null) {
-                mediaSession?.setPlaybackState(state)
-            }
-            state
-        } catch (t: Throwable) {
-            EngineLog.w(TAG, "updatePlaybackState error: ${t.message}")
-            null
-        }
-    }
-
-    private var currentArt: android.graphics.Bitmap? = null
 
     fun getMediaMetadataSnapshot(): MediaMetadataSnapshot {
         val snapshot = engine.state.value
@@ -335,43 +290,18 @@ class MediaSessionManager(
         )
     }
 
-    fun buildMediaMetadata(): MediaMetadata? {
-        val snapshot = getMediaMetadataSnapshot()
-        return try {
-            val builder = MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, snapshot.title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, snapshot.artist)
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, snapshot.durationMs)
-            snapshot.art?.let {
-                builder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it)
-                builder.putBitmap(MediaMetadata.METADATA_KEY_ART, it)
-            }
-            builder.build()
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun updateMetadata(art: android.graphics.Bitmap? = currentArt): MediaMetadata? {
+    fun updateMetadata(art: Bitmap? = currentArt) {
         currentArt = art
-        return try {
-            val metadata = buildMediaMetadata()
-            if (metadata != null) {
-                mediaSession?.setMetadata(metadata)
-            }
-            metadata
-        } catch (t: Throwable) {
-            EngineLog.w(TAG, "updateMetadata error: ${t.message}")
-            null
-        }
+        playerAdapter?.setArtworkBitmap(art)
     }
 
     fun release() {
         coroutineScope.cancel()
         try {
-            mediaSession?.isActive = false
             mediaSession?.release()
             mediaSession = null
+            playerAdapter?.release()
+            mediaRouter = null
         } catch (t: Throwable) {
             EngineLog.w(TAG, "release MediaSession error: ${t.message}")
         }

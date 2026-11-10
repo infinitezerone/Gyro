@@ -48,7 +48,7 @@ class GyroPlayerEngine(
     private val resolver: MediaResourceResolver = if (context != null) DefaultMediaResourceResolver(context) else MediaResourceResolver.Direct,
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     internal val store: PlaybackStore = PlaybackStore(),
-    val playlist: dev.gyro.engine.media.PlaylistManager = dev.gyro.engine.media.PlaylistManager(),
+    override val playlist: dev.gyro.engine.media.PlaylistManager = dev.gyro.engine.media.PlaylistManager(),
     val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
     val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
     val audio: AudioEffectsController = AudioEffectsController(bridge, store),
@@ -60,7 +60,7 @@ class GyroPlayerEngine(
         PlaybackTimelineController(bridge, geometry, trackManager, store = store),
     audioFocus: AudioFocusController? = null,
     private val displayRefreshRateProvider: () -> Float? = { defaultDisplayRefreshRate(context) }
-) {
+) : dev.gyro.engine.api.PlayerEngine {
 
     companion object {
         private fun defaultDisplayRefreshRate(context: Context?): Float? = runCatching {
@@ -131,15 +131,15 @@ class GyroPlayerEngine(
     // Reactive State Projections (Single source of truth: store.state)
     // =========================================================================
 
-    val state: StateFlow<PlaybackSnapshot> get() = store.state
-    val playbackState: StateFlow<PlaybackState> = store.select { it.playbackState }
-    val isPlaying: StateFlow<Boolean> = store.select { it.isPlaying }
-    val currentUri: StateFlow<Uri?> = store.select { it.currentUri }
+    override val state: StateFlow<PlaybackSnapshot> get() = store.state
+    override val playbackState: StateFlow<PlaybackState> = store.select { it.playbackState }
+    override val isPlaying: StateFlow<Boolean> = store.select { it.isPlaying }
+    override val currentUri: StateFlow<Uri?> = store.select { it.currentUri }
     val mediaTitle: StateFlow<String> = store.select { it.mediaTitle }
     val speed: StateFlow<Float> = store.select { it.speed }
-    val timePosMs: StateFlow<Long> get() = timeline.timePosMs
+    override val timePosMs: StateFlow<Long> get() = timeline.timePosMs
     val durationMs: StateFlow<Long> get() = timeline.durationMs
-    val bufferedPosMs: StateFlow<Long> get() = timeline.bufferedPosMs
+    override val bufferedPosMs: StateFlow<Long> get() = timeline.bufferedPosMs
     val isFileLoaded: Boolean get() = timeline.isFileLoaded
     val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
 
@@ -236,21 +236,24 @@ class GyroPlayerEngine(
     // Playback Controls
     // =========================================================================
 
-    fun play() = playback.play()
-    fun pause() = playback.pause()
-    fun togglePlayPause() = playback.togglePlayPause()
-    fun setSpeed(speed: Float) = playback.setSpeed(speed)
+    override fun play() = playback.play()
+    override fun pause() = playback.pause()
+    override fun togglePlayPause() = playback.togglePlayPause()
+    override fun setSpeed(speed: Float) = playback.setSpeed(speed)
     fun toggleHwdec() = playback.toggleHwdec()
     fun setHwdec(target: String) = playback.setHwdec(target)
     fun cycleHwdec(): String = playback.cycleHwdec()
-    fun abandonAudioFocus() = playback.abandonAudioFocus()
+    override fun abandonAudioFocus() = playback.abandonAudioFocus()
 
-    fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
-    fun seekRelative(offsetMs: Long) = timeline.seekRelative(offsetMs)
+    override fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
+    override fun seekRelative(offsetMs: Long) = timeline.seekRelative(offsetMs)
     fun seekToChapter(index: Int) = timeline.seekToChapter(index)
 
     fun cycleAbLoop() = abLoop.cycleLoopPoint()
     fun clearAbLoop() = abLoop.clearLoop()
+
+    override fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
+    override fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())
 
     fun setHdrOutputMode(mode: String) = geometry.setHdrOutputMode(mode)
     fun setToneMappingAlgorithm(algorithm: String) = geometry.setToneMappingAlgorithm(algorithm)
@@ -274,7 +277,7 @@ class GyroPlayerEngine(
     // Media Loading & Surface Lifecycle
     // =========================================================================
 
-    fun load(item: MediaItem) = loadCoordinator.load(item)
+    override fun load(item: MediaItem) = loadCoordinator.load(item)
 
     fun load(
         target: String,
@@ -294,13 +297,13 @@ class GyroPlayerEngine(
         )
     )
 
-    fun load(
+    override fun load(
         uri: Uri,
-        startPositionMs: Long = 0L,
-        displayTitle: String? = null,
-        initialDurationMs: Long = 0L,
-        initialWidth: Int = 0,
-        initialHeight: Int = 0
+        startPositionMs: Long,
+        displayTitle: String?,
+        initialDurationMs: Long,
+        initialWidth: Int,
+        initialHeight: Int
     ) = load(
         MediaItem(
             uri = uri,
@@ -316,13 +319,16 @@ class GyroPlayerEngine(
         get() = loadCoordinator.isHeadlessMode
         set(value) { loadCoordinator.isHeadlessMode = value }
 
-    fun attachSurface(surface: Surface) {
+    override fun attachSurface(surface: Surface) {
         ensureNativeInitialized()
         loadCoordinator.attachSurface(surface)
     }
     fun attachSurface(surfaceToken: Any = Any()) {
         ensureNativeInitialized()
         loadCoordinator.attachSurface(surfaceToken)
+    }
+    override fun detachSurface() {
+        loadCoordinator.detachSurface(null)
     }
     fun detachSurface(surface: Any? = null) = loadCoordinator.detachSurface(surface)
     fun redraw() = loadCoordinator.redraw()
@@ -361,7 +367,7 @@ class GyroPlayerEngine(
         fallbackSize = fallbackSize
     )
 
-    fun release() {
+    override fun release() {
         engineJob.cancel()
         loadCoordinator.release()
         store.batch {
@@ -378,5 +384,13 @@ class GyroPlayerEngine(
         }
         isInitialized.set(false)
         bridge.destroy()
+    }
+
+    override fun <T : dev.gyro.engine.api.EngineExtension> getExtension(extensionClass: Class<T>): T? {
+        if (extensionClass.isInstance(shaders)) {
+            @Suppress("UNCHECKED_CAST")
+            return shaders as T
+        }
+        return null
     }
 }

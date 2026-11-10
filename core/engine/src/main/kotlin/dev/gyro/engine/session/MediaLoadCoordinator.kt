@@ -104,7 +104,8 @@ class MediaLoadCoordinator(
         currentLoadJob?.cancel()
         discardPending()
 
-        if (item.uri != null && (item.uri.scheme == "content" || target.startsWith("content://"))) {
+        val uri = item.uri
+        if (uri != null && (uri.scheme == "content" || target.startsWith("content://"))) {
             val jobEpoch = epoch
             currentLoadJob = coroutineScope().launch {
                 var owned: ResolvedMediaSource? = null

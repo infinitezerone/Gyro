@@ -27,8 +27,8 @@ import javax.inject.Inject
 /**
  * UI state container and user event adapter for the Player screen.
  *
- * Delegates playback session lifecycle, background continuation, playlist traversal,
- * progress persistence, and auto-resume orchestration to [PlaybackSessionOrchestrator].
+ * Coordinates playback session lifecycle, background continuation, playlist traversal,
+ * progress persistence, and auto-resume orchestration.
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -87,6 +87,39 @@ class PlayerViewModel @Inject constructor(
         _screenEntryEpoch.value += 1
     }
 
+    private var initializedUri: Uri? = null
+
+    /**
+     * Initializes playback for the requested [uri].
+     * Idempotent: repeated calls with the same URI do not reload unless forced.
+     */
+    fun initialize(uri: Uri?) {
+        if (uri == null || initializedUri == uri) return
+        initializedUri = uri
+        val isAlreadyLoadedAndPlaying = engine.currentUri.value == uri &&
+            (engine.isPlaying.value || engine.playbackState.value == dev.gyro.engine.model.PlaybackState.BUFFERING)
+        if (!isAlreadyLoadedAndPlaying) {
+            val item = playlistManager.items.value.firstOrNull { it.uriString == uri.toString() }
+            openUri(
+                uri = uri,
+                initialWidth = item?.width ?: 0,
+                initialHeight = item?.height ?: 0
+            )
+        }
+    }
+
+    /**
+     * Handles explicit user-driven exit from the player screen back to home/library.
+     * When returning to the home screen, playback is always stopped and audio focus released.
+     * (Background audio is reserved for when the application itself is sent to the background / screen locked).
+     */
+    fun onUserExit() {
+        initializedUri = null
+        engine.pause()
+        engine.abandonAudioFocus()
+        engine.detachSurface()
+    }
+
     fun openUri(
         uri: Uri,
         forceReload: Boolean = false,
@@ -101,6 +134,14 @@ class PlayerViewModel @Inject constructor(
         orchestrator.playMediaItem(item)
     }
 
+    fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
+        orchestrator.setPlaylistAndPlay(items, item)
+    }
+
+    fun setSingleAndPlay(uri: Uri, displayName: String = uri.lastPathSegment ?: "Video") {
+        orchestrator.setSingleAndPlay(uri, displayName)
+    }
+
     fun playNext(): Boolean = orchestrator.playNext()
 
     fun playPrevious(): Boolean = orchestrator.playPrevious()
@@ -111,8 +152,7 @@ class PlayerViewModel @Inject constructor(
 
     public override fun onCleared() {
         super.onCleared()
-        // Only transient load work is cancelled: the orchestrator's periodic checkpoint is a
-        // process-lifetime singleton job and must keep running for background playback.
+        // Cancel transient load work and persist progress
         saveCurrentProgress()
         orchestrator.cancelPendingLoad()
     }

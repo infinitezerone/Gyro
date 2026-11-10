@@ -335,7 +335,8 @@ fun rememberPlayerPipState(
     autoPipEnabled: Boolean,
     targetAspectRatio: Rational,
     videoSourceRect: Rect?,
-    onControlsVisibilityChange: (Boolean) -> Unit
+    onControlsVisibilityChange: (Boolean) -> Unit,
+    onPipDismissed: (() -> Unit)? = null
 ): PlayerPipState {
     val onControlsHide = remember(onControlsVisibilityChange) {
         { onControlsVisibilityChange(false) }
@@ -344,6 +345,30 @@ fun rememberPlayerPipState(
     val isPipWindow = rememberIsPipWindow(activity)
     val isTransitioning = rememberIsTransitioningToPip(activity, isInPipMode, onControlsHide)
     val isLeavingForeground = rememberUserLeavingHint(onControlsHide)
+
+    val latestOnPipDismissed by rememberUpdatedState(onPipDismissed)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(activity, lifecycleOwner) {
+        val act = activity ?: return@DisposableEffect onDispose {}
+        val modeListener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            if (!info.isInPictureInPictureMode && act.isFinishing) {
+                latestOnPipDismissed?.invoke()
+            }
+        }
+        val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                if (act.isInPictureInPictureMode || isInPipMode) {
+                    latestOnPipDismissed?.invoke()
+                }
+            }
+        }
+        act.addOnPictureInPictureModeChangedListener(modeListener)
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+        onDispose {
+            act.removeOnPictureInPictureModeChangedListener(modeListener)
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+        }
+    }
 
     val isPipLayout = isPipWindow || isInPipMode
     LaunchedEffect(isPipLayout) {

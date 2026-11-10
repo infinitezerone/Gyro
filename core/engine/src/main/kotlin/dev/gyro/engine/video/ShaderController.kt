@@ -18,13 +18,13 @@ class ShaderController(
     private val bridge: MpvNativeBridge,
     private val shaderManager: ShaderManager = ShaderManager(),
     private val store: PlaybackStore = PlaybackStore()
-) : EngineSubsystem {
+) : EngineSubsystem, dev.gyro.engine.api.extension.ShaderExtension {
     companion object {
         private const val TAG = "ShaderController"
     }
 
     private val _shaderState = store.property({ it.shaderState }) { s, v -> s.copy(shaderState = v) }
-    val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
+    override val shaderState: StateFlow<GlslShaderState> = _shaderState.asStateFlow()
 
     override fun reset() {
         clearShader()
@@ -41,7 +41,7 @@ class ShaderController(
         }
     }
 
-    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) {
+    override fun setShader(shader: GlslShader, customPath: String?, customName: String?) {
         when (shader) {
             GlslShader.OFF -> {
                 clearShader()
@@ -91,7 +91,7 @@ class ShaderController(
         }
     }
 
-    fun clearShader() {
+    override fun clearShader() {
         bridge.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
         _shaderState.value = GlslShaderState(
             activeShader = GlslShader.OFF,

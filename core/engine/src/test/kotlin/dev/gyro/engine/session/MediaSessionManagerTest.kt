@@ -5,6 +5,7 @@ import android.content.ContextWrapper
 import android.media.session.PlaybackState
 import android.net.TestUri
 import android.view.KeyEvent
+import dev.gyro.core.testing.util.MainDispatcherRule
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.GyroPlayerEngine
@@ -37,6 +38,9 @@ class MediaSessionManagerTest {
     private lateinit var playlistManager: PlaylistManager
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
     @Before
     fun setUp() {

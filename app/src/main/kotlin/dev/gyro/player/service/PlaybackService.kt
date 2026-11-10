@@ -1,32 +1,25 @@
 package dev.gyro.player.service
 
 import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import android.util.Size
 import android.view.KeyEvent
 import androidx.core.content.IntentCompat
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
-import dev.gyro.core.designsystem.R
+import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.session.MediaSessionControls
 import dev.gyro.engine.session.MediaSessionManager
-import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
-import dev.gyro.player.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,13 +29,14 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * Foreground service for background audio playback with lockscreen & notification media card.
+ * Foreground media playback service based on Media3 [MediaSessionService].
+ * Automatically handles notifications, lockscreen media card, and system transport integration.
  */
 @AndroidEntryPoint
-class PlaybackService : Service() {
+class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: GyroPlayerEngine
-    @Inject lateinit var orchestrator: PlaybackSessionOrchestrator
+    @Inject lateinit var historyRepository: PlaybackHistoryRepository
     @Inject lateinit var mediaSessionManager: MediaSessionManager
 
     companion object {
@@ -91,17 +85,6 @@ class PlaybackService : Service() {
         }
     }
 
-    inner class LocalBinder : Binder() {
-        val service: PlaybackService get() = this@PlaybackService
-        val mediaSessionManager: MediaSessionManager get() = this@PlaybackService.mediaSessionManager
-    }
-
-    private val binder = LocalBinder()
-
-    private val notificationManager by lazy {
-        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    }
-
     private var currentThumbnailUri: Uri? = null
     private var currentThumbnailBitmap: Bitmap? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -109,54 +92,51 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
-        Log.i(TAG, "PlaybackService created")
-        createNotificationChannel()
+        Log.i(TAG, "PlaybackService created (Media3)")
 
-        mediaSessionManager.onPlaybackStateChanged = { _ ->
-            updateNotification()
+        serviceScope.launch {
+            engine.currentUri.collect { uri ->
+                loadThumbnailIfNeeded(uri)
+            }
         }
-        mediaSessionManager.onMetadataChanged = {
-            updateNotification()
-        }
+
         mediaSessionManager.onStopRequested = {
             stopForegroundAndSelf()
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        return mediaSessionManager.mediaSession
+    }
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return super.onBind(intent)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
 
-        val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON && intent != null) {
+        val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON) {
             IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
         } else {
             null
         }
+
         val sticky = handleCommand(
             action = action,
             keyEvent = keyEvent,
             controls = mediaSessionManager,
-            saveProgress = { orchestrator.saveCurrentProgress() },
+            saveProgress = { saveCurrentProgress() },
             stopAndReset = { stopForegroundAndSelf() }
         )
 
-        updateNotification()
-        return sticky
+        val superSticky = super.onStartCommand(intent, flags, startId)
+        return if (action == ACTION_STOP || action == ACTION_DISMISS) sticky else superSticky
     }
 
     /**
-     * Command dispatch for the notification actions, service intents, and headset keys.
-     *
-     * Pure routing: every dispatch first arms `engine.isHeadlessMode` (a service start implies
-     * background playback intent, so loads must go straight to mpv instead of queueing behind a
-     * Surface), and the STOP/DISMISS paths disarm it via [stopAndReset] — if the teardown paths
-     * ever forget to disarm, a follow-up UI load would submit headless and present with no
-     * Surface attached. Extracted as an internal method so JVM tests can drive it with a fake
-     * [MediaSessionControls] instead of instantiating the Android Service.
-     *
-     * @return the Service onStartCommand sticky flag for this action.
+     * Command dispatch for actions and headset keys.
      */
     internal fun handleCommand(
         action: String?,
@@ -194,6 +174,16 @@ class PlaybackService : Service() {
         return START_STICKY
     }
 
+    private fun saveCurrentProgress() {
+        val snapshot = engine.state.value
+        val uri = snapshot.currentUri ?: return
+        val curPos = engine.timePosMs.value
+        val curDur = snapshot.durationMs
+        if (curDur > 0L) {
+            historyRepository.saveProgress(uri, curPos, curDur)
+        }
+    }
+
     private fun loadThumbnailIfNeeded(uri: Uri?) {
         if (uri == null) {
             currentThumbnailUri = null
@@ -210,7 +200,6 @@ class PlaybackService : Service() {
             if (currentThumbnailUri == uri) {
                 currentThumbnailBitmap = bitmap
                 mediaSessionManager.updateMetadata(bitmap)
-                updateNotification()
             }
         }
     }
@@ -235,198 +224,9 @@ class PlaybackService : Service() {
         }
     }
 
-    fun buildNotification(): Notification {
-        val isPlaying = engine.isPlaying.value
-        val title = engine.mediaTitle.value.ifBlank { null }
-            ?: getString(R.string.player_default_title)
-
-        val activeUri = orchestrator.activeUri.value
-        loadThumbnailIfNeeded(activeUri)
-
-        val playlist = engine.playlist.items.value
-        val playlistIndex = engine.playlist.currentIndex.value
-        val playlistInfo = if (playlist.size > 1 && playlistIndex >= 0) {
-            "[${playlistIndex + 1}/${playlist.size}] "
-        } else ""
-
-        val playStateText = if (isPlaying) {
-            getString(R.string.notification_playing)
-        } else {
-            getString(R.string.notification_paused)
-        }
-
-        val currentItem = engine.playlist.currentItem
-        val folderInfo = currentItem?.folderName?.takeIf { it.isNotBlank() }
-        val contentText = buildString {
-            if (playlistInfo.isNotBlank()) append(playlistInfo)
-            append(playStateText)
-            if (!folderInfo.isNullOrBlank()) {
-                append(" · ").append(folderInfo)
-            }
-        }
-
-        val duration = engine.durationMs.value
-        val position = engine.timePosMs.value
-
-        val mediaStyle = Notification.MediaStyle().apply {
-            mediaSessionManager.sessionToken?.let { token ->
-                setMediaSession(token)
-            }
-            // Show Previous, Play/Pause, Next in compact view (indices 0, 2, 4)
-            setShowActionsInCompactView(0, 2, 4)
-        }
-
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-
-        builder.setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(title)
-            .setContentText(contentText)
-            .setContentIntent(contentIntent)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(isPlaying)
-            .setStyle(mediaStyle)
-
-        currentThumbnailBitmap?.let { art ->
-            builder.setLargeIcon(art)
-        }
-
-        if (duration > 0L) {
-            builder.setProgress((duration / 1000).toInt(), (position / 1000).toInt(), false)
-        }
-
-        // Action 0: Previous
-        builder.addAction(
-            Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_previous),
-                getString(R.string.action_prev),
-                createActionPendingIntent(ACTION_PREV, 1)
-            ).build()
-        )
-
-        // Action 1: Rewind 10s
-        builder.addAction(
-            Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_rew),
-                getString(R.string.action_rewind),
-                createActionPendingIntent(ACTION_REWIND, 2)
-            ).build()
-        )
-
-        // Action 2: Play / Pause toggle
-        val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        val playPauseTitle = if (isPlaying) getString(R.string.action_pause) else getString(R.string.action_play)
-        val playPauseAction = if (isPlaying) ACTION_PAUSE else ACTION_PLAY
-        builder.addAction(
-            Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(this, playPauseIcon),
-                playPauseTitle,
-                createActionPendingIntent(playPauseAction, 3)
-            ).build()
-        )
-
-        // Action 3: Fast Forward 10s
-        builder.addAction(
-            Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_ff),
-                getString(R.string.action_fast_forward),
-                createActionPendingIntent(ACTION_FAST_FORWARD, 4)
-            ).build()
-        )
-
-        // Action 4: Next
-        builder.addAction(
-            Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_next),
-                getString(R.string.action_next),
-                createActionPendingIntent(ACTION_NEXT, 5)
-            ).build()
-        )
-
-        // Action 5: Stop
-        builder.addAction(
-            Notification.Action.Builder(
-                android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                getString(R.string.action_stop),
-                createActionPendingIntent(ACTION_STOP, 6)
-            ).build()
-        )
-
-        return builder.build()
-    }
-
-    private fun updateNotification() {
-        val notification = try {
-            buildNotification()
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to build notification: ${t.message}")
-            return
-        }
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to startForeground: ${t.message}")
-        }
-    }
-
     internal fun stopForegroundAndSelf() {
         engine.isHeadlessMode = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
         stopSelf()
-    }
-
-    private fun createActionPendingIntent(action: String, requestCode: Int): PendingIntent {
-        val intent = Intent(this, PlaybackService::class.java).apply {
-            this.action = action
-        }
-        return PendingIntent.getService(
-            this,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.notification_channel_desc)
-                setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-            notificationManager.createNotificationChannel(channel)
-        }
     }
 
     override fun onDestroy() {
@@ -437,7 +237,5 @@ class PlaybackService : Service() {
         currentThumbnailBitmap = null
         currentThumbnailUri = null
         isRunning = false
-        mediaSessionManager.onPlaybackStateChanged = null
-        mediaSessionManager.onMetadataChanged = null
     }
 }
