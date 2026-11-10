@@ -250,11 +250,17 @@ class MediaSessionManager(
                 true
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                skipToNext()
+                val handled = skipToNext()
+                if (!handled) {
+                    togglePlayPause()
+                }
                 true
             }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                skipToPrevious()
+                val handled = skipToPrevious()
+                if (!handled) {
+                    engine.seekRelative(-10_000L)
+                }
                 true
             }
             KeyEvent.KEYCODE_MEDIA_STOP -> {

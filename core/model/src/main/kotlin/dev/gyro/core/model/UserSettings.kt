@@ -32,8 +32,28 @@ const val GPU_NEXT_RENDER_API_SUPPORTED = false
 /** Automatically trigger physical HDR / 10-bit output on supported displays. */
 const val HDR_OUTPUT_AUTO = "auto"
 
+/** Force BT.2100 PQ transfer curve output (HDR10 standard). */
+const val HDR_OUTPUT_PQ = "pq"
+
+/** Force BT.2100 HLG transfer curve output (Broadcast HDR). */
+const val HDR_OUTPUT_HLG = "hlg"
+
 /** Force tone-mapping to SDR for eye-friendly, battery-saving viewing. */
 const val HDR_OUTPUT_SDR = "sdr"
+
+/** Tone-mapping algorithms for HDR to SDR / panel peak adaptation. */
+const val TONE_MAPPING_AUTO = "auto"
+const val TONE_MAPPING_HABLE = "hable"
+const val TONE_MAPPING_BT2446A = "bt.2446a"
+const val TONE_MAPPING_SPLINE = "spline"
+const val TONE_MAPPING_REINHARD = "reinhard"
+
+/** Video scaling / sampling filter presets. */
+const val SCALE_SPLINE36 = "spline36"
+const val SCALE_LANCZOS = "lanczos"
+const val SCALE_BILINEAR = "bilinear"
+const val SCALE_AUTO = "spline36"
+const val SCALE_OFF = "bilinear"
 
 @Serializable
 data class UserSettings(
@@ -44,7 +64,11 @@ data class UserSettings(
     val seekStepSeconds: Int = 10, // 5, 10, 15, 30
     val defaultHwdec: String = HWDEC_HARDWARE, // HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE
     val voRenderer: String = VO_LIBMPV, // VO_LIBMPV, VO_GPU_NEXT
-    val hdrOutputMode: String = HDR_OUTPUT_AUTO, // HDR_OUTPUT_AUTO, HDR_OUTPUT_SDR
+    val hdrOutputMode: String = HDR_OUTPUT_AUTO, // HDR_OUTPUT_AUTO, HDR_OUTPUT_PQ, HDR_OUTPUT_HLG, HDR_OUTPUT_SDR
+    val toneMappingAlgorithm: String = TONE_MAPPING_AUTO,
+    val videoScale: String = SCALE_SPLINE36,
+    val interpolation: Boolean = false,
+    val audioPassthrough: Boolean = false,
     val subAutoLoad: Boolean = true,
     val gesturesEnabled: Boolean = true,
     val gestureConfig: PlayerGestureConfig = PlayerGestureConfig()

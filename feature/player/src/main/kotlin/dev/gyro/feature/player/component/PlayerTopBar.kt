@@ -59,6 +59,7 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.component.GyroCapsuleContainer
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -82,6 +83,8 @@ fun PlayerTopBar(
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
     onScreenshot: () -> Unit = {},
     hdrFormat: String = "",
+    hwdec: String = "",
+    onCycleHwdec: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -147,6 +150,13 @@ fun PlayerTopBar(
                 SystemStatusIndicator()
                 Spacer(modifier = Modifier.width(6.dp))
 
+                // 解码器模式轮换胶囊：HW / HW+ / SW
+                HwdecCapsuleButton(
+                    hwdec = hwdec,
+                    onClick = onCycleHwdec
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+
                 // 横屏：纯播放器快捷操作 (画中画 -> 音轨 -> 设置)
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
@@ -181,7 +191,13 @@ fun PlayerTopBar(
                     border = null
                 )
             } else {
-                // 竖屏：画中画直达，设置直达直接打开综合设置抽屉
+                // 竖屏：解码胶囊 + 画中画直达 + 设置直达
+                HwdecCapsuleButton(
+                    hwdec = hwdec,
+                    onClick = onCycleHwdec
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
@@ -232,6 +248,43 @@ fun HdrBadge(format: String, modifier: Modifier = Modifier) {
             ),
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp)
         )
+    }
+}
+
+@Composable
+private fun HwdecCapsuleButton(
+    hwdec: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isCopy = hwdec.contains("copy")
+    val isHw = hwdec.contains("mediacodec")
+    val label = when {
+        isCopy -> "HW+"
+        isHw -> "HW"
+        else -> "SW"
+    }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (isCopy) SheetAccentBlue.copy(alpha = 0.32f) else Color.Black.copy(alpha = 0.35f),
+        border = BorderStroke(
+            1.dp,
+            if (isCopy) SheetAccentBlue.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.25f)
+        ),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isCopy) SheetAccentBlue else Color.White
+            )
+        }
     }
 }
 

@@ -16,7 +16,6 @@ import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +33,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     val orchestrator: PlaybackSessionOrchestrator,
-    private val settingsRepository: SettingsRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     // Secondary constructor for existing unit tests

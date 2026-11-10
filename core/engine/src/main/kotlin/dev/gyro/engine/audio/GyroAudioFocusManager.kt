@@ -284,19 +284,27 @@ class GyroAudioFocusManager(
         if (noisyReceiver != null || released) return
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
-                EngineLog.i(TAG, "Audio becoming noisy, pausing without auto-resume")
-                pendingPlay = false
-                pausedBy = PAUSED_BY_NONE
-                listener.onPauseRequested()
+                val action = intent?.action ?: return
+                if (action == AudioManager.ACTION_AUDIO_BECOMING_NOISY ||
+                    action == "android.bluetooth.device.action.ACL_DISCONNECTED"
+                ) {
+                    EngineLog.i(TAG, "Audio becoming noisy or bluetooth disconnected, pausing without auto-resume")
+                    pendingPlay = false
+                    pausedBy = PAUSED_BY_NONE
+                    listener.onPauseRequested()
+                }
             }
         }
         runCatching {
+            val filter = IntentFilter().apply {
+                addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                addAction("android.bluetooth.device.action.ACL_DISCONNECTED")
+            }
             ContextCompat.registerReceiver(
                 context,
                 receiver,
-                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
-                ContextCompat.RECEIVER_NOT_EXPORTED
+                filter,
+                ContextCompat.RECEIVER_EXPORTED
             )
         }.onSuccess {
             noisyReceiver = receiver

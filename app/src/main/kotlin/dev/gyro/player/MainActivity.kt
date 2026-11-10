@@ -37,10 +37,12 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
+import android.view.KeyEvent
 import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.MpvConfigRepository
+import dev.gyro.engine.session.MediaSessionManager
 import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.designsystem.theme.GyroColors
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var orchestrator: PlaybackSessionOrchestrator
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var mpvConfigRepository: MpvConfigRepository
+    @Inject lateinit var mediaSessionManager: MediaSessionManager
     private val homeViewModel: HomeViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
     private val playerViewModel: PlayerViewModel by viewModels()
@@ -91,6 +94,15 @@ class MainActivity : ComponentActivity() {
             } else {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
+
+        // Enable wide color gamut (Display P3) by default for vibrant color reproduction matching system gallery
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            @Suppress("DEPRECATION")
+            val isWide = windowManager.defaultDisplay?.isWideColorGamut == true
+            if (isWide) {
+                window.colorMode = ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+            }
+        }
 
         // The engine takes configuration as values, not repositories. The first emission of the
         // DataStore flow is the real persisted value; reading a StateFlow here would have handed
@@ -406,5 +418,12 @@ class MainActivity : ComponentActivity() {
                 playerEngine.release()
             }
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (::mediaSessionManager.isInitialized && mediaSessionManager.handleKeyEvent(event)) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 }

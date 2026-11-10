@@ -23,6 +23,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
+            android:colorMode="wideColorGamut"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:theme="@style/Theme.Gyro">
             <intent-filter>

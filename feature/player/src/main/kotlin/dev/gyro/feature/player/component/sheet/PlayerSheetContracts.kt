@@ -47,10 +47,16 @@ data class PlayerSheetUiState(
     val brightness: Int = 0,
     val contrast: Int = 0,
     val saturation: Int = 0,
+    val softwareVolume: Double = 100.0,
     val nightMode: Boolean = false,
     val stereoDownmix: Boolean = false,
     val isHdr: Boolean = false,
-    val hdrFormat: String = ""
+    val hdrFormat: String = "",
+    val hdrOutputMode: String = dev.gyro.core.model.HDR_OUTPUT_AUTO,
+    val toneMappingAlgorithm: String = dev.gyro.core.model.TONE_MAPPING_AUTO,
+    val videoScale: String = dev.gyro.core.model.SCALE_AUTO,
+    val interpolation: Boolean = false,
+    val audioPassthrough: Boolean = false
 ) {
     val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "audio" } }
     val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "sub" } }
@@ -73,6 +79,7 @@ class PlayerSheetCallbacks(
     val onSetContrast: (Int) -> Unit = {},
     val onSetSaturation: (Int) -> Unit = {},
     val onResetColors: () -> Unit = {},
+    val onSetSoftwareVolume: (Double) -> Unit = {},
     val onSetNightMode: (Boolean) -> Unit = {},
     val onSetStereoDownmix: (Boolean) -> Unit = {},
     val onSelectTrack: (type: String, id: Int) -> Unit = { _, _ -> },
@@ -83,7 +90,13 @@ class PlayerSheetCallbacks(
     val onSetSubScale: (Double) -> Unit = {},
     val onSetSubPos: (Long) -> Unit = {},
     val onToggleHwdec: () -> Unit = {},
+    val onSetHwdec: (String) -> Unit = {},
     val onToggleStatsOverlay: (Boolean) -> Unit = {},
     val onAddExternalSubtitle: () -> Unit = {},
+    val onSetHdrOutputMode: (String) -> Unit = {},
+    val onSetToneMappingAlgorithm: (String) -> Unit = {},
+    val onSetVideoScale: (String) -> Unit = {},
+    val onToggleInterpolation: (Boolean) -> Unit = {},
+    val onToggleAudioPassthrough: (Boolean) -> Unit = {},
     val onOpenFullSettings: () -> Unit = {}
 )

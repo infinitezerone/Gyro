@@ -252,14 +252,12 @@ fun PlayerBottomBar(
                     Spacer(modifier = Modifier.width(6.dp))
                 }
 
-                // 6. 播放列表 / 选集 (有连播列表时呈现)
-                if (hasPrevious || hasNext) {
-                    PlayerTextActionButton(
-                        text = stringResource(R.string.cd_playlist),
-                        onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) }
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                }
+                // 6. 播放列表 / 选集 (始终常驻，支持查看分集与章节)
+                PlayerTextActionButton(
+                    text = stringResource(R.string.cd_playlist),
+                    onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
 
                 // 7. 倍速（竖屏横屏均保留）
                 PlayerTextActionButton(

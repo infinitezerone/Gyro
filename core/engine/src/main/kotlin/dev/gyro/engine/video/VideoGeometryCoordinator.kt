@@ -357,6 +357,41 @@ class VideoGeometryCoordinator(
         bridge.setPropertyDouble("display-fps-override", rate.toDouble())
         bridge.setPropertyDouble("display-fps", rate.toDouble())
     }
+
+    fun setHdrOutputMode(mode: String) {
+        store.update { it.copy(hdrOutputMode = mode) }
+        updateHdrState()
+    }
+
+    fun setToneMappingAlgorithm(algorithm: String) {
+        store.update { it.copy(toneMappingAlgorithm = algorithm) }
+        val effective = if (algorithm == dev.gyro.core.model.TONE_MAPPING_AUTO) "hable" else algorithm
+        bridge.setPropertyString("tone-mapping", effective)
+    }
+
+    fun setVideoScale(scale: String) {
+        store.update { it.copy(videoScale = scale) }
+        val effective = when (scale) {
+            dev.gyro.core.model.SCALE_BILINEAR, dev.gyro.core.model.SCALE_OFF -> "bilinear"
+            dev.gyro.core.model.SCALE_LANCZOS -> "lanczos"
+            else -> "spline36"
+        }
+        bridge.setPropertyString("scale", effective)
+        bridge.setPropertyString("dscale", if (effective == "bilinear") "bilinear" else "mitchell")
+    }
+
+    fun setInterpolation(enabled: Boolean) {
+        store.update { it.copy(interpolation = enabled) }
+        if (enabled) {
+            bridge.setPropertyString("video-sync", "display-resample")
+            bridge.setPropertyString("interpolation", "yes")
+            bridge.setPropertyString("tscale", "oversample")
+        } else {
+            bridge.setPropertyString("video-sync", "audio")
+            bridge.setPropertyString("interpolation", "no")
+        }
+    }
+
     fun setResizeMode(mode: ResizeMode) {
         _resizeMode.value = mode
         when (mode) {

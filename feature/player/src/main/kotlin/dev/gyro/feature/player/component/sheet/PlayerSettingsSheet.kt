@@ -1,5 +1,14 @@
 package dev.gyro.feature.player.component.sheet
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,16 +24,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,9 +49,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,10 +68,23 @@ import dev.gyro.feature.player.component.sheet.common.SheetBgColor
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
+import dev.gyro.feature.player.component.sheet.tabs.AudioBoostSubTabContent
 import dev.gyro.feature.player.component.sheet.tabs.AudioTabContent
+import dev.gyro.feature.player.component.sheet.tabs.AudioTracksSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.AspectSubTabContent
 import dev.gyro.feature.player.component.sheet.tabs.AspectTabContent
-import dev.gyro.feature.player.component.sheet.tabs.AudiovisualTabContent
+import dev.gyro.feature.player.component.sheet.tabs.ColorSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.DelaySubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.HdrToneMappingSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.HwdecSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.ShadersSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.SpeedSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.SubtitleStyleSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.SubtitleTracksSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.VideoScaleSubTabContent
+import dev.gyro.feature.player.component.sheet.tabs.VideoTabContent
 import dev.gyro.feature.player.component.sheet.tabs.ChaptersTabContent
+import dev.gyro.feature.player.component.sheet.tabs.MediaInfoStatsTabContent
 import dev.gyro.feature.player.component.sheet.tabs.MediaInfoTabContent
 import dev.gyro.feature.player.component.sheet.tabs.PlaylistTabContent
 import dev.gyro.feature.player.component.sheet.tabs.SettingsHubTabContent
@@ -71,14 +100,16 @@ private val SheetAccentBlue = dev.gyro.feature.player.component.sheet.common.She
 
 /**
  * 播放器设置 Bottom Sheet 宿主 (PlayerSettingsSheet)。
- * ModalBottomSheet 容器 + 三种头部模式 + tab 路由；内容一律读取 [state]、回传 [callbacks]。
+ * 横屏为高质感右侧抽屉，竖屏为紧凑底部抽屉；手势支持右滑/下滑跟手关闭。
  */
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun PlayerSettingsSheet(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks,
-    initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES,
+    initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
     isLandscape: Boolean = false,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
@@ -86,21 +117,27 @@ fun PlayerSettingsSheet(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
 
-    // 竖屏下抽屉严格钉在屏幕底部（Alignment.BottomCenter），高度限制为屏幕的 52%；横屏下在右侧以侧边栏展示，宽度限制为 380dp
+    // 拖拽手势状态：横屏右滑距离，竖屏下滑距离
+    val density = LocalDensity.current
+    val dismissThresholdPx = with(density) { 70.dp.toPx() }
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    // 竖屏下抽屉钉在底部，高度限制提升至 65%；横屏下在右侧以侧边栏展示，宽度为 360dp 提升平铺利用率
     val sheetModifier = if (isLandscape) {
         Modifier
             .fillMaxHeight()
-            .widthIn(max = 380.dp)
+            .width(360.dp)
             .statusBarsPadding()
             .navigationBarsPadding()
     } else {
         Modifier
             .fillMaxWidth()
-            .heightIn(max = screenHeight * 0.52f)
+            .heightIn(max = screenHeight * 0.65f)
             .navigationBarsPadding()
     }
 
-    // 物理返回按键/返回手势拦截：若处于二级设置页，优先返回设置大厅；若在设置大厅或单场景，收起抽屉
+    // 物理返回按键/返回手势拦截：二级页退回主设置，主设置直接收起抽屉
     BackHandler(enabled = true) {
         if (selectedTab != PlayerSheetTab.SETTINGS_HUB && !isPlaylistScene) {
             selectedTab = PlayerSheetTab.SETTINGS_HUB
@@ -112,11 +149,11 @@ fun PlayerSettingsSheet(
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        // 半透明微遮罩，点击上半部视频空白区域立刻收起抽屉
+        // 全屏半透明蒙层（原地淡入淡出，绝对不随抽屉平移，避免横扫全屏 Bug）
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.20f))
+                .background(Color.Black.copy(alpha = 0.45f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -124,9 +161,74 @@ fun PlayerSettingsSheet(
                 )
         )
 
+        val animationModifier = if (animatedVisibilityScope != null) {
+            with(animatedVisibilityScope) {
+                Modifier.animateEnterExit(
+                    enter = if (isLandscape) {
+                        slideInHorizontally(animationSpec = tween(220)) { it }
+                    } else {
+                        slideInVertically(animationSpec = tween(220)) { it }
+                    },
+                    exit = if (isLandscape) {
+                        slideOutHorizontally(animationSpec = tween(180)) { it }
+                    } else {
+                        slideOutVertically(animationSpec = tween(180)) { it }
+                    }
+                )
+            }
+        } else {
+            Modifier
+        }
+
+        val dragModifier = Modifier
+            .offset {
+                if (isLandscape) {
+                    IntOffset(dragOffsetX.roundToInt(), 0)
+                } else {
+                    IntOffset(0, dragOffsetY.roundToInt())
+                }
+            }
+            .pointerInput(isLandscape) {
+                if (isLandscape) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (dragOffsetX > dismissThresholdPx) {
+                                onDismiss()
+                            }
+                            dragOffsetX = 0f
+                        },
+                        onDragCancel = { dragOffsetX = 0f },
+                        onHorizontalDrag = { change, dragAmount ->
+                            if (dragAmount > 0 || dragOffsetX > 0) {
+                                change.consume()
+                                dragOffsetX = (dragOffsetX + dragAmount).coerceAtLeast(0f)
+                            }
+                        }
+                    )
+                } else {
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            if (dragOffsetY > dismissThresholdPx) {
+                                onDismiss()
+                            }
+                            dragOffsetY = 0f
+                        },
+                        onDragCancel = { dragOffsetY = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0 || dragOffsetY > 0) {
+                                change.consume()
+                                dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
+                            }
+                        }
+                    )
+                }
+            }
+
         Surface(
             modifier = sheetModifier
                 .align(if (isLandscape) Alignment.CenterEnd else Alignment.BottomCenter)
+                .then(animationModifier)
+                .then(dragModifier)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -145,12 +247,12 @@ fun PlayerSettingsSheet(
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // 顶部小横条拖拽指示把手 (仅竖屏展示)
+                // 顶部小横条拖拽指示把手 (仅竖屏展示，支持拖动手势下划收起)
                 if (!isLandscape) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 4.dp),
+                            .padding(top = 8.dp, bottom = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -158,7 +260,7 @@ fun PlayerSettingsSheet(
                                 .width(36.dp)
                                 .height(4.dp)
                                 .background(
-                                    color = Color.Gray.copy(alpha = 0.35f),
+                                    color = Color.White.copy(alpha = 0.25f),
                                     shape = RoundedCornerShape(2.dp)
                                 )
                         )
@@ -169,7 +271,8 @@ fun PlayerSettingsSheet(
                     callbacks = callbacks,
                     selectedTab = selectedTab,
                     onSelectTab = { selectedTab = it },
-                    initialTab = initialTab
+                    initialTab = initialTab,
+                    onDismiss = onDismiss
                 )
             }
         }
@@ -183,7 +286,8 @@ fun PlayerSettingsSheet(
 fun PlayerSettingsSheetContent(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks,
-    initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES
+    initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
+    onDismiss: () -> Unit = {}
 ) {
     var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
     PlayerSettingsSheetContent(
@@ -191,7 +295,8 @@ fun PlayerSettingsSheetContent(
         callbacks = callbacks,
         selectedTab = selectedTab,
         onSelectTab = { selectedTab = it },
-        initialTab = initialTab
+        initialTab = initialTab,
+        onDismiss = onDismiss
     )
 }
 
@@ -201,161 +306,144 @@ fun PlayerSettingsSheetContent(
     callbacks: PlayerSheetCallbacks,
     selectedTab: PlayerSheetTab,
     onSelectTab: (PlayerSheetTab) -> Unit,
-    initialTab: PlayerSheetTab = PlayerSheetTab.SUBTITLES
+    initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
+    onDismiss: () -> Unit = {}
 ) {
-    val isPlaylistScene = initialTab == PlayerSheetTab.PLAYLIST || initialTab == PlayerSheetTab.CHAPTERS
+    val isRootSettings = selectedTab == PlayerSheetTab.SETTINGS_HUB
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 32.dp)
+            .padding(bottom = 10.dp)
     ) {
-        when {
-            isPlaylistScene -> {
-                // A. 选集/章节场景：极简双胶囊导航
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        // 顶部导航栏：根设置显示标题与关闭按钮；二级设置显示返回键、当前二级标题与关闭按钮
+        if (isRootSettings) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SheetTextColor
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    GyroPillButton(
-                        text = "${stringResource(R.string.sheet_tab_playlist)} (${state.playlist.size})",
-                        onClick = { onSelectTab(PlayerSheetTab.PLAYLIST) },
-                        containerColor = if (selectedTab == PlayerSheetTab.PLAYLIST) {
-                            SheetAccentBlue.copy(alpha = 0.25f)
-                        } else {
-                            dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
-                        },
-                        contentColor = if (selectedTab == PlayerSheetTab.PLAYLIST) {
-                            SheetAccentBlue
-                        } else {
-                            dev.gyro.feature.player.component.sheet.common.SheetTextColor
-                        }
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.action_cancel),
+                        tint = SheetTextSecondaryColor,
+                        modifier = Modifier.size(18.dp)
                     )
-                    if (state.chapters.isNotEmpty()) {
-                        GyroPillButton(
-                            text = "${stringResource(R.string.sheet_tab_chapters)} (${state.chapters.size})",
-                            onClick = { onSelectTab(PlayerSheetTab.CHAPTERS) },
-                            containerColor = if (selectedTab == PlayerSheetTab.CHAPTERS) {
-                                SheetAccentBlue.copy(alpha = 0.25f)
-                            } else {
-                                dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
-                            },
-                            contentColor = if (selectedTab == PlayerSheetTab.CHAPTERS) {
-                                SheetAccentBlue
-                            } else {
-                                dev.gyro.feature.player.component.sheet.common.SheetTextColor
-                            }
-                        )
-                    }
                 }
             }
-            selectedTab == PlayerSheetTab.SETTINGS_HUB -> {
-                // B. 设置总览大厅场景
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 24.dp, end = 20.dp, top = 6.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = SheetTextColor
-                    )
-                    dev.gyro.feature.player.component.sheet.common.FilledTonalAction(
-                        onClick = callbacks.onOpenFullSettings,
-                        containerColor = SheetCardAltColor,
-                        contentColor = SheetAccentBlue,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "全局设置",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
+        } else {
+            val pageTitle = when (selectedTab) {
+                PlayerSheetTab.HWDEC -> "解码模式"
+                PlayerSheetTab.SHADERS -> "超分辨率 / 着色器"
+                PlayerSheetTab.ASPECT -> "画面比例"
+                PlayerSheetTab.COLOR -> "色彩校准"
+                PlayerSheetTab.HDR_TONE_MAPPING -> "HDR 与色调映射"
+                PlayerSheetTab.VIDEO_SCALE -> "画面缩放算法"
+                PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> "音频轨道"
+                PlayerSheetTab.AUDIO_BOOST -> "音量软增益"
+                PlayerSheetTab.AUDIO_DELAY -> "音频延迟"
+                PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> "字幕轨道"
+                PlayerSheetTab.SUBTITLE_DELAY -> "字幕延迟"
+                PlayerSheetTab.SUBTITLE_STYLE -> "字幕样式与位置"
+                PlayerSheetTab.SPEED -> "播放倍速"
+                PlayerSheetTab.STATS_INFO, PlayerSheetTab.STATS, PlayerSheetTab.INFO -> "媒体信息与统计"
+                PlayerSheetTab.PLAYLIST -> "播放列表"
+                PlayerSheetTab.CHAPTERS -> "章节列表"
+                PlayerSheetTab.VIDEO -> "画面设置"
+                PlayerSheetTab.SYNC -> "音画同步校准"
+                PlayerSheetTab.AUDIOVISUAL -> "视听设置"
             }
-            else -> {
-                // C. 各子设置场景：清晰返回导航头 + 标题 + 全局设置入口
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 14.dp, end = 20.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { onSelectTab(PlayerSheetTab.SETTINGS_HUB) },
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    IconButton(
-                        onClick = { onSelectTab(PlayerSheetTab.SETTINGS_HUB) },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.action_back),
-                            tint = SheetTextColor,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = stringResource(selectedTab.titleRes),
-                        style = TextStyle(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SheetTextColor
-                        ),
-                        modifier = Modifier.weight(1f)
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = SheetTextColor,
+                        modifier = Modifier.size(20.dp)
                     )
-                    dev.gyro.feature.player.component.sheet.common.FilledTonalAction(
-                        onClick = callbacks.onOpenFullSettings,
-                        containerColor = SheetCardAltColor,
-                        contentColor = SheetTextSecondaryColor,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "全局设置",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Normal
-                        )
-                    }
+                }
+
+                Text(
+                    text = pageTitle,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SheetTextColor,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 4.dp)
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.action_cancel),
+                        tint = SheetTextSecondaryColor,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         when (selectedTab) {
             PlayerSheetTab.SETTINGS_HUB -> SettingsHubTabContent(
                 state = state,
+                callbacks = callbacks,
                 onNavigate = onSelectTab
             )
+            PlayerSheetTab.HWDEC -> HwdecSubTabContent(state, callbacks)
+            PlayerSheetTab.SHADERS -> ShadersSubTabContent(state, callbacks)
+            PlayerSheetTab.ASPECT -> AspectSubTabContent(state, callbacks)
+            PlayerSheetTab.COLOR -> ColorSubTabContent(state, callbacks)
+            PlayerSheetTab.HDR_TONE_MAPPING -> HdrToneMappingSubTabContent(state, callbacks)
+            PlayerSheetTab.VIDEO_SCALE -> VideoScaleSubTabContent(state, callbacks)
+            PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> AudioTracksSubTabContent(state, callbacks)
+            PlayerSheetTab.AUDIO_BOOST -> AudioBoostSubTabContent(state, callbacks)
+            PlayerSheetTab.AUDIO_DELAY -> DelaySubTabContent(
+                currentSec = state.audioDelaySec,
+                label = "音频延迟",
+                onValueChange = callbacks.onSetAudioDelay
+            )
+            PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> SubtitleTracksSubTabContent(state, callbacks)
+            PlayerSheetTab.SUBTITLE_DELAY -> DelaySubTabContent(
+                currentSec = state.subDelaySec,
+                label = "字幕延迟",
+                onValueChange = callbacks.onSetSubDelay
+            )
+            PlayerSheetTab.SUBTITLE_STYLE -> SubtitleStyleSubTabContent(state, callbacks)
+            PlayerSheetTab.SPEED -> SpeedSubTabContent(state, callbacks)
+            PlayerSheetTab.STATS_INFO, PlayerSheetTab.STATS, PlayerSheetTab.INFO -> MediaInfoStatsTabContent(state, callbacks)
             PlayerSheetTab.PLAYLIST -> PlaylistTabContent(state, callbacks)
             PlayerSheetTab.CHAPTERS -> ChaptersTabContent(state, callbacks)
-            PlayerSheetTab.SUBTITLES -> SubtitlesTabContent(state, callbacks)
-            PlayerSheetTab.AUDIO -> AudioTabContent(state, callbacks)
-            PlayerSheetTab.SHADERS -> ShadersTabContent(state, callbacks)
-            PlayerSheetTab.AUDIOVISUAL -> AudiovisualTabContent(state, callbacks)
+            PlayerSheetTab.VIDEO -> VideoTabContent(state, callbacks)
             PlayerSheetTab.SYNC -> SyncTabContent(state, callbacks)
-            PlayerSheetTab.SPEED -> SpeedTabContent(state, callbacks)
-            PlayerSheetTab.ASPECT -> AspectTabContent(state, callbacks)
-            PlayerSheetTab.STATS -> StatsTabContent(state, callbacks)
-            PlayerSheetTab.INFO -> MediaInfoTabContent(state)
+            PlayerSheetTab.AUDIOVISUAL -> VideoTabContent(state, callbacks)
         }
     }
 }

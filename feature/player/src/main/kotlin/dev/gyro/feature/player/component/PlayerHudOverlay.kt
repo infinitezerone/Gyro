@@ -5,6 +5,10 @@ import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.core.designsystem.theme.GyroColors
 
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -94,9 +98,20 @@ fun BoxScope.PlayerHudOverlay(
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         // 0. Top-Center Scrub & Gesture Seek Time Preview（拖拽进度条或屏幕水平滑动快进/快退，屏幕正上方显示目标时间与偏差）
+        var lastValidTargetMs by remember { mutableLongStateOf(0L) }
         val isSeeking = scrubState.isActive || hudState is GestureHudState.Seek
+        val total = durationMs()
+        if (isSeeking && total > 0L) {
+            val liveMs = when {
+                hudState is GestureHudState.Seek -> hudState.targetMs
+                scrubState.isActive -> (scrubState.fraction * total).toLong().coerceIn(0L, total)
+                else -> lastValidTargetMs
+            }
+            lastValidTargetMs = liveMs
+        }
+
         AnimatedVisibility(
-            visible = isSeeking && durationMs() > 0L,
+            visible = isSeeking && total > 0L,
             enter = fadeIn(animationSpec = tween(100)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
@@ -105,15 +120,9 @@ fun BoxScope.PlayerHudOverlay(
                 .statusBarsPadding()
                 .padding(top = 64.dp)
         ) {
-            val total = durationMs()
             if (total > 0L) {
-                val targetMs = when {
-                    hudState is GestureHudState.Seek -> hudState.targetMs
-                    scrubState.isActive -> (scrubState.fraction * total).toLong()
-                    else -> 0L
-                }
                 ScrubTimePreview(
-                    targetMs = targetMs,
+                    targetMs = lastValidTargetMs,
                     totalMs = total
                 )
             }

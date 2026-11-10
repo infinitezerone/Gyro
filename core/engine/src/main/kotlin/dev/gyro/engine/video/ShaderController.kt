@@ -60,6 +60,20 @@ class ShaderController(
                     EngineLog.e(TAG, "Failed to apply Anime4K Lite shader: file missing")
                 }
             }
+            GlslShader.CAS -> {
+                val file = shaderManager.getBuiltInShaderFile(GlslShader.CAS)
+                if (file != null && file.exists()) {
+                    bridge.command(arrayOf("change-list", "glsl-shaders", "set", file.absolutePath))
+                    _shaderState.value = GlslShaderState(
+                        activeShader = GlslShader.CAS,
+                        currentPath = file.absolutePath,
+                        displayName = "AMD CAS"
+                    )
+                    EngineLog.i(TAG, "Applied AMD CAS shader: ${file.absolutePath}")
+                } else {
+                    EngineLog.e(TAG, "Failed to apply AMD CAS shader: file missing")
+                }
+            }
             GlslShader.CUSTOM -> {
                 if (!customPath.isNullOrBlank() && File(customPath).exists()) {
                     val displayName = customName ?: File(customPath).nameWithoutExtension

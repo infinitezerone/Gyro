@@ -231,6 +231,22 @@ open class PlaybackLifecycleController(
         store.update { it.copy(hwdecCurrent = target) }
     }
 
+    fun setHwdec(target: String) {
+        bridge.setPropertyString("hwdec", target)
+        store.update { it.copy(hwdecCurrent = target) }
+    }
+
+    fun cycleHwdec(): String {
+        val current = store.current.hwdecCurrent
+        val next = when {
+            current.contains("copy") -> "no"
+            current == "no" || current == "none" -> if (bridge.isZeroCopySafe()) "mediacodec" else "mediacodec-copy"
+            else -> "mediacodec-copy"
+        }
+        setHwdec(next)
+        return next
+    }
+
     fun abandonAudioFocus() {
         audioFocusManager.abandon()
     }

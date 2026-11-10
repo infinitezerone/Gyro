@@ -77,6 +77,13 @@ class AudioEffectsController(
     }
 
     @Synchronized
+    fun setAudioPassthrough(enabled: Boolean) {
+        store.update { it.copy(audioPassthrough = enabled) }
+        val target = if (enabled) "ac3,eac3,dts-hd,truehd,dtse" else ""
+        bridge.setPropertyString("audio-spdif", target)
+    }
+
+    @Synchronized
     fun resetSoftwareGain() {
         _softwareVolume.value = 100.0
         bridge.setPropertyDouble("volume", 100.0)

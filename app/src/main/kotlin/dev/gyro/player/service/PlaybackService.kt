@@ -43,6 +43,7 @@ class PlaybackService : Service() {
 
     @Inject lateinit var engine: GyroPlayerEngine
     @Inject lateinit var orchestrator: PlaybackSessionOrchestrator
+    @Inject lateinit var mediaSessionManager: MediaSessionManager
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -92,12 +93,10 @@ class PlaybackService : Service() {
 
     inner class LocalBinder : Binder() {
         val service: PlaybackService get() = this@PlaybackService
-        val mediaSessionManager: MediaSessionManager? get() = this@PlaybackService.mediaSessionManager
+        val mediaSessionManager: MediaSessionManager get() = this@PlaybackService.mediaSessionManager
     }
 
     private val binder = LocalBinder()
-    var mediaSessionManager: MediaSessionManager? = null
-        private set
 
     private val notificationManager by lazy {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -113,39 +112,14 @@ class PlaybackService : Service() {
         Log.i(TAG, "PlaybackService created")
         createNotificationChannel()
 
-        setupMediaSessionManager(engine, engine.playlist)
-    }
-
-    fun setupMediaSessionManager(engine: GyroPlayerEngine, playlistManager: PlaylistManager = engine.playlist) {
-        mediaSessionManager?.release()
-        val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(this, PlaybackService::class.java)
-        val buttonPendingIntent = PendingIntent.getService(
-            this,
-            0,
-            buttonIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        mediaSessionManager = MediaSessionManager(
-            context = this,
-            engine = engine,
-            playlistManager = playlistManager,
-            mediaButtonReceiver = buttonPendingIntent
-        ).apply {
-            onPlaybackStateChanged = { _ ->
-                updateNotification()
-            }
-            onMetadataChanged = {
-                updateNotification()
-            }
-            onStopRequested = {
-                stopForegroundAndSelf()
-            }
-            onSkipToNext = {
-                orchestrator.playNext()
-            }
-            onSkipToPrevious = {
-                orchestrator.playPrevious()
-            }
+        mediaSessionManager.onPlaybackStateChanged = { _ ->
+            updateNotification()
+        }
+        mediaSessionManager.onMetadataChanged = {
+            updateNotification()
+        }
+        mediaSessionManager.onStopRequested = {
+            stopForegroundAndSelf()
         }
     }
 
@@ -154,11 +128,6 @@ class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
-
-        // Lazy-connect engine if not yet attached
-        if (mediaSessionManager == null) {
-            setupMediaSessionManager(engine, engine.playlist)
-        }
 
         val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON && intent != null) {
             IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
@@ -229,7 +198,7 @@ class PlaybackService : Service() {
         if (uri == null) {
             currentThumbnailUri = null
             currentThumbnailBitmap = null
-            mediaSessionManager?.updateMetadata(null)
+            mediaSessionManager.updateMetadata(null)
             return
         }
         if (uri == currentThumbnailUri) return
@@ -240,7 +209,7 @@ class PlaybackService : Service() {
             }
             if (currentThumbnailUri == uri) {
                 currentThumbnailBitmap = bitmap
-                mediaSessionManager?.updateMetadata(bitmap)
+                mediaSessionManager.updateMetadata(bitmap)
                 updateNotification()
             }
         }
@@ -300,7 +269,7 @@ class PlaybackService : Service() {
         val position = engine.timePosMs.value
 
         val mediaStyle = Notification.MediaStyle().apply {
-            mediaSessionManager?.sessionToken?.let { token ->
+            mediaSessionManager.sessionToken?.let { token ->
                 setMediaSession(token)
             }
             // Show Previous, Play/Pause, Next in compact view (indices 0, 2, 4)
@@ -468,7 +437,7 @@ class PlaybackService : Service() {
         currentThumbnailBitmap = null
         currentThumbnailUri = null
         isRunning = false
-        mediaSessionManager?.release()
-        mediaSessionManager = null
+        mediaSessionManager.onPlaybackStateChanged = null
+        mediaSessionManager.onMetadataChanged = null
     }
 }

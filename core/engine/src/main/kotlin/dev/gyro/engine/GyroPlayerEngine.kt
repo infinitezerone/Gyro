@@ -156,11 +156,23 @@ class GyroPlayerEngine(
         userOptions: Map<String, String> = configurator.currentState.userOptions,
         settings: UserSettings = configurator.currentState.settings,
     ) {
-        store.update { it.copy(hdrOutputMode = settings.hdrOutputMode) }
+        store.update {
+            it.copy(
+                hdrOutputMode = settings.hdrOutputMode,
+                toneMappingAlgorithm = settings.toneMappingAlgorithm,
+                videoScale = settings.videoScale,
+                interpolation = settings.interpolation,
+                audioPassthrough = settings.audioPassthrough
+            )
+        }
         userOptions["af"]?.let { audio.userBaseAf = it }
         if (isInitialized.get()) {
             configurator.applyRuntimeUpdate(bridge, settings, userOptions)
             geometry.onHdrOutputModeChanged()
+            geometry.setToneMappingAlgorithm(settings.toneMappingAlgorithm)
+            geometry.setVideoScale(settings.videoScale)
+            geometry.setInterpolation(settings.interpolation)
+            audio.setAudioPassthrough(settings.audioPassthrough)
         } else {
             configurator.updateConfig(userOptions, settings)
         }
@@ -229,6 +241,8 @@ class GyroPlayerEngine(
     fun togglePlayPause() = playback.togglePlayPause()
     fun setSpeed(speed: Float) = playback.setSpeed(speed)
     fun toggleHwdec() = playback.toggleHwdec()
+    fun setHwdec(target: String) = playback.setHwdec(target)
+    fun cycleHwdec(): String = playback.cycleHwdec()
     fun abandonAudioFocus() = playback.abandonAudioFocus()
 
     fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
@@ -237,6 +251,12 @@ class GyroPlayerEngine(
 
     fun cycleAbLoop() = abLoop.cycleLoopPoint()
     fun clearAbLoop() = abLoop.clearLoop()
+
+    fun setHdrOutputMode(mode: String) = geometry.setHdrOutputMode(mode)
+    fun setToneMappingAlgorithm(algorithm: String) = geometry.setToneMappingAlgorithm(algorithm)
+    fun setVideoScale(scale: String) = geometry.setVideoScale(scale)
+    fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
+    fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
 
     /** 对当前画面截图（含字幕），保存到 [targetFile]；命令返回后以文件落盘为准。 */
     fun screenshotToFile(targetFile: java.io.File): Boolean = runCatching {

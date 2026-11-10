@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -21,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,19 +47,44 @@ import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 @Composable
 internal fun PlaylistTabContent(
     state: PlayerSheetUiState,
-    callbacks: PlayerSheetCallbacks
+    callbacks: PlayerSheetCallbacks,
+    modifier: Modifier = Modifier
 ) {
     if (state.playlist.isEmpty()) {
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
-                .height(200.dp),
+                .padding(vertical = 32.dp, horizontal = 24.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(stringResource(R.string.playlist_empty), color = SheetTextSecondaryColor)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.playlist_empty),
+                    color = SheetTextSecondaryColor,
+                    fontSize = 14.sp
+                )
+                if (state.chapters.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "本视频包含 ${state.chapters.size} 个内嵌章节，可点击顶部【章节】查看",
+                        color = SheetAccentBlue,
+                        fontSize = 12.sp
+                    )
+                }
+            }
         }
     } else {
-        LazyColumn(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+        val listState = rememberLazyListState()
+        LaunchedEffect(state.currentPlaylistIndex) {
+            if (state.currentPlaylistIndex in state.playlist.indices) {
+                listState.animateScrollToItem(state.currentPlaylistIndex)
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = modifier.fillMaxWidth()
+        ) {
             itemsIndexed(state.playlist) { index, item ->
                 val isCurrent = index == state.currentPlaylistIndex
                 Row(
@@ -114,13 +141,14 @@ internal fun PlaylistTabContent(
 @Composable
 internal fun ChaptersTabContent(
     state: PlayerSheetUiState,
-    callbacks: PlayerSheetCallbacks
+    callbacks: PlayerSheetCallbacks,
+    modifier: Modifier = Modifier
 ) {
     if (state.chapters.isEmpty()) {
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
-                .height(200.dp),
+                .padding(vertical = 32.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -136,10 +164,16 @@ internal fun ChaptersTabContent(
             state.chapters.indexOfLast { it.timeMs <= state.currentTimePosMs }.coerceAtLeast(0)
         }
 
+        val listState = rememberLazyListState()
+        LaunchedEffect(activeIndex) {
+            if (activeIndex in state.chapters.indices) {
+                listState.animateScrollToItem(activeIndex)
+            }
+        }
+
         LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(320.dp)
+            state = listState,
+            modifier = modifier.fillMaxWidth()
         ) {
             itemsIndexed(state.chapters) { index, chapter ->
                 val isCurrent = index == activeIndex

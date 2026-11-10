@@ -36,6 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
+/**
+ * 紧凑型轨道选择行项 (TrackItem)
+ * 扁平化行设计，消除独立卡片带来的大面积留白与零散感，单行紧凑高 ~44dp。
+ */
 @Composable
 internal fun TrackItem(
     title: String,
@@ -47,52 +51,49 @@ internal fun TrackItem(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) accentColor.copy(alpha = 0.15f) else SheetCardColor,
-        border = if (isSelected) BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)) else null,
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) accentColor.copy(alpha = 0.14f) else Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp)
+            .padding(horizontal = 16.dp, vertical = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (icon != null) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(if (isSelected) accentColor.copy(alpha = 0.2f) else SheetCardAltColor),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (isSelected) accentColor else SheetTextSecondaryColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isSelected) accentColor else SheetTextSecondaryColor,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) accentColor else SheetTextColor,
+                    style = TextStyle(
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) accentColor else SheetTextColor
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (subtitle.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SheetTextSecondaryColor
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            color = SheetTextSecondaryColor
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -101,7 +102,7 @@ internal fun TrackItem(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Selected",
                     tint = accentColor,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

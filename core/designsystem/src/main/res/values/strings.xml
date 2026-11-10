@@ -179,7 +179,7 @@
     <string name="settings_group_about">关于</string>
     <string name="settings_app_version">版本</string>
     <string name="settings_engine_core">播放核心</string>
-    <string name="settings_engine_core_val">mpv 0.38 + OpenGL ES</string>
+    <string name="settings_engine_core_val">mpv 0.41.0 + OpenGL ES</string>
 
     <!-- Settings: Storage & Folders -->
     <string name="settings_group_storage">存储与媒体库</string>
@@ -256,6 +256,8 @@
     <!-- R4: Audiovisual Enhancements & Overdrive -->
     <string name="sheet_tab_effects">视听增强</string>
     <string name="sheet_tab_audiovisual">视听调节</string>
+    <string name="sheet_tab_video">画面</string>
+    <string name="anime4k_auto_hwdec_notice">已自动切换至 HW+ 硬件复制模式以启用画质增强</string>
     <string name="hud_overdrive_badge">超频软增益</string>
     <string name="hud_volume_overdrive">音量 %d%% (超频)</string>
     <string name="hud_volume_overdrive_hint">(支持 200% 超频)</string>

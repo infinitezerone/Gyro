@@ -118,6 +118,8 @@ import dev.gyro.feature.player.component.PlayerControlsOverlay
 import dev.gyro.feature.player.component.PlayerHudOverlay
 import dev.gyro.feature.player.component.StatsDiagnosticOverlay
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerPlaylistSheet
 import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.gesture.*
@@ -462,7 +464,10 @@ fun PlayerScreen(
     }
     var wasInPipLayout by remember { mutableStateOf(false) }
     LaunchedEffect(isPipLayout) {
-        if (wasInPipLayout && !isPipLayout) {
+        if (isPipLayout) {
+            // 进入 PiP 小窗后解除屏幕锁定，避免小窗内残留锁定阻碍交互
+            playerState.isLocked = false
+        } else if (wasInPipLayout && !isPipLayout) {
             // 从 PiP 返回全屏：严格恢复进入前的屏幕朝向（横屏进回横屏，竖屏进回竖屏）
             if (orientationBeforePip != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                 activity?.requestedOrientation = orientationBeforePip
@@ -1189,23 +1194,19 @@ fun PlayerScreen(
                 onBack = onBack,
                 chapters = chapters,
                 videoBottomDp = videoBottomDp,
-                hdrFormat = hdrFormat
+                hdrFormat = hdrFormat,
+                hwdec = hwdecCurrent,
+                onCycleHwdec = {
+                    engine.cycleHwdec()
+                }
             )
         }
 
         // G. Modal Tabbed Settings & Calibrator Bottom Sheet
         AnimatedVisibility(
             visible = playerState.activeSheetTab != null && !isPipLayout && !hideChrome,
-            enter = if (isLandscape) {
-                slideInHorizontally(initialOffsetX = { it }) + fadeIn()
-            } else {
-                slideInVertically(initialOffsetY = { it }) + fadeIn()
-            },
-            exit = if (isLandscape) {
-                slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
-            } else {
-                slideOutVertically(targetOffsetY = { it }) + fadeOut()
-            }
+            enter = fadeIn(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(140))
         ) {
             playerState.activeSheetTab?.let { tab ->
                 if (!isPipLayout && !hideChrome) {
@@ -1218,92 +1219,123 @@ fun PlayerScreen(
                         fallbackUri = activeUri?.toString() ?: ""
                     )
                 }
-                PlayerSettingsSheet(
-                    initialTab = tab,
-                    isLandscape = isLandscape,
-                    state = PlayerSheetUiState(
-                        playlist = playlist,
-                        currentPlaylistIndex = currentPlaylistIndex,
-                        chapters = chapters,
-                        currentChapterIndex = currentChapter,
-                        currentTimePosMs = timePosMs,
-                        tracks = tracks,
-                        secondarySubId = snapshot.secondarySubId,
-                        statsOverlayEnabled = statsOverlayEnabled,
-                        currentResizeMode = resizeMode,
-                        currentSpeed = speed,
-                        subDelaySec = subDelaySec,
-                        audioDelaySec = audioDelaySec,
-                        subScale = subScale,
-                        subPos = subPos,
-                        hwdec = hwdecCurrent,
-                        fps = fps,
-                        droppedFrames = droppedFrames,
-                        videoBitrate = liveVideoBitrate,
-                        audioBitrate = liveAudioBitrate,
-                        bitrateHistory = bitrateHistory.toList(),
-                        videoWidth = videoDimensions.width,
-                        videoHeight = videoDimensions.height,
-                        powerMetrics = powerMetrics,
-                        mediaInfo = currentMediaInfo,
-                        shaderState = shaderState,
-                        customShaders = remember(shaderState) { engine.shaders.getCustomShaders() },
-                        deband = deband,
-                        brightness = brightness,
-                        contrast = contrast,
-                        saturation = saturation,
-                        nightMode = nightMode,
-                        stereoDownmix = stereoDownmix,
-                        isHdr = snapshot.isHdr,
-                        hdrFormat = snapshot.hdrFormat
-                    ),
-                    callbacks = PlayerSheetCallbacks(
-                        onSelectPlaylistItem = { idx ->
-                            playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
-                            playerState.activeSheetTab = null
-                        },
-                        onSelectChapter = { idx ->
-                            engine.seekToChapter(idx)
-                            playerState.activeSheetTab = null
-                        },
-                        onSelectShader = { shader -> engine.shaders.setShader(shader) },
-                        onClearShader = { engine.shaders.clearShader() },
-                        onSelectCustomShaderFile = { file ->
-                            engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
-                        },
-                        onImportCustomShader = {
-                            shaderPicker.launch(arrayOf("*/*"))
-                        },
-                        onSetDeband = { enabled -> engine.video.setDeband(enabled) },
-                        onSetBrightness = { value -> engine.video.setBrightness(value) },
-                        onSetContrast = { value -> engine.video.setContrast(value) },
-                        onSetSaturation = { value -> engine.video.setSaturation(value) },
-                        onResetColors = { engine.video.resetColors() },
-                        onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
-                        onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
-                        onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
-                        onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
-                        onSelectSpeed = { sp -> engine.setSpeed(sp) },
-                        onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
-                        onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
-                        onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
-                        onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
-                        onToggleHwdec = { engine.toggleHwdec() },
-                        onToggleStatsOverlay = { statsOverlayEnabled = it },
-                        onAddExternalSubtitle = {
-                            subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
-                        },
-                        onOpenFullSettings = {
-                            playerState.activeSheetTab = null
-                            onOpenSettings()
-                        }
-                    ),
-                    onDismiss = {
+                val sheetUiState = PlayerSheetUiState(
+                    playlist = playlist,
+                    currentPlaylistIndex = currentPlaylistIndex,
+                    chapters = chapters,
+                    currentChapterIndex = currentChapter,
+                    currentTimePosMs = timePosMs,
+                    tracks = tracks,
+                    secondarySubId = snapshot.secondarySubId,
+                    statsOverlayEnabled = statsOverlayEnabled,
+                    currentResizeMode = resizeMode,
+                    currentSpeed = speed,
+                    subDelaySec = subDelaySec,
+                    audioDelaySec = audioDelaySec,
+                    subScale = subScale,
+                    subPos = subPos,
+                    hwdec = hwdecCurrent,
+                    fps = fps,
+                    droppedFrames = droppedFrames,
+                    videoBitrate = liveVideoBitrate,
+                    audioBitrate = liveAudioBitrate,
+                    bitrateHistory = bitrateHistory.toList(),
+                    videoWidth = videoDimensions.width,
+                    videoHeight = videoDimensions.height,
+                    powerMetrics = powerMetrics,
+                    mediaInfo = currentMediaInfo,
+                    shaderState = shaderState,
+                    customShaders = remember(shaderState) { engine.shaders.getCustomShaders() },
+                    deband = deband,
+                    brightness = brightness,
+                    contrast = contrast,
+                    saturation = saturation,
+                    softwareVolume = engine.state.value.softwareVolume,
+                    nightMode = nightMode,
+                    stereoDownmix = stereoDownmix,
+                    isHdr = snapshot.isHdr,
+                    hdrFormat = snapshot.hdrFormat,
+                    hdrOutputMode = snapshot.hdrOutputMode,
+                    toneMappingAlgorithm = snapshot.toneMappingAlgorithm,
+                    videoScale = snapshot.videoScale,
+                    interpolation = snapshot.interpolation,
+                    audioPassthrough = snapshot.audioPassthrough
+                )
+
+                val sheetCallbacks = PlayerSheetCallbacks(
+                    onSelectPlaylistItem = { idx ->
+                        playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
                         playerState.activeSheetTab = null
-                        // 关闭 sheet 后短暂唤回控制层，随后按自动隐藏节奏淡出
-                        playerState.showControls()
+                    },
+                    onSelectChapter = { idx ->
+                        engine.seekToChapter(idx)
+                        playerState.activeSheetTab = null
+                    },
+                    onSelectShader = { shader -> engine.shaders.setShader(shader) },
+                    onClearShader = { engine.shaders.clearShader() },
+                    onSelectCustomShaderFile = { file ->
+                        engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
+                    },
+                    onImportCustomShader = {
+                        shaderPicker.launch(arrayOf("*/*"))
+                    },
+                    onSetDeband = { enabled -> engine.video.setDeband(enabled) },
+                    onSetBrightness = { value -> engine.video.setBrightness(value) },
+                    onSetContrast = { value -> engine.video.setContrast(value) },
+                    onSetSaturation = { value -> engine.video.setSaturation(value) },
+                    onResetColors = { engine.video.resetColors() },
+                    onSetSoftwareVolume = { gain -> engine.audio.setSoftwareVolume(gain) },
+                    onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
+                    onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
+                    onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
+                    onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
+                    onSelectSpeed = { sp -> engine.setSpeed(sp) },
+                    onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
+                    onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
+                    onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
+                    onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
+                    onToggleHwdec = { engine.toggleHwdec() },
+                    onSetHwdec = { target -> engine.setHwdec(target) },
+                    onToggleStatsOverlay = { statsOverlayEnabled = it },
+                    onAddExternalSubtitle = {
+                        subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
+                    },
+                    onSetHdrOutputMode = { mode -> engine.setHdrOutputMode(mode) },
+                    onSetToneMappingAlgorithm = { algo -> engine.setToneMappingAlgorithm(algo) },
+                    onSetVideoScale = { scale -> engine.setVideoScale(scale) },
+                    onToggleInterpolation = { enabled -> engine.setInterpolation(enabled) },
+                    onToggleAudioPassthrough = { enabled -> engine.setAudioPassthrough(enabled) },
+                    onOpenFullSettings = {
+                        playerState.activeSheetTab = null
+                        onOpenSettings()
                     }
                 )
+
+                val isPlaylistScene = tab == PlayerSheetTab.PLAYLIST || tab == PlayerSheetTab.CHAPTERS
+                if (isPlaylistScene) {
+                    PlayerPlaylistSheet(
+                        state = sheetUiState,
+                        callbacks = sheetCallbacks,
+                        isLandscape = isLandscape,
+                        animatedVisibilityScope = this,
+                        onDismiss = {
+                            playerState.activeSheetTab = null
+                            playerState.showControls()
+                        }
+                    )
+                } else {
+                    PlayerSettingsSheet(
+                        initialTab = tab,
+                        isLandscape = isLandscape,
+                        animatedVisibilityScope = this,
+                        state = sheetUiState,
+                        callbacks = sheetCallbacks,
+                        onDismiss = {
+                            playerState.activeSheetTab = null
+                            playerState.showControls()
+                        }
+                    )
+                }
             }
         }
     }

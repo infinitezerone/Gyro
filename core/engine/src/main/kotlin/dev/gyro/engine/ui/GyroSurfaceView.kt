@@ -477,6 +477,8 @@ fun GyroPlayerSurface(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             activity?.window?.colorMode = if (canHdr) {
                 ActivityInfo.COLOR_MODE_HDR
+            } else if (context.displaySupportsWideColorGamut()) {
+                ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
             } else {
                 ActivityInfo.COLOR_MODE_DEFAULT
             }
@@ -486,7 +488,12 @@ fun GyroPlayerSurface(
     DisposableEffect(Unit) {
         onDispose {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.findActivity()?.window?.colorMode = ActivityInfo.COLOR_MODE_DEFAULT
+                val activity = context.findActivity()
+                activity?.window?.colorMode = if (context.displaySupportsWideColorGamut()) {
+                    ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+                } else {
+                    ActivityInfo.COLOR_MODE_DEFAULT
+                }
             }
         }
     }
@@ -564,4 +571,12 @@ private fun Context.displaySupportsHdr(): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
     val display = findActivity()?.windowManager?.defaultDisplay ?: return false
     return display.isHdr
+}
+
+/** True when the current display advertises wide color gamut (P3) support. */
+@Suppress("DEPRECATION")
+private fun Context.displaySupportsWideColorGamut(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    val display = findActivity()?.windowManager?.defaultDisplay ?: return false
+    return display.isWideColorGamut
 }

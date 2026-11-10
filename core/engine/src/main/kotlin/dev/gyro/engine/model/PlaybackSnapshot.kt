@@ -28,6 +28,10 @@ data class PlaybackSnapshot(
     // Decode / timing diagnostics
     val hwdecCurrent: String = "",
     val hdrOutputMode: String = dev.gyro.core.model.HDR_OUTPUT_AUTO,
+    val toneMappingAlgorithm: String = dev.gyro.core.model.TONE_MAPPING_AUTO,
+    val videoScale: String = dev.gyro.core.model.SCALE_AUTO,
+    val interpolation: Boolean = false,
+    val audioPassthrough: Boolean = false,
     val speed: Float = 1.0f,
     val fps: Double = 0.0,
     val droppedFrames: Long = 0L,

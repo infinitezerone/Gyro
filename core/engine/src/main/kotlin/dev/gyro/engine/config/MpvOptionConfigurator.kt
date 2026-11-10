@@ -199,14 +199,19 @@ class MpvOptionConfigurator {
         bridge.setOptionString("ao", "audiotrack,opensles")
         bridge.setOptionString("volume-max", "200.0")
 
+        val scaleFilter = when (settings.videoScale) {
+            dev.gyro.core.model.SCALE_BILINEAR, dev.gyro.core.model.SCALE_OFF -> "bilinear"
+            dev.gyro.core.model.SCALE_LANCZOS -> "lanczos"
+            else -> "spline36" // 对齐系统相册级别的高清晰样条重采样
+        }
         if (!userOptions.containsKey("scale")) {
-            bridge.setOptionString("scale", "spline36")
+            bridge.setOptionString("scale", scaleFilter)
         }
         if (!userOptions.containsKey("cscale")) {
             bridge.setOptionString("cscale", "spline36")
         }
         if (!userOptions.containsKey("dscale")) {
-            bridge.setOptionString("dscale", "mitchell")
+            bridge.setOptionString("dscale", if (scaleFilter == "bilinear") "bilinear" else "mitchell")
         }
         if (!userOptions.containsKey("correct-downscaling")) {
             bridge.setOptionString("correct-downscaling", "yes")

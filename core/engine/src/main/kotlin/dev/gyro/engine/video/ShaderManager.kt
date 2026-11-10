@@ -23,7 +23,8 @@ class ShaderManager(
         const val CUSTOM_DIR = "shaders/custom"
 
         val BUILT_IN_ASSET_NAMES = mapOf(
-            GlslShader.ANIME4K to "anime4k_lite.glsl"
+            GlslShader.ANIME4K to "anime4k_lite.glsl",
+            GlslShader.CAS to "cas.glsl"
         )
     }
 
@@ -42,19 +43,16 @@ class ShaderManager(
         val extracted = mutableMapOf<GlslShader, File>()
         for ((shader, assetName) in BUILT_IN_ASSET_NAMES) {
             val targetFile = File(builtInDir, assetName)
-            if (!targetFile.exists() || targetFile.length() == 0L) {
-                val ctx = context
-                if (ctx != null) {
-                    try {
-                        ctx.assets.open("shaders/$assetName").use { input ->
-                            targetFile.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        EngineLog.i(TAG, "Extracted built-in shader $assetName to ${targetFile.absolutePath}")
-                    } catch (e: Exception) {
-                        EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName", e)
+            val ctx = context
+            if (ctx != null) {
+                try {
+                    val assetBytes = ctx.assets.open("shaders/$assetName").use { it.readBytes() }
+                    if (!targetFile.exists() || targetFile.length() != assetBytes.size.toLong()) {
+                        targetFile.writeBytes(assetBytes)
+                        EngineLog.i(TAG, "Extracted/Updated built-in shader $assetName (${assetBytes.size} bytes) to ${targetFile.absolutePath}")
                     }
+                } catch (e: Exception) {
+                    EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName", e)
                 }
             }
             if (targetFile.exists() && targetFile.length() > 0L) {
@@ -65,22 +63,21 @@ class ShaderManager(
     }
 
     /**
-     * Retrieves the absolute File for a built-in shader, extracting on-demand if absent.
+     * Retrieves the absolute File for a built-in shader, extracting on-demand if absent or outdated.
      */
     fun getBuiltInShaderFile(shader: GlslShader): File? {
         val assetName = BUILT_IN_ASSET_NAMES[shader] ?: return null
         val targetFile = File(builtInDir, assetName)
-        if (!targetFile.exists() || targetFile.length() == 0L) {
-            val ctx = context ?: return null
+        val ctx = context
+        if (ctx != null) {
             try {
-                ctx.assets.open("shaders/$assetName").use { input ->
-                    targetFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+                val assetBytes = ctx.assets.open("shaders/$assetName").use { it.readBytes() }
+                if (!targetFile.exists() || targetFile.length() != assetBytes.size.toLong()) {
+                    targetFile.writeBytes(assetBytes)
+                    EngineLog.i(TAG, "Updated built-in shader $assetName (${assetBytes.size} bytes) on demand")
                 }
             } catch (e: Exception) {
                 EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName on demand", e)
-                return null
             }
         }
         return targetFile.takeIf { it.exists() && it.length() > 0L }

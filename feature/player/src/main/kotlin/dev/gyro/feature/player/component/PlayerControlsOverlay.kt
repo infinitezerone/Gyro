@@ -85,7 +85,9 @@ fun BoxScope.PlayerControlsOverlay(
     onBack: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
     videoBottomDp: Dp? = null,
-    hdrFormat: String = ""
+    hdrFormat: String = "",
+    hwdec: String = "",
+    onCycleHwdec: () -> Unit = {}
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -214,7 +216,9 @@ fun BoxScope.PlayerControlsOverlay(
                     onEnterPiP = onEnterPiP,
                     onOpenSheetTab = onOpenSheetTab,
                     onScreenshot = onScreenshot,
-                    hdrFormat = hdrFormat
+                    hdrFormat = hdrFormat,
+                    hwdec = hwdec,
+                    onCycleHwdec = onCycleHwdec
                 )
             }
         }

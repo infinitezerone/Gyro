@@ -304,16 +304,18 @@ class PlayerPipState internal constructor(
     val isSettling: Boolean,
     val isLeavingForeground: Boolean,
     val pipRequested: Boolean,
+    val pipEntering: Boolean,
     private val enterPipAction: () -> Unit
 ) {
     /** True when either geometry or system mode indicates the player is in PiP floating layout. */
     val isPipLayout: Boolean get() = isPipWindow || isInPipMode
 
     /**
-     * True when in PiP layout or when entering PiP (transitioning gesture, manual request, or leaving hint)
+     * True when in PiP layout or when entering PiP (transitioning gesture, manual request,
+     * leaving hint, or window focus loss during swipe-to-home)
      * indicates controls and chrome should be hidden before window shrinking.
      */
-    val shouldHideChrome: Boolean get() = isPipLayout || isLeavingForeground || pipRequested || isTransitioning
+    val shouldHideChrome: Boolean get() = isPipLayout || isLeavingForeground || pipRequested || isTransitioning || pipEntering
 
     /** True while PiP transition or exit settle is active, used to freeze buffer relocking. */
     val isTransitionActive: Boolean get() = isSettling || isInPipMode
@@ -350,12 +352,28 @@ fun rememberPlayerPipState(
         }
     }
 
+    // 上滑回桌面时，窗口焦点比 PiP 转场早约 600ms 丢失（实测），
+    // 用它抢在转场前收起控制层；isTransitioningToPip 作为兜底。
+    // 焦点丢失期间 chrome 硬隐藏；焦点回来后若没进小窗（手势取消、下拉通知栏等），恢复正常显隐。
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    var pipEntering by remember { mutableStateOf(false) }
+
     var pipRequested by remember { mutableStateOf(false) }
 
     var isSettling by remember { mutableStateOf(isInPipMode) }
+    LaunchedEffect(windowFocused) {
+        if (!windowFocused) {
+            pipEntering = true
+            onControlsHide()
+        } else if (!isInPipMode && !isSettling) {
+            pipEntering = false
+        }
+    }
+
     LaunchedEffect(isInPipMode) {
         pipRequested = false
         if (isInPipMode) {
+            pipEntering = false
             isSettling = true
         } else if (isSettling) {
             delay(PIP_EXIT_SETTLE_MS)
@@ -435,7 +453,7 @@ fun rememberPlayerPipState(
         }
     }
 
-    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, enterPipAction) {
+    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, pipEntering, enterPipAction) {
         PlayerPipState(
             isInPipMode = isInPipMode,
             isPipWindow = isPipWindow,
@@ -443,6 +461,7 @@ fun rememberPlayerPipState(
             isSettling = isSettling,
             isLeavingForeground = isLeavingForeground,
             pipRequested = pipRequested,
+            pipEntering = pipEntering,
             enterPipAction = enterPipAction
         )
     }

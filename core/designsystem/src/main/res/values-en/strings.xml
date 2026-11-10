@@ -166,7 +166,7 @@
     <string name="settings_group_about">About</string>
     <string name="settings_app_version">Version</string>
     <string name="settings_engine_core">Playback Core</string>
-    <string name="settings_engine_core_val">mpv 0.38 + OpenGL ES</string>
+    <string name="settings_engine_core_val">mpv 0.41.0 + OpenGL ES</string>
     <!-- Settings: Storage & Folders -->
     <string name="settings_group_storage">Storage &amp; Media Library</string>
     <string name="settings_folders_manage">Authorized Folders</string>
@@ -242,6 +242,8 @@
     <!-- R4: Audiovisual Enhancements & Overdrive -->
     <string name="sheet_tab_effects">AV Effects</string>
     <string name="sheet_tab_audiovisual">Audiovisual</string>
+    <string name="sheet_tab_video">Video</string>
+    <string name="anime4k_auto_hwdec_notice">Switched to HW+ mode to enable video enhancements</string>
     <string name="hud_overdrive_badge">OVERDRIVE</string>
     <string name="hud_volume_overdrive">Volume %d%% (Overdrive)</string>
     <string name="hud_volume_overdrive_hint">(supports 200% overdrive)</string>

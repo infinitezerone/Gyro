@@ -30,6 +30,10 @@ interface SettingsRepository {
     suspend fun setSeekStepSeconds(seconds: Int): UserSettings
     suspend fun setDefaultHwdec(hwdec: String): UserSettings
     suspend fun setHdrOutputMode(mode: String): UserSettings
+    suspend fun setToneMappingAlgorithm(algorithm: String): UserSettings
+    suspend fun setVideoScale(scale: String): UserSettings
+    suspend fun setInterpolation(enabled: Boolean): UserSettings
+    suspend fun setAudioPassthrough(enabled: Boolean): UserSettings
     suspend fun setSubAutoLoad(enabled: Boolean): UserSettings
     suspend fun setGesturesEnabled(enabled: Boolean): UserSettings
 
@@ -89,6 +93,18 @@ class DefaultSettingsRepository @Inject constructor(
 
     override suspend fun setHdrOutputMode(mode: String) =
         updateSettings { it.copy(hdrOutputMode = mode) }
+
+    override suspend fun setToneMappingAlgorithm(algorithm: String) =
+        updateSettings { it.copy(toneMappingAlgorithm = algorithm) }
+
+    override suspend fun setVideoScale(scale: String) =
+        updateSettings { it.copy(videoScale = scale) }
+
+    override suspend fun setInterpolation(enabled: Boolean) =
+        updateSettings { it.copy(interpolation = enabled) }
+
+    override suspend fun setAudioPassthrough(enabled: Boolean) =
+        updateSettings { it.copy(audioPassthrough = enabled) }
 
     override suspend fun setSubAutoLoad(enabled: Boolean) =
         updateSettings { it.copy(subAutoLoad = enabled) }
