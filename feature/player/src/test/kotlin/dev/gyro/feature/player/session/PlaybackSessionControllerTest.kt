@@ -279,4 +279,71 @@ class PlaybackSessionControllerTest {
         assertEquals(0, playlistManager.currentIndex.value)
         assertEquals("One", playlistManager.currentItem?.displayName)
     }
+
+    @Test
+    fun testLeavePlayer_persistsProgressPausesAndAbandonsAudioFocus() = runControllerTest {
+        val uri = TestUri("file:///tmp/leave.mp4")
+        controller.openUri(uri)
+        runCurrent()
+
+        fakeBridge.emitPropertyDouble("time-pos", 33.0)
+        fakeBridge.emitPropertyDouble("duration", 99.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+        assertTrue(controller.sessionActive.value)
+
+        controller.leavePlayer()
+        runCurrent()
+
+        assertFalse(controller.sessionActive.value)
+        assertTrue(fakeBridge.properties["pause"] == true)
+
+        val progress = historyRepo.getProgress(uri)
+        assertNotNull(progress)
+        assertEquals(33000L, progress?.positionMs)
+        assertEquals(99000L, progress?.durationMs)
+    }
+
+    @Test
+    fun testOnNotificationStop_persistsProgressAndPausesWithoutServiceStopCall() = runControllerTest {
+        val uri = TestUri("file:///tmp/notif_stop.mp4")
+        controller.openUri(uri)
+        runCurrent()
+
+        fakeBridge.emitPropertyDouble("time-pos", 15.0)
+        fakeBridge.emitPropertyDouble("duration", 60.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        controller.onNotificationStop()
+        runCurrent()
+
+        assertFalse(controller.sessionActive.value)
+        assertTrue(fakeBridge.properties["pause"] == true)
+
+        val progress = historyRepo.getProgress(uri)
+        assertNotNull(progress)
+        assertEquals(15000L, progress?.positionMs)
+        assertEquals(60000L, progress?.durationMs)
+    }
+
+    @Test
+    fun testTeardownIdempotency() = runControllerTest {
+        val uri = TestUri("file:///tmp/idempotent.mp4")
+        controller.openUri(uri)
+        runCurrent()
+
+        fakeBridge.emitPropertyDouble("time-pos", 10.0)
+        fakeBridge.emitPropertyDouble("duration", 50.0)
+        runCurrent()
+
+        controller.leavePlayer()
+        runCurrent()
+
+        // Second call from service destruction or destination pop must safely do nothing
+        controller.onServiceDestroyed()
+        runCurrent()
+
+        assertFalse(controller.sessionActive.value)
+    }
 }

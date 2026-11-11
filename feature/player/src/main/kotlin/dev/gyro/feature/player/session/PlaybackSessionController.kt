@@ -213,48 +213,59 @@ class PlaybackSessionController internal constructor(
     }
 
     /**
-     * Ends the foreground session: a pending auto-advance must not pull the next video up after the
-     * user left the player or stopped playback from the notification.
+     * Centralized, authoritative teardown for the playback session.
+     * Idempotent and thread-safe via CAS.
      *
-     * Idempotent by design. Several independent producers signal the same exit (back callback,
-     * predictive back, PiP dismissal, destination teardown) and the service stop path re-enters
-     * here, so a repeated call must not issue another [PlaybackServiceLauncher.stop]: a second
-     * start/stop pair while the previous stop is still in flight is what makes the service
-     * bounce between create and destroy.
+     * In an atomic, ordered sequence:
+     * 1. Cancels any pending auto-advance
+     * 2. Saves current playback progress to history
+     * 3. Pauses engine playback
+     * 4. Abandons audio focus
+     * 5. Detaches the video surface
+     * 6. Requests service stop (if requested by the caller)
+     * 7. Transitions sessionActive to false
      */
-    fun exit() {
-        endSession(requestServiceStop = true)
-    }
-
-    /**
-     * Host service is already gone (notification stop, stopSelf): clear the session without asking
-     * it to stop a second time. Called from the service's own teardown.
-     */
-    fun onServiceDestroyed() {
-        endSession(requestServiceStop = false)
-    }
-
-    private fun endSession(requestServiceStop: Boolean) {
+    fun endSession(requestServiceStop: Boolean = true) {
         if (!_sessionActive.compareAndSet(expect = true, update = false)) return
         advanceJob?.cancel()
+        saveCurrentProgress()
+        engine.pause()
+        engine.abandonAudioFocus()
+        engine.detachSurface()
         if (requestServiceStop) {
             serviceLauncher.stop()
         }
     }
 
     /**
-     * Ends playback because the user left the player destination: persist the playhead, release
-     * audio focus and the video surface, then tear the session down.
-     *
-     * Single implementation for every exit producer (top-bar back, predictive back, PiP dismissal,
-     * player destination removed from the back stack). Safe to call more than once.
+     * Ends playback because the user left the player destination (top-bar back, predictive back,
+     * PiP dismissal, player destination removed from back stack).
      */
     fun leavePlayer() {
-        saveCurrentProgress()
-        engine.pause()
-        engine.abandonAudioFocus()
-        exit()
-        engine.detachSurface()
+        endSession(requestServiceStop = true)
+    }
+
+    /**
+     * Stop requested from system notification (ACTION_STOP, ACTION_DISMISS) or media controls.
+     * Does not request service stop because the service is already handling its own stop/dismiss.
+     */
+    fun onNotificationStop() {
+        endSession(requestServiceStop = false)
+    }
+
+    /**
+     * Host service is being destroyed by the Android OS (notification stop, stopSelf, task removal).
+     * Ensures session teardown runs if not already executed.
+     */
+    fun onServiceDestroyed() {
+        endSession(requestServiceStop = false)
+    }
+
+    /**
+     * Alias for [endSession] kept for backwards compatibility.
+     */
+    fun exit() {
+        endSession(requestServiceStop = true)
     }
 
     fun playMediaItem(item: VideoMediaItem) {

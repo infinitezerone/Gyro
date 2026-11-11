@@ -16,7 +16,6 @@ import androidx.core.content.IntentCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
-import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.session.MediaSessionControls
 import dev.gyro.engine.session.MediaSessionManager
@@ -36,7 +35,6 @@ import javax.inject.Inject
 class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: PlayerEngine
-    @Inject lateinit var historyRepository: PlaybackHistoryRepository
     @Inject lateinit var mediaSessionManager: MediaSessionManager
     @Inject lateinit var sessionController: dev.gyro.feature.player.session.PlaybackSessionController
 
@@ -92,6 +90,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         mediaSessionManager.onStopRequested = {
+            sessionController.onNotificationStop()
             stopForegroundAndSelf()
         }
     }
@@ -118,9 +117,8 @@ class PlaybackService : MediaSessionService() {
             action = action,
             keyEvent = keyEvent,
             controls = mediaSessionManager,
-            saveProgress = { saveCurrentProgress() },
-            stopAndReset = { stopForegroundAndSelf() },
-            exitSession = { sessionController.exit() }
+            onNotificationStop = { sessionController.onNotificationStop() },
+            stopAndReset = { stopForegroundAndSelf() }
         )
 
         val superSticky = super.onStartCommand(intent, flags, startId)
@@ -134,11 +132,12 @@ class PlaybackService : MediaSessionService() {
         action: String?,
         keyEvent: KeyEvent?,
         controls: MediaSessionControls?,
-        saveProgress: () -> Unit,
-        stopAndReset: () -> Unit,
-        exitSession: () -> Unit
+        onNotificationStop: () -> Unit,
+        stopAndReset: () -> Unit
     ): Int {
-        engine.isHeadlessMode = true
+        if (!engine.isSurfaceAttached) {
+            engine.isHeadlessMode = true
+        }
         when (action) {
             ACTION_PLAY -> controls?.play()
             ACTION_PAUSE -> controls?.pause()
@@ -147,17 +146,8 @@ class PlaybackService : MediaSessionService() {
             ACTION_NEXT -> controls?.skipToNext()
             ACTION_REWIND -> engine.seekRelative(-10_000L)
             ACTION_FAST_FORWARD -> engine.seekRelative(10_000L)
-            ACTION_STOP -> {
-                saveProgress()
-                engine.pause()
-                exitSession()
-                stopAndReset()
-                return START_NOT_STICKY
-            }
-            ACTION_DISMISS -> {
-                saveProgress()
-                engine.pause()
-                exitSession()
+            ACTION_STOP, ACTION_DISMISS -> {
+                onNotificationStop()
                 stopAndReset()
                 return START_NOT_STICKY
             }
@@ -168,16 +158,6 @@ class PlaybackService : MediaSessionService() {
             }
         }
         return START_STICKY
-    }
-
-    private fun saveCurrentProgress() {
-        val snapshot = engine.state.value
-        val uri = snapshot.currentUri ?: return
-        val curPos = engine.timePosMs.value
-        val curDur = snapshot.durationMs
-        if (curDur > 0L) {
-            historyRepository.saveProgress(uri, curPos, curDur)
-        }
     }
 
     private fun loadThumbnailIfNeeded(uri: Uri?) {
@@ -229,10 +209,10 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
-        // The host is the last thing holding a foreground session together: persist the playhead
-        // and drop the session flag here, so a teardown started from the notification (stopSelf)
-        // and one started from the UI (stopService) converge on the same cleanup.
-        saveCurrentProgress()
+        // Clear stop listener to break references from singleton MediaSessionManager
+        mediaSessionManager.onStopRequested = null
+        // The host is the last thing holding a foreground session together: sessionController
+        // teardown guarantees progress persistence, pausing, focus release, and flag reset.
         sessionController.onServiceDestroyed()
         // Unregister before the process-facing cleanup: until release() returns, the system still
         // routes media buttons and shows the media card for this session.
