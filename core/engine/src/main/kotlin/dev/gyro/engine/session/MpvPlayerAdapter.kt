@@ -26,7 +26,7 @@ import java.io.ByteArrayOutputStream
  * Adapter that exposes [GyroPlayerEngine] and [PlaylistManager] as a Media3 [Player] via [SimpleBasePlayer].
  */
 class MpvPlayerAdapter(
-    val engine: GyroPlayerEngine,
+    val engine: dev.gyro.engine.api.PlayerEngine,
     val playlistManager: PlaylistManager = engine.playlist,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
     var onSkipToNext: (() -> Boolean)? = null,

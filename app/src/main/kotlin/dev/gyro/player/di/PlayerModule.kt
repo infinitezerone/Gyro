@@ -66,7 +66,7 @@ object PlayerModule {
     @Singleton
     fun provideMediaSessionManager(
         @ApplicationContext context: Context,
-        engine: GyroPlayerEngine,
+        engine: dev.gyro.engine.api.PlayerEngine,
         playlistManager: PlaylistManager
     ): MediaSessionManager {
         val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(context, PlaybackService::class.java)

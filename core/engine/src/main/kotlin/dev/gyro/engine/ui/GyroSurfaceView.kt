@@ -139,7 +139,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         private const val TAG = "GyroSurfaceView"
     }
 
-    var engine: GyroPlayerEngine? = null
+    var engine: dev.gyro.engine.api.PlayerEngine? = null
 
     /** Buffer size currently fixed on the holder; 0 until the first lock. */
     private var lockedWidth = 0
@@ -376,7 +376,7 @@ class GyroSurfaceView @JvmOverloads constructor(
      * Releases surface ownership if this view's surface is currently attached to [targetEngine],
      * without unconditionally detaching a newer surface owned by another [GyroSurfaceView].
      */
-    fun releaseSurfaceOwnership(targetEngine: GyroPlayerEngine? = engine) {
+    fun releaseSurfaceOwnership(targetEngine: dev.gyro.engine.api.PlayerEngine? = engine) {
         val surfaceToDetach = attachedSurface ?: holder.surface
         attachedSurface = null
         if (surfaceToDetach != null) {
@@ -441,7 +441,7 @@ class GyroSurfaceView @JvmOverloads constructor(
 @Composable
 fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
-    engine: GyroPlayerEngine? = null,
+    engine: dev.gyro.engine.api.PlayerEngine? = null,
     videoDimensions: VideoDimensions? = null,
     videoFrameRate: Float? = null,
     pipTransitionActive: Boolean = false,

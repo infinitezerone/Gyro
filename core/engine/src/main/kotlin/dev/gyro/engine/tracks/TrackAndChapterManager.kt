@@ -22,23 +22,23 @@ import kotlinx.coroutines.launch
 class TrackAndChapterManager(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : EngineSubsystem {
+) : EngineSubsystem, dev.gyro.engine.api.controller.TrackController {
 
     companion object {
         private const val TAG = "TrackAndChapterManager"
     }
 
     private val _tracks = store.property({ it.tracks }) { s, v -> s.copy(tracks = v) }
-    val tracks: StateFlow<List<TrackInfo>> = _tracks.asStateFlow()
+    override val tracks: StateFlow<List<TrackInfo>> = _tracks.asStateFlow()
 
     private val _chapters = store.property({ it.chapters }) { s, v -> s.copy(chapters = v) }
-    val chapters: StateFlow<List<ChapterInfo>> = _chapters.asStateFlow()
+    override val chapters: StateFlow<List<ChapterInfo>> = _chapters.asStateFlow()
 
     private val _currentChapter = store.property({ it.currentChapter }) { s, v -> s.copy(currentChapter = v) }
-    val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
+    override val currentChapter: StateFlow<Int> = _currentChapter.asStateFlow()
 
     private val _secondarySubId = store.property({ it.secondarySubId }) { s, v -> s.copy(secondarySubId = v) }
-    val secondarySubId: StateFlow<Int> = _secondarySubId.asStateFlow()
+    override val secondarySubId: StateFlow<Int> = _secondarySubId.asStateFlow()
 
     override fun registerObservers() {
         bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
@@ -104,7 +104,7 @@ class TrackAndChapterManager(
         }
     }
 
-    fun selectTrack(type: String, id: Int) {
+    override fun selectTrack(type: String, id: Int) {
         when (type) {
             "audio" -> {
                 if (id <= 0) {
@@ -132,7 +132,7 @@ class TrackAndChapterManager(
         refreshTracks()
     }
 
-    fun addSubtitle(path: String) {
+    override fun addSubtitle(path: String) {
         bridge.command(arrayOf("sub-add", path, "select"))
         refreshTracks()
     }

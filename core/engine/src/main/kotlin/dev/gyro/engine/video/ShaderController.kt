@@ -101,7 +101,7 @@ class ShaderController(
         EngineLog.i(TAG, "Cleared glsl-shaders")
     }
 
-    fun importAndSetCustomShader(uri: Uri): Result<String> {
+    override fun importAndSetCustomShader(uri: Uri): Result<String> {
         return shaderManager.importCustomShader(uri).map { file ->
             val name = file.nameWithoutExtension
             setShader(GlslShader.CUSTOM, customPath = file.absolutePath, customName = name)
@@ -109,5 +109,5 @@ class ShaderController(
         }
     }
 
-    fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
+    override fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
 }

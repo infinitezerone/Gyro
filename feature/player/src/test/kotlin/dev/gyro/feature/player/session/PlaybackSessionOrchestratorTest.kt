@@ -27,6 +27,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -180,6 +181,7 @@ class PlaybackSessionOrchestratorTest {
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
         orchestrator.setPlaylistAndPlay(listOf(item1, item2), item1)
         runCurrent()
+        advanceUntilIdle()
 
         fakeBridge.emitEndFile()
         runCurrent()

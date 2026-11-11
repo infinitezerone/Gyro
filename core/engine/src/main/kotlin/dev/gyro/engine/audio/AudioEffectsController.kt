@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 class AudioEffectsController(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : EngineSubsystem {
+) : EngineSubsystem, dev.gyro.engine.api.controller.AudioController {
 
     companion object {
         const val FILTER_STEREO_DOWNMIX =
@@ -32,13 +32,13 @@ class AudioEffectsController(
     }
 
     private val _softwareVolume = store.property({ it.softwareVolume }) { s, v -> s.copy(softwareVolume = v) }
-    val softwareVolume: StateFlow<Double> = _softwareVolume.asStateFlow()
+    override val softwareVolume: StateFlow<Double> = _softwareVolume.asStateFlow()
 
     private val _nightMode = store.property({ it.nightMode }) { s, v -> s.copy(nightMode = v) }
-    val nightMode: StateFlow<Boolean> = _nightMode.asStateFlow()
+    override val nightMode: StateFlow<Boolean> = _nightMode.asStateFlow()
 
     private val _stereoDownmix = store.property({ it.stereoDownmix }) { s, v -> s.copy(stereoDownmix = v) }
-    val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
+    override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
 
     @Volatile
     var userBaseAf: String = ""
@@ -69,7 +69,7 @@ class AudioEffectsController(
         }
 
     @Synchronized
-    fun setSoftwareVolume(gain: Double) {
+    override fun setSoftwareVolume(gain: Double) {
         val clamped = gain.coerceIn(100.0, 200.0)
         _softwareVolume.value = clamped
         bridge.setPropertyDouble("volume", clamped)
@@ -77,28 +77,28 @@ class AudioEffectsController(
     }
 
     @Synchronized
-    fun setAudioPassthrough(enabled: Boolean) {
+    override fun setAudioPassthrough(enabled: Boolean) {
         store.update { it.copy(audioPassthrough = enabled) }
         val target = if (enabled) "ac3,eac3,dts-hd,truehd,dtse" else ""
         bridge.setPropertyString("audio-spdif", target)
     }
 
     @Synchronized
-    fun resetSoftwareGain() {
+    override fun resetSoftwareGain() {
         _softwareVolume.value = 100.0
         bridge.setPropertyDouble("volume", 100.0)
         updateAudioFilters()
     }
 
     @Synchronized
-    fun setNightMode(enabled: Boolean) {
+    override fun setNightMode(enabled: Boolean) {
         if (_nightMode.value == enabled) return
         _nightMode.value = enabled
         updateAudioFilters()
     }
 
     @Synchronized
-    fun setStereoDownmix(enabled: Boolean) {
+    override fun setStereoDownmix(enabled: Boolean) {
         if (_stereoDownmix.value == enabled) return
         _stereoDownmix.value = enabled
         updateAudioFilters()

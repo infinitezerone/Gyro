@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
  */
 class MediaSessionManager(
     private val context: Context,
-    val engine: GyroPlayerEngine,
+    val engine: dev.gyro.engine.api.PlayerEngine,
     val playlistManager: PlaylistManager = engine.playlist,
     private val mediaButtonReceiver: PendingIntent? = null,
     private val sessionActivityPendingIntent: PendingIntent? = null,

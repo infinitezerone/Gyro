@@ -6,7 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +26,7 @@ sealed interface MainActivityUiState {
 class MainActivityViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val playlistManager: PlaylistManager,
-    private val engine: GyroPlayerEngine
+    private val engine: PlayerEngine
 ) : ViewModel() {
 
     val uiState: StateFlow<MainActivityUiState> = settingsRepository.settings

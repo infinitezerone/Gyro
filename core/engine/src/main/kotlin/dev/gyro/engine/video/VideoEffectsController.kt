@@ -19,19 +19,19 @@ import kotlinx.coroutines.launch
 class VideoEffectsController(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : EngineSubsystem {
+) : EngineSubsystem, dev.gyro.engine.api.controller.VideoController {
 
     private val _deband = store.property({ it.deband }) { s, v -> s.copy(deband = v) }
-    val deband: StateFlow<Boolean> = _deband.asStateFlow()
+    override val deband: StateFlow<Boolean> = _deband.asStateFlow()
 
     private val _brightness = store.property({ it.brightness }) { s, v -> s.copy(brightness = v) }
-    val brightness: StateFlow<Int> = _brightness.asStateFlow()
+    override val brightness: StateFlow<Int> = _brightness.asStateFlow()
 
     private val _contrast = store.property({ it.contrast }) { s, v -> s.copy(contrast = v) }
-    val contrast: StateFlow<Int> = _contrast.asStateFlow()
+    override val contrast: StateFlow<Int> = _contrast.asStateFlow()
 
     private val _saturation = store.property({ it.saturation }) { s, v -> s.copy(saturation = v) }
-    val saturation: StateFlow<Int> = _saturation.asStateFlow()
+    override val saturation: StateFlow<Int> = _saturation.asStateFlow()
 
     override fun registerObservers() {
         bridge.observeProperty("deband", MpvNativeBridge.Format.FLAG)
@@ -62,34 +62,34 @@ class VideoEffectsController(
             bridge.events.collect(::onEvent)
         }
 
-    fun setDeband(enabled: Boolean) {
+    override fun setDeband(enabled: Boolean) {
         _deband.value = enabled
         bridge.setPropertyBoolean("deband", enabled)
     }
 
-    fun setToneMapping(algorithm: String) {
+    override fun setToneMapping(algorithm: String) {
         bridge.setPropertyString("tone-mapping", algorithm)
     }
 
-    fun setBrightness(value: Int) {
+    override fun setBrightness(value: Int) {
         val clamped = value.coerceIn(-100, 100)
         _brightness.value = clamped
         bridge.setPropertyLong("brightness", clamped.toLong())
     }
 
-    fun setContrast(value: Int) {
+    override fun setContrast(value: Int) {
         val clamped = value.coerceIn(-100, 100)
         _contrast.value = clamped
         bridge.setPropertyLong("contrast", clamped.toLong())
     }
 
-    fun setSaturation(value: Int) {
+    override fun setSaturation(value: Int) {
         val clamped = value.coerceIn(-100, 100)
         _saturation.value = clamped
         bridge.setPropertyLong("saturation", clamped.toLong())
     }
 
-    fun resetColors() {
+    override fun resetColors() {
         setBrightness(0)
         setContrast(0)
         setSaturation(0)

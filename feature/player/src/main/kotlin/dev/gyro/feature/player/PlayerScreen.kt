@@ -117,7 +117,7 @@ import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.feature.player.component.PlayerControlsOverlay
 import dev.gyro.feature.player.component.PlayerHudOverlay
 import dev.gyro.feature.player.component.StatsDiagnosticOverlay
@@ -144,7 +144,7 @@ import java.util.Locale
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
-    engine: GyroPlayerEngine = viewModel.engine,
+    engine: PlayerEngine = viewModel.engine,
     currentUri: Uri? = null,
     settings: UserSettings = UserSettings(),
     playlistManager: PlaylistManager? = null,

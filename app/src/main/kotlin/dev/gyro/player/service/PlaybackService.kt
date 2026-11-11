@@ -17,7 +17,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
-import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.session.MediaSessionControls
 import dev.gyro.engine.session.MediaSessionManager
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +35,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 
-    @Inject lateinit var engine: GyroPlayerEngine
+    @Inject lateinit var engine: PlayerEngine
     @Inject lateinit var historyRepository: PlaybackHistoryRepository
     @Inject lateinit var mediaSessionManager: MediaSessionManager
 

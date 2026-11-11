@@ -12,7 +12,7 @@ import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
 import kotlinx.coroutines.CoroutineScope
@@ -38,7 +38,7 @@ class PlayerViewModel @Inject constructor(
 
     // Secondary constructor for existing unit tests
     constructor(
-        engine: GyroPlayerEngine,
+        engine: PlayerEngine,
         settingsRepository: SettingsRepository,
         historyRepository: PlaybackHistoryRepository,
         playlistManager: PlaylistManager = engine.playlist,
@@ -60,7 +60,7 @@ class PlayerViewModel @Inject constructor(
         settingsRepository = settingsRepository
     )
 
-    val engine: GyroPlayerEngine get() = orchestrator.engine
+    val engine: PlayerEngine get() = orchestrator.engine
     val historyRepository: PlaybackHistoryRepository get() = orchestrator.historyRepository
     val playlistManager: PlaylistManager get() = orchestrator.playlist
 

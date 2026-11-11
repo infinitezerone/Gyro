@@ -25,25 +25,25 @@ import kotlin.math.abs
 class VideoGeometryCoordinator(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : dev.gyro.engine.EngineSubsystem {
+) : dev.gyro.engine.EngineSubsystem, dev.gyro.engine.api.controller.GeometryController {
 
     private val _sessionState = store.property({ it.sessionState }) { s, v -> s.copy(sessionState = v) }
     val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
 
     private val _videoDimensions = store.property({ it.videoDimensions }) { s, v -> s.copy(videoDimensions = v) }
-    val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
+    override val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
 
     private val _videoAspect = store.property({ it.videoAspect }) { s, v -> s.copy(videoAspect = v) }
-    val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
+    override val videoAspect: StateFlow<Float> = _videoAspect.asStateFlow()
 
     private val _videoFrameRate = store.property({ it.videoFrameRate }) { s, v -> s.copy(videoFrameRate = v) }
-    val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
+    override val videoFrameRate: StateFlow<Float> = _videoFrameRate.asStateFlow()
 
     private val _geometryReady = store.property({ it.geometryReady }) { s, v -> s.copy(geometryReady = v) }
-    val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
+    override val geometryReady: StateFlow<Boolean> = _geometryReady.asStateFlow()
 
     private val _firstFrameRendered = store.property({ it.firstFrameRendered }) { s, v -> s.copy(firstFrameRendered = v) }
-    val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
+    override val firstFrameRendered: StateFlow<Boolean> = _firstFrameRendered.asStateFlow()
 
     // Session identity is owned by the bridge (Rust `G_SESSION_EPOCH`); events carry the epoch
     // they were produced under, so freshness is validated against `bridge.currentEpoch()` at
@@ -56,13 +56,13 @@ class VideoGeometryCoordinator(
     val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
 
     private val _resizeMode = store.property({ it.resizeMode }) { s, v -> s.copy(resizeMode = v) }
-    val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
+    override val resizeMode: StateFlow<ResizeMode> = _resizeMode.asStateFlow()
 
     private val _isHdr = store.property({ it.isHdr }) { s, v -> s.copy(isHdr = v) }
-    val isHdr: StateFlow<Boolean> = _isHdr.asStateFlow()
+    override val isHdr: StateFlow<Boolean> = _isHdr.asStateFlow()
 
     private val _hdrFormat = store.property({ it.hdrFormat }) { s, v -> s.copy(hdrFormat = v) }
-    val hdrFormat: StateFlow<String> = _hdrFormat.asStateFlow()
+    override val hdrFormat: StateFlow<String> = _hdrFormat.asStateFlow()
 
     /**
      * Whether the panel can actually present HDR.
@@ -74,7 +74,7 @@ class VideoGeometryCoordinator(
     @Volatile
     private var displayHdrCapable = true
 
-    fun setDisplayHdrCapable(capable: Boolean) {
+    override fun setDisplayHdrCapable(capable: Boolean) {
         if (displayHdrCapable == capable) return
         displayHdrCapable = capable
         updateHdrState()
@@ -350,7 +350,7 @@ class VideoGeometryCoordinator(
      * exists, where the property write is a no-op; [dev.gyro.engine.GyroPlayerEngine] applies the
      * rate explicitly once the core is up, so an early measurement is not lost.
      */
-    fun updateDisplayRefreshRate(rate: Float) {
+    override fun updateDisplayRefreshRate(rate: Float) {
         if (rate !in 20f..300f) return
         if (abs(_displayRefreshRate.value - rate) < 0.1f) return
         _displayRefreshRate.value = rate
@@ -392,7 +392,7 @@ class VideoGeometryCoordinator(
         }
     }
 
-    fun setResizeMode(mode: ResizeMode) {
+    override fun setResizeMode(mode: ResizeMode) {
         _resizeMode.value = mode
         when (mode) {
             ResizeMode.FIT -> {
@@ -417,7 +417,7 @@ class VideoGeometryCoordinator(
             }
         }
     }
-    fun resetZoomAndPan() {
+    override fun resetZoomAndPan() {
         bridge.setPropertyDouble("video-zoom", 0.0)
         bridge.setPropertyDouble("video-pan-x", 0.0)
         bridge.setPropertyDouble("video-pan-y", 0.0)

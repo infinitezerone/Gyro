@@ -7,7 +7,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.media.PlaylistManager
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +35,7 @@ private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
  * - Auto-resume detection and duration resolution
  */
 class PlaybackSessionOrchestrator(
-    val engine: GyroPlayerEngine,
+    val engine: PlayerEngine,
     val settingsRepository: SettingsRepository,
     val historyRepository: PlaybackHistoryRepository,
     val subtitleRepository: SubtitleRepository,
@@ -46,7 +46,7 @@ class PlaybackSessionOrchestrator(
 ) {
     @Inject
     constructor(
-        engine: GyroPlayerEngine,
+        engine: PlayerEngine,
         settingsRepository: SettingsRepository,
         historyRepository: PlaybackHistoryRepository,
         subtitleRepository: SubtitleRepository,

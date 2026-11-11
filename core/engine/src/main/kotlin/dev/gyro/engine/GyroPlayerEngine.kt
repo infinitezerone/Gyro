@@ -49,12 +49,12 @@ class GyroPlayerEngine(
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     internal val store: PlaybackStore = PlaybackStore(),
     override val playlist: dev.gyro.engine.media.PlaylistManager = dev.gyro.engine.media.PlaylistManager(),
-    val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
-    val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
-    val audio: AudioEffectsController = AudioEffectsController(bridge, store),
-    val video: VideoEffectsController = VideoEffectsController(bridge, store),
-    val trackManager: TrackAndChapterManager = TrackAndChapterManager(bridge, store),
-    val tuning: SyncTuningController = SyncTuningController(bridge, store),
+    override val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
+    override val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
+    override val audio: AudioEffectsController = AudioEffectsController(bridge, store),
+    override val video: VideoEffectsController = VideoEffectsController(bridge, store),
+    override val trackManager: TrackAndChapterManager = TrackAndChapterManager(bridge, store),
+    override val tuning: SyncTuningController = SyncTuningController(bridge, store),
     val abLoop: dev.gyro.engine.session.AbLoopController = dev.gyro.engine.session.AbLoopController(bridge, store),
     internal val timeline: PlaybackTimelineController =
         PlaybackTimelineController(bridge, geometry, trackManager, store = store),
@@ -141,7 +141,9 @@ class GyroPlayerEngine(
     val durationMs: StateFlow<Long> get() = timeline.durationMs
     override val bufferedPosMs: StateFlow<Long> get() = timeline.bufferedPosMs
     val isFileLoaded: Boolean get() = timeline.isFileLoaded
-    val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
+    override val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
+
+    override fun addSubtitle(path: String) = trackManager.addSubtitle(path)
 
     // =========================================================================
     // Core Engine Lifecycle & Native Initialization
@@ -240,29 +242,29 @@ class GyroPlayerEngine(
     override fun pause() = playback.pause()
     override fun togglePlayPause() = playback.togglePlayPause()
     override fun setSpeed(speed: Float) = playback.setSpeed(speed)
-    fun toggleHwdec() = playback.toggleHwdec()
-    fun setHwdec(target: String) = playback.setHwdec(target)
-    fun cycleHwdec(): String = playback.cycleHwdec()
+    override fun toggleHwdec() = playback.toggleHwdec()
+    override fun setHwdec(target: String) = playback.setHwdec(target)
+    override fun cycleHwdec(): String = playback.cycleHwdec()
     override fun abandonAudioFocus() = playback.abandonAudioFocus()
 
     override fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
     override fun seekRelative(offsetMs: Long) = timeline.seekRelative(offsetMs)
-    fun seekToChapter(index: Int) = timeline.seekToChapter(index)
+    override fun seekToChapter(index: Int) = timeline.seekToChapter(index)
 
-    fun cycleAbLoop() = abLoop.cycleLoopPoint()
+    override fun cycleAbLoop() = abLoop.cycleLoopPoint()
     fun clearAbLoop() = abLoop.clearLoop()
 
     override fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
     override fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())
 
-    fun setHdrOutputMode(mode: String) = geometry.setHdrOutputMode(mode)
-    fun setToneMappingAlgorithm(algorithm: String) = geometry.setToneMappingAlgorithm(algorithm)
-    fun setVideoScale(scale: String) = geometry.setVideoScale(scale)
-    fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
-    fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
+    override fun setHdrOutputMode(mode: String) = geometry.setHdrOutputMode(mode)
+    override fun setToneMappingAlgorithm(algorithm: String) = geometry.setToneMappingAlgorithm(algorithm)
+    override fun setVideoScale(scale: String) = geometry.setVideoScale(scale)
+    override fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
+    override fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
 
     /** 对当前画面截图（含字幕），保存到 [targetFile]；命令返回后以文件落盘为准。 */
-    fun screenshotToFile(targetFile: java.io.File): Boolean = runCatching {
+    override fun screenshotToFile(targetFile: java.io.File): Boolean = runCatching {
         bridge.command(arrayOf("screenshot-to-file", targetFile.absolutePath, "subtitles"))
         val ok = targetFile.exists() && targetFile.length() > 0L
         if (ok) {
@@ -315,7 +317,7 @@ class GyroPlayerEngine(
         )
     )
 
-    var isHeadlessMode: Boolean
+    override var isHeadlessMode: Boolean
         get() = loadCoordinator.isHeadlessMode
         set(value) { loadCoordinator.isHeadlessMode = value }
 
@@ -330,8 +332,9 @@ class GyroPlayerEngine(
     override fun detachSurface() {
         loadCoordinator.detachSurface(null)
     }
+    override fun detachSurface(surface: Surface?) = loadCoordinator.detachSurface(surface)
     fun detachSurface(surface: Any? = null) = loadCoordinator.detachSurface(surface)
-    fun redraw() = loadCoordinator.redraw()
+    override fun redraw() = loadCoordinator.redraw()
 
     /**
      * Rebuilds the render surface after the view switched its buffer format (8-bit <-> 10-bit).
@@ -339,11 +342,11 @@ class GyroPlayerEngine(
      * HDR is decided per file, long after the surface was first attached, so the PQ colourspace
      * can only be applied by recreating the window surface once the new format is in effect.
      */
-    fun requestSurfaceRebuild() {
+    override fun requestSurfaceRebuild() {
         if (isInitialized.get()) bridge.rebuildSurface()
     }
 
-    fun queryLiveBitrate(): Pair<Long, Long> {
+    override fun queryLiveBitrate(): Pair<Long, Long> {
         val v = bridge.getPropertyLong("video-bitrate")?.takeIf { it > 0 }
             ?: bridge.getPropertyLong("packet-video-bitrate")?.takeIf { it > 0 }
             ?: 0L
@@ -353,10 +356,10 @@ class GyroPlayerEngine(
         return v to a
     }
 
-    fun queryMediaInfo(
-        fallbackTitle: String = "",
-        fallbackUri: String = "",
-        fallbackSize: Long = 0L
+    override fun queryMediaInfo(
+        fallbackTitle: String,
+        fallbackUri: String,
+        fallbackSize: Long
     ): MediaInfo = MediaInfoExtractor.extract(
         bridge = bridge,
         store = store,

@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 class SyncTuningController(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
-) : EngineSubsystem {
+) : EngineSubsystem, dev.gyro.engine.api.controller.TuningController {
 
     companion object {
         /** mpv clamps `sub-delay` to ±10s by default, `sub-scale` to 0.5–3, `sub-pos` to 0–100. */
@@ -34,16 +34,16 @@ class SyncTuningController(
     }
 
     private val _subtitleDelaySec = store.property({ it.subtitleDelaySec }) { s, v -> s.copy(subtitleDelaySec = v) }
-    val subtitleDelaySec: StateFlow<Double> = _subtitleDelaySec.asStateFlow()
+    override val subtitleDelaySec: StateFlow<Double> = _subtitleDelaySec.asStateFlow()
 
     private val _audioDelaySec = store.property({ it.audioDelaySec }) { s, v -> s.copy(audioDelaySec = v) }
-    val audioDelaySec: StateFlow<Double> = _audioDelaySec.asStateFlow()
+    override val audioDelaySec: StateFlow<Double> = _audioDelaySec.asStateFlow()
 
     private val _subtitleScale = store.property({ it.subtitleScale }) { s, v -> s.copy(subtitleScale = v) }
-    val subtitleScale: StateFlow<Double> = _subtitleScale.asStateFlow()
+    override val subtitleScale: StateFlow<Double> = _subtitleScale.asStateFlow()
 
     private val _subtitlePositionPercent = store.property({ it.subtitlePositionPercent }) { s, v -> s.copy(subtitlePositionPercent = v) }
-    val subtitlePositionPercent: StateFlow<Long> = _subtitlePositionPercent.asStateFlow()
+    override val subtitlePositionPercent: StateFlow<Long> = _subtitlePositionPercent.asStateFlow()
 
     override fun registerObservers() {
         bridge.observeProperty("sub-delay", MpvNativeBridge.Format.DOUBLE)
@@ -75,31 +75,31 @@ class SyncTuningController(
             bridge.events.collect(::onEvent)
         }
 
-    fun setSubtitleDelay(delaySec: Double) {
+    override fun setSubtitleDelay(delaySec: Double) {
         val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(SUB_DELAY_RANGE)
         _subtitleDelaySec.value = clamped
         bridge.setPropertyDouble("sub-delay", clamped)
     }
 
-    fun setAudioDelay(delaySec: Double) {
+    override fun setAudioDelay(delaySec: Double) {
         val clamped = (Math.round(delaySec * 10.0) / 10.0).coerceIn(AUDIO_DELAY_RANGE)
         _audioDelaySec.value = clamped
         bridge.setPropertyDouble("audio-delay", clamped)
     }
 
-    fun setSubtitleScale(scale: Double) {
+    override fun setSubtitleScale(scale: Double) {
         val clamped = (Math.round(scale * 100.0) / 100.0).coerceIn(SUB_SCALE_RANGE)
         _subtitleScale.value = clamped
         bridge.setPropertyDouble("sub-scale", clamped)
     }
 
-    fun setSubtitlePosition(percent: Long) {
+    override fun setSubtitlePosition(percent: Long) {
         val clamped = percent.coerceIn(SUB_POS_RANGE)
         _subtitlePositionPercent.value = clamped
         bridge.setPropertyLong("sub-pos", clamped)
     }
 
-    fun resetDelays() {
+    override fun resetDelays() {
         _subtitleDelaySec.value = 0.0
         _audioDelaySec.value = 0.0
         bridge.setPropertyDouble("sub-delay", 0.0)
