@@ -141,7 +141,7 @@ class PlayerViewModelTest {
             body()
         } finally {
             viewModel.viewModelScope.cancel()
-            // Must happen inside runTest, before its final advanceUntilIdle: the orchestrator
+            // Must happen inside runTest, before its final advanceUntilIdle: the session
             // checkpoint ticker is an unbounded virtual-time loop on this scope, and the @After
             // teardown only runs after the drain - cancelling there is too late.
             testScope.cancel()

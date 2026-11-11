@@ -185,6 +185,13 @@ class MediaLoadCoordinator(
 
     @Volatile
     var isHeadlessMode: Boolean = false
+        set(value) {
+            field = value
+            // Entering headless (background) mode must submit a load queued while awaiting a surface,
+            // mirroring attachSurface — otherwise a load queued in the detach->service-start window
+            // would stall until the user returns to the foreground.
+            if (value) flushPendingSourceOnSurfaceReady()
+        }
 
     private fun submitOrQueue(
         source: ResolvedMediaSource,

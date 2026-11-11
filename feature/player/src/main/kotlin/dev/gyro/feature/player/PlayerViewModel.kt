@@ -14,8 +14,10 @@ import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.media.PlaylistManager
-import dev.gyro.feature.player.session.PlaybackSessionOrchestrator
+import dev.gyro.feature.player.session.PlaybackSessionController
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,12 +29,13 @@ import javax.inject.Inject
 /**
  * UI state container and user event adapter for the Player screen.
  *
- * Coordinates playback session lifecycle, background continuation, playlist traversal,
- * progress persistence, and auto-resume orchestration.
+ * Session business logic (playlist traversal, subtitles, progress persistence, loading) lives in
+ * the app-scoped [PlaybackSessionController] so it survives the screen for background playback;
+ * this ViewModel owns only screen-scoped state and forwards playback intents to the controller.
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    val orchestrator: PlaybackSessionOrchestrator,
+    val session: PlaybackSessionController,
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
@@ -47,7 +50,7 @@ class PlayerViewModel @Inject constructor(
         mediaRepository: MediaRepository,
         scope: CoroutineScope? = null
     ) : this(
-        orchestrator = PlaybackSessionOrchestrator(
+        session = PlaybackSessionController(
             engine = engine,
             settingsRepository = settingsRepository,
             historyRepository = historyRepository,
@@ -55,14 +58,14 @@ class PlayerViewModel @Inject constructor(
             mediaRepository = mediaRepository,
             uriParser = uriParser,
             playlist = playlistManager,
-            scope = scope
+            scope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         ),
         settingsRepository = settingsRepository
     )
 
-    val engine: PlayerEngine get() = orchestrator.engine
-    val historyRepository: PlaybackHistoryRepository get() = orchestrator.historyRepository
-    val playlistManager: PlaylistManager get() = orchestrator.playlist
+    val engine: PlayerEngine get() = session.engine
+    val historyRepository: PlaybackHistoryRepository get() = session.historyRepository
+    val playlistManager: PlaylistManager get() = session.playlist
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
@@ -75,7 +78,7 @@ class PlayerViewModel @Inject constructor(
             initialValue = PlayerGestureConfig()
         )
 
-    val activeUri: StateFlow<Uri?> get() = orchestrator.activeUri
+    val activeUri: StateFlow<Uri?> get() = session.activeUri
 
     /**
      * Bumped on every playback request to key UI resets (e.g. controls visibility).
@@ -115,6 +118,7 @@ class PlayerViewModel @Inject constructor(
      */
     fun onUserExit() {
         initializedUri = null
+        session.exit()
         engine.pause()
         engine.abandonAudioFocus()
         engine.detachSurface()
@@ -127,33 +131,34 @@ class PlayerViewModel @Inject constructor(
         initialWidth: Int = 0,
         initialHeight: Int = 0
     ) {
-        orchestrator.openUri(uri, forceReload, displayTitle, initialWidth, initialHeight)
+        session.openUri(uri, forceReload, displayTitle, initialWidth, initialHeight)
     }
 
     fun playMediaItem(item: VideoMediaItem) {
-        orchestrator.playMediaItem(item)
+        session.playMediaItem(item)
     }
 
     fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
-        orchestrator.setPlaylistAndPlay(items, item)
+        session.setPlaylistAndPlay(items, item)
     }
 
     fun setSingleAndPlay(uri: Uri, displayName: String = uri.lastPathSegment ?: "Video") {
-        orchestrator.setSingleAndPlay(uri, displayName)
+        session.setSingleAndPlay(uri, displayName)
     }
 
-    fun playNext(): Boolean = orchestrator.playNext()
+    fun playNext(): Boolean = session.playNext()
 
-    fun playPrevious(): Boolean = orchestrator.playPrevious()
+    fun playPrevious(): Boolean = session.playPrevious()
 
     fun saveCurrentProgress() {
-        orchestrator.saveCurrentProgress()
+        session.saveCurrentProgress()
     }
 
     public override fun onCleared() {
         super.onCleared()
-        // Cancel transient load work and persist progress
+        // Persist progress and cancel this screen's transient load work. The session's collectors
+        // intentionally outlive the ViewModel for background playback, so they are not cancelled here.
         saveCurrentProgress()
-        orchestrator.cancelPendingLoad()
+        session.cancelPendingLoad()
     }
 }

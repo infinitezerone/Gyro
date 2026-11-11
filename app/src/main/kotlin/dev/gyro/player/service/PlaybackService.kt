@@ -38,6 +38,7 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var engine: PlayerEngine
     @Inject lateinit var historyRepository: PlaybackHistoryRepository
     @Inject lateinit var mediaSessionManager: MediaSessionManager
+    @Inject lateinit var sessionController: dev.gyro.feature.player.session.PlaybackSessionController
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -128,7 +129,8 @@ class PlaybackService : MediaSessionService() {
             keyEvent = keyEvent,
             controls = mediaSessionManager,
             saveProgress = { saveCurrentProgress() },
-            stopAndReset = { stopForegroundAndSelf() }
+            stopAndReset = { stopForegroundAndSelf() },
+            exitSession = { sessionController.exit() }
         )
 
         val superSticky = super.onStartCommand(intent, flags, startId)
@@ -143,7 +145,8 @@ class PlaybackService : MediaSessionService() {
         keyEvent: KeyEvent?,
         controls: MediaSessionControls?,
         saveProgress: () -> Unit,
-        stopAndReset: () -> Unit
+        stopAndReset: () -> Unit,
+        exitSession: () -> Unit
     ): Int {
         engine.isHeadlessMode = true
         when (action) {
@@ -157,11 +160,14 @@ class PlaybackService : MediaSessionService() {
             ACTION_STOP -> {
                 saveProgress()
                 engine.pause()
+                exitSession()
                 stopAndReset()
                 return START_NOT_STICKY
             }
             ACTION_DISMISS -> {
                 saveProgress()
+                engine.pause()
+                exitSession()
                 stopAndReset()
                 return START_NOT_STICKY
             }

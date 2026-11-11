@@ -44,6 +44,7 @@ class PlaybackServiceTest {
 
     private var progressSaved = false
     private var stopAndResetCalled = false
+    private var exitSessionCalled = false
 
     private class RecordingControls : MediaSessionControls {
         val calls = mutableListOf<String>()
@@ -76,6 +77,7 @@ class PlaybackServiceTest {
         controls = RecordingControls()
         progressSaved = false
         stopAndResetCalled = false
+        exitSessionCalled = false
     }
 
     private fun dispatch(action: String?, keyEvent: KeyEvent? = null): Int =
@@ -88,7 +90,8 @@ class PlaybackServiceTest {
                 stopAndResetCalled = true
                 // Real teardown path so the headless disarm contract is exercised, not assumed.
                 service.stopForegroundAndSelf()
-            }
+            },
+            exitSession = { exitSessionCalled = true }
         )
 
     @Test
@@ -138,16 +141,18 @@ class PlaybackServiceTest {
 
         assertTrue("stop must persist progress", progressSaved)
         assertTrue("stop must pause the engine", fakeBridge.properties["pause"] == true)
+        assertTrue("stop must end the session", exitSessionCalled)
         assertTrue(stopAndResetCalled)
         assertFalse("teardown must disarm headless mode", engine.isHeadlessMode)
     }
 
     @Test
-    fun dismissSavesProgressWithoutPausingEngine() {
+    fun dismissSavesProgressPausesEngineAndDisarmsHeadless() {
         assertEquals(Service.START_NOT_STICKY, dispatch(PlaybackService.ACTION_DISMISS))
 
         assertTrue("dismiss must persist progress", progressSaved)
-        assertFalse("dismiss must not touch playback", fakeBridge.properties["pause"] == true)
+        assertTrue("dismiss must pause playback", fakeBridge.properties["pause"] == true)
+        assertTrue("dismiss must end the session", exitSessionCalled)
         assertTrue(stopAndResetCalled)
         assertFalse(engine.isHeadlessMode)
     }

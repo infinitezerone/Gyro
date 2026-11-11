@@ -34,6 +34,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -43,7 +44,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class PlaybackSessionOrchestratorTest {
+class PlaybackSessionControllerTest {
 
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -58,7 +59,7 @@ class PlaybackSessionOrchestratorTest {
     private lateinit var historyLookup: suspend (Uri) -> PlaybackProgress?
     private lateinit var mediaRepo: FakeMediaRepository
     private lateinit var playlistManager: PlaylistManager
-    private lateinit var orchestrator: PlaybackSessionOrchestrator
+    private lateinit var controller: PlaybackSessionController
     private lateinit var testScope: CoroutineScope
 
     private class FakeMediaRepository : MediaRepository {
@@ -73,7 +74,7 @@ class PlaybackSessionOrchestratorTest {
         testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
 
-        val filesDir = tempFolder.newFolder("orchestrator_test")
+        val filesDir = tempFolder.newFolder("controller_test")
         testContext = object : ContextWrapper(null) {
             override fun getApplicationContext(): Context = this
             override fun getFilesDir(): File = filesDir
@@ -104,7 +105,7 @@ class PlaybackSessionOrchestratorTest {
             override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<String> = emptyList()
         }
 
-        orchestrator = PlaybackSessionOrchestrator(
+        controller = PlaybackSessionController(
             engine = engine,
             settingsRepository = settingsRepo,
             historyRepository = historyRepo,
@@ -123,45 +124,45 @@ class PlaybackSessionOrchestratorTest {
         Dispatchers.resetMain()
     }
 
-    private fun runOrchestratorTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
+    private fun runControllerTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
         try {
             body()
         } finally {
-            // The orchestrator's periodic checkpoint is a process-lifetime ticker: left alive it
-            // reschedules every 10s of virtual time and runTest's advanceUntilIdle never idles.
+            // The periodic checkpoint is a process-lifetime ticker: left alive it reschedules every
+            // 10s of virtual time and runTest's advanceUntilIdle never idles.
             testScope.cancel()
         }
     }
 
     @Test
-    fun testSetPlaylistAndPlay_updatesPlaylistAndLoadsEngine() = runOrchestratorTest {
+    fun testSetPlaylistAndPlay_updatesPlaylistAndLoadsEngine() = runControllerTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/v1.mp4", "Video 1", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/v2.mp4", "Video 2", 2000L, 200L, 0, 0, 0L, "F")
 
-        orchestrator.setPlaylistAndPlay(listOf(item1, item2), item2)
+        controller.setPlaylistAndPlay(listOf(item1, item2), item2)
         runCurrent()
 
         assertEquals(1, playlistManager.currentIndex.value)
         assertEquals("Video 2", playlistManager.currentItem?.displayName)
-        assertEquals("file:///tmp/v2.mp4", orchestrator.activeUri.value?.toString())
+        assertEquals("file:///tmp/v2.mp4", controller.activeUri.value?.toString())
     }
 
     @Test
-    fun testSetSingleAndPlay_initializesSingleItem() = runOrchestratorTest {
+    fun testSetSingleAndPlay_initializesSingleItem() = runControllerTest {
         val uri = TestUri("file:///tmp/single.mp4")
-        orchestrator.setSingleAndPlay(uri, "Single Video")
+        controller.setSingleAndPlay(uri, "Single Video")
         runCurrent()
 
         assertEquals(1, playlistManager.items.value.size)
         assertEquals("Single Video", playlistManager.currentItem?.displayName)
-        assertEquals(uri, orchestrator.activeUri.value)
+        assertEquals(uri, controller.activeUri.value)
     }
 
     @Test
-    fun testAutoAdvance_advancesWhenPlaybackEnds() = runOrchestratorTest {
+    fun testAutoAdvance_advancesWhenPlaybackEnds() = runControllerTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        orchestrator.setPlaylistAndPlay(listOf(item1, item2), item1)
+        controller.setPlaylistAndPlay(listOf(item1, item2), item1)
         runCurrent()
 
         assertEquals(0, playlistManager.currentIndex.value)
@@ -172,14 +173,14 @@ class PlaybackSessionOrchestratorTest {
         runCurrent()
 
         assertEquals(1, playlistManager.currentIndex.value)
-        assertEquals("file:///tmp/b.mp4", orchestrator.activeUri.value?.toString())
+        assertEquals("file:///tmp/b.mp4", controller.activeUri.value?.toString())
     }
 
     @Test
-    fun testAutoAdvance_skippedWhenUserInterruptsDuringGraceDelay() = runOrchestratorTest {
+    fun testAutoAdvance_skippedWhenUserInterruptsDuringGraceDelay() = runControllerTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        orchestrator.setPlaylistAndPlay(listOf(item1, item2), item1)
+        controller.setPlaylistAndPlay(listOf(item1, item2), item1)
         runCurrent()
         advanceUntilIdle()
 
@@ -195,13 +196,34 @@ class PlaybackSessionOrchestratorTest {
         runCurrent()
 
         assertEquals(0, playlistManager.currentIndex.value)
-        assertEquals("file:///tmp/a.mp4", orchestrator.activeUri.value?.toString())
+        assertEquals("file:///tmp/a.mp4", controller.activeUri.value?.toString())
     }
 
     @Test
-    fun testProgressPersistence_onPause() = runOrchestratorTest {
+    fun testExit_cancelsPendingAutoAdvance() = runControllerTest {
+        val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
+        controller.setPlaylistAndPlay(listOf(item1, item2), item1)
+        runCurrent()
+
+        fakeBridge.emitEndFile()
+        runCurrent()
+
+        // User leaves the player during the grace delay: the pending advance must not pull the
+        // next video up after exit.
+        controller.exit()
+        assertFalse(controller.sessionActive)
+        advanceTimeBy(600L)
+        runCurrent()
+
+        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals("file:///tmp/a.mp4", controller.activeUri.value?.toString())
+    }
+
+    @Test
+    fun testProgressPersistence_onPause() = runControllerTest {
         val uri = TestUri("file:///tmp/progress.mp4")
-        orchestrator.openUri(uri)
+        controller.openUri(uri)
         runCurrent()
 
         fakeBridge.emitPropertyDouble("time-pos", 42.0)
@@ -219,18 +241,40 @@ class PlaybackSessionOrchestratorTest {
     }
 
     @Test
-    fun testPlayNextAndPrevious() = runOrchestratorTest {
-        val item1 = VideoMediaItem(1L, "file:///tmp/1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
-        val item2 = VideoMediaItem(2L, "file:///tmp/2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
-        orchestrator.setPlaylistAndPlay(listOf(item1, item2), item1)
+    fun testUriSwitch_savesPreviousVideoProgress() = runControllerTest {
+        val uri1 = TestUri("file:///tmp/ep1.mp4")
+        val uri2 = TestUri("file:///tmp/ep2.mp4")
+        controller.openUri(uri1)
         runCurrent()
 
-        assertTrue(orchestrator.playNext())
+        fakeBridge.emitPropertyDouble("time-pos", 50.0)
+        fakeBridge.emitPropertyDouble("duration", 100.0)
+        runCurrent()
+
+        // Switching videos flushes the previous video's cached progress even without a pause.
+        controller.openUri(uri2)
+        runCurrent()
+        runCurrent()
+
+        val progress1 = historyRepo.getProgress(uri1)
+        assertNotNull(progress1)
+        assertEquals(50000L, progress1?.positionMs)
+        assertEquals(100000L, progress1?.durationMs)
+    }
+
+    @Test
+    fun testPlayNextAndPrevious() = runControllerTest {
+        val item1 = VideoMediaItem(1L, "file:///tmp/1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///tmp/2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
+        controller.setPlaylistAndPlay(listOf(item1, item2), item1)
+        runCurrent()
+
+        assertTrue(controller.playNext())
         runCurrent()
         assertEquals(1, playlistManager.currentIndex.value)
         assertEquals("Two", playlistManager.currentItem?.displayName)
 
-        assertTrue(orchestrator.playPrevious())
+        assertTrue(controller.playPrevious())
         runCurrent()
         assertEquals(0, playlistManager.currentIndex.value)
         assertEquals("One", playlistManager.currentItem?.displayName)

@@ -1,6 +1,7 @@
 package dev.gyro.feature.player.session
 
 import android.net.Uri
+import dev.gyro.core.common.dispatcher.ApplicationScope
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
@@ -8,12 +9,10 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.media.PlaylistManager
+import dev.gyro.engine.model.PlaybackState
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -23,26 +22,34 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import javax.inject.Singleton
 
 private const val CHECKPOINT_INTERVAL_MS = 10_000L
 private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
 
 /**
- * Coordinates playback session lifecycle and business workflows across UI and background services:
- * - Playlist traversal and auto-advancement on completion
- * - Companion subtitle scanning via [SubtitleRepository]
- * - Event-driven & periodic progress persistence via [PlaybackHistoryRepository]
- * - Auto-resume detection and duration resolution
+ * App-scoped owner of the playback session's business logic: playlist traversal, companion
+ * subtitles, progress persistence and the load entry point.
+ *
+ * Lifetime is the process, not the player screen: background playback (and the auto-advance and
+ * progress writes it needs) must survive the Activity being destroyed while the foreground service
+ * keeps the engine alive. A single instance is created eagerly via [dev.gyro.player.GyroApplication]
+ * and collects on the [ApplicationScope], so there is no per-screen instance to leak.
+ *
+ * The screen still binds foreground semantics through explicit signals rather than scope death:
+ * [openUri] marks the session active, [exit] (called on user exit and service stop) clears it and
+ * cancels a pending auto-advance.
  */
-class PlaybackSessionOrchestrator(
+@Singleton
+class PlaybackSessionController internal constructor(
     val engine: PlayerEngine,
     val settingsRepository: SettingsRepository,
     val historyRepository: PlaybackHistoryRepository,
     val subtitleRepository: SubtitleRepository,
     val mediaRepository: MediaRepository,
     val uriParser: UriParser,
-    val playlist: PlaylistManager = engine.playlist,
-    scope: CoroutineScope? = null
+    val playlist: PlaylistManager,
+    private val scope: CoroutineScope,
 ) {
     @Inject
     constructor(
@@ -51,7 +58,8 @@ class PlaybackSessionOrchestrator(
         historyRepository: PlaybackHistoryRepository,
         subtitleRepository: SubtitleRepository,
         mediaRepository: MediaRepository,
-        uriParser: UriParser
+        uriParser: UriParser,
+        @ApplicationScope appScope: CoroutineScope,
     ) : this(
         engine = engine,
         settingsRepository = settingsRepository,
@@ -60,40 +68,49 @@ class PlaybackSessionOrchestrator(
         mediaRepository = mediaRepository,
         uriParser = uriParser,
         playlist = engine.playlist,
-        scope = null
+        scope = appScope,
     )
-
-    val orchestratorScope: CoroutineScope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Single source of truth for the active URI directly from the engine store. */
     val activeUri: StateFlow<Uri?> get() = engine.currentUri
 
+    @Volatile
+    var sessionActive: Boolean = false
+        private set
+
     private var loadJob: Job? = null
+    private var advanceJob: Job? = null
 
     init {
         // 1. Auto-advance to next video when current video completes (works in foreground & background)
-        orchestratorScope.launch {
+        scope.launch {
             engine.playbackState.collect { state ->
                 if (state == PlaybackState.ENDED && playlist.hasNext) {
                     val endedUri = engine.currentUri.value
-                    delay(500L)
-                    // The grace delay is not a free pass: the user may have replayed or picked
-                    // another video during it. Re-check unambiguous intent signals - resumed
-                    // playback, or a different active uri - and skip the advance if either is
-                    // true.
-                    if (engine.isPlaying.value || engine.currentUri.value != endedUri || !playlist.hasNext) {
-                        return@collect
-                    }
-                    val next = playlist.playNext()
-                    if (next != null) {
-                        playMediaItem(next)
+                    advanceJob?.cancel()
+                    advanceJob = scope.launch {
+                        delay(500L)
+                        // The grace delay is not a free pass: the user may have replayed, picked
+                        // another video, or left the player during it. Re-check unambiguous intent
+                        // signals and skip the advance if any of them fired.
+                        if (!sessionActive ||
+                            engine.isPlaying.value ||
+                            engine.currentUri.value != endedUri ||
+                            !playlist.hasNext
+                        ) {
+                            return@launch
+                        }
+                        val next = playlist.playNext()
+                        if (next != null) {
+                            playMediaItem(next)
+                        }
                     }
                 }
             }
         }
 
         // 2. Auto-load companion subtitles asynchronously via SubtitleRepository
-        orchestratorScope.launch {
+        scope.launch {
             engine.currentUri.collectLatest { uri ->
                 if (uri != null && settingsRepository.settings.first().subAutoLoad) {
                     val knownDisplayName = playlist.items.value
@@ -105,7 +122,7 @@ class PlaybackSessionOrchestrator(
         }
 
         // 3. Event-driven progress persistence on pause
-        orchestratorScope.launch {
+        scope.launch {
             engine.isPlaying.collect { playing ->
                 if (!playing) {
                     saveCurrentProgress()
@@ -115,7 +132,7 @@ class PlaybackSessionOrchestrator(
 
         // 4. Periodic checkpoint while playing. State is local to the coroutine loop;
         // collectLatest automatically suspends/cancels when playing becomes false.
-        orchestratorScope.launch {
+        scope.launch {
             engine.isPlaying.collectLatest { playing ->
                 if (!playing) return@collectLatest
                 var lastCheckpointUri: Uri? = null
@@ -141,8 +158,9 @@ class PlaybackSessionOrchestrator(
         forceReload: Boolean = false,
         displayTitle: String? = null,
         initialWidth: Int = 0,
-        initialHeight: Int = 0
+        initialHeight: Int = 0,
     ): Job {
+        sessionActive = true
         loadJob?.cancel()
         val oldUri = engine.currentUri.value
         if (oldUri != null && oldUri != uri) {
@@ -155,7 +173,7 @@ class PlaybackSessionOrchestrator(
         val resolvedWidth = if (initialWidth > 0) initialWidth else playlistItem?.width ?: 0
         val resolvedHeight = if (initialHeight > 0) initialHeight else playlistItem?.height ?: 0
 
-        val job = orchestratorScope.launch {
+        val job = scope.launch {
             val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(uri)
             currentCoroutineContext().ensureActive()
             // Read through to the repository instead of the stateIn projection: a cold-start
@@ -177,6 +195,15 @@ class PlaybackSessionOrchestrator(
         }
         loadJob = job
         return job
+    }
+
+    /**
+     * Ends the foreground session: a pending auto-advance must not pull the next video up after the
+     * user left the player or stopped playback from the notification.
+     */
+    fun exit() {
+        sessionActive = false
+        advanceJob?.cancel()
     }
 
     fun playMediaItem(item: VideoMediaItem) {
@@ -219,10 +246,7 @@ class PlaybackSessionOrchestrator(
         openUri(uri, displayTitle = displayName)
     }
 
-    /**
-     * Atomically saves the current playback progress using the snapshot state.
-     * Pure function with zero side-effects.
-     */
+    /** Persists the current playback progress using the snapshot state. */
     fun saveCurrentProgress(targetUri: Uri? = null) {
         val snapshot = engine.state.value
         val uri = targetUri ?: snapshot.currentUri ?: return
