@@ -43,9 +43,6 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val TAG = "PlaybackService"
 
-        const val CHANNEL_ID = "playback_channel"
-        const val NOTIFICATION_ID = 1001
-
         const val ACTION_PLAY = "dev.gyro.player.ACTION_PLAY"
         const val ACTION_PAUSE = "dev.gyro.player.ACTION_PAUSE"
         const val ACTION_PLAY_PAUSE = "dev.gyro.player.ACTION_PLAY_PAUSE"

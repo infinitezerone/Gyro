@@ -18,7 +18,6 @@ datastore = "1.2.1"
 media3 = "1.11.1"
 coil = "3.1.0"
 palette = "1.0.0"
-mediarouter = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
@@ -52,7 +51,6 @@ androidx-media3-common = { group = "androidx.media3", name = "media3-common", ve
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-video = { group = "io.coil-kt.coil3", name = "coil-video", version.ref = "coil" }
 androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
-androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouter" }
 
 # Build-logic plugin classpath: convention plugins compile against these, never bundle them.
 android-gradlePlugin = { group = "com.android.tools.build", name = "gradle", version.ref = "agp" }

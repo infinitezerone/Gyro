@@ -388,12 +388,4 @@ class GyroPlayerEngine(
         isInitialized.set(false)
         bridge.destroy()
     }
-
-    override fun <T : dev.gyro.engine.api.EngineExtension> getExtension(extensionClass: Class<T>): T? {
-        if (extensionClass.isInstance(shaders)) {
-            @Suppress("UNCHECKED_CAST")
-            return shaders as T
-        }
-        return null
-    }
 }

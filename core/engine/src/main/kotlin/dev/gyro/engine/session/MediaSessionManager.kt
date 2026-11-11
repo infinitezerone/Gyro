@@ -103,15 +103,7 @@ class MediaSessionManager(
     var onSkipToPrevious: (() -> Boolean)? = null
 
     private var currentArt: Bitmap? = null
-    var mediaRouter: androidx.mediarouter.media.MediaRouter? = null
-        private set
-
     init {
-        try {
-            mediaRouter = androidx.mediarouter.media.MediaRouter.getInstance(context)
-        } catch (t: Throwable) {
-            EngineLog.w(TAG, "MediaRouter skipped or failed: ${t.message}")
-        }
         val adapter = playerAdapter
         if (adapter != null) {
             try {
@@ -301,7 +293,6 @@ class MediaSessionManager(
             mediaSession?.release()
             mediaSession = null
             playerAdapter?.release()
-            mediaRouter = null
         } catch (t: Throwable) {
             EngineLog.w(TAG, "release MediaSession error: ${t.message}")
         }

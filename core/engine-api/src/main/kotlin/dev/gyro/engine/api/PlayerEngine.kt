@@ -91,11 +91,4 @@ interface PlayerEngine {
 
     fun abandonAudioFocus()
     fun release()
-
-    /**
-     * Obtains an optional engine extension (e.g. [dev.gyro.engine.api.extension.ShaderExtension],
-     * [dev.gyro.engine.api.extension.MpvConfigExtension]), or returns null if the current
-     * engine implementation does not support it.
-     */
-    fun <T : EngineExtension> getExtension(extensionClass: Class<T>): T? = null
 }

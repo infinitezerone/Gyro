@@ -130,7 +130,6 @@ dependencies {
     api(project(":core:model"))
     api(libs.androidx.media3.session)
     api(libs.androidx.media3.common)
-    implementation(libs.androidx.mediarouter)
     implementation(libs.libmpv)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

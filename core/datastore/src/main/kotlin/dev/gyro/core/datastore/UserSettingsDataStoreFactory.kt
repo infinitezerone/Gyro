@@ -9,6 +9,7 @@ import androidx.datastore.core.Storage
 import androidx.datastore.core.StorageConnection
 import androidx.datastore.core.WriteScope
 import androidx.datastore.core.createSingleProcessCoordinator
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.dataStoreFile
 import dev.gyro.core.model.UserSettings
 import java.io.File
@@ -37,6 +38,9 @@ object UserSettingsDataStoreFactory {
     ): DataStore<UserSettings> =
         DataStoreFactory.create(
             storage = ReplaceExistingFileStorage { file },
+            // A corrupt file must not block startup: resetting to defaults loses preferences, while
+            // throwing here would crash every launch (the repository only catches IOException).
+            corruptionHandler = ReplaceFileCorruptionHandler { UserSettings() },
             scope = scope,
         )
 
