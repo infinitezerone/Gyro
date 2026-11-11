@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNode
 import androidx.compose.ui.input.pointer.positionChange
@@ -36,6 +37,16 @@ enum class DragMode {
     HORIZONTAL_SEEK,
     PAN_ZOOM
 }
+
+/**
+ * Ownership record of a committed single-finger drag: the pointer that resolved it and the mode it
+ * resolved to.
+ *
+ * Kept explicit because "which finger owns this gesture" cannot be re-derived from the event stream:
+ * `event.changes` is ordered by pointer id, not by who started the gesture, and once the owner lifts
+ * the next pointer would silently inherit the drag (and jump the playhead to its position).
+ */
+private data class DragOwner(val id: PointerId, val mode: DragMode)
 
 /**
  * Modern Modifier.Node implementation for player gestures.
@@ -111,7 +122,6 @@ class PlayerGestureNode(
             // Only capture unconsumed touches so on-screen controls (scrub bar, buttons) take priority
             val down = awaitFirstDown(requireUnconsumed = true)
             val downPosition = down.position
-            var lastPointerPosition = downPosition
             val touchSlop = viewConfiguration.touchSlop
             val isEdgeExclusion = downPosition.x < config.edgeExclusionPx ||
                     downPosition.x > size.width - config.edgeExclusionPx
@@ -129,10 +139,13 @@ class PlayerGestureNode(
                 false
             }
 
-            var isMultiTouch = false
             var isLongPressing = false
+            var isPinnedToMultiTouch = false
             var hasPassedTouchSlop = false
-            var dragMode = DragMode.UNDETERMINED
+            // Which pointer owns the committed drag, if any. Null while the sequence is still undecided
+            // (so a second finger may still claim it as a pinch) and for drags that resolve to nothing
+            // (edge exclusion, diagonal, feature disabled).
+            var drag: DragOwner? = null
             var dragStartPosMs = callbacks.getCurrentPositionMs()
             var lastSeekTargetMs = dragStartPosMs
 
@@ -140,7 +153,7 @@ class PlayerGestureNode(
             var longPressJob: Job? = if (config.isLongPressSpeedEnabled && !isOutsidePortraitActiveZone) {
                 coroutineScope.launch {
                     delay(config.longPressTimeoutMs)
-                    if (!hasPassedTouchSlop && !isMultiTouch && callbacks.getZoomScale() <= 1.05f) {
+                    if (!hasPassedTouchSlop && !isPinnedToMultiTouch && callbacks.getZoomScale() <= 1.05f) {
                         isLongPressing = true
                         callbacks.onFastForwardStart(config.longPressSpeed)
                         callbacks.onHudStateChange(GestureHudState.Speed(config.longPressSpeed))
@@ -157,24 +170,28 @@ class PlayerGestureNode(
                     break
                 }
 
-                // 1. Two-finger Pinch-to-Zoom & Pan Priority
-                if (pressedPointers.size >= 2) {
-                    if (!isMultiTouch) {
-                        isMultiTouch = true
-                        cancelTapTimers()
-                        longPressJob?.cancel()
-                        longPressJob = null
-                        if (isLongPressing) {
-                            isLongPressing = false
-                            callbacks.onFastForwardEnd()
-                            callbacks.onHudStateChange(GestureHudState.Idle)
-                        }
-                        if (dragMode == DragMode.HORIZONTAL_SEEK) {
-                            callbacks.onHudStateChange(GestureHudState.Idle)
-                        }
-                        dragMode = DragMode.UNDETERMINED
+                // 1. Pinch-to-zoom may only claim the sequence while no drag mode is committed.
+                // A committed single-finger drag (seek / brightness / volume) owns the whole sequence:
+                // extra touches anywhere on the screen must not interrupt it. PAN_ZOOM is the one
+                // exception, because adding a finger to an already-zoomed picture is a pinch.
+                val currentDrag = drag
+                val canClaimPinch = currentDrag == null || currentDrag.mode == DragMode.PAN_ZOOM
+                if (!isPinnedToMultiTouch && pressedPointers.size >= 2 && canClaimPinch) {
+                    isPinnedToMultiTouch = true
+                    // A committed pan hands the sequence over to the pinch.
+                    drag = null
+                    cancelTapTimers()
+                    longPressJob?.cancel()
+                    longPressJob = null
+                    if (isLongPressing) {
+                        isLongPressing = false
+                        callbacks.onFastForwardEnd()
+                        callbacks.onHudStateChange(GestureHudState.Idle)
                     }
+                }
 
+                // 2. Pinch/pan owns the sequence until every finger is released.
+                if (isPinnedToMultiTouch) {
                     if (config.isZoomEnabled) {
                         val zoomChange = event.calculateZoom()
                         val panChange = event.calculatePan()
@@ -198,19 +215,28 @@ class PlayerGestureNode(
                     continue
                 }
 
-                // 2. If multi-touch was active, stay locked in multi-touch mode until all fingers release
-                if (isMultiTouch) {
-                    event.changes.forEach {
-                        if (it.positionChanged()) {
-                            it.consume()
-                        }
+                // 3. A committed drag swallows every other pointer, including fingers that just went
+                // down: they must neither zoom the picture nor scroll the parent pager.
+                drag?.let { owner ->
+                    event.changes.forEach { change ->
+                        if (change.id != owner.id) change.consume()
                     }
-                    continue
                 }
 
-                // 3. Single Pointer Handling
-                val pointer = pressedPointers.firstOrNull() ?: break
-                lastPointerPosition = pointer.position
+                // 4. Single Pointer Handling — only the owner may drive the drag.
+                val owner = drag
+                val pointer = if (owner != null) {
+                    pressedPointers.firstOrNull { it.id == owner.id }
+                } else {
+                    pressedPointers.firstOrNull()
+                }
+                if (pointer == null) {
+                    // The owner lifted while another finger is still down. End the drag here instead of
+                    // letting the remaining pointer inherit it, otherwise the playhead would jump to
+                    // wherever that finger happens to be.
+                    event.changes.forEach { it.consume() }
+                    break
+                }
                 if (isLongPressing) {
                     pointer.consume()
                     continue
@@ -228,11 +254,11 @@ class PlayerGestureNode(
 
                         if (config.isZoomEnabled && callbacks.getZoomScale() > 1.05f && !isOutsidePortraitActiveZone) {
                             // Zoomed in: single finger drag smoothly pans the zoomed video content
-                            dragMode = DragMode.PAN_ZOOM
+                            drag = DragOwner(pointer.id, DragMode.PAN_ZOOM)
                             callbacks.onZoomPan(1.0f, dragDelta, pointer.position, false)
                         } else if (!isEdgeExclusion && !isOutsidePortraitActiveZone) {
                             if (abs(dragDelta.x) > abs(dragDelta.y) * 1.5f && config.isSeekEnabled) {
-                                dragMode = DragMode.HORIZONTAL_SEEK
+                                drag = DragOwner(pointer.id, DragMode.HORIZONTAL_SEEK)
                                 dragStartPosMs = callbacks.getCurrentPositionMs()
                                 lastSeekTargetMs = dragStartPosMs
                                 callbacks.onSeekStart(dragStartPosMs)
@@ -247,10 +273,10 @@ class PlayerGestureNode(
                                     val isLeft = downPosition.x < size.width / 2f
                                     val isBrightnessTarget = if (config.swapVolumeAndBrightness) !isLeft else isLeft
                                     if (isBrightnessTarget && config.isBrightnessEnabled) {
-                                        dragMode = DragMode.VERTICAL_BRIGHTNESS
+                                        drag = DragOwner(pointer.id, DragMode.VERTICAL_BRIGHTNESS)
                                         callbacks.onBrightnessStart()
                                     } else if (!isBrightnessTarget && config.isVolumeEnabled) {
-                                        dragMode = DragMode.VERTICAL_VOLUME
+                                        drag = DragOwner(pointer.id, DragMode.VERTICAL_VOLUME)
                                         callbacks.onVolumeStart()
                                     }
                                 }
@@ -259,9 +285,10 @@ class PlayerGestureNode(
                     }
                 }
 
-                if (hasPassedTouchSlop) {
+                val mode = drag?.mode
+                if (mode != null) {
                     val posChange = pointer.positionChange()
-                    when (dragMode) {
+                    when (mode) {
                         DragMode.PAN_ZOOM -> {
                             pointer.consume()
                             if (posChange != Offset.Zero) {
@@ -338,7 +365,7 @@ class PlayerGestureNode(
                 return@awaitEachGesture
             }
 
-            if (isMultiTouch) {
+            if (isPinnedToMultiTouch) {
                 // Pinch-to-zoom ended cleanly. Reset tap state so it never false-triggers double tap.
                 cancelTapTimers()
                 if (config.isZoomEnabled) {
@@ -353,10 +380,9 @@ class PlayerGestureNode(
 
             if (hasPassedTouchSlop) {
                 cancelTapTimers()
-                if (dragMode == DragMode.HORIZONTAL_SEEK) {
+                if (drag?.mode == DragMode.HORIZONTAL_SEEK) {
                     callbacks.onSeekEnd(lastSeekTargetMs)
                 }
-                dragMode = DragMode.UNDETERMINED
                 coroutineScope.launch {
                     delay(700L)
                     callbacks.onHudStateChange(GestureHudState.Idle)
