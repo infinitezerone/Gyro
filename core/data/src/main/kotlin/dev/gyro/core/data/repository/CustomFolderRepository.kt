@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.datastore.core.DataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.Dispatcher
@@ -99,7 +100,7 @@ class DefaultCustomFolderRepository @Inject constructor(
                     )
                 )
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w(TAG, "Failed reading folder details for $treeUri", e)
             }
         }
         result
@@ -114,7 +115,7 @@ class DefaultCustomFolderRepository @Inject constructor(
                 val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
                 scanFolderBfs(treeUri, rootDocId, folderName, result)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w(TAG, "Failed scanning folder $treeUri", e)
             }
         }
         result
@@ -197,7 +198,7 @@ class DefaultCustomFolderRepository @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w(TAG, "Failed querying children of $currentDocId", e)
             }
         }
     }
@@ -225,5 +226,9 @@ class DefaultCustomFolderRepository @Inject constructor(
         } catch (e: Exception) {
             null
         }
+    }
+
+    private companion object {
+        const val TAG = "DefaultCustomFolderRepository"
     }
 }

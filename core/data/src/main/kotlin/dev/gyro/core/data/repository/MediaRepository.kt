@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
@@ -133,7 +134,7 @@ class DefaultMediaRepository @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "MediaStore video query failed", e)
         }
 
         // 检索用户主动授权添加的外部自定义目录视频
@@ -147,9 +148,13 @@ class DefaultMediaRepository @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, "Custom folder scan failed", e)
         }
 
         videoList
+    }
+
+    private companion object {
+        const val TAG = "DefaultMediaRepository"
     }
 }
