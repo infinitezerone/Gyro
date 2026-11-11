@@ -3,15 +3,20 @@
 ## Architecture
 Gyro is a modern Jetpack Compose Android video player powered by a native Rust/mpv engine (`libgyro_engine.so`).
 The codebase is structured into modular layers:
-- `:core:model`: Pure Kotlin data models (`UserSettings`, `PlayerGestureConfig`, `MpvConfig`, `ChapterInfo`, `MediaInfo`, `PlaybackProgress`).
-- `:core:data`: Repositories and persistence (`SettingsRepository`, `MpvConfigRepository`, `PlaybackHistoryRepository`, `CustomFolderManager`).
+- `:core:model`: Pure Kotlin data models (`UserSettings`, `PlayerGestureConfig`, `MpvConfig`, `ChapterInfo`, `MediaInfo`, `PlaybackProgress`, `VideoMediaItem`, `GlslShader`).
+- `:core:common`: Coroutine dispatcher qualifiers and the `@ApplicationScope` application `CoroutineScope`.
+- `:core:database`: Room playback-history persistence (`GyroDatabase`, `PlaybackHistoryDao`, `PlaybackHistoryEntity`).
+- `:core:datastore`: DataStore factories and serializers for `UserSettings` and granted SAF folder URIs, with corruption recovery.
+- `:core:data`: Repositories (`SettingsRepository`, `MpvConfigRepository`, `PlaybackHistoryRepository`, `MediaRepository`, `SubtitleRepository`, `CustomFolderRepository`, `UriParser`).
 - `:core:designsystem`: Design tokens, Compose themes, icons, and centralized localized string resources (`values/strings.xml`, `values-en/strings.xml`).
 - `:core:navigation`: Type-safe Navigation 3 route definitions (`Screen`).
-- `:core:engine`: Native JNI bridge (`GyroNative`), decoupling bridge (`MpvNativeBridge`), and lifecycle player engine (`GyroPlayerEngine`).
+- `:core:engine-api`: Engine-agnostic playback contract (`PlayerEngine`, domain controller interfaces, `PlaybackSnapshot`, `MediaItem`, `PlaylistManager`).
+- `:core:engine`: Native JNI bridge (`GyroNative`), `MpvNativeBridge`, the `GyroPlayerEngine` facade and domain controllers, the single `PlaybackStore`, the Media3 session adapter (`MpvPlayerAdapter`, `MediaSessionManager`), and the Compose surface (`GyroSurfaceView`).
 - `:core:testing`: Test fakes, rules, and mock bridges (`FakeMpvNativeBridge`, `MainDispatcherRule`, `TestUri`).
+- `:feature:home`: Media library browser (`HomeScreen`, `HomeViewModel`, video thumbnails).
 - `:feature:settings`: Preference screens (`SettingsScreen`, `MpvConfigEditorScreen`, `GestureSettingsScreen`, `FolderManagementScreen`).
-- `:feature:player`: Video playback surface (`GyroSurfaceView`), gesture recognition (`PlayerGestureNode`, `PlayerGestureDetector`), controls overlay (`PlayerControlsOverlay`, `PlayerScrubBar`, `PlayerTrackSelectionSheet`, `PlayerHudOverlay`).
-- `:app`: Application entry point, `MainActivity`, `PlaybackService` foreground media service with `MediaSessionCompat`.
+- `:feature:player`: Player screen, gestures, and controls, plus the app-scoped `PlaybackSessionController` (session business logic: auto-advance, companion subtitles, progress persistence, and the load entry point).
+- `:app`: Application entry (`GyroApplication`), `MainActivity` (Navigation 3 host), and `PlaybackService` (Media3 `MediaSessionService` for background playback).
 
 Native Engine Build:
 - `crates/gyro-engine` is compiled by `:core:engine:cargoNdkBuild` (cargo-ndk) into `core/engine/build/rustJniLibs/<abi>/libgyro_engine.so`, which is registered as the module's generated jniLibs source.
@@ -20,8 +25,9 @@ Native Engine Build:
 - Prerequisites: Rust (the android targets in `rust-toolchain.toml` are installed by rustup on demand), `cargo-ndk`, and an Android NDK. The task skips itself when the crate, `Cargo.lock`, and the toolchain file are unchanged.
 
 Data Flow:
-- User Preferences & Configurations: `SettingsRepository` & `MpvConfigRepository` (persisted in internal files & prefs) -> `UserSettings` / `MpvConfig` -> injected into `GyroPlayerEngine` and observed by Feature ViewModels.
+- User Preferences & Configurations: `SettingsRepository` (DataStore) & `MpvConfigRepository` (file-backed) -> `UserSettings` / `MpvConfig` -> injected into `GyroPlayerEngine` and observed by Feature ViewModels.
 - Playback & Audio Pipeline: domain controllers subscribe to `MpvNativeBridge.events` and own their mpv properties (`engine.audio` → `alimiter`/`dynaudnorm`/downmix, `engine.video` → color & deband, `engine.shaders` → `glsl-shaders`, `engine.trackManager` → tracks & chapters, `engine.tuning` → A/V delay & subtitle scale/position); `GyroPlayerEngine` keeps session lifecycle and core playback state only.
+- Playback Session: the app-scoped `PlaybackSessionController` (`:feature:player`) owns session business logic — auto-advance, companion subtitles, progress persistence, and the unified load entry — so it survives the player screen for background playback; `PlayerViewModel` holds only screen-scoped UI state and signals enter/exit explicitly.
 - Audio Overdrive Flow: Gestures split travel at 100%: 0~100% adjusts Android `AudioManager.STREAM_MUSIC`; 101~200% adjusts internal mpv software gain with dynamic `alimiter` anti-clipping filter and amber HUD. Auto-reset to 100% on track change/exit.
 
 ## Feature Inventory
