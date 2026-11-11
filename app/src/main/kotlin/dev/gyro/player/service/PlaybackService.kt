@@ -1,9 +1,12 @@
 package dev.gyro.player.service
 
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -12,6 +15,8 @@ import android.os.IBinder
 import android.util.Log
 import android.util.Size
 import android.view.KeyEvent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.IntentCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -42,6 +47,9 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val TAG = "PlaybackService"
+
+        private const val CHANNEL_ID = "playback_channel"
+        private const val NOTIFICATION_ID = 1001
 
         const val ACTION_PLAY = "dev.gyro.player.ACTION_PLAY"
         const val ACTION_PAUSE = "dev.gyro.player.ACTION_PAUSE"
@@ -115,6 +123,10 @@ class PlaybackService : MediaSessionService() {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
 
+        if (action != ACTION_STOP && action != ACTION_DISMISS) {
+            ensureForeground()
+        }
+
         val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON) {
             IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
         } else {
@@ -132,6 +144,31 @@ class PlaybackService : MediaSessionService() {
 
         val superSticky = super.onStartCommand(intent, flags, startId)
         return if (action == ACTION_STOP || action == ACTION_DISMISS) sticky else superSticky
+    }
+
+    /**
+     * Guarantees the startForegroundService contract when the media notification cannot be posted.
+     * With POST_NOTIFICATIONS denied (Android 13+) Media3 suppresses the notification and never calls
+     * startForeground, which crashes with ForegroundServiceDidNotStartInTimeException. When the
+     * permission is granted Media3 owns the notification, so no fallback is needed.
+     */
+    private fun ensureForeground() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW)
+        )
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(engine.state.value.mediaTitle.ifBlank { "Gyro" })
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .build()
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        )
     }
 
     /**

@@ -7,8 +7,10 @@ import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -27,6 +29,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
+import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -88,6 +91,34 @@ class MainActivity : ComponentActivity() {
             val backStack = rememberNavBackStack(Screen.Home)
             val intentUri by incomingIntentUri.collectAsState()
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+            // Background playback posts a media notification via Media3; without POST_NOTIFICATIONS
+            // (Android 13+) the notification is suppressed and the foreground service never calls
+            // startForeground, crashing with ForegroundServiceDidNotStartInTimeException.
+            val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { }
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                viewModel.shouldRunPlaybackService.collect { enabled ->
+                    if (enabled) {
+                        runCatching { PlaybackService.start(this@MainActivity) }
+                            .onFailure { Log.w("MainActivity", "Failed to start PlaybackService", it) }
+                    } else {
+                        PlaybackService.stop(this@MainActivity)
+                    }
+                }
+            }
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
@@ -282,22 +313,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        PlaybackService.dismiss(this)
-    }
-
     override fun onStop() {
         super.onStop()
-        val shouldStartBgAudio = viewModel.handleAppStop(isInPictureInPictureMode)
-        if (shouldStartBgAudio) {
-            runCatching {
-                PlaybackService.start(this)
-            }.onFailure { e ->
-                Log.w("MainActivity", "Failed to start PlaybackService from background", e)
-            }
-        } else {
-            PlaybackService.stop(this)
-        }
+        viewModel.handleAppStop(isInPictureInPictureMode)
     }
 }

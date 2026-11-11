@@ -17,7 +17,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -76,9 +78,12 @@ class PlaybackSessionController internal constructor(
     /** Single source of truth for the active URI directly from the engine store. */
     val activeUri: StateFlow<Uri?> get() = engine.currentUri
 
-    @Volatile
-    var sessionActive: Boolean = false
-        private set
+    /**
+     * Whether a playback session is active (between [openUri] and [exit]). Exposed as a flow so the
+     * foreground service can be hosted for the whole session, started while the UI is still visible.
+     */
+    private val _sessionActive = MutableStateFlow(false)
+    val sessionActive: StateFlow<Boolean> = _sessionActive.asStateFlow()
 
     private var loadJob: Job? = null
     private var advanceJob: Job? = null
@@ -95,7 +100,7 @@ class PlaybackSessionController internal constructor(
                         // The grace delay is not a free pass: the user may have replayed, picked
                         // another video, or left the player during it. Re-check unambiguous intent
                         // signals and skip the advance if any of them fired.
-                        if (!sessionActive ||
+                        if (!_sessionActive.value ||
                             engine.isPlaying.value ||
                             engine.currentUri.value != endedUri ||
                             !playlist.hasNext
@@ -162,7 +167,7 @@ class PlaybackSessionController internal constructor(
         initialWidth: Int = 0,
         initialHeight: Int = 0,
     ): Job {
-        sessionActive = true
+        _sessionActive.value = true
         loadJob?.cancel()
         val oldUri = engine.currentUri.value
         if (oldUri != null && oldUri != uri) {
@@ -208,7 +213,7 @@ class PlaybackSessionController internal constructor(
      * user left the player or stopped playback from the notification.
      */
     fun exit() {
-        sessionActive = false
+        _sessionActive.value = false
         advanceJob?.cancel()
     }
 

@@ -212,7 +212,7 @@ class PlaybackSessionControllerTest {
         // User leaves the player during the grace delay: the pending advance must not pull the
         // next video up after exit.
         controller.exit()
-        assertFalse(controller.sessionActive)
+        assertFalse(controller.sessionActive.value)
         advanceTimeBy(600L)
         runCurrent()
 
