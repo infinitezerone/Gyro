@@ -12,6 +12,7 @@ import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.model.PlaybackState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -184,14 +186,18 @@ class PlaybackSessionController internal constructor(
             val startPos = if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) progress.positionMs else 0L
             val initialDuration = progress?.durationMs ?: 0L
             currentCoroutineContext().ensureActive()
-            engine.load(
-                uri = uri,
-                startPositionMs = startPos,
-                displayTitle = resolvedTitle,
-                initialDurationMs = initialDuration,
-                initialWidth = resolvedWidth,
-                initialHeight = resolvedHeight
-            )
+            // The session collects on the application scope (Default), but the load command must
+            // stay on the main thread where surface attach/detach and engine lifecycle run.
+            withContext(Dispatchers.Main) {
+                engine.load(
+                    uri = uri,
+                    startPositionMs = startPos,
+                    displayTitle = resolvedTitle,
+                    initialDurationMs = initialDuration,
+                    initialWidth = resolvedWidth,
+                    initialHeight = resolvedHeight
+                )
+            }
         }
         loadJob = job
         return job

@@ -226,6 +226,33 @@ class MediaSessionManagerTest {
         assertFalse(manager.skipToPrevious())
     }
 
+    @Test
+    fun testSkipDelegatesToWiredSessionHooks() {
+        val manager = createMediaSessionManager()
+        val item1 = VideoMediaItem(1L, "content://media/1", "Ep 1", 10000L, 100L, 1920, 1080, 1L, "Anime")
+        val item2 = VideoMediaItem(2L, "content://media/2", "Ep 2", 10000L, 100L, 1920, 1080, 1L, "Anime")
+        playlistManager.setPlaylist(listOf(item1, item2), 0)
+
+        var nextCalls = 0
+        var prevCalls = 0
+        manager.onSkipToNext = { nextCalls++; true }
+        manager.onSkipToPrevious = { prevCalls++; true }
+
+        // The wired hook owns the load: the fallback must not also advance the playlist.
+        assertTrue(manager.skipToNext())
+        assertEquals(1, nextCalls)
+        assertEquals(0, playlistManager.currentIndex.value)
+
+        assertTrue(manager.skipToPrevious())
+        assertEquals(1, prevCalls)
+        assertEquals(0, playlistManager.currentIndex.value)
+
+        // A hook reporting "not handled" falls through to the default playlist traversal.
+        manager.onSkipToNext = { false }
+        assertTrue(manager.skipToNext())
+        assertEquals(1, playlistManager.currentIndex.value)
+    }
+
     // =========================================================================
     // 4. Headset / Media Button KeyCode Routing
     // =========================================================================

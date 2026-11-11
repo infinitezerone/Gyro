@@ -67,7 +67,8 @@ object PlayerModule {
     fun provideMediaSessionManager(
         @ApplicationContext context: Context,
         engine: dev.gyro.engine.api.PlayerEngine,
-        playlistManager: PlaylistManager
+        playlistManager: PlaylistManager,
+        sessionController: dev.gyro.feature.player.session.PlaybackSessionController
     ): MediaSessionManager {
         val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(context, PlaybackService::class.java)
         val buttonPendingIntent = PendingIntent.getService(
@@ -93,6 +94,10 @@ object PlayerModule {
             onStopRequested = {
                 PlaybackService.stop(context)
             }
+            // Route notification / headset / adapter track skips through the session controller so
+            // they save the previous video's progress and auto-resume the next, like the UI path.
+            onSkipToNext = { sessionController.playNext() }
+            onSkipToPrevious = { sessionController.playPrevious() }
         }
     }
 }
