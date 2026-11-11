@@ -27,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.core.content.ContextCompat
@@ -50,8 +51,8 @@ import dev.gyro.feature.settings.SettingsScreen
 import dev.gyro.feature.settings.folders.FolderManagementScreen
 import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
-import dev.gyro.player.service.PlaybackService
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val navSpatialSpec = tween<IntOffset>(300, easing = FastOutSlowInEasing)
 private val navSpatialFloatSpec = tween<Float>(300, easing = FastOutSlowInEasing)
@@ -109,23 +110,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            LaunchedEffect(Unit) {
-                viewModel.shouldRunPlaybackService.collect { enabled ->
-                    if (enabled) {
-                        runCatching { PlaybackService.start(this@MainActivity) }
-                            .onFailure { Log.w("MainActivity", "Failed to start PlaybackService", it) }
-                    } else {
-                        PlaybackService.stop(this@MainActivity)
-                    }
-                }
-            }
-
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
                     val top = backStack.lastOrNull()
                     if (top is Screen.Player && top.uri == uri) return@LaunchedEffect
                     backStack.add(Screen.Player(uri))
                 }
+            }
+
+            // Leaving the player is a navigation fact, so it is observed as one: a Player entry that
+            // disappears from the back stack ends the playback session (covers top-bar back,
+            // predictive back, system back and programmatic pops). Pushing another destination on top
+            // keeps the entry in the stack, so opening Settings does not kill playback. Deliberately
+            // not hung off a composable/ViewModel destructor: that also fires for merely-covered
+            // destinations and never fires on process death.
+            LaunchedEffect(Unit) {
+                var playerOnStack = backStack.any { it is Screen.Player }
+                snapshotFlow { backStack.any { it is Screen.Player } }
+                    .distinctUntilChanged()
+                    .collect { present ->
+                        if (playerOnStack && !present) {
+                            viewModel.onPlayerDestinationRemoved()
+                        }
+                        playerOnStack = present
+                    }
             }
 
             Surface(
@@ -224,6 +232,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = playerViewModel,
                                 currentUri = playerScreen.uri,
                                 onBack = {
+                                    playerViewModel.onUserExit()
                                     if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
                                         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                     }

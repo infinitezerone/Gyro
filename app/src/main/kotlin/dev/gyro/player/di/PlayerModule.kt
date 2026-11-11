@@ -13,8 +13,10 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.session.MediaSessionManager
+import dev.gyro.feature.player.session.PlaybackServiceLauncher
 import dev.gyro.player.MainActivity
 import dev.gyro.player.service.PlaybackService
+import dev.gyro.player.service.PlaybackServiceLauncherImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,5 +101,11 @@ object PlayerModule {
             onSkipToNext = { sessionController.playNext() }
             onSkipToPrevious = { sessionController.playPrevious() }
         }
+    }
+
+    @Provides
+    @Singleton
+    fun providePlaybackServiceLauncher(impl: PlaybackServiceLauncherImpl): PlaybackServiceLauncher {
+        return impl
     }
 }

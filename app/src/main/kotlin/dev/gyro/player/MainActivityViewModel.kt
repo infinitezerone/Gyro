@@ -11,7 +11,6 @@ import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.feature.player.session.PlaybackSessionController
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
@@ -40,17 +39,6 @@ class MainActivityViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000)
         )
 
-    /**
-     * Hosts the foreground service for the whole playback session (across pauses, so the notification
-     * can resume it) when background audio is enabled. Started while the UI is still visible, so
-     * startForeground runs before the app is backgrounded — starting it in onStop races OEM background
-     * freezing and crashes with ForegroundServiceDidNotStartInTimeException.
-     */
-    val shouldRunPlaybackService: StateFlow<Boolean> =
-        combine(session.sessionActive, settingsRepository.settings) { active, settings ->
-            active && settings.backgroundAudio
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
     fun onPlayVideo(item: VideoMediaItem, currentList: List<VideoMediaItem>) {
         val idx = currentList.indexOfFirst { it.uriString == item.uriString }
         playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
@@ -65,5 +53,15 @@ class MainActivityViewModel @Inject constructor(
                 engine.pause()
             }
         }
+    }
+
+    /**
+     * The player destination left the back stack, i.e. the user is done with it (top-bar back,
+     * predictive back, system back, programmatic pop). Navigation state is the authoritative signal;
+     * a ViewModel/composable destructor is not, since it also fires for destinations that are merely
+     * covered by another screen and never fires at all on process death.
+     */
+    fun onPlayerDestinationRemoved() {
+        session.leavePlayer()
     }
 }

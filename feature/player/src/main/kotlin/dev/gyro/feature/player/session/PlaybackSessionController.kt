@@ -54,6 +54,7 @@ class PlaybackSessionController internal constructor(
     val uriParser: UriParser,
     val playlist: PlaylistManager,
     private val scope: CoroutineScope,
+    private val serviceLauncher: PlaybackServiceLauncher = PlaybackServiceLauncher.NoOp,
 ) {
     @Inject
     constructor(
@@ -64,6 +65,7 @@ class PlaybackSessionController internal constructor(
         mediaRepository: MediaRepository,
         uriParser: UriParser,
         @ApplicationScope appScope: CoroutineScope,
+        serviceLauncher: PlaybackServiceLauncher,
     ) : this(
         engine = engine,
         settingsRepository = settingsRepository,
@@ -73,6 +75,7 @@ class PlaybackSessionController internal constructor(
         uriParser = uriParser,
         playlist = engine.playlist,
         scope = appScope,
+        serviceLauncher = serviceLauncher,
     )
 
     /** Single source of truth for the active URI directly from the engine store. */
@@ -168,6 +171,7 @@ class PlaybackSessionController internal constructor(
         initialHeight: Int = 0,
     ): Job {
         _sessionActive.value = true
+        serviceLauncher.start()
         loadJob?.cancel()
         val oldUri = engine.currentUri.value
         if (oldUri != null && oldUri != uri) {
@@ -211,10 +215,46 @@ class PlaybackSessionController internal constructor(
     /**
      * Ends the foreground session: a pending auto-advance must not pull the next video up after the
      * user left the player or stopped playback from the notification.
+     *
+     * Idempotent by design. Several independent producers signal the same exit (back callback,
+     * predictive back, PiP dismissal, destination teardown) and the service stop path re-enters
+     * here, so a repeated call must not issue another [PlaybackServiceLauncher.stop]: a second
+     * start/stop pair while the previous stop is still in flight is what makes the service
+     * bounce between create and destroy.
      */
     fun exit() {
-        _sessionActive.value = false
+        endSession(requestServiceStop = true)
+    }
+
+    /**
+     * Host service is already gone (notification stop, stopSelf): clear the session without asking
+     * it to stop a second time. Called from the service's own teardown.
+     */
+    fun onServiceDestroyed() {
+        endSession(requestServiceStop = false)
+    }
+
+    private fun endSession(requestServiceStop: Boolean) {
+        if (!_sessionActive.compareAndSet(expect = true, update = false)) return
         advanceJob?.cancel()
+        if (requestServiceStop) {
+            serviceLauncher.stop()
+        }
+    }
+
+    /**
+     * Ends playback because the user left the player destination: persist the playhead, release
+     * audio focus and the video surface, then tear the session down.
+     *
+     * Single implementation for every exit producer (top-bar back, predictive back, PiP dismissal,
+     * player destination removed from the back stack). Safe to call more than once.
+     */
+    fun leavePlayer() {
+        saveCurrentProgress()
+        engine.pause()
+        engine.abandonAudioFocus()
+        exit()
+        engine.detachSurface()
     }
 
     fun playMediaItem(item: VideoMediaItem) {

@@ -118,10 +118,7 @@ class PlayerViewModel @Inject constructor(
      */
     fun onUserExit() {
         initializedUri = null
-        session.exit()
-        engine.pause()
-        engine.abandonAudioFocus()
-        engine.detachSurface()
+        session.leavePlayer()
     }
 
     fun openUri(
@@ -156,8 +153,14 @@ class PlayerViewModel @Inject constructor(
 
     public override fun onCleared() {
         super.onCleared()
-        // Persist progress and cancel this screen's transient load work. The session's collectors
-        // intentionally outlive the ViewModel for background playback, so they are not cancelled here.
+        // Nothing here may drive playback state. `onCleared` is a destructor for this instance, not
+        // a "user left the screen" signal: it is never called when the process is killed, its timing
+        // is not part of the contract, and reacting to it would turn a lifecycle callback into a
+        // business command. Leaving the player is signalled by the navigation layer
+        // (MainActivity watches the back stack) and by the explicit exit callbacks.
+        // Only clean up what this ViewModel owns: persist the playhead and cancel this screen's
+        // transient load work. The session's collectors intentionally outlive the ViewModel for
+        // background playback, so they are not cancelled here.
         saveCurrentProgress()
         session.cancelPendingLoad()
     }

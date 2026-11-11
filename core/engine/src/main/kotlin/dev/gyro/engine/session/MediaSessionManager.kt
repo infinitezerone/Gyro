@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Looper
 import android.view.KeyEvent
 import androidx.media3.session.MediaSession
-import androidx.media3.session.SessionToken
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
@@ -20,8 +19,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Manages the Media3 [MediaSession], keeping state and metadata synchronized with
- * [GyroPlayerEngine] via [MpvPlayerAdapter], and routing transport controls back to the engine.
+ * Builds Media3 [MediaSession] instances and keeps their state and metadata synchronized with
+ * [GyroPlayerEngine] via [MpvPlayerAdapter], routing transport controls back to the engine.
+ *
+ * The manager itself does not own a session: whoever creates it owns it (the playback service
+ * creates one in `onCreate` and releases it in `onDestroy`), so no session can outlive the component
+ * the system should see it attached to.
  */
 class MediaSessionManager(
     private val context: Context,
@@ -86,16 +89,6 @@ class MediaSessionManager(
         null
     }
 
-    var mediaSession: MediaSession? = null
-        private set
-
-    val sessionToken: SessionToken?
-        get() = try {
-            mediaSession?.token
-        } catch (_: Throwable) {
-            null
-        }
-
     var onPlaybackStateChanged: ((isPlaying: Boolean) -> Unit)? = null
     var onMetadataChanged: (() -> Unit)? = null
     var onStopRequested: (() -> Unit)? = null
@@ -104,21 +97,33 @@ class MediaSessionManager(
 
     private var currentArt: Bitmap? = null
     init {
-        val adapter = playerAdapter
-        if (adapter != null) {
-            try {
-                val builder = MediaSession.Builder(context, adapter)
-                    .setId(MEDIA_SESSION_TAG)
-                if (sessionActivityPendingIntent != null) {
-                    builder.setSessionActivity(sessionActivityPendingIntent)
-                }
-                mediaSession = builder.build()
-            } catch (t: Throwable) {
-                EngineLog.w(TAG, "MediaSession initialization skipped or failed: ${t.message}")
-            }
-        }
-
         startObservingEngine()
+    }
+
+    /**
+     * Builds a session for the caller to own.
+     *
+     * Intentionally not cached here: a [MediaSession] is a binder endpoint registered with the
+     * system's MediaSessionManager, and the system keeps treating it as "the player" (media buttons,
+     * media card, controllers) until it is released. Its lifetime therefore belongs to the hosting
+     * `MediaSessionService` — built in `onCreate`, released in `onDestroy` — not to this
+     * process-scoped helper.
+     */
+    fun createSession(): MediaSession? {
+        val adapter = playerAdapter ?: return null
+        return try {
+            MediaSession.Builder(context, adapter)
+                .setId(MEDIA_SESSION_TAG)
+                .apply {
+                    if (sessionActivityPendingIntent != null) {
+                        setSessionActivity(sessionActivityPendingIntent)
+                    }
+                }
+                .build()
+        } catch (t: Throwable) {
+            EngineLog.w(TAG, "MediaSession initialization skipped or failed: ${t.message}")
+            null
+        }
     }
 
     private fun startObservingEngine() {
@@ -290,11 +295,9 @@ class MediaSessionManager(
     fun release() {
         coroutineScope.cancel()
         try {
-            mediaSession?.release()
-            mediaSession = null
             playerAdapter?.release()
         } catch (t: Throwable) {
-            EngineLog.w(TAG, "release MediaSession error: ${t.message}")
+            EngineLog.w(TAG, "release player adapter error: ${t.message}")
         }
     }
 }

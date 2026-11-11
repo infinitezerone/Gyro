@@ -1,12 +1,8 @@
 package dev.gyro.player.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -15,7 +11,6 @@ import android.os.IBinder
 import android.util.Log
 import android.util.Size
 import android.view.KeyEvent
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.IntentCompat
 import androidx.media3.session.MediaSession
@@ -48,9 +43,6 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val TAG = "PlaybackService"
 
-        private const val CHANNEL_ID = "playback_channel"
-        private const val NOTIFICATION_ID = 1001
-
         const val ACTION_PLAY = "dev.gyro.player.ACTION_PLAY"
         const val ACTION_PAUSE = "dev.gyro.player.ACTION_PAUSE"
         const val ACTION_PLAY_PAUSE = "dev.gyro.player.ACTION_PLAY_PAUSE"
@@ -61,33 +53,19 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_STOP = "dev.gyro.player.ACTION_STOP"
         const val ACTION_DISMISS = "dev.gyro.player.ACTION_DISMISS"
 
-        @Volatile
-        var isRunning: Boolean = false
-            internal set
-
         fun start(context: Context) {
             val intent = Intent(context, PlaybackService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startService(intent)
         }
 
+        /**
+         * Tears the service down. Deliberately a bare `stopService`: pushing an ACTION_STOP start
+         * request first would re-enter the session exit path (ACTION_STOP -> exit -> stop) while the
+         * service instance is still alive, so every teardown would ask for another start.
+         * Progress persistence and session teardown live in [onDestroy], which this still triggers.
+         */
         fun stop(context: Context) {
-            if (!isRunning) return
-            val intent = Intent(context, PlaybackService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
-        }
-
-        fun dismiss(context: Context) {
-            if (!isRunning) return
-            val intent = Intent(context, PlaybackService::class.java).apply {
-                action = ACTION_DISMISS
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, PlaybackService::class.java))
         }
     }
 
@@ -95,10 +73,17 @@ class PlaybackService : MediaSessionService() {
     private var currentThumbnailBitmap: Bitmap? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /**
+     * Sole owner of the system-facing media session. Built in [onCreate], released in [onDestroy],
+     * so its registered lifetime is exactly this service instance's lifetime.
+     */
+    private var mediaSession: MediaSession? = null
+
     override fun onCreate() {
         super.onCreate()
-        isRunning = true
         Log.i(TAG, "PlaybackService created (Media3)")
+
+        mediaSession = mediaSessionManager.createSession()
 
         serviceScope.launch {
             engine.currentUri.collect { uri ->
@@ -112,7 +97,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        return mediaSessionManager.mediaSession
+        return mediaSession
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -122,10 +107,6 @@ class PlaybackService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
-
-        if (action != ACTION_STOP && action != ACTION_DISMISS) {
-            ensureForeground()
-        }
 
         val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON) {
             IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
@@ -144,31 +125,6 @@ class PlaybackService : MediaSessionService() {
 
         val superSticky = super.onStartCommand(intent, flags, startId)
         return if (action == ACTION_STOP || action == ACTION_DISMISS) sticky else superSticky
-    }
-
-    /**
-     * Guarantees the startForegroundService contract when the media notification cannot be posted.
-     * With POST_NOTIFICATIONS denied (Android 13+) Media3 suppresses the notification and never calls
-     * startForeground, which crashes with ForegroundServiceDidNotStartInTimeException. When the
-     * permission is granted Media3 owns the notification, so no fallback is needed.
-     */
-    private fun ensureForeground() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW)
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(engine.state.value.mediaTitle.ifBlank { "Gyro" })
-            .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .build()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-        )
     }
 
     /**
@@ -266,16 +222,28 @@ class PlaybackService : MediaSessionService() {
 
     internal fun stopForegroundAndSelf() {
         engine.isHeadlessMode = false
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
+        // The host is the last thing holding a foreground session together: persist the playhead
+        // and drop the session flag here, so a teardown started from the notification (stopSelf)
+        // and one started from the UI (stopService) converge on the same cleanup.
+        saveCurrentProgress()
+        sessionController.onServiceDestroyed()
+        // Unregister before the process-facing cleanup: until release() returns, the system still
+        // routes media buttons and shows the media card for this session.
+        mediaSession?.let { session ->
+            runCatching { session.release() }
+                .onFailure { Log.w(TAG, "release MediaSession failed", it) }
+        }
+        mediaSession = null
         engine.isHeadlessMode = false
         serviceScope.cancel()
         currentThumbnailBitmap = null
         currentThumbnailUri = null
-        isRunning = false
     }
 }
