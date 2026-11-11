@@ -19,8 +19,23 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+
+/**
+ * The subset of the playback snapshot that [MpvPlayerAdapter.getState] actually renders. Diagnostic
+ * fields (fps, dropped frames, bitrate) are excluded so their high-frequency ticks do not invalidate
+ * the session state and rebuild the whole playlist.
+ */
+private data class AdapterSessionState(
+    val isPlaying: Boolean,
+    val playbackState: EnginePlaybackState,
+    val durationMs: Long,
+    val speed: Float,
+    val mediaTitle: String,
+)
 
 /**
  * Adapter that exposes [GyroPlayerEngine] and [PlaylistManager] as a Media3 [Player] via [SimpleBasePlayer].
@@ -58,9 +73,10 @@ class MpvPlayerAdapter(
     private fun startObservingEngine() {
         coroutineScope.launch {
             launch {
-                engine.state.collect {
-                    invalidateState()
-                }
+                engine.state
+                    .map { AdapterSessionState(it.isPlaying, it.playbackState, it.durationMs, it.speed, it.mediaTitle) }
+                    .distinctUntilChanged()
+                    .collect { invalidateState() }
             }
             var lastPos = 0L
             launch {
