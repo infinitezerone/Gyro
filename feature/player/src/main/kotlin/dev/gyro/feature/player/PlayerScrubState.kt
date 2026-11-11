@@ -17,6 +17,10 @@ data class PlayerScrubSnapshot(
  * Single source of truth for scrub/seek state in the Gyro player.
  * Both horizontal on-screen gestures and the bottom scrub bar read and write via this holder.
  * Leaf composables read from this state to avoid recomposing the entire controls overlay.
+ *
+ * Display-only by contract: this holder describes where the playhead *would* land. It must not be
+ * used to decide whether the control layer is visible (that is [PlayerState.showControls] alone),
+ * otherwise a swipe anywhere on the video surface starts waking the top/bottom bars.
  */
 @Stable
 class PlayerScrubState {
