@@ -77,7 +77,12 @@ class MainActivity : ComponentActivity() {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
 
-        handleIntent(intent)
+        // Only consume the launching intent on a fresh start. On process-death restoration the back
+        // stack is rebuilt from saved state, and getIntent() returns the original launching intent
+        // again; replaying it here would push a duplicate Player onto the restored stack.
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        }
 
         setContent {
             val backStack = rememberNavBackStack(Screen.Home)
