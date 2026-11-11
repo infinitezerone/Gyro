@@ -733,6 +733,8 @@ fun PlayerScreen(
                 engine.state.value.softwareVolume
             },
             onSeekTo = { targetMs ->
+                // Commit the gesture seek only. Control-layer visibility is owned by the
+                // auto-hide timer in PlayerState, not by gesture callbacks.
                 engine.seekTo(targetMs)
             },
             onPlayPrevious = {
@@ -754,8 +756,11 @@ fun PlayerScreen(
     val isSwitching = sessionState is dev.gyro.engine.session.PlaybackSessionState.Switching
     var isShutterReady by remember(activeUri, sessionState) { mutableStateOf(false) }
     var shutterTimedOut by remember(activeUri, sessionState) { mutableStateOf(false) }
-    LaunchedEffect(activeUri, sessionState, firstFrameRendered, geometryReady, videoContainerSize, videoAspect) {
-        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, aspect=$videoAspect, isSwitching=$isSwitching")
+    // Size the surface buffer was actually re-locked to. `setFixedSize` is async, so this lags the
+    // requested geometry and is the only honest signal that a frame can be shown un-distorted.
+    var appliedBufferSize by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(activeUri, sessionState, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, appliedBufferSize) {
+        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, buffer=$appliedBufferSize, aspect=$videoAspect, isSwitching=$isSwitching")
         if (isSwitching || !firstFrameRendered) {
             isShutterReady = false
             return@LaunchedEffect
@@ -768,7 +773,9 @@ fun PlayerScreen(
             videoHeight = videoDimensions.height,
             resizeMode = resizeMode,
             containerWidth = videoContainerSize.width,
-            containerHeight = videoContainerSize.height
+            containerHeight = videoContainerSize.height,
+            bufferWidth = appliedBufferSize.width,
+            bufferHeight = appliedBufferSize.height
         )
         if (decision == ShutterRevealPolicy.Decision.Reveal) {
             withFrameNanos { }
@@ -872,7 +879,15 @@ fun PlayerScreen(
         val pageOffset by remember {
             derivedStateOf {
                 val scrollPos = pagerState.currentPage + pagerState.currentPageOffsetFraction
-                currentPlaylistIndex.toFloat() - scrollPos
+                // No playlist selection (-1) is what a single-file VIEW intent leaves behind. Using it
+                // raw translates the persistent surface a full page off-screen, which reads as a black
+                // video while audio and the progress bar keep running.
+                val selected = if (currentPlaylistIndex in playlist.indices) {
+                    currentPlaylistIndex
+                } else {
+                    pagerState.currentPage
+                }
+                selected.toFloat() - scrollPos
             }
         }
 
@@ -936,14 +951,20 @@ fun PlayerScreen(
             videoDimensions = videoDimensions,
             videoFrameRate = videoFrameRate,
             pipTransitionActive = pipState.isTransitionActive,
-            onSurfaceViewAvailable = { surfaceViewRef = it }
+            onSurfaceViewAvailable = { surfaceViewRef = it },
+            onAppliedBufferSizeChanged = { appliedBufferSize = it }
         )
 
         val activePlaylistItem = playlist.getOrNull(currentPlaylistIndex)
-        val isCurrentVideoReady = activePlaylistItem != null &&
-            activePlaylistItem.uriString == activeUri?.toString() &&
-            firstFrameRendered &&
-            !isSwitching
+        val activeUriString = activeUri?.toString()
+        // The playlist is only one entry point into the player: a VIEW intent (file manager, gallery,
+        // "open with") goes straight to openUri() and can leave a stale playlist behind. Gate the
+        // poster on the item match only when the playlist actually contains what the engine is
+        // playing; otherwise the opaque poster would stay up and hide a video already on screen.
+        val activeIsInPlaylist = activeUriString != null && playlist.any { it.uriString == activeUriString }
+        val isCurrentVideoReady = firstFrameRendered &&
+            !isSwitching &&
+            (!activeIsInPlaylist || activePlaylistItem?.uriString == activeUriString)
 
         // A2. VerticalPager for Douyin-style feed
         VerticalPager(
@@ -956,7 +977,15 @@ fun PlayerScreen(
             key = { page -> playlist.getOrNull(page)?.uriString ?: page }
         ) { page ->
             val item = playlist.getOrNull(page)
-            val isActive = page == currentPlaylistIndex
+            // `currentPlaylistIndex` is -1 until something sets a playlist, which is exactly what a
+            // single-file VIEW intent ("open with", file manager) does: openUri() plays a URI that was
+            // never put in the playlist. Comparing the page to -1 left every page inactive, so the
+            // opaque poster covered a video that was already rendering.
+            val isActive = when {
+                currentPlaylistIndex in playlist.indices -> page == currentPlaylistIndex
+                playlist.isEmpty() -> page == pagerState.currentPage
+                else -> playlist.getOrNull(page)?.uriString == activeUriString
+            }
             val showPoster = !isActive || !isCurrentVideoReady
 
             Box(

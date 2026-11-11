@@ -43,7 +43,9 @@ object ShutterRevealPolicy {
         videoHeight: Int,
         resizeMode: ResizeMode,
         containerWidth: Int,
-        containerHeight: Int
+        containerHeight: Int,
+        bufferWidth: Int,
+        bufferHeight: Int
     ): Decision {
         val isAudioOnly = videoWidth == 0 && videoHeight == 0
         if (!firstFrameRendered || !geometryReady) return Decision.Hold
@@ -65,6 +67,15 @@ object ShutterRevealPolicy {
         } else 0f
         val isLayoutSettled = containerWidth > 0 && containerHeight > 0 &&
             kotlin.math.abs(containerAspect - targetAspect) <= targetAspect * ASPECT_TOLERANCE
-        return if (isLayoutSettled) Decision.Reveal else Decision.Hold
+
+        // Fact 3 (the surface buffer itself): `setFixedSize` is an async transaction, so the buffer can
+        // still carry the previous geometry when the first frame lands. Revealing then shows a picture
+        // drawn into a mismatched buffer — on the single-file VIEW-intent path that is the full-screen
+        // portrait buffer from before the video size is known, and the result is a black picture.
+        val bufferAspect = if (bufferHeight > 0) bufferWidth.toFloat() / bufferHeight else 0f
+        val isBufferSettled = bufferWidth > 0 && bufferHeight > 0 &&
+            kotlin.math.abs(bufferAspect - targetAspect) <= targetAspect * ASPECT_TOLERANCE
+
+        return if (isLayoutSettled && isBufferSettled) Decision.Reveal else Decision.Hold
     }
 }

@@ -21,7 +21,9 @@ class ShutterRevealPolicyTest {
         videoHeight: Int = h1080,
         resizeMode: ResizeMode = ResizeMode.FIT,
         containerWidth: Int = w1080,
-        containerHeight: Int = h1080
+        containerHeight: Int = h1080,
+        bufferWidth: Int = w1080,
+        bufferHeight: Int = h1080
     ) = ShutterRevealPolicy.evaluate(
         firstFrameRendered = firstFrame,
         geometryReady = geometryReady,
@@ -30,7 +32,9 @@ class ShutterRevealPolicyTest {
         videoHeight = videoHeight,
         resizeMode = resizeMode,
         containerWidth = containerWidth,
-        containerHeight = containerHeight
+        containerHeight = containerHeight,
+        bufferWidth = bufferWidth,
+        bufferHeight = bufferHeight
     )
 
     @Test
@@ -41,6 +45,25 @@ class ShutterRevealPolicyTest {
     @Test
     fun holdsUntilGeometryReady() {
         assertEquals(ShutterRevealPolicy.Decision.Hold, evaluate(geometryReady = false))
+    }
+
+    @Test
+    fun holdsWhileSurfaceBufferStillHasThePreviousGeometry() {
+        // The single-file VIEW-intent path: the first frame lands while the buffer is still the
+        // full-screen portrait one that was locked before the video size was known. Revealing here
+        // showed a black picture (2026-11-11 on-device trace).
+        assertEquals(
+            ShutterRevealPolicy.Decision.Hold,
+            evaluate(bufferWidth = 1272, bufferHeight = 2772)
+        )
+    }
+
+    @Test
+    fun holdsWhileSurfaceBufferSizeIsUnknown() {
+        assertEquals(
+            ShutterRevealPolicy.Decision.Hold,
+            evaluate(bufferWidth = 0, bufferHeight = 0)
+        )
     }
 
     @Test
