@@ -42,6 +42,7 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
+import dev.gyro.feature.player.component.sheet.common.displayLabel
 import dev.gyro.feature.player.component.sheet.common.SheetAmber
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
@@ -70,7 +71,7 @@ internal fun AspectTabContent(
 
             ResizeMode.entries.forEach { mode ->
                 TrackItem(
-                    title = mode.label,
+                    title = mode.displayLabel(),
                     subtitle = "",
                     isSelected = state.currentResizeMode == mode,
                     accentColor = SheetAccentBlue,

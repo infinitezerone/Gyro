@@ -42,6 +42,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.SheetTrackColor
+import dev.gyro.feature.player.component.sheet.common.displayLabel
 import java.util.Locale
 
 /**
@@ -93,7 +94,7 @@ internal fun SettingsHubTabContent(
         SettingsItemRow(
             title = stringResource(R.string.aspect_title),
             icon = Icons.Default.FitScreen,
-            currentValue = state.currentResizeMode.label,
+            currentValue = state.currentResizeMode.displayLabel(),
             onClick = { onNavigate(PlayerSheetTab.ASPECT) }
         )
 

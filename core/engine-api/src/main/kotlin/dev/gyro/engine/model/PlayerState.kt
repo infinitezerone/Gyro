@@ -24,12 +24,12 @@ data class TrackInfo(
     val isSelected: Boolean
 )
 
-enum class ResizeMode(val label: String) {
-    FIT("Fit"),
-    CROP("Crop"),
-    STRETCH("Stretch"),
-    ASPECT_16_9("16:9"),
-    ASPECT_21_9("21:9")
+enum class ResizeMode {
+    FIT,
+    CROP,
+    STRETCH,
+    ASPECT_16_9,
+    ASPECT_21_9
 }
 
 data class PerformanceStats(
