@@ -9,8 +9,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.palette.graphics.Palette
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private const val TAG = "PaletteExtractor"
 
 /**
  * Extracted dynamic palette colors from media poster/frame using Jetpack Palette.
@@ -52,8 +55,8 @@ fun rememberPlayerPalette(bitmap: Bitmap?): PlayerPaletteColors {
                     accentColor = vibrant,
                     darkMutedColor = darkMuted
                 )
-            } catch (_: Throwable) {
-                // Fallback to default
+            } catch (e: Throwable) {
+                Log.w(TAG, "Palette extraction failed, falling back to defaults", e)
             }
         }
     }

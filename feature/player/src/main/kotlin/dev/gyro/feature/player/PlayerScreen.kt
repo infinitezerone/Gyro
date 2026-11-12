@@ -1477,9 +1477,10 @@ private fun VideoPagePoster(
             .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        if (bitmap != null) {
+        val currentBitmap = bitmap
+        if (currentBitmap != null) {
             Image(
-                bitmap = bitmap!!.asImageBitmap(),
+                bitmap = currentBitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
