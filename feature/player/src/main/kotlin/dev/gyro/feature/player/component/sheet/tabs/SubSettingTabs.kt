@@ -114,24 +114,24 @@ internal fun HwdecSubTabContent(
             .padding(vertical = 4.dp)
     ) {
         SettingRadioRow(
-            title = "HW+ 硬件复制 (推荐)",
-            subtitle = "芯片硬解 + GPU 回写，支持 Anime4K / CAS 画面着色器",
+            title = stringResource(R.string.hwdec_copy_recommended),
+            subtitle = stringResource(R.string.hwdec_copy_desc),
             isSelected = isCopyMode,
             onClick = { callbacks.onSetHwdec("mediacodec-copy") }
         )
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         SettingRadioRow(
-            title = "HW 硬解直出",
-            subtitle = "Surface 零拷贝直接送屏，低功耗省电，不支持复杂着色器",
+            title = stringResource(R.string.hwdec_direct),
+            subtitle = stringResource(R.string.hwdec_direct_desc),
             isSelected = isHwDirect,
             onClick = { callbacks.onSetHwdec("mediacodec") }
         )
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         SettingRadioRow(
-            title = "SW 纯软解",
-            subtitle = "CPU 软件解码，格式全兼容",
+            title = stringResource(R.string.hwdec_sw),
+            subtitle = stringResource(R.string.hwdec_sw_desc),
             isSelected = isSw,
             onClick = { callbacks.onSetHwdec("no") }
         )
@@ -155,16 +155,16 @@ internal fun ShadersSubTabContent(
             .padding(vertical = 4.dp)
     ) {
         SettingRadioRow(
-            title = "原画 (无滤镜)",
-            subtitle = "关闭后处理滤镜，纯净原画直出",
+            title = stringResource(R.string.shader_none),
+            subtitle = stringResource(R.string.shader_none_desc),
             isSelected = state.shaderState.activeShader == GlslShader.OFF,
             onClick = { callbacks.onClearShader() }
         )
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         SettingRadioRow(
-            title = "Anime4K 动漫超分",
-            subtitle = "二次元动漫特化：边缘轮廓加深 + 自适应对比度重建",
+            title = stringResource(R.string.shader_anime4k_upscale),
+            subtitle = stringResource(R.string.shader_anime4k_upscale_desc),
             isSelected = state.shaderState.activeShader == GlslShader.ANIME4K,
             onClick = {
                 if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
@@ -174,8 +174,8 @@ internal fun ShadersSubTabContent(
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         SettingRadioRow(
-            title = "AMD CAS 超清锐化",
-            subtitle = "真人影视与美剧首选：自适应超分辨率，强化纹理且无白边",
+            title = stringResource(R.string.shader_cas_sharpen),
+            subtitle = stringResource(R.string.shader_cas_sharpen_desc),
             isSelected = state.shaderState.activeShader == GlslShader.CAS,
             onClick = {
                 if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
@@ -194,11 +194,11 @@ internal fun AspectSubTabContent(
     callbacks: PlayerSheetCallbacks
 ) {
     val options = listOf(
-        ResizeMode.FIT to "适应窗口 (原比例)",
-        ResizeMode.CROP to "填充屏幕 (裁剪黑边)",
-        ResizeMode.STRETCH to "拉伸全屏 (忽略比例)",
-        ResizeMode.ASPECT_16_9 to "16:9 宽屏比例",
-        ResizeMode.ASPECT_21_9 to "21:9 影院超宽比例"
+        ResizeMode.FIT to stringResource(R.string.aspect_mode_fit_full),
+        ResizeMode.CROP to stringResource(R.string.aspect_mode_crop_full),
+        ResizeMode.STRETCH to stringResource(R.string.aspect_mode_stretch_full),
+        ResizeMode.ASPECT_16_9 to stringResource(R.string.aspect_mode_16_9_full),
+        ResizeMode.ASPECT_21_9 to stringResource(R.string.aspect_mode_21_9_full)
     )
 
     Column(
@@ -241,14 +241,14 @@ internal fun ColorSubTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "预设色彩风格",
+                text = stringResource(R.string.color_preset_section),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
             )
 
             Text(
-                text = "重置",
+                text = stringResource(R.string.action_reset),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue,
@@ -263,10 +263,10 @@ internal fun ColorSubTabContent(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf(
-                "原画" to Triple(0, 0, 0),
-                "鲜艳" to Triple(0, 10, 20),
-                "影院" to Triple(-5, 15, 5),
-                "柔和" to Triple(5, -10, -10)
+                stringResource(R.string.color_preset_original) to Triple(0, 0, 0),
+                stringResource(R.string.color_preset_vivid) to Triple(0, 10, 20),
+                stringResource(R.string.color_preset_cinema) to Triple(-5, 15, 5),
+                stringResource(R.string.color_preset_soft) to Triple(5, -10, -10)
             ).forEach { (label, preset) ->
                 val isSelected = state.brightness == preset.first &&
                         state.contrast == preset.second &&
@@ -287,15 +287,15 @@ internal fun ColorSubTabContent(
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         Text(
-            text = "精细调节",
+            text = stringResource(R.string.color_fine_tune_section),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = SheetAccentBlue
         )
 
-        SubCompactSlider("亮度", state.brightness, -100f..100f) { callbacks.onSetBrightness(it.toInt()) }
-        SubCompactSlider("对比度", state.contrast, -100f..100f) { callbacks.onSetContrast(it.toInt()) }
-        SubCompactSlider("饱和度", state.saturation, -100f..100f) { callbacks.onSetSaturation(it.toInt()) }
+        SubCompactSlider(stringResource(R.string.color_label_brightness), state.brightness, -100f..100f) { callbacks.onSetBrightness(it.toInt()) }
+        SubCompactSlider(stringResource(R.string.color_label_contrast), state.contrast, -100f..100f) { callbacks.onSetContrast(it.toInt()) }
+        SubCompactSlider(stringResource(R.string.color_label_saturation), state.saturation, -100f..100f) { callbacks.onSetSaturation(it.toInt()) }
     }
 }
 
@@ -354,7 +354,7 @@ internal fun AudioTracksSubTabContent(
                     HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
                 }
                 SettingRadioRow(
-                    title = track.title ?: "音频轨道 #${track.id}",
+                    title = track.title ?: stringResource(R.string.track_audio_index_fmt, track.id),
                     subtitle = track.lang?.uppercase() ?: "Standard Audio",
                     isSelected = track.isSelected,
                     onClick = { callbacks.onSelectTrack("audio", track.id) }
@@ -385,7 +385,7 @@ internal fun AudioBoostSubTabContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "软增益档位", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
+            Text(text = stringResource(R.string.audio_boost_levels), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
             Text(text = "$roundedVolume%", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = SheetAccentBlue)
         }
 
@@ -484,7 +484,7 @@ internal fun SubtitleTracksSubTabContent(
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
         SettingRadioRow(
-            title = "关闭字幕",
+            title = stringResource(R.string.track_none_subtitle),
             isSelected = state.subtitleTracks.none { it.isSelected },
             onClick = { callbacks.onSelectTrack("sub", 0) }
         )
@@ -492,7 +492,7 @@ internal fun SubtitleTracksSubTabContent(
         state.subtitleTracks.forEach { track ->
             HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
             SettingRadioRow(
-                title = track.title ?: "内置字幕 #${track.id}",
+                title = track.title ?: stringResource(R.string.track_builtin_subtitle_fmt, track.id),
                 subtitle = track.lang?.uppercase() ?: "ASS/SRT",
                 isSelected = track.isSelected,
                 onClick = { callbacks.onSelectTrack("sub", track.id) }
@@ -515,12 +515,17 @@ internal fun SubtitleStyleSubTabContent(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(text = "字号缩放", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
+        Text(text = stringResource(R.string.sub_scale_section), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf(0.8 to "0.8x 紧凑", 1.0 to "1.0x 标准", 1.2 to "1.2x 放大", 1.5 to "1.5x 特大").forEach { (scale, label) ->
+            listOf(
+                0.8 to stringResource(R.string.sub_scale_compact),
+                1.0 to stringResource(R.string.sub_scale_standard),
+                1.2 to stringResource(R.string.sub_scale_large),
+                1.5 to stringResource(R.string.sub_scale_xlarge)
+            ).forEach { (scale, label) ->
                 SheetChip(
                     selected = Math.abs(state.subScale - scale) < 0.05,
                     onClick = { callbacks.onSetSubScale(scale) },
@@ -532,7 +537,7 @@ internal fun SubtitleStyleSubTabContent(
 
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
-        Text(text = "垂直位置", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
+        Text(text = stringResource(R.string.sub_pos_title), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -597,32 +602,35 @@ internal fun HdrToneMappingSubTabContent(
             .padding(vertical = 4.dp)
     ) {
         val autoLabel = if (state.isHdr) {
-            "自动识别 (${state.hdrFormat.ifBlank { "已点亮 HDR" }})"
+            stringResource(
+                R.string.hdr_auto_detected_fmt,
+                state.hdrFormat.ifBlank { stringResource(R.string.hdr_active_lit) }
+            )
         } else {
-            "自动识别 (当前 SDR / 未触发)"
+            stringResource(R.string.hdr_auto_sdr_notice)
         }
 
         SettingRadioRow(
             title = autoLabel,
-            subtitle = "根据片源动态元数据与屏幕 10-bit 能力全自动智能匹配 (推荐)",
+            subtitle = stringResource(R.string.hdr_auto_desc),
             isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_AUTO,
             onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_AUTO) }
         )
         SettingRadioRow(
-            title = "强制 BT.2100 PQ",
-            subtitle = "HDR10 / Dolby Vision 标准绝对亮度曲线 (0~10000 nits)",
+            title = stringResource(R.string.hdr_force_pq),
+            subtitle = stringResource(R.string.hdr_force_pq_desc),
             isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_PQ,
             onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_PQ) }
         )
         SettingRadioRow(
-            title = "强制 BT.2100 HLG",
-            subtitle = "广播级混合对数伽马曲线 (广电 4K / 相机原片)",
+            title = stringResource(R.string.hdr_force_hlg),
+            subtitle = stringResource(R.string.hdr_force_hlg_desc),
             isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_HLG,
             onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_HLG) }
         )
         SettingRadioRow(
-            title = "色调映射 (SDR 映射)",
-            subtitle = "将高动态压缩到标准 SDR 亮度，暗室观影护眼省电",
+            title = stringResource(R.string.hdr_tone_map_sdr),
+            subtitle = stringResource(R.string.hdr_tone_map_sdr_desc),
             isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_SDR,
             onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_SDR) }
         )
@@ -632,32 +640,32 @@ internal fun HdrToneMappingSubTabContent(
         Spacer(modifier = Modifier.height(6.dp))
 
         SettingRadioRow(
-            title = "色调映射: 自动匹配 (Auto · 默认推荐)",
-            subtitle = "自适应最佳色调映射，高对比度通透质感，色彩纯正",
+            title = stringResource(R.string.tone_map_auto),
+            subtitle = stringResource(R.string.tone_map_auto_desc),
             isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_AUTO,
             onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_AUTO) }
         )
         SettingRadioRow(
-            title = "色调映射: Hable (经典游戏级曲线)",
-            subtitle = "高对比度通透质感，有效抑制高光过曝细节损失",
+            title = stringResource(R.string.tone_map_hable),
+            subtitle = stringResource(R.string.tone_map_hable_desc),
             isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_HABLE,
             onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_HABLE) }
         )
         SettingRadioRow(
-            title = "色调映射: BT.2446a (广电色彩精准)",
-            subtitle = "国际电信联盟 ITU 广播推荐算法，色彩还原最写实",
+            title = stringResource(R.string.tone_map_bt2446a),
+            subtitle = stringResource(R.string.tone_map_bt2446a_desc),
             isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_BT2446A,
             onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_BT2446A) }
         )
         SettingRadioRow(
-            title = "色调映射: Spline (样条曲线保细节)",
-            subtitle = "中间调过渡平滑细腻，适合明亮场景与大片",
+            title = stringResource(R.string.tone_map_spline),
+            subtitle = stringResource(R.string.tone_map_spline_desc),
             isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_SPLINE,
             onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_SPLINE) }
         )
         SettingRadioRow(
-            title = "色调映射: Reinhard (线性平滑压缩)",
-            subtitle = "暗部噪点压制强，老旧低亮屏幕表现温和",
+            title = stringResource(R.string.tone_map_reinhard),
+            subtitle = stringResource(R.string.tone_map_reinhard_desc),
             isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_REINHARD,
             onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_REINHARD) }
         )
@@ -679,20 +687,20 @@ internal fun VideoScaleSubTabContent(
             .padding(vertical = 4.dp)
     ) {
         SettingRadioRow(
-            title = "Spline36 (样条插值 · 推荐清晰)",
-            subtitle = "三次样条插值算法，对齐系统相册清晰锐度，线条紧实扎实",
+            title = stringResource(R.string.video_scale_spline36),
+            subtitle = stringResource(R.string.video_scale_spline36_desc),
             isSelected = state.videoScale == dev.gyro.core.model.SCALE_SPLINE36 || state.videoScale == dev.gyro.core.model.SCALE_AUTO,
             onClick = { callbacks.onSetVideoScale(dev.gyro.core.model.SCALE_SPLINE36) }
         )
         SettingRadioRow(
-            title = "Bilinear (双线性 · 基础采样)",
-            subtitle = "原生硬件平滑采样，关闭锐化与重采样算法，线条偏软",
+            title = stringResource(R.string.video_scale_bilinear),
+            subtitle = stringResource(R.string.video_scale_bilinear_desc),
             isSelected = state.videoScale == dev.gyro.core.model.SCALE_BILINEAR || state.videoScale == dev.gyro.core.model.SCALE_OFF,
             onClick = { callbacks.onSetVideoScale(dev.gyro.core.model.SCALE_BILINEAR) }
         )
         SettingRadioRow(
-            title = "Lanczos (电影级重采样)",
-            subtitle = "Sinc 窗口滤波算法，高频细节丰富，适合高码率原盘",
+            title = stringResource(R.string.video_scale_lanczos),
+            subtitle = stringResource(R.string.video_scale_lanczos_desc),
             isSelected = state.videoScale == dev.gyro.core.model.SCALE_LANCZOS,
             onClick = { callbacks.onSetVideoScale(dev.gyro.core.model.SCALE_LANCZOS) }
         )

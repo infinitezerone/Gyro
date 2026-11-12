@@ -70,7 +70,7 @@ internal fun SubtitlesTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "主字幕轨道 (${state.subtitleTracks.size})",
+                    text = stringResource(R.string.subtitle_track_section_fmt, state.subtitleTracks.size),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = SheetAccentBlue
@@ -92,7 +92,7 @@ internal fun SubtitlesTabContent(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "添加外挂",
+                            text = stringResource(R.string.action_add_external_sub),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = SheetAccentBlue
@@ -102,8 +102,8 @@ internal fun SubtitlesTabContent(
             }
 
             TrackItem(
-                title = "关闭字幕",
-                subtitle = "纯净原片",
+                title = stringResource(R.string.track_none_subtitle),
+                subtitle = stringResource(R.string.subtitle_off_desc),
                 isSelected = state.subtitleTracks.none { it.isSelected },
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.ClosedCaption,
@@ -112,7 +112,7 @@ internal fun SubtitlesTabContent(
 
             state.subtitleTracks.forEach { track ->
                 TrackItem(
-                    title = track.title ?: "内置字幕 #${track.id}",
+                    title = track.title ?: stringResource(R.string.track_builtin_subtitle_fmt, track.id),
                     subtitle = track.lang?.uppercase() ?: "ASS/SRT",
                     isSelected = track.isSelected,
                     accentColor = SheetAccentBlue,
@@ -128,14 +128,14 @@ internal fun SubtitlesTabContent(
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "次字幕 (双语同屏)",
+                    text = stringResource(R.string.secondary_sub_section),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = SheetAccentBlue
                 )
 
                 TrackItem(
-                    title = "关闭次字幕",
+                    title = stringResource(R.string.secondary_sub_disable),
                     subtitle = "",
                     isSelected = state.secondarySubId <= 0,
                     accentColor = SheetAccentBlue,
@@ -145,7 +145,7 @@ internal fun SubtitlesTabContent(
 
                 state.subtitleTracks.forEach { track ->
                     TrackItem(
-                        title = track.title ?: "内置字幕 #${track.id}",
+                        title = track.title ?: stringResource(R.string.track_builtin_subtitle_fmt, track.id),
                         subtitle = track.lang?.uppercase() ?: "ASS/SRT",
                         isSelected = state.secondarySubId == track.id,
                         accentColor = SheetAccentBlue,
@@ -161,7 +161,7 @@ internal fun SubtitlesTabContent(
         // ==================== 3. 字幕同步延迟微调 ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "字幕同步延迟",
+                text = stringResource(R.string.subtitle_delay_sync),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -180,14 +180,14 @@ internal fun SubtitlesTabContent(
         // ==================== 4. 字幕排版与样式 ====================
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = "字幕样式排版",
+                text = stringResource(R.string.subtitle_style_layout),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
             )
 
             Text(
-                text = "字号缩放",
+                text = stringResource(R.string.sub_scale_section),
                 style = MaterialTheme.typography.bodySmall,
                 color = SheetTextColor,
                 fontWeight = FontWeight.Medium
@@ -196,7 +196,12 @@ internal fun SubtitlesTabContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                listOf(0.8 to "0.8x 紧凑", 1.0 to "1.0x 标准", 1.2 to "1.2x 放大", 1.5 to "1.5x 特大").forEach { (scale, label) ->
+                listOf(
+                    0.8 to stringResource(R.string.sub_scale_compact),
+                    1.0 to stringResource(R.string.sub_scale_standard),
+                    1.2 to stringResource(R.string.sub_scale_large),
+                    1.5 to stringResource(R.string.sub_scale_xlarge)
+                ).forEach { (scale, label) ->
                     SheetChip(
                         selected = Math.abs(state.subScale - scale) < 0.05,
                         onClick = { callbacks.onSetSubScale(scale) },
@@ -209,7 +214,7 @@ internal fun SubtitlesTabContent(
             Spacer(modifier = Modifier.height(2.dp))
 
             Text(
-                text = "垂直位置",
+                text = stringResource(R.string.sub_pos_title),
                 style = MaterialTheme.typography.bodySmall,
                 color = SheetTextColor,
                 fontWeight = FontWeight.Medium
@@ -259,7 +264,7 @@ internal fun AudioTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "音量软增益 (Audio Boost)",
+                    text = stringResource(R.string.hub_audio_boost),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = SheetAccentBlue
@@ -306,7 +311,7 @@ internal fun AudioTabContent(
         // ==================== 2. 音轨选择列表 ====================
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = "音频轨道 (${state.audioTracks.size})",
+                text = stringResource(R.string.audio_track_section_fmt, state.audioTracks.size),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -317,7 +322,7 @@ internal fun AudioTabContent(
             } else {
                 state.audioTracks.forEach { track ->
                     TrackItem(
-                        title = track.title ?: "音频轨道 #${track.id}",
+                        title = track.title ?: stringResource(R.string.track_audio_index_fmt, track.id),
                         subtitle = track.lang?.uppercase() ?: "Standard Audio",
                         isSelected = track.isSelected,
                         accentColor = SheetAccentBlue,
@@ -333,7 +338,7 @@ internal fun AudioTabContent(
         // ==================== 3. 声音延迟校准 ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "音频延迟同步",
+                text = stringResource(R.string.hub_audio_delay_sync),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -351,8 +356,8 @@ internal fun AudioTabContent(
 
         // ==================== 4. 立体声混缩 ====================
         FilterSwitchRow(
-            title = "立体声下混",
-            description = "将 5.1 / 7.1 等多声道智能下混为双声道立体声",
+            title = stringResource(R.string.hub_stereo_downmix),
+            description = stringResource(R.string.downmix_desc),
             checked = state.stereoDownmix,
             onCheckedChange = callbacks.onSetStereoDownmix
         )

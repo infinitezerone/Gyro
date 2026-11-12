@@ -29,11 +29,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.R
 import java.util.Locale
 
 /**
@@ -156,9 +158,9 @@ internal fun SyncCalibrationItem(
 
                 val formatted = String.format(Locale.US, "%.1fs", currentSec)
                 val statusText = when {
-                    currentSec > 0.05 -> "延迟 +$formatted"
-                    currentSec < -0.05 -> "提前 $formatted"
-                    else -> "已同步 0.0s"
+                    currentSec > 0.05 -> stringResource(R.string.sync_status_delayed, formatted)
+                    currentSec < -0.05 -> stringResource(R.string.sync_status_ahead, formatted)
+                    else -> stringResource(R.string.sync_status_synced)
                 }
                 val statusColor = when {
                     Math.abs(currentSec) > 0.05 -> accentColor
@@ -214,7 +216,7 @@ internal fun SyncCalibrationItem(
                     ),
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("重置", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.action_reset), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 FilledTonalButton(

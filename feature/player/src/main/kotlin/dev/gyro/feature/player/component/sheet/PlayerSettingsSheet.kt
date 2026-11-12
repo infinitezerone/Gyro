@@ -346,25 +346,25 @@ fun PlayerSettingsSheetContent(
             }
         } else {
             val pageTitle = when (selectedTab) {
-                PlayerSheetTab.HWDEC -> "解码模式"
-                PlayerSheetTab.SHADERS -> "超分辨率 / 着色器"
-                PlayerSheetTab.ASPECT -> "画面比例"
-                PlayerSheetTab.COLOR -> "色彩校准"
-                PlayerSheetTab.HDR_TONE_MAPPING -> "HDR 与色调映射"
-                PlayerSheetTab.VIDEO_SCALE -> "画面缩放算法"
-                PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> "音频轨道"
-                PlayerSheetTab.AUDIO_BOOST -> "音量软增益"
-                PlayerSheetTab.AUDIO_DELAY -> "音频延迟"
-                PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> "字幕轨道"
-                PlayerSheetTab.SUBTITLE_DELAY -> "字幕延迟"
-                PlayerSheetTab.SUBTITLE_STYLE -> "字幕样式与位置"
-                PlayerSheetTab.SPEED -> "播放倍速"
-                PlayerSheetTab.STATS_INFO, PlayerSheetTab.STATS, PlayerSheetTab.INFO -> "媒体信息与统计"
-                PlayerSheetTab.PLAYLIST -> "播放列表"
-                PlayerSheetTab.CHAPTERS -> "章节列表"
-                PlayerSheetTab.VIDEO -> "画面设置"
-                PlayerSheetTab.SYNC -> "音画同步校准"
-                PlayerSheetTab.AUDIOVISUAL -> "视听设置"
+                PlayerSheetTab.HWDEC -> stringResource(R.string.stats_decoder)
+                PlayerSheetTab.SHADERS -> stringResource(R.string.page_shaders)
+                PlayerSheetTab.ASPECT -> stringResource(R.string.aspect_title)
+                PlayerSheetTab.COLOR -> stringResource(R.string.settings_color_calibration)
+                PlayerSheetTab.HDR_TONE_MAPPING -> stringResource(R.string.settings_hdr_tone_mapping)
+                PlayerSheetTab.VIDEO_SCALE -> stringResource(R.string.settings_video_scale)
+                PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> stringResource(R.string.settings_audio_track)
+                PlayerSheetTab.AUDIO_BOOST -> stringResource(R.string.settings_audio_boost)
+                PlayerSheetTab.AUDIO_DELAY -> stringResource(R.string.sync_audio_delay)
+                PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> stringResource(R.string.settings_subtitle_track)
+                PlayerSheetTab.SUBTITLE_DELAY -> stringResource(R.string.sync_sub_delay)
+                PlayerSheetTab.SUBTITLE_STYLE -> stringResource(R.string.settings_subtitle_style)
+                PlayerSheetTab.SPEED -> stringResource(R.string.settings_playback_speed)
+                PlayerSheetTab.STATS_INFO, PlayerSheetTab.STATS, PlayerSheetTab.INFO -> stringResource(R.string.page_stats_info)
+                PlayerSheetTab.PLAYLIST -> stringResource(R.string.page_playlist)
+                PlayerSheetTab.CHAPTERS -> stringResource(R.string.page_chapters)
+                PlayerSheetTab.VIDEO -> stringResource(R.string.page_video_settings)
+                PlayerSheetTab.SYNC -> stringResource(R.string.page_av_sync)
+                PlayerSheetTab.AUDIOVISUAL -> stringResource(R.string.page_audiovisual)
             }
 
             Row(
@@ -379,7 +379,7 @@ fun PlayerSettingsSheetContent(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = SheetTextColor,
                         modifier = Modifier.size(20.dp)
                     )
@@ -427,13 +427,13 @@ fun PlayerSettingsSheetContent(
             PlayerSheetTab.AUDIO_BOOST -> AudioBoostSubTabContent(state, callbacks)
             PlayerSheetTab.AUDIO_DELAY -> DelaySubTabContent(
                 currentSec = state.audioDelaySec,
-                label = "音频延迟",
+                label = stringResource(R.string.sync_audio_delay),
                 onValueChange = callbacks.onSetAudioDelay
             )
             PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> SubtitleTracksSubTabContent(state, callbacks)
             PlayerSheetTab.SUBTITLE_DELAY -> DelaySubTabContent(
                 currentSec = state.subDelaySec,
-                label = "字幕延迟",
+                label = stringResource(R.string.sync_sub_delay),
                 onValueChange = callbacks.onSetSubDelay
             )
             PlayerSheetTab.SUBTITLE_STYLE -> SubtitleStyleSubTabContent(state, callbacks)

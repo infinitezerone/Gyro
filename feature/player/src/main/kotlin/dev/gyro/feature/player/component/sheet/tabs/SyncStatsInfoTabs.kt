@@ -188,7 +188,7 @@ internal fun LiveBitrateChart(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "实时视频码率",
+                        text = stringResource(R.string.stats_video_bitrate_title),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = SheetTextColor
@@ -218,7 +218,7 @@ internal fun LiveBitrateChart(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = "峰值", fontSize = 10.sp, color = SheetTextSecondaryColor)
+                        Text(text = stringResource(R.string.stats_peak), fontSize = 10.sp, color = SheetTextSecondaryColor)
                         Text(
                             text = formatBitrate(peakBitrate),
                             fontSize = 12.sp,
@@ -228,7 +228,7 @@ internal fun LiveBitrateChart(
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = "均值", fontSize = 10.sp, color = SheetTextSecondaryColor)
+                        Text(text = stringResource(R.string.stats_average), fontSize = 10.sp, color = SheetTextSecondaryColor)
                         Text(
                             text = formatBitrate(avgBitrate),
                             fontSize = 12.sp,
@@ -274,7 +274,7 @@ internal fun LiveBitrateChart(
                 if (samples.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "正在采样码率波形...",
+                            text = stringResource(R.string.stats_sampling_bitrate),
                             fontSize = 12.sp,
                             color = SheetTextSecondaryColor
                         )
@@ -405,19 +405,19 @@ internal fun LiveBitrateChart(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 MetricChip(
-                    label = "实时帧率",
+                    label = stringResource(R.string.stats_realtime_fps),
                     value = if (fps > 0) String.format(Locale.US, "%.1f FPS", fps) else "--",
                     modifier = Modifier.weight(1f)
                 )
                 MetricChip(
-                    label = "丢帧计数",
-                    value = "$droppedFrames 帧",
+                    label = stringResource(R.string.stats_dropped_count),
+                    value = stringResource(R.string.stats_dropped_value, droppedFrames),
                     valueColor = if (droppedFrames > 0) SheetAmber else SheetGreen,
                     modifier = Modifier.weight(1f)
                 )
                 if (audioBitrate > 0) {
                     MetricChip(
-                        label = "音频码率",
+                        label = stringResource(R.string.info_audio_bitrate),
                         value = formatBitrate(audioBitrate),
                         modifier = Modifier.weight(1f)
                     )
@@ -484,7 +484,7 @@ internal fun StatsTabContent(
         ) {
             FilterSwitchRow(
                 title = stringResource(R.string.stats_overlay_toggle),
-                description = "在画面角落显示实时帧率与码率",
+                description = stringResource(R.string.stats_overlay_desc),
                 checked = state.statsOverlayEnabled,
                 onCheckedChange = callbacks.onToggleStatsOverlay
             )
@@ -492,7 +492,7 @@ internal fun StatsTabContent(
 
         // 2. 解码器模式切换
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SheetSectionHeader("解码配置", modifier = Modifier.padding(start = 4.dp))
+            SheetSectionHeader(stringResource(R.string.stats_decode_config), modifier = Modifier.padding(start = 4.dp))
 
             val isHw = state.hwdec.contains("mediacodec")
             Surface(
@@ -587,8 +587,8 @@ internal fun StatsTabContent(
                         value = "Spline36"
                     )
                     MediaInfoRow(
-                        label = "HDR 峰值亮度",
-                        value = "已开启"
+                        label = stringResource(R.string.stats_hdr_peak_brightness),
+                        value = stringResource(R.string.common_enabled)
                     )
                 }
             }
@@ -644,7 +644,7 @@ internal fun MediaInfoTabContent(
 
         // 2. 视频流
         MediaInfoGroup(title = stringResource(R.string.info_group_video)) {
-            val codec = resolvedInfo.videoCodec.ifBlank { "未知" }
+            val codec = resolvedInfo.videoCodec.ifBlank { stringResource(R.string.common_unknown) }
             MediaInfoRow(label = stringResource(R.string.info_video_codec), value = codec.uppercase())
             if (resolvedInfo.videoResolution.isNotBlank()) {
                 MediaInfoRow(
@@ -673,7 +673,7 @@ internal fun MediaInfoTabContent(
 
         // 3. 音频流
         MediaInfoGroup(title = stringResource(R.string.info_group_audio)) {
-            val aCodec = resolvedInfo.audioCodec.ifBlank { "未知" }
+            val aCodec = resolvedInfo.audioCodec.ifBlank { stringResource(R.string.common_unknown) }
             MediaInfoRow(label = stringResource(R.string.info_audio_codec), value = aCodec.uppercase())
             if (resolvedInfo.audioChannels.isNotBlank()) {
                 MediaInfoRow(

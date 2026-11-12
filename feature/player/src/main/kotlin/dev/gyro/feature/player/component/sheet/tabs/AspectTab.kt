@@ -66,7 +66,7 @@ internal fun AspectTabContent(
     ) {
         // 1. 画面显示比例
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SheetSectionHeader("画面比例")
+            SheetSectionHeader(stringResource(R.string.aspect_title))
 
             ResizeMode.entries.forEach { mode ->
                 TrackItem(
@@ -85,7 +85,7 @@ internal fun AspectTabContent(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            SheetSectionHeader("解码加速")
+            SheetSectionHeader(stringResource(R.string.aspect_hwdec_section))
 
             val isHw = state.hwdec.contains("mediacodec")
             Surface(
@@ -125,14 +125,22 @@ internal fun AspectTabContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = if (isHw) "硬件解码 (MediaCodec)" else "软件解码 (CPU)",
+                                text = if (isHw) {
+                                    stringResource(R.string.hw_decoder_mediacodec)
+                                } else {
+                                    stringResource(R.string.sw_decoder_cpu)
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = SheetTextColor
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isHw) "低功耗 · 高流畅" else "兼容模式",
+                                text = if (isHw) {
+                                    stringResource(R.string.hw_low_power_benefit)
+                                } else {
+                                    stringResource(R.string.hw_sw_compat)
+                                },
                                 fontSize = 12.sp,
                                 color = if (isHw) SheetGreen else SheetAmber,
                                 fontWeight = FontWeight.Medium
@@ -150,7 +158,7 @@ internal fun AspectTabContent(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = if (isHw) "切换软解" else "开启硬解",
+                            text = if (isHw) stringResource(R.string.action_switch_sw) else stringResource(R.string.action_enable_hw),
                             fontSize = 12.sp
                         )
                     }
@@ -165,7 +173,7 @@ internal fun AspectTabContent(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                SheetSectionHeader("高动态范围")
+                SheetSectionHeader(stringResource(R.string.aspect_hdr_section))
 
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -204,7 +212,7 @@ internal fun AspectTabContent(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "10-bit 高动态范围输出",
+                                text = stringResource(R.string.hdr_10bit_output),
                                 fontSize = 12.sp,
                                 color = SheetAmber,
                                 fontWeight = FontWeight.Medium

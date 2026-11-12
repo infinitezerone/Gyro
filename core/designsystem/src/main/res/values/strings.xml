@@ -523,5 +523,38 @@
     <string name="page_video_settings">画面设置</string>
     <string name="page_av_sync">音画同步校准</string>
     <string name="page_audiovisual">视听设置</string>
+    <string name="page_playlist">播放列表</string>
+
+    <!-- Player sheet: dynamic labels and secondary copy -->
+    <string name="aspect_hwdec_section">解码加速</string>
+    <string name="aspect_hdr_section">高动态范围</string>
+    <string name="hw_decoder_mediacodec">硬件解码 (MediaCodec)</string>
+    <string name="sw_decoder_cpu">软件解码 (CPU)</string>
+    <string name="hw_low_power_benefit">低功耗 · 高流畅</string>
+    <string name="hw_sw_compat">兼容模式</string>
+    <string name="action_switch_sw">切换软解</string>
+    <string name="action_enable_hw">开启硬解</string>
+    <string name="hdr_10bit_output">10-bit 高动态范围输出</string>
+    <string name="resize_fit_short">适屏</string>
+    <string name="shaders_section_title">GLSL 画质渲染滤镜</string>
+    <string name="shader_disable">关闭滤镜</string>
+    <string name="shader_builtin_desc">画质超分与线条锐化</string>
+    <string name="shader_import_glsl">导入本地 .glsl 滤镜</string>
+    <string name="speed_normal">正常速度</string>
+    <string name="speed_changed">变速播放</string>
+    <string name="speed_reset">恢复 1.0x</string>
+    <string name="speed_presets">预设倍速</string>
+    <string name="subtitle_delay_sync">字幕同步延迟</string>
+    <string name="subtitle_style_layout">字幕样式排版</string>
+    <string name="subtitle_off_desc">纯净原片</string>
+    <string name="action_add_external_sub">添加外挂</string>
+    <string name="downmix_desc">将 5.1 / 7.1 等多声道智能下混为双声道立体声</string>
+    <string name="ab_loop_running">循环中</string>
+    <string name="ab_loop_set_b_short">A✓ 设B</string>
+    <string name="subtitle_track_section_fmt">主字幕轨道 (%1$d)</string>
+    <string name="audio_track_section_fmt">音频轨道 (%1$d)</string>
+    <string name="track_builtin_subtitle_fmt">内置字幕 #%1$d</string>
+    <string name="track_audio_index_fmt">音频轨道 #%1$d</string>
+    <string name="chapters_banner_fmt">本视频包含 %1$d 个内嵌章节，可点击顶部【章节】查看</string>
 
 </resources>

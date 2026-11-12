@@ -66,7 +66,7 @@ internal fun PlaylistTabContent(
                 if (state.chapters.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "本视频包含 ${state.chapters.size} 个内嵌章节，可点击顶部【章节】查看",
+                        text = stringResource(R.string.chapters_banner_fmt, state.chapters.size),
                         color = SheetAccentBlue,
                         fontSize = 12.sp
                     )

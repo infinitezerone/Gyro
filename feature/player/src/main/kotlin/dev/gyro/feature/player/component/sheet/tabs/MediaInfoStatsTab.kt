@@ -35,10 +35,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -83,7 +85,7 @@ internal fun MediaInfoStatsTabContent(
         // ==================== 1. 实时渲染与性能快照 ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "实时渲染指标",
+                text = stringResource(R.string.stats_realtime_section),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -116,7 +118,11 @@ internal fun MediaInfoStatsTabContent(
                         )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = if (state.fps > 0) "${String.format(Locale.US, "%.1f", state.fps)} FPS" else "实时 FPS",
+                            text = if (state.fps > 0) {
+                                "${String.format(Locale.US, "%.1f", state.fps)} FPS"
+                            } else {
+                                stringResource(R.string.stats_fps_placeholder)
+                            },
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = SheetTextColor,
@@ -124,7 +130,7 @@ internal fun MediaInfoStatsTabContent(
                         )
                     }
                     Text(
-                        text = "输出帧率",
+                        text = stringResource(R.string.stats_fps_label),
                         fontSize = 11.sp,
                         color = SheetTextSecondaryColor
                     )
@@ -140,7 +146,7 @@ internal fun MediaInfoStatsTabContent(
                         style = TextStyle(fontFeatureSettings = "tnum")
                     )
                     Text(
-                        text = "丢帧总数",
+                        text = stringResource(R.string.stats_dropped_total),
                         fontSize = 11.sp,
                         color = SheetTextSecondaryColor
                     )
@@ -149,9 +155,9 @@ internal fun MediaInfoStatsTabContent(
                 // 解码器状态
                 Column(horizontalAlignment = Alignment.End) {
                     val hwdecText = when {
-                        state.hwdec.contains("copy") -> "HW+ 硬件复制"
-                        state.hwdec.contains("mediacodec") -> "HW 硬解直出"
-                        else -> "SW 纯软解"
+                        state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
+                        state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
+                        else -> stringResource(R.string.hwdec_sw)
                     }
                     Text(
                         text = hwdecText,
@@ -160,7 +166,7 @@ internal fun MediaInfoStatsTabContent(
                         color = SheetAccentBlue
                     )
                     Text(
-                        text = "解码管线",
+                        text = stringResource(R.string.stats_decode_pipeline),
                         fontSize = 11.sp,
                         color = SheetTextSecondaryColor
                     )
@@ -171,7 +177,7 @@ internal fun MediaInfoStatsTabContent(
 
             // 实时视频码率曲线
             Text(
-                text = "实时码率：${formatBitrate(state.videoBitrate)}",
+                text = stringResource(R.string.stats_live_bitrate_fmt, formatBitrate(state.videoBitrate)),
                 fontSize = 11.sp,
                 color = SheetTextSecondaryColor
             )
@@ -196,7 +202,7 @@ internal fun MediaInfoStatsTabContent(
                 if (samples.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "正在采样码率波形...",
+                            text = stringResource(R.string.stats_sampling_bitrate),
                             fontSize = 11.sp,
                             color = SheetTextSecondaryColor
                         )
@@ -234,8 +240,8 @@ internal fun MediaInfoStatsTabContent(
 
             // 悬浮性能监视窗开关
             FilterSwitchRow(
-                title = "屏幕悬浮性能监视窗",
-                description = "在画面左上角实时常驻帧率与性能 HUD",
+                title = stringResource(R.string.stats_overlay_screen_title),
+                description = stringResource(R.string.stats_overlay_screen_desc),
                 checked = state.statsOverlayEnabled,
                 onCheckedChange = callbacks.onToggleStatsOverlay
             )
@@ -246,45 +252,45 @@ internal fun MediaInfoStatsTabContent(
         // ==================== 2. 媒体硬核属性详情 ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "片源媒体规格",
+                text = stringResource(R.string.info_source_section),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
             )
 
-            val codec = resolvedInfo.videoCodec.ifBlank { "未知" }
+            val codec = resolvedInfo.videoCodec.ifBlank { stringResource(R.string.common_unknown) }
             val resolution = resolvedInfo.videoResolution.ifBlank {
-                if (state.videoWidth > 0) "${state.videoWidth} × ${state.videoHeight}" else "未知"
+                if (state.videoWidth > 0) "${state.videoWidth} × ${state.videoHeight}" else stringResource(R.string.common_unknown)
             }
             val hdr = if (state.isHdr) {
                 if (state.hdrFormat.isNotBlank()) state.hdrFormat else "HDR"
             } else {
-                "SDR 标准动态范围"
+                stringResource(R.string.dynamic_range_sdr)
             }
 
-            MediaInfoRow(label = "视频编码", value = codec.uppercase())
-            MediaInfoRow(label = "物理分辨率", value = resolution)
-            MediaInfoRow(label = "动态范围", value = hdr)
+            MediaInfoRow(label = stringResource(R.string.info_video_codec), value = codec.uppercase())
+            MediaInfoRow(label = stringResource(R.string.info_native_resolution), value = resolution)
+            MediaInfoRow(label = stringResource(R.string.info_dynamic_range), value = hdr)
             if (resolvedInfo.videoFps > 0) {
                 MediaInfoRow(
-                    label = "原生帧率",
+                    label = stringResource(R.string.info_native_framerate),
                     value = "${String.format(Locale.US, "%.3f", resolvedInfo.videoFps)} FPS"
                 )
             }
 
-            val aCodec = resolvedInfo.audioCodec.ifBlank { "未知" }
-            val channels = resolvedInfo.audioChannels.ifBlank { "立体声 2.0" }
-            MediaInfoRow(label = "音频编码与通道", value = "${aCodec.uppercase()} · $channels")
+            val aCodec = resolvedInfo.audioCodec.ifBlank { stringResource(R.string.common_unknown) }
+            val channels = resolvedInfo.audioChannels.ifBlank { stringResource(R.string.audio_channels_default) }
+            MediaInfoRow(label = stringResource(R.string.info_audio_codec_channels), value = "${aCodec.uppercase()} · $channels")
 
             if (resolvedInfo.containerFormat.isNotBlank()) {
-                MediaInfoRow(label = "封装容器", value = resolvedInfo.containerFormat.uppercase())
+                MediaInfoRow(label = stringResource(R.string.info_container_type), value = resolvedInfo.containerFormat.uppercase())
             }
             if (resolvedInfo.fileSize > 0) {
-                MediaInfoRow(label = "文件大小", value = resolvedInfo.formattedFileSize)
+                MediaInfoRow(label = stringResource(R.string.info_file_size), value = resolvedInfo.formattedFileSize)
             }
             if (resolvedInfo.durationMs > 0) {
                 val durStr = formatDuration(resolvedInfo.durationMs)
-                MediaInfoRow(label = "片源总长", value = durStr)
+                MediaInfoRow(label = stringResource(R.string.info_source_duration), value = durStr)
             }
         }
     }

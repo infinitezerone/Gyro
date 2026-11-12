@@ -220,8 +220,8 @@ fun PlayerBottomBar(
                 // 3. AB 循环按钮（仅在激活状态或横屏时展示）
                 if (isLandscape && abLoopASeconds >= 0) {
                     val abStateLabel = when {
-                        abLoopASeconds >= 0 && abLoopBSeconds >= 0 -> "循环中"
-                        abLoopASeconds >= 0 -> "A✓ 设B"
+                        abLoopASeconds >= 0 && abLoopBSeconds >= 0 -> stringResource(R.string.ab_loop_running)
+                        abLoopASeconds >= 0 -> stringResource(R.string.ab_loop_set_b_short)
                         else -> "AB"
                     }
                     val abColor = if (abLoopASeconds >= 0) GyroColors.AccentOrange else Color.White.copy(alpha = 0.85f)
@@ -252,9 +252,9 @@ fun PlayerBottomBar(
                 // 5. 画面比例（横屏展示；竖屏收纳于设置面板，避免挤占）
                 if (isLandscape) {
                     val aspectLabel = when (resizeMode) {
-                        ResizeMode.FIT -> "适屏"
-                        ResizeMode.CROP -> "填充"
-                        ResizeMode.STRETCH -> "拉伸"
+                        ResizeMode.FIT -> stringResource(R.string.resize_fit_short)
+                        ResizeMode.CROP -> stringResource(R.string.resize_crop)
+                        ResizeMode.STRETCH -> stringResource(R.string.resize_stretch)
                         ResizeMode.ASPECT_16_9 -> "16:9"
                         ResizeMode.ASPECT_21_9 -> "21:9"
                     }

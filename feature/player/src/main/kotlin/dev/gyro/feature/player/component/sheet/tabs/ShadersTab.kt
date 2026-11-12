@@ -56,10 +56,10 @@ internal fun ShadersTabContent(
     ) {
         // 1. 预设 GLSL 画质滤镜
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SheetSectionHeader("GLSL 画质渲染滤镜")
+            SheetSectionHeader(stringResource(R.string.shaders_section_title))
 
             TrackItem(
-                title = "关闭滤镜",
+                title = stringResource(R.string.shader_disable),
                 subtitle = "",
                 isSelected = state.shaderState.activeShader == GlslShader.OFF,
                 accentColor = SheetAccentBlue,
@@ -69,7 +69,7 @@ internal fun ShadersTabContent(
 
             TrackItem(
                 title = stringResource(R.string.shader_anime4k),
-                subtitle = "画质超分与线条锐化",
+                subtitle = stringResource(R.string.shader_builtin_desc),
                 isSelected = state.shaderState.activeShader == GlslShader.ANIME4K,
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.AutoAwesome,
@@ -115,7 +115,7 @@ internal fun ShadersTabContent(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "导入本地 .glsl 滤镜",
+                            text = stringResource(R.string.shader_import_glsl),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             color = SheetAccentBlue

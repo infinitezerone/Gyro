@@ -28,9 +28,11 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.GlslShader
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
@@ -61,42 +63,42 @@ internal fun SettingsHubTabContent(
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         // ==================== 1. 画面设置分组 ====================
-        CategoryHeader("画面")
+        CategoryHeader(stringResource(R.string.hub_group_video))
 
         val hwLabel = when {
-            state.hwdec.contains("copy") -> "HW+ 硬件复制"
-            state.hwdec.contains("mediacodec") -> "HW 硬解直出"
-            else -> "SW 纯软解"
+            state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
+            state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
+            else -> stringResource(R.string.hwdec_sw)
         }
         SettingsItemRow(
-            title = "解码模式",
+            title = stringResource(R.string.stats_decoder),
             icon = Icons.Default.Memory,
             currentValue = hwLabel,
             onClick = { onNavigate(PlayerSheetTab.HWDEC) }
         )
 
         val shaderLabel = when (state.shaderState.activeShader) {
-            GlslShader.ANIME4K -> "Anime4K 动漫"
-            GlslShader.CAS -> "AMD CAS 锐化"
-            GlslShader.CUSTOM -> state.shaderState.displayName ?: "自定义着色器"
-            else -> "原画无滤镜"
+            GlslShader.ANIME4K -> stringResource(R.string.shader_anime4k_short)
+            GlslShader.CAS -> stringResource(R.string.shader_cas_short)
+            GlslShader.CUSTOM -> state.shaderState.displayName ?: stringResource(R.string.shader_custom)
+            else -> stringResource(R.string.shader_none_short)
         }
         SettingsItemRow(
-            title = "超分辨率渲染",
+            title = stringResource(R.string.settings_upscale_title),
             icon = Icons.Default.AutoAwesome,
             currentValue = shaderLabel,
             onClick = { onNavigate(PlayerSheetTab.SHADERS) }
         )
 
         SettingsItemRow(
-            title = "画面比例",
+            title = stringResource(R.string.aspect_title),
             icon = Icons.Default.FitScreen,
             currentValue = state.currentResizeMode.label,
             onClick = { onNavigate(PlayerSheetTab.ASPECT) }
         )
 
         SettingsItemRow(
-            title = "去色带 (Deband)",
+            title = stringResource(R.string.settings_deband),
             icon = Icons.Default.Gradient,
             trailingContent = {
                 Switch(
@@ -114,39 +116,46 @@ internal fun SettingsHubTabContent(
 
         val hasColorModifications = state.brightness != 0 || state.contrast != 0 || state.saturation != 0
         SettingsItemRow(
-            title = "画面色彩校准",
+            title = stringResource(R.string.settings_video_color_calibration),
             icon = Icons.Default.ColorLens,
-            currentValue = if (hasColorModifications) "已微调" else "标准原画",
+            currentValue = if (hasColorModifications) stringResource(R.string.color_state_tuned) else stringResource(R.string.color_state_standard),
             onClick = { onNavigate(PlayerSheetTab.COLOR) }
         )
 
         val hdrSummary = when (state.hdrOutputMode) {
-            dev.gyro.core.model.HDR_OUTPUT_PQ -> "强制 BT.2100 PQ"
-            dev.gyro.core.model.HDR_OUTPUT_HLG -> "强制 BT.2100 HLG"
-            dev.gyro.core.model.HDR_OUTPUT_SDR -> "SDR 色调映射"
-            else -> if (state.isHdr) "自动 (${state.hdrFormat.ifBlank { "HDR" }})" else "自动 (SDR)"
+            dev.gyro.core.model.HDR_OUTPUT_PQ -> stringResource(R.string.hdr_force_pq)
+            dev.gyro.core.model.HDR_OUTPUT_HLG -> stringResource(R.string.hdr_force_hlg)
+            dev.gyro.core.model.HDR_OUTPUT_SDR -> stringResource(R.string.hdr_summary_sdr)
+            else -> if (state.isHdr) {
+                stringResource(
+                    R.string.hdr_summary_auto_fmt,
+                    state.hdrFormat.ifBlank { "HDR" }
+                )
+            } else {
+                stringResource(R.string.hdr_summary_auto_sdr)
+            }
         }
         SettingsItemRow(
-            title = "HDR 与色调映射",
+            title = stringResource(R.string.settings_hdr_tone_mapping),
             icon = Icons.Default.AutoAwesome,
             currentValue = hdrSummary,
             onClick = { onNavigate(PlayerSheetTab.HDR_TONE_MAPPING) }
         )
 
         val scaleSummary = when (state.videoScale) {
-            dev.gyro.core.model.SCALE_BILINEAR, dev.gyro.core.model.SCALE_OFF -> "Bilinear 基础"
-            dev.gyro.core.model.SCALE_LANCZOS -> "Lanczos 电影"
-            else -> "Spline36 锐利清晰"
+            dev.gyro.core.model.SCALE_BILINEAR, dev.gyro.core.model.SCALE_OFF -> stringResource(R.string.scale_summary_bilinear)
+            dev.gyro.core.model.SCALE_LANCZOS -> stringResource(R.string.scale_summary_lanczos)
+            else -> stringResource(R.string.scale_summary_spline36)
         }
         SettingsItemRow(
-            title = "画面缩放算法",
+            title = stringResource(R.string.settings_video_scale),
             icon = Icons.Default.Tune,
             currentValue = scaleSummary,
             onClick = { onNavigate(PlayerSheetTab.VIDEO_SCALE) }
         )
 
         SettingsItemRow(
-            title = "运动平滑插值 (去抖动)",
+            title = stringResource(R.string.settings_motion_interpolation),
             icon = Icons.Default.Speed,
             trailingContent = {
                 Switch(
@@ -165,11 +174,11 @@ internal fun SettingsHubTabContent(
         SectionDivider()
 
         // ==================== 2. 声音设置分组 ====================
-        CategoryHeader("声音")
+        CategoryHeader(stringResource(R.string.hub_group_audio))
 
-        val currentAudioName = state.audioTracks.firstOrNull { it.isSelected }?.title ?: "无内置音频"
+        val currentAudioName = state.audioTracks.firstOrNull { it.isSelected }?.title ?: stringResource(R.string.track_no_internal_audio)
         SettingsItemRow(
-            title = "音频轨道",
+            title = stringResource(R.string.settings_audio_track),
             icon = Icons.AutoMirrored.Filled.VolumeUp,
             currentValue = currentAudioName,
             onClick = { onNavigate(PlayerSheetTab.AUDIO_TRACKS) }
@@ -177,7 +186,7 @@ internal fun SettingsHubTabContent(
 
         val roundedVolume = kotlin.math.round(state.softwareVolume).toInt()
         SettingsItemRow(
-            title = "音量软增益 (Audio Boost)",
+            title = stringResource(R.string.hub_audio_boost),
             icon = Icons.Default.GraphicEq,
             currentValue = "$roundedVolume%",
             onClick = { onNavigate(PlayerSheetTab.AUDIO_BOOST) }
@@ -185,16 +194,16 @@ internal fun SettingsHubTabContent(
 
         val audioDelayText = if (Math.abs(state.audioDelaySec) > 0.01) {
             "${String.format(Locale.US, "%.1f", state.audioDelaySec)}s"
-        } else "0.0s (已同步)"
+        } else stringResource(R.string.delay_synced_label)
         SettingsItemRow(
-            title = "音频延迟同步",
+            title = stringResource(R.string.hub_audio_delay_sync),
             icon = Icons.Default.Schedule,
             currentValue = audioDelayText,
             onClick = { onNavigate(PlayerSheetTab.AUDIO_DELAY) }
         )
 
         SettingsItemRow(
-            title = "立体声下混",
+            title = stringResource(R.string.hub_stereo_downmix),
             icon = Icons.Default.SurroundSound,
             trailingContent = {
                 Switch(
@@ -211,7 +220,7 @@ internal fun SettingsHubTabContent(
         )
 
         SettingsItemRow(
-            title = "音频源码透传 (S/PDIF)",
+            title = stringResource(R.string.hub_audio_passthrough),
             icon = Icons.Default.GraphicEq,
             trailingContent = {
                 Switch(
@@ -230,11 +239,11 @@ internal fun SettingsHubTabContent(
         SectionDivider()
 
         // ==================== 3. 字幕设置分组 ====================
-        CategoryHeader("字幕")
+        CategoryHeader(stringResource(R.string.hub_group_subtitles))
 
-        val currentSubName = state.subtitleTracks.firstOrNull { it.isSelected }?.title ?: "关闭"
+        val currentSubName = state.subtitleTracks.firstOrNull { it.isSelected }?.title ?: stringResource(R.string.common_off)
         SettingsItemRow(
-            title = "字幕轨道",
+            title = stringResource(R.string.settings_subtitle_track),
             icon = Icons.Default.ClosedCaption,
             currentValue = currentSubName,
             onClick = { onNavigate(PlayerSheetTab.SUBTITLE_TRACKS) }
@@ -242,16 +251,16 @@ internal fun SettingsHubTabContent(
 
         val subDelayText = if (Math.abs(state.subDelaySec) > 0.01) {
             "${String.format(Locale.US, "%.1f", state.subDelaySec)}s"
-        } else "0.0s (已同步)"
+        } else stringResource(R.string.delay_synced_label)
         SettingsItemRow(
-            title = "字幕延迟同步",
+            title = stringResource(R.string.hub_sub_delay_sync),
             icon = Icons.Default.Schedule,
             currentValue = subDelayText,
             onClick = { onNavigate(PlayerSheetTab.SUBTITLE_DELAY) }
         )
 
         SettingsItemRow(
-            title = "字幕字号与位置",
+            title = stringResource(R.string.hub_sub_style),
             icon = Icons.Default.TextFields,
             currentValue = "${state.subScale}x",
             onClick = { onNavigate(PlayerSheetTab.SUBTITLE_STYLE) }
@@ -260,17 +269,17 @@ internal fun SettingsHubTabContent(
         SectionDivider()
 
         // ==================== 4. 高级与诊断分组 ====================
-        CategoryHeader("高级与诊断")
+        CategoryHeader(stringResource(R.string.hub_group_advanced_diag))
 
         SettingsItemRow(
-            title = "播放倍速",
+            title = stringResource(R.string.settings_playback_speed),
             icon = Icons.Default.Speed,
             currentValue = "${state.currentSpeed}x",
             onClick = { onNavigate(PlayerSheetTab.SPEED) }
         )
 
         SettingsItemRow(
-            title = "悬浮性能监视窗",
+            title = stringResource(R.string.hub_stats_overlay),
             icon = Icons.Default.Monitor,
             trailingContent = {
                 Switch(
@@ -290,9 +299,9 @@ internal fun SettingsHubTabContent(
         val resolutionText = if (state.videoWidth > 0) "${state.videoHeight}P" else null
         val mediaSummary = listOfNotNull(resolutionText, codecText).joinToString(" ")
         SettingsItemRow(
-            title = "媒体规格详情与图表",
+            title = stringResource(R.string.hub_media_details),
             icon = Icons.Default.Assessment,
-            currentValue = if (mediaSummary.isNotBlank()) mediaSummary else "查看详情",
+            currentValue = if (mediaSummary.isNotBlank()) mediaSummary else stringResource(R.string.action_view_details),
             onClick = { onNavigate(PlayerSheetTab.STATS_INFO) }
         )
     }

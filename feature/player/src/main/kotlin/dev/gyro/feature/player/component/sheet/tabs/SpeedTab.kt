@@ -28,10 +28,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.R
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
@@ -81,7 +83,11 @@ internal fun SpeedTabContent(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (Math.abs(currentSpeed - 1.0f) < 0.01f) "正常速度" else "变速播放",
+                    text = if (Math.abs(currentSpeed - 1.0f) < 0.01f) {
+                        stringResource(R.string.speed_normal)
+                    } else {
+                        stringResource(R.string.speed_changed)
+                    },
                     fontSize = 13.sp,
                     color = SheetTextSecondaryColor
                 )
@@ -99,7 +105,7 @@ internal fun SpeedTabContent(
                     ) {
                         Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("恢复 1.0x", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.speed_reset), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -107,7 +113,7 @@ internal fun SpeedTabContent(
 
         // Section 1: 预设倍速矩阵
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SheetSectionHeader("预设倍速", modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+            SheetSectionHeader(stringResource(R.string.speed_presets), modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
 
             val row1 = listOf(0.5f, 0.75f, 1.0f, 1.25f)
             Row(
@@ -142,7 +148,7 @@ internal fun SpeedTabContent(
 
         // Section 2: 无级精细调速
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SheetSectionHeader("精细调节", modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+            SheetSectionHeader(stringResource(R.string.color_fine_tune_section), modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
 
             Surface(
                 shape = RoundedCornerShape(14.dp),

@@ -1,5 +1,6 @@
 package dev.gyro.feature.player.component.sheet.tabs
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,10 +20,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.GlslShader
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
@@ -39,15 +42,15 @@ import dev.gyro.feature.player.component.sheet.common.SheetTrackColor
  * 色彩风格预设档位
  */
 private enum class VisualColorPreset(
-    val label: String,
+    @StringRes val labelRes: Int,
     val brightness: Int,
     val contrast: Int,
     val saturation: Int
 ) {
-    STANDARD("原画", 0, 0, 0),
-    VIVID("鲜艳", 0, 10, 20),
-    CINEMA("影院", -5, 15, 5),
-    SOFT("柔和", 5, -10, -10);
+    STANDARD(R.string.color_preset_original, 0, 0, 0),
+    VIVID(R.string.color_preset_vivid, 0, 10, 20),
+    CINEMA(R.string.color_preset_cinema, -5, 15, 5),
+    SOFT(R.string.color_preset_soft, 5, -10, -10);
 
     companion object {
         fun match(b: Int, c: Int, s: Int): VisualColorPreset? {
@@ -82,7 +85,7 @@ internal fun VideoTabContent(
         // ==================== 1. 解码器模式 ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "解码模式",
+                text = stringResource(R.string.stats_decoder),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -95,28 +98,28 @@ internal fun VideoTabContent(
                 SheetChip(
                     selected = isCopyMode,
                     onClick = { callbacks.onSetHwdec("mediacodec-copy") },
-                    label = "HW+ 硬件复制",
+                    label = stringResource(R.string.hwdec_copy),
                     modifier = Modifier.weight(1.1f)
                 )
                 SheetChip(
                     selected = isHwDirect,
                     onClick = { callbacks.onSetHwdec("mediacodec") },
-                    label = "HW 硬解直出",
+                    label = stringResource(R.string.hwdec_direct),
                     modifier = Modifier.weight(1f)
                 )
                 SheetChip(
                     selected = isSw,
                     onClick = { callbacks.onSetHwdec("no") },
-                    label = "SW 纯软解",
+                    label = stringResource(R.string.hwdec_sw),
                     modifier = Modifier.weight(0.9f)
                 )
             }
 
             Text(
                 text = when {
-                    isCopyMode -> "HW+ 模式：硬件解码并回写显存，完美驱动 Anime4K / CAS 等画质着色器"
-                    isHwDirect -> "HW 模式：Surface 零拷贝直通，超省电，但无法执行多通道复杂着色器"
-                    else -> "SW 模式：CPU 纯软解，格式全兼容，但高码率功耗较大"
+                    isCopyMode -> stringResource(R.string.video_mode_desc_copy)
+                    isHwDirect -> stringResource(R.string.video_mode_desc_hw)
+                    else -> stringResource(R.string.video_mode_desc_sw)
                 },
                 fontSize = 11.sp,
                 color = SheetTextSecondaryColor,
@@ -129,7 +132,7 @@ internal fun VideoTabContent(
         // ==================== 2. 画质超分辨率与渲染增强 ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "超分辨率渲染",
+                text = stringResource(R.string.settings_upscale_title),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -142,7 +145,7 @@ internal fun VideoTabContent(
                 SheetChip(
                     selected = state.shaderState.activeShader == GlslShader.OFF,
                     onClick = { callbacks.onClearShader() },
-                    label = "原画 (无滤镜)",
+                    label = stringResource(R.string.shader_none),
                     modifier = Modifier.weight(1f)
                 )
                 SheetChip(
@@ -151,7 +154,7 @@ internal fun VideoTabContent(
                         if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
                         callbacks.onSelectShader(GlslShader.ANIME4K)
                     },
-                    label = "Anime4K 动漫",
+                    label = stringResource(R.string.shader_anime4k_short),
                     modifier = Modifier.weight(1.1f)
                 )
                 SheetChip(
@@ -160,16 +163,16 @@ internal fun VideoTabContent(
                         if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
                         callbacks.onSelectShader(GlslShader.CAS)
                     },
-                    label = "AMD CAS 锐化",
+                    label = stringResource(R.string.shader_cas_short),
                     modifier = Modifier.weight(1.1f)
                 )
             }
 
             Text(
                 text = when (state.shaderState.activeShader) {
-                    GlslShader.ANIME4K -> "Anime4K：动漫特化超分，强化线条轮廓并自适应抑制纹理伪影"
-                    GlslShader.CAS -> "AMD CAS：工业级对比度自适应超分（AMD FidelityFX），通用影视增强且无白边"
-                    else -> "未启用着色器。启用时会自动联动为 HW+ 模式以驱动 GPU 离屏管线"
+                    GlslShader.ANIME4K -> stringResource(R.string.video_shader_desc_anime4k)
+                    GlslShader.CAS -> stringResource(R.string.video_shader_desc_cas)
+                    else -> stringResource(R.string.video_shader_desc_off)
                 },
                 fontSize = 11.sp,
                 color = SheetTextSecondaryColor,
@@ -182,7 +185,7 @@ internal fun VideoTabContent(
         // ==================== 3. 画面比例 (Aspect Ratio) ====================
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "画面比例与填充",
+                text = stringResource(R.string.video_aspect_section),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SheetAccentBlue
@@ -193,9 +196,9 @@ internal fun VideoTabContent(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 listOf(
-                    ResizeMode.FIT to "适应",
-                    ResizeMode.CROP to "填充",
-                    ResizeMode.STRETCH to "拉伸",
+                    ResizeMode.FIT to stringResource(R.string.resize_fit),
+                    ResizeMode.CROP to stringResource(R.string.resize_crop),
+                    ResizeMode.STRETCH to stringResource(R.string.resize_stretch),
                     ResizeMode.ASPECT_16_9 to "16:9",
                     ResizeMode.ASPECT_21_9 to "21:9"
                 ).forEach { (mode, label) ->
@@ -213,8 +216,8 @@ internal fun VideoTabContent(
 
         // ==================== 4. Deband 去色带 ====================
         FilterSwitchRow(
-            title = "Deband 去色带",
-            description = "消除画面平滑渐变处的阶梯色块纹理",
+            title = stringResource(R.string.video_deband_title),
+            description = stringResource(R.string.video_deband_desc),
             checked = state.deband,
             onCheckedChange = callbacks.onSetDeband
         )
@@ -229,7 +232,7 @@ internal fun VideoTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "色彩校准",
+                    text = stringResource(R.string.settings_color_calibration),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = SheetAccentBlue
@@ -237,7 +240,7 @@ internal fun VideoTabContent(
 
                 if (hasColorModifications) {
                     Text(
-                        text = "重置色彩",
+                        text = stringResource(R.string.effects_color_reset),
                         fontSize = 12.sp,
                         color = SheetAccentBlue,
                         fontWeight = FontWeight.SemiBold,
@@ -261,7 +264,7 @@ internal fun VideoTabContent(
                             callbacks.onSetContrast(preset.contrast)
                             callbacks.onSetSaturation(preset.saturation)
                         },
-                        label = preset.label,
+                        label = stringResource(preset.labelRes),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -271,21 +274,21 @@ internal fun VideoTabContent(
 
             // 紧凑滑块三连排
             CompactSliderItem(
-                label = "亮度",
+                label = stringResource(R.string.color_label_brightness),
                 value = state.brightness,
                 valueRange = -100f..100f,
                 onValueChange = { callbacks.onSetBrightness(it.toInt()) },
                 formatValue = { if (it > 0) "+$it" else "$it" }
             )
             CompactSliderItem(
-                label = "对比度",
+                label = stringResource(R.string.color_label_contrast),
                 value = state.contrast,
                 valueRange = -100f..100f,
                 onValueChange = { callbacks.onSetContrast(it.toInt()) },
                 formatValue = { if (it > 0) "+$it" else "$it" }
             )
             CompactSliderItem(
-                label = "饱和度",
+                label = stringResource(R.string.color_label_saturation),
                 value = state.saturation,
                 valueRange = -100f..100f,
                 onValueChange = { callbacks.onSetSaturation(it.toInt()) },
