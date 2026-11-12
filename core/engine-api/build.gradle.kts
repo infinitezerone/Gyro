@@ -12,7 +12,9 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:model"))
+    // Public API: PlaybackSnapshot exposes ChapterInfo/GlslShaderState and PlayerEngine exposes
+    // MediaInfo, so consumers need these types on their compile classpath.
+    api(project(":core:model"))
     implementation(project(":core:common"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

@@ -2,7 +2,7 @@ package dev.gyro.player
 
 import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
-import dev.gyro.feature.player.session.PlaybackSessionController
+import dev.gyro.core.playback.PlaybackSessionController
 import javax.inject.Inject
 
 @HiltAndroidApp

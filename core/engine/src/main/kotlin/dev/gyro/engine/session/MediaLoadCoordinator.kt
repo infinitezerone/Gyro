@@ -4,7 +4,7 @@ import android.net.Uri
 import android.view.Surface
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.audio.AudioEffectsController
-import dev.gyro.engine.media.MediaItem
+import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.media.ResolvedMediaSource
 import dev.gyro.engine.model.PlaybackState

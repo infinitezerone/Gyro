@@ -235,6 +235,13 @@ class FakeMpvNativeBridge(
     }
 
     /**
+     * Simulates the pipeline reporting that lifecycle events were dropped.
+     */
+    fun emitDesync(droppedEvents: Int = 1, epoch: Long = currentEpoch()) {
+        mutableEvents.tryEmit(MpvEvent.Desync(droppedEvents, epoch))
+    }
+
+    /**
      * Simulates reason-bearing END_FILE event (`MpvEvent.EndFile(reason)`).
      */
     fun emitEndFile(reason: Int, epoch: Long = currentEpoch()) {

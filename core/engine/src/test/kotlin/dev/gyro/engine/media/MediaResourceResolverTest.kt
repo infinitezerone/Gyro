@@ -1,6 +1,7 @@
 package dev.gyro.engine.media
 
 import android.net.TestUri
+import dev.gyro.engine.api.media.MediaItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail

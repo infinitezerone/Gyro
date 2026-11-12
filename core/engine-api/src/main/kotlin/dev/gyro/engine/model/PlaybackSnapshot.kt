@@ -3,7 +3,7 @@ package dev.gyro.engine.model
 import android.net.Uri
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShaderState
-import dev.gyro.engine.session.PlaybackSessionState
+import dev.gyro.engine.api.session.PlaybackSessionState
 
 /**
  * One consistent view of every slow-moving playback fact the UI renders.
@@ -16,7 +16,7 @@ data class PlaybackSnapshot(
     val mediaTitle: String = "",
     val durationMs: Long = 0L,
 
-    // Decode / timing diagnostics
+    // Decode / configuration. Per-second telemetry lives in PlaybackDiagnostics, not here.
     val hwdecCurrent: String = "",
     val hdrOutputMode: String = dev.gyro.core.model.HDR_OUTPUT_AUTO,
     val toneMappingAlgorithm: String = dev.gyro.core.model.TONE_MAPPING_AUTO,
@@ -24,11 +24,6 @@ data class PlaybackSnapshot(
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
     val speed: Float = 1.0f,
-    val fps: Double = 0.0,
-    val droppedFrames: Long = 0L,
-    val vsyncRatio: Double = 0.0,
-    val videoBitrate: Long = 0L,
-    val audioBitrate: Long = 0L,
 
     // Video geometry
     val videoDimensions: VideoDimensions = VideoDimensions(0, 0),

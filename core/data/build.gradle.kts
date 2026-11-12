@@ -15,8 +15,10 @@ android {
 dependencies {
     api(project(":core:common"))
     api(project(":core:model"))
-    api(project(":core:database"))
-    api(project(":core:datastore"))
+    // Persistence stays an implementation detail: consumers observe repository interfaces, they
+    // must not reach for GyroDatabase/DAO/DataStore factories directly.
+    implementation(project(":core:database"))
+    implementation(project(":core:datastore"))
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

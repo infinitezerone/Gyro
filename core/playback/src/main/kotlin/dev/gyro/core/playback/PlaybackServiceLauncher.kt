@@ -1,4 +1,4 @@
-package dev.gyro.feature.player.session
+package dev.gyro.core.playback
 
 /**
  * Abstraction for launching and stopping the media playback background service.

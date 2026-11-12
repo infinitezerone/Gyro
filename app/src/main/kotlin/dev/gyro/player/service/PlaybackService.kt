@@ -36,7 +36,7 @@ class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: PlayerEngine
     @Inject lateinit var mediaSessionManager: MediaSessionManager
-    @Inject lateinit var sessionController: dev.gyro.feature.player.session.PlaybackSessionController
+    @Inject lateinit var sessionController: dev.gyro.core.playback.PlaybackSessionController
 
     companion object {
         private const val TAG = "PlaybackService"

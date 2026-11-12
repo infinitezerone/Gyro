@@ -1,4 +1,4 @@
-package dev.gyro.feature.player.session
+package dev.gyro.core.playback
 
 import android.net.Uri
 import dev.gyro.core.common.dispatcher.ApplicationScope
@@ -9,7 +9,7 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.media.PlaylistManager
+import dev.gyro.engine.api.media.Playlist
 import dev.gyro.engine.model.PlaybackState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,38 +45,19 @@ private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
  * cancels a pending auto-advance.
  */
 @Singleton
-class PlaybackSessionController internal constructor(
+class PlaybackSessionController @Inject constructor(
     val engine: PlayerEngine,
     val settingsRepository: SettingsRepository,
     val historyRepository: PlaybackHistoryRepository,
     val subtitleRepository: SubtitleRepository,
     val mediaRepository: MediaRepository,
     val uriParser: UriParser,
-    val playlist: PlaylistManager,
-    private val scope: CoroutineScope,
+    @ApplicationScope private val scope: CoroutineScope,
     private val serviceLauncher: PlaybackServiceLauncher = PlaybackServiceLauncher.NoOp,
 ) {
-    @Inject
-    constructor(
-        engine: PlayerEngine,
-        settingsRepository: SettingsRepository,
-        historyRepository: PlaybackHistoryRepository,
-        subtitleRepository: SubtitleRepository,
-        mediaRepository: MediaRepository,
-        uriParser: UriParser,
-        @ApplicationScope appScope: CoroutineScope,
-        serviceLauncher: PlaybackServiceLauncher,
-    ) : this(
-        engine = engine,
-        settingsRepository = settingsRepository,
-        historyRepository = historyRepository,
-        subtitleRepository = subtitleRepository,
-        mediaRepository = mediaRepository,
-        uriParser = uriParser,
-        playlist = engine.playlist,
-        scope = appScope,
-        serviceLauncher = serviceLauncher,
-    )
+
+    /** Read-only queue view; the engine owns the cursor. */
+    val playlist: Playlist get() = engine.playlist
 
     /** Single source of truth for the active URI directly from the engine store. */
     val activeUri: StateFlow<Uri?> get() = engine.currentUri
@@ -96,7 +77,10 @@ class PlaybackSessionController internal constructor(
         scope.launch {
             engine.playbackState.collect { state ->
                 if (state == PlaybackState.ENDED && playlist.hasNext) {
-                    val endedUri = engine.currentUri.value
+                    // The cursor, not the URI, is the signal: pressing "next" moves the index
+                    // immediately, while the new URI only lands after name/resume lookups. Judging
+                    // by URI therefore sees "nothing happened" and advances a second time.
+                    val endedIndex = playlist.currentIndex.value
                     advanceJob?.cancel()
                     advanceJob = scope.launch {
                         delay(500L)
@@ -105,12 +89,12 @@ class PlaybackSessionController internal constructor(
                         // signals and skip the advance if any of them fired.
                         if (!_sessionActive.value ||
                             engine.isPlaying.value ||
-                            engine.currentUri.value != endedUri ||
+                            playlist.currentIndex.value != endedIndex ||
                             !playlist.hasNext
                         ) {
                             return@launch
                         }
-                        val next = playlist.playNext()
+                        val next = engine.advanceToNextItem()
                         if (next != null) {
                             playMediaItem(next)
                         }
@@ -278,33 +262,31 @@ class PlaybackSessionController internal constructor(
     }
 
     fun playNext(): Boolean {
-        val next = playlist.playNext()
-        return if (next != null) {
-            playMediaItem(next)
-            true
-        } else {
-            false
-        }
+        val next = engine.advanceToNextItem() ?: return false
+        playMediaItem(next)
+        return true
     }
 
     fun playPrevious(): Boolean {
-        val prev = playlist.playPrevious()
-        return if (prev != null) {
-            playMediaItem(prev)
-            true
-        } else {
-            false
-        }
+        val prev = engine.advanceToPreviousItem() ?: return false
+        playMediaItem(prev)
+        return true
+    }
+
+    fun playAtIndex(index: Int): Boolean {
+        val item = engine.selectItemAt(index) ?: return false
+        playMediaItem(item)
+        return true
     }
 
     fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
         val idx = items.indexOfFirst { it.uriString == item.uriString }
-        playlist.setPlaylist(items, if (idx >= 0) idx else 0)
+        engine.setPlaylist(items, if (idx >= 0) idx else 0)
         playMediaItem(item)
     }
 
     fun setSingleAndPlay(uri: Uri, displayName: String = uri.lastPathSegment ?: "Video") {
-        playlist.setSingle(uri, displayName)
+        engine.setSingleItem(uri, displayName)
         openUri(uri, displayTitle = displayName)
     }
 

@@ -2,7 +2,7 @@ package dev.gyro.player.service
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.gyro.feature.player.session.PlaybackServiceLauncher
+import dev.gyro.core.playback.PlaybackServiceLauncher
 import javax.inject.Inject
 import javax.inject.Singleton
 

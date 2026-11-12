@@ -1,7 +1,6 @@
 package dev.gyro.engine.session
 
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Looper
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -13,7 +12,7 @@ import androidx.media3.common.util.Util
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.media.PlaylistManager
+import dev.gyro.engine.api.media.Playlist
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,11 +37,11 @@ private data class AdapterSessionState(
 )
 
 /**
- * Adapter that exposes [GyroPlayerEngine] and [PlaylistManager] as a Media3 [Player] via [SimpleBasePlayer].
+ * Adapter that exposes [GyroPlayerEngine] and its [Playlist] as a Media3 [Player] via [SimpleBasePlayer].
  */
 class MpvPlayerAdapter(
     val engine: dev.gyro.engine.api.PlayerEngine,
-    val playlistManager: PlaylistManager = engine.playlist,
+    val playlist: Playlist = engine.playlist,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
     var onSkipToNext: (() -> Boolean)? = null,
     var onSkipToPrevious: (() -> Boolean)? = null,
@@ -88,12 +87,12 @@ class MpvPlayerAdapter(
                 }
             }
             launch {
-                playlistManager.items.collect {
+                playlist.items.collect {
                     invalidateState()
                 }
             }
             launch {
-                playlistManager.currentIndex.collect {
+                playlist.currentIndex.collect {
                     invalidateState()
                 }
             }
@@ -130,8 +129,8 @@ class MpvPlayerAdapter(
             )
             .build()
 
-        val playlistItems = playlistManager.items.value
-        val currentIndex = playlistManager.currentIndex.value
+        val playlistItems = playlist.items.value
+        val currentIndex = playlist.currentIndex.value
 
         val mediaItemDataList = if (playlistItems.isNotEmpty()) {
             playlistItems.mapIndexed { index, item ->
@@ -222,23 +221,18 @@ class MpvPlayerAdapter(
         positionMs: Long,
         seekCommand: Int
     ): ListenableFuture<*> {
-        val currentIndex = playlistManager.currentIndex.value
-        if (mediaItemIndex != currentIndex && mediaItemIndex >= 0) {
+        val currentIndex = playlist.currentIndex.value
+        val itemChanged = mediaItemIndex >= 0 && mediaItemIndex != currentIndex
+        if (itemChanged) {
+            // Item transitions belong to the host (the session controller), which owns resuming,
+            // progress persistence and the queue cursor. Moving the cursor here as well is what
+            // produced three different implementations of "next video".
             if (mediaItemIndex > currentIndex) {
-                if (onSkipToNext?.invoke() != true) {
-                    playlistManager.playNext()?.let { next ->
-                        engine.load(Uri.parse(next.uriString), displayTitle = next.displayName)
-                    }
-                }
+                onSkipToNext?.invoke()
             } else {
-                if (onSkipToPrevious?.invoke() != true) {
-                    playlistManager.playPrevious()?.let { prev ->
-                        engine.load(Uri.parse(prev.uriString), displayTitle = prev.displayName)
-                    }
-                }
+                onSkipToPrevious?.invoke()
             }
-        }
-        if (positionMs != C.TIME_UNSET) {
+        } else if (positionMs != C.TIME_UNSET) {
             engine.seekTo(positionMs)
         }
         return Futures.immediateVoidFuture()

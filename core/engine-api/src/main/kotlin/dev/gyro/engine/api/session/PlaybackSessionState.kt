@@ -1,4 +1,4 @@
-package dev.gyro.engine.session
+package dev.gyro.engine.api.session
 
 import dev.gyro.engine.model.VideoDimensions
 

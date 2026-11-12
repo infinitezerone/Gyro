@@ -24,10 +24,11 @@ class MediaInfoExtractorTest {
             update {
                 it.copy(
                     mediaTitle = "Big Buck Bunny",
-                    fps = 60.0,
-                    hwdecCurrent = "mediacodec-copy",
-                    droppedFrames = 5L
+                    hwdecCurrent = "mediacodec-copy"
                 )
+            }
+            updateDiagnostics {
+                it.copy(fps = 60.0, droppedFrames = 5L)
             }
         }
 

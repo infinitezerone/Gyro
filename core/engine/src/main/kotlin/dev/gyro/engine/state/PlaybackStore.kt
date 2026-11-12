@@ -1,5 +1,6 @@
 package dev.gyro.engine.state
 
+import dev.gyro.engine.model.PlaybackDiagnostics
 import dev.gyro.engine.model.PlaybackSnapshot
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -14,6 +15,20 @@ class PlaybackStore {
 
     private val _state = MutableStateFlow(PlaybackSnapshot())
     val state: StateFlow<PlaybackSnapshot> = _state.asStateFlow()
+
+    /**
+     * Per-second telemetry, intentionally outside [state].
+     *
+     * These values change on mpv's reporting cadence, not on state transitions. Keeping them in
+     * the snapshot meant a dropped-frame counter invalidated every snapshot consumer; here they
+     * invalidate only the readers that asked for them.
+     */
+    private val _diagnostics = MutableStateFlow(PlaybackDiagnostics())
+    val diagnostics: StateFlow<PlaybackDiagnostics> = _diagnostics.asStateFlow()
+
+    fun updateDiagnostics(transform: (PlaybackDiagnostics) -> PlaybackDiagnostics) {
+        _diagnostics.update(transform)
+    }
 
     private class BatchContext(
         val base: PlaybackSnapshot,

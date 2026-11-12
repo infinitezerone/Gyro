@@ -38,5 +38,9 @@ gradlePlugin {
             id = "gyro.android.hilt"
             implementationClass = "dev.gyro.buildlogic.AndroidHiltConventionPlugin"
         }
+        register("verifyModuleBoundaries") {
+            id = "gyro.verify.boundaries"
+            implementationClass = "dev.gyro.buildlogic.ModuleBoundaryPlugin"
+        }
     }
 }

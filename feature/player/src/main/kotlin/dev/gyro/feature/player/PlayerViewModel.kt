@@ -4,20 +4,14 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
-import dev.gyro.core.data.repository.SubtitleRepository
-import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.playback.PlaybackSessionController
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.media.PlaylistManager
-import dev.gyro.feature.player.session.PlaybackSessionController
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import dev.gyro.engine.api.media.Playlist
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,33 +33,9 @@ class PlayerViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
-    // Secondary constructor for existing unit tests
-    constructor(
-        engine: PlayerEngine,
-        settingsRepository: SettingsRepository,
-        historyRepository: PlaybackHistoryRepository,
-        playlistManager: PlaylistManager = engine.playlist,
-        subtitleRepository: SubtitleRepository,
-        uriParser: UriParser,
-        mediaRepository: MediaRepository,
-        scope: CoroutineScope? = null
-    ) : this(
-        session = PlaybackSessionController(
-            engine = engine,
-            settingsRepository = settingsRepository,
-            historyRepository = historyRepository,
-            subtitleRepository = subtitleRepository,
-            mediaRepository = mediaRepository,
-            uriParser = uriParser,
-            playlist = playlistManager,
-            scope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        ),
-        settingsRepository = settingsRepository
-    )
-
     val engine: PlayerEngine get() = session.engine
     val historyRepository: PlaybackHistoryRepository get() = session.historyRepository
-    val playlistManager: PlaylistManager get() = session.playlist
+    val playlistManager: Playlist get() = session.playlist
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
@@ -146,6 +116,8 @@ class PlayerViewModel @Inject constructor(
     fun playNext(): Boolean = session.playNext()
 
     fun playPrevious(): Boolean = session.playPrevious()
+
+    fun playAtIndex(index: Int): Boolean = session.playAtIndex(index)
 
     fun saveCurrentProgress() {
         session.saveCurrentProgress()

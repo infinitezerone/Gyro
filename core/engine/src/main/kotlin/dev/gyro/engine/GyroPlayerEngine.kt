@@ -13,7 +13,7 @@ import dev.gyro.engine.audio.GyroAudioFocusManager
 import dev.gyro.engine.config.MpvOptionConfigurator
 import dev.gyro.engine.media.DefaultMediaResourceResolver
 import dev.gyro.engine.media.MediaInfoExtractor
-import dev.gyro.engine.media.MediaItem
+import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.engine.model.PlaybackState
@@ -48,7 +48,6 @@ class GyroPlayerEngine(
     private val resolver: MediaResourceResolver = if (context != null) DefaultMediaResourceResolver(context) else MediaResourceResolver.Direct,
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     internal val store: PlaybackStore = PlaybackStore(),
-    override val playlist: dev.gyro.engine.media.PlaylistManager = dev.gyro.engine.media.PlaylistManager(),
     override val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
     override val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
     override val audio: AudioEffectsController = AudioEffectsController(bridge, store),
@@ -116,9 +115,29 @@ class GyroPlayerEngine(
         ensureInitialized = { ensureNativeInitialized() }
     )
 
-    val playlistItems: StateFlow<List<dev.gyro.core.model.VideoMediaItem>> get() = playlist.items
-    val currentPlaylistIndex: StateFlow<Int> get() = playlist.currentIndex
-    val currentMediaItem: dev.gyro.core.model.VideoMediaItem? get() = playlist.currentItem
+    /**
+     * The queue is engine state, not caller state: only this module can move the cursor, and the
+     * public surface is the read-only [dev.gyro.engine.api.media.Playlist] plus the advance
+     * commands below.
+     */
+    internal val playlistManager = dev.gyro.engine.playlist.PlaylistManager()
+    override val playlist: dev.gyro.engine.api.media.Playlist get() = playlistManager
+
+    val playlistItems: StateFlow<List<dev.gyro.core.model.VideoMediaItem>> get() = playlistManager.items
+    val currentPlaylistIndex: StateFlow<Int> get() = playlistManager.currentIndex
+    val currentMediaItem: dev.gyro.core.model.VideoMediaItem? get() = playlistManager.currentItem
+
+    override fun advanceToNextItem(): dev.gyro.core.model.VideoMediaItem? = playlistManager.playNext()
+
+    override fun advanceToPreviousItem(): dev.gyro.core.model.VideoMediaItem? = playlistManager.playPrevious()
+
+    override fun selectItemAt(index: Int): dev.gyro.core.model.VideoMediaItem? = playlistManager.playAtIndex(index)
+
+    override fun setPlaylist(items: List<dev.gyro.core.model.VideoMediaItem>, startIndex: Int) =
+        playlistManager.setPlaylist(items, startIndex)
+
+    override fun setSingleItem(uri: Uri, displayName: String) =
+        playlistManager.setSingle(uri, displayName)
 
     /**
      * Managed domain subsystems: observers, event dispatch, and state reset are orchestrated uniformly.
@@ -132,6 +151,7 @@ class GyroPlayerEngine(
     // =========================================================================
 
     override val state: StateFlow<PlaybackSnapshot> get() = store.state
+    override val diagnostics: StateFlow<dev.gyro.engine.model.PlaybackDiagnostics> get() = store.diagnostics
     override val playbackState: StateFlow<PlaybackState> = store.select { it.playbackState }
     override val isPlaying: StateFlow<Boolean> = store.select { it.isPlaying }
     override val currentUri: StateFlow<Uri?> = store.select { it.currentUri }

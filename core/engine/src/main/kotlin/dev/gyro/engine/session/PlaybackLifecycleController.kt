@@ -131,14 +131,14 @@ open class PlaybackLifecycleController(
                 }
             }
             is MpvEvent.LongProperty -> when (event.name) {
-                "frame-drop-count" -> store.update { it.copy(droppedFrames = event.value) }
-                "video-bitrate" -> store.update { it.copy(videoBitrate = event.value) }
-                "audio-bitrate" -> store.update { it.copy(audioBitrate = event.value) }
+                "frame-drop-count" -> store.updateDiagnostics { it.copy(droppedFrames = event.value) }
+                "video-bitrate" -> store.updateDiagnostics { it.copy(videoBitrate = event.value) }
+                "audio-bitrate" -> store.updateDiagnostics { it.copy(audioBitrate = event.value) }
             }
             is MpvEvent.DoubleProperty -> when (event.name) {
                 "speed" -> store.update { it.copy(speed = event.value.toFloat()) }
-                "estimated-vf-fps" -> store.update { it.copy(fps = event.value) }
-                "vsync-ratio" -> store.update { it.copy(vsyncRatio = event.value) }
+                "estimated-vf-fps" -> store.updateDiagnostics { it.copy(fps = event.value) }
+                "vsync-ratio" -> store.updateDiagnostics { it.copy(vsyncRatio = event.value) }
             }
             is MpvEvent.FlagProperty -> {
                 when (event.name) {
@@ -176,6 +176,38 @@ open class PlaybackLifecycleController(
                 }
             }
             is MpvEvent.PropertyChanged -> Unit
+            is MpvEvent.Desync -> reconcileAfterEventGap(event.droppedEvents)
+        }
+    }
+
+    /**
+     * A dropped lifecycle transition cannot be replayed, so the only recovery is to ask mpv how
+     * things actually stand and move the state machine to match. Properties are always readable,
+     * even for events the pipeline never observed.
+     */
+    private fun reconcileAfterEventGap(dropped: Int) {
+        if (store.current.session !is SessionPhase.Loaded) {
+            EngineLog.w(TAG, "Desync: $dropped lifecycle event(s) dropped with no loaded session")
+            return
+        }
+        val eofReached = runCatching { bridge.getPropertyBoolean("eof-reached") }.getOrNull() == true
+        val idle = runCatching { bridge.getPropertyBoolean("idle-active") }.getOrNull() == true
+        val paused = runCatching { bridge.getPropertyBoolean("pause") }.getOrNull()
+        EngineLog.e(
+            TAG,
+            "Desync: $dropped lifecycle event(s) dropped; reconciling (eof=$eofReached, " +
+                "idle=$idle, pause=$paused)"
+        )
+        when {
+            eofReached -> store.update {
+                it.copy(isPlaying = false, playbackState = PlaybackState.ENDED)
+            }
+            idle -> store.update {
+                it.copy(isPlaying = false, playbackState = PlaybackState.IDLE)
+            }
+            paused != null -> store.update {
+                it.copy(isPlaying = !paused)
+            }
         }
     }
 

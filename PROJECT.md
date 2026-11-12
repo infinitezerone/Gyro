@@ -10,12 +10,13 @@ The codebase is structured into modular layers:
 - `:core:data`: Repositories (`SettingsRepository`, `MpvConfigRepository`, `PlaybackHistoryRepository`, `MediaRepository`, `SubtitleRepository`, `CustomFolderRepository`, `UriParser`).
 - `:core:designsystem`: Design tokens, Compose themes, icons, and centralized localized string resources (`values/strings.xml`, `values-en/strings.xml`).
 - `:core:navigation`: Type-safe Navigation 3 route definitions (`Screen`).
-- `:core:engine-api`: Engine-agnostic playback contract (`PlayerEngine`, domain controller interfaces, `PlaybackSnapshot`, `MediaItem`, `PlaylistManager`).
+- `:core:engine-api`: Playback contract (`PlayerEngine`, domain controller interfaces, `PlaybackSnapshot`, `MediaItem`, read-only `Playlist`). The queue cursor is engine-owned: `advanceToNextItem` / `advanceToPreviousItem` / `selectItemAt` are the only ways it moves, so "next video" has exactly one implementation. The interface is engine-agnostic in shape but still carries mpv-only capabilities (hwdec, tone mapping, shaders, screenshot); see Known Issues.
+- `:core:playback`: App-scoped `PlaybackSessionController` — session business logic (auto-advance, companion subtitles, progress persistence, unified load entry) and the `PlaybackServiceLauncher` port. Above the engine contract, below every screen.
 - `:core:engine`: Native JNI bridge (`GyroNative`), `MpvNativeBridge`, the `GyroPlayerEngine` facade and domain controllers, the single `PlaybackStore`, the Media3 session adapter (`MpvPlayerAdapter`, `MediaSessionManager`), and the Compose surface (`GyroSurfaceView`).
 - `:core:testing`: Test fakes, rules, and mock bridges (`FakeMpvNativeBridge`, `MainDispatcherRule`, `TestUri`).
 - `:feature:home`: Media library browser (`HomeScreen`, `HomeViewModel`, video thumbnails).
 - `:feature:settings`: Preference screens (`SettingsScreen`, `MpvConfigEditorScreen`, `GestureSettingsScreen`, `FolderManagementScreen`).
-- `:feature:player`: Player screen, gestures, and controls, plus the app-scoped `PlaybackSessionController` (session business logic: auto-advance, companion subtitles, progress persistence, and the load entry point).
+- `:feature:player`: Player screen, gestures, and controls. Reads session state from `:core:playback` and forwards intents; `PlayerViewModel` holds only screen-scoped UI state.
 - `:app`: Application entry (`GyroApplication`), `MainActivity` (Navigation 3 host), and `PlaybackService` (Media3 `MediaSessionService` for background playback).
 
 Native Engine Build:
@@ -27,7 +28,7 @@ Native Engine Build:
 Data Flow:
 - User Preferences & Configurations: `SettingsRepository` (DataStore) & `MpvConfigRepository` (file-backed) -> `UserSettings` / `MpvConfig` -> injected into `GyroPlayerEngine` and observed by Feature ViewModels.
 - Playback & Audio Pipeline: domain controllers subscribe to `MpvNativeBridge.events` and own their mpv properties (`engine.audio` → `alimiter`/`dynaudnorm`/downmix, `engine.video` → color & deband, `engine.shaders` → `glsl-shaders`, `engine.trackManager` → tracks & chapters, `engine.tuning` → A/V delay & subtitle scale/position); `GyroPlayerEngine` keeps session lifecycle and core playback state only.
-- Playback Session: the app-scoped `PlaybackSessionController` (`:feature:player`) owns session business logic — auto-advance, companion subtitles, progress persistence, and the unified load entry — so it survives the player screen for background playback; `PlayerViewModel` holds only screen-scoped UI state and signals enter/exit explicitly.
+- Playback Session: the app-scoped `PlaybackSessionController` (`:core:playback`) owns session business logic — auto-advance, companion subtitles, progress persistence, and the unified load entry — so it survives the player screen for background playback; `PlayerViewModel` holds only screen-scoped UI state and signals enter/exit explicitly.
 - Audio Overdrive Flow: Gestures split travel at 100%: 0~100% adjusts Android `AudioManager.STREAM_MUSIC`; 101~200% adjusts internal mpv software gain with dynamic `alimiter` anti-clipping filter and amber HUD. Auto-reset to 100% on track change/exit.
 
 ## Feature Inventory
@@ -83,12 +84,11 @@ Data Flow:
 - `UserSettings`: Embeds `val gestureConfig: PlayerGestureConfig = PlayerGestureConfig()`.
 
 ### `:core:data` ↔ `:core:engine` & `:feature:settings`
-- `MpvConfigRepository`:
-  - `val configText: StateFlow<String>`
+- `MpvConfigRepository` (file-backed under `filesDir`):
+  - `suspend fun loadConfig(): String`
   - `suspend fun saveConfig(content: String)`
-  - `suspend fun resetToDefault()`
-  - `fun getParsedOptions(): Map<String, String>`
-  - `fun getConfigFile(): File`
+  - `suspend fun resetToDefault(): String`
+  - `suspend fun getParsedOptions(): Map<String, String>`
 - `SettingsRepository`:
   - `val settings: StateFlow<UserSettings>`
   - Granular and bulk update methods for `PlayerGestureConfig` and `UserSettings`.
@@ -99,8 +99,16 @@ Data Flow:
   - Core commands: `ensureInitialized(userOptions, settings)`, `loadUri(uri, startPositionMs, displayTitle)`, `load(item: MediaItem)`, `load(url, ...)`, `play()`, `pause()`, `togglePlayPause()`, `seekTo(ms)`, `seekRelative(ms)`, `release()`.
   - Core state: `playbackState`, `isPlaying`, `timePosMs`, `durationMs`, `bufferedPosMs`, `isFileLoaded`, `currentUri`, `mediaTitle`, `hwdecCurrent`, `speed`, `fps`, `droppedFrames`.
   - State: `val state: StateFlow<PlaybackSnapshot>` — the one and only playback state container, owned by `PlaybackStore` (`:core:engine.state`). Every controller writes through `store.update { }` and exposes read-only projections, so there is no second source of truth. UI subscribes once. `timePosMs`/`bufferedPosMs` stay on separate high-frequency flows (scrub bar only).
+  - Telemetry: `val diagnostics: StateFlow<PlaybackDiagnostics>` (fps, dropped frames, vsync ratio, bitrates) is deliberately **outside** the snapshot. These values tick on mpv's reporting cadence, so folding them into `state` made every snapshot consumer recompose on a dropped-frame counter. Controller writes use `store.updateDiagnostics { }`; only diagnostic readers subscribe to it.
   - `SessionPhase` (`Idle / Resolving / AwaitingSurface / Submitting / Loaded / Failed`) publishes the engine's own load progress in the state; `error` carries the failure cause.
   - Surface: `attachSurface(surface)`, `detachSurface(surface?)`, `redraw()`, `isSurfaceAttached`.
+  - Queue (Media3-style ownership — the player holds the timeline, callers only read it):
+    `val playlist: Playlist` is read-only; the cursor moves only through `advanceToNextItem()`,
+    `advanceToPreviousItem()`, `selectItemAt(index)`, `setPlaylist(items, startIndex)` and
+    `setSingleItem(uri, displayName)`. `PlaylistManager` is `internal` to `:core:engine`.
+    Those commands only move the cursor — loading stays with `PlaybackSessionController`, which
+    owns resume points and progress writes. `MediaSessionManager` and `MpvPlayerAdapter` delegate
+    their skip commands to that single path instead of traversing the queue themselves.
   - Domain namespaces: `audio`, `video`, `geometry`, `trackManager`, `shaders`, `tuning`.
 - `AudioEffectsController` (`engine.audio`): `nightMode`, `stereoDownmix`, `softwareVolume`; `setSoftwareVolume`, `resetSoftwareGain`, `setNightMode`, `setStereoDownmix`.
 - `VideoEffectsController` (`engine.video`): `deband`, `brightness`, `contrast`, `saturation`; setters + `resetColors`.
@@ -110,16 +118,13 @@ Data Flow:
 - `SyncTuningController` (`engine.tuning`): `subtitleDelaySec`, `audioDelaySec`, `subtitleScale`, `subtitlePositionPercent`; corresponding setters, clamping owned by the controller.
 - `MpvOptionConfigurator` (`:core:engine.config`): applies user `mpv.conf` entries, then GUI settings, then defaults, all before `mpv_init()`; protected keys (`vo`, `wid`, `idle`, `keep-open`, `gpu-context`) are dropped and the engine lifecycle invariants are re-applied.
 - `MediaResourceResolver` (`:core:engine.media`): `suspend fun resolve(item: MediaItem): ResolvedMediaSource`. Opens content descriptors off the main thread and hands ownership over in `ResolvedMediaSource.takeTargetUrl()`; a request that is cancelled or replaced before `loadfile` is closed instead of leaking the fd. Resolution failure surfaces as `PlaybackState.ERROR`.
-- Event stream: `MpvEventPipeline` (owned by `GyroNative`, surfaced as `MpvNativeBridge.events`) publishes `MpvEvent`; every domain controller subscribes through `observeEvents(scope)`. No replay, publish applies backpressure on the native event thread.
+- Event stream: `MpvEventPipeline` (owned by `GyroNative`, surfaced as `MpvNativeBridge.events`) publishes `MpvEvent` to the engine's single dispatcher. No replay; `publish` never blocks the JNI thread — lifecycle events go through a bounded FIFO (64) and property events coalesce per key, so only the latest value of each property survives.
+- Event gap recovery: if the lifecycle FIFO overflows, the transition is gone, so the pump arms an `MpvEvent.Desync(droppedEvents)` marker and emits it once the backlog drains (never reordering past surviving events). `PlaybackLifecycleController` answers it by re-reading `eof-reached` / `idle-active` / `pause` from mpv and moving the state machine to match, instead of leaving playback silently stuck in its previous state.
 - `PlaybackTimelineController` is intentionally not a public namespace: it is the engine's own time/seek implementation.
 
-### `:core:data` ↔ `:feature:settings`
-- `MpvConfigRepository`:
-  - `suspend fun loadConfig(): String`
-  - `suspend fun saveConfig(content: String)`
-  - `suspend fun resetToDefault(): String`
-  - `suspend fun getParsedOptions(): Map<String, String>`
-
+### `:core:playback` ↔ `:feature:player` & `:app`
+- `PlaybackSessionController` (`@Singleton`, `@ApplicationScope`): `activeUri`, `sessionActive`, `openUri(uri, forceReload, displayTitle, initialWidth, initialHeight)`, `endSession(requestServiceStop)`, `leavePlayer()`, `onNotificationStop()`, `onServiceDestroyed()`, `playMediaItem`, `playNext`, `playPrevious`, `setPlaylistAndPlay`, `setSingleAndPlay`, `saveCurrentProgress`, `cancelPendingLoad`.
+- `PlaybackServiceLauncher` port (`start`/`stop`, `NoOp` for tests): implemented in `:app` by `PlaybackServiceLauncherImpl`; keeps `:core:playback` free of Service lifecycle knowledge.
 
 ### `:core:navigation` ↔ `:feature:settings` & `:app`
 - `Screen.MpvConfigEditor : Screen`
@@ -129,6 +134,7 @@ Data Flow:
 - Existing conventions across Android Gradle modular structure:
   - Model definitions: `core/model/src/main/kotlin/dev/gyro/core/model/`
   - Repositories: `core/data/src/main/kotlin/dev/gyro/core/data/repository/`
+  - Playback Session: `core/playback/src/main/kotlin/dev/gyro/core/playback/`
   - Engine & Bridges: `core/engine/src/main/kotlin/dev/gyro/engine/`
   - Test Fakes & Mocks: `core/testing/src/main/kotlin/dev/gyro/core/testing/`
   - Strings & Design System: `core/designsystem/src/main/res/values/strings.xml`, `values-en/strings.xml`
@@ -136,6 +142,15 @@ Data Flow:
   - Settings UI: `feature/settings/src/main/kotlin/dev/gyro/feature/settings/`
   - Player UI & Gestures: `feature/player/src/main/kotlin/dev/gyro/feature/player/`
   - Service & App Entry: `app/src/main/kotlin/dev/gyro/player/`
+
+### Module boundary enforcement
+`gyro.verify.boundaries` (build-logic) registers `verifyModuleBoundaries`, which scans every
+module's `src/main/kotlin` and fails the build when an import crosses a layer it may not see
+(e.g. a feature importing `dev.gyro.core.database`, or `:core:playback` importing a concrete
+`dev.gyro.engine.*` implementation package). It is wired into the root `check` task and
+`:app:preBuild`, so it runs on `assembleDebug`/`build`. Test sources are out of scope on purpose.
+The rules live in `build-logic/convention/.../ModuleBoundaryPlugin.kt`; add a module there when a
+new module is introduced.
 
 ## Known Issues / TODO
 

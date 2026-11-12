@@ -1,4 +1,4 @@
-package dev.gyro.engine.media
+package dev.gyro.engine.playlist
 
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -6,30 +6,36 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-class PlaylistManager {
+/**
+ * Mutable queue implementation owned by the engine.
+ *
+ * Only the engine module may hold this type; everyone else sees [Playlist] and drives the cursor
+ * through [dev.gyro.engine.api.PlayerEngine.advanceToNextItem].
+ */
+internal class PlaylistManager : dev.gyro.engine.api.media.Playlist {
 
     private val _items = MutableStateFlow<List<VideoMediaItem>>(emptyList())
-    val items: StateFlow<List<VideoMediaItem>> = _items.asStateFlow()
+    override val items: StateFlow<List<VideoMediaItem>> = _items.asStateFlow()
 
     private val _currentIndex = MutableStateFlow(-1)
-    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+    override val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
     fun setPlaylist(newItems: List<VideoMediaItem>, startIndex: Int) {
         _items.value = newItems
         _currentIndex.value = startIndex.coerceIn(-1, newItems.size - 1)
     }
 
-    val currentItem: VideoMediaItem?
+    override val currentItem: VideoMediaItem?
         get() {
             val idx = _currentIndex.value
             val list = _items.value
             return if (idx in list.indices) list[idx] else null
         }
 
-    val hasPrevious: Boolean
+    override val hasPrevious: Boolean
         get() = _currentIndex.value > 0
 
-    val hasNext: Boolean
+    override val hasNext: Boolean
         get() {
             val idx = _currentIndex.value
             val list = _items.value

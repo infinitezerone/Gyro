@@ -164,19 +164,51 @@ class MpvEventPipelineTest {
         collector.cancel()
         // The unbounded-buffering contract violation must not happen: with 20 published and
         // an ingest bound of 2, at least one event was dropped loudly rather than queued.
+        val delivered = received.filterIsInstance<MpvEvent.Lifecycle>()
         assertTrue(
             "expected loud drops beyond the ingest bound, but all ${published.size} arrived",
-            received.size < published.size,
+            delivered.size < published.size,
         )
         // Delivery order is a subsequence of publish order: the concurrent pump interleaves
         // with the publisher, so WHICH events drop is racy, but delivered events never
         // reorder relative to each other.
         var cursor = 0
-        for (event in received) {
+        for (event in delivered) {
             while (cursor < published.size && published[cursor] != event) cursor++
             assertTrue("delivered event $event violated publish order", cursor < published.size)
             cursor++
         }
+    }
+
+    @Test(timeout = 10_000)
+    fun lifecycleOverflow_isReportedAsDesyncAfterTheBacklogDrains() {
+        val pipeline = newPipeline(lifecycleCapacity = 2)
+        val scope = newScope()
+        val received = CopyOnWriteArrayList<MpvEvent>()
+        val gate = CompletableDeferred<Unit>()
+        val collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            pipeline.events.collect {
+                received.add(it)
+                gate.await()
+            }
+        }
+
+        val published: List<MpvEvent> = (0 until 20).map { MpvEvent.Lifecycle(200 + it) }
+        pipeline.publish(published[0])
+        awaitTrue { received.size == 1 }
+        published.drop(1).forEach(pipeline::publish)
+
+        gate.complete(Unit)
+        // The dropped transition cannot be replayed, so the consumer must at least learn that its
+        // state machine missed a step - otherwise an END_FILE lost here means "playback ended" is
+        // never observed.
+        awaitTrue { received.any { it is MpvEvent.Desync } }
+        collector.cancel()
+
+        val desync = received.filterIsInstance<MpvEvent.Desync>().first()
+        assertTrue("Desync must report at least one dropped event", desync.droppedEvents > 0)
+        // Ordering: the marker arrives after the surviving transitions, never before them.
+        assertEquals(MpvEvent.Desync::class, received.last()::class)
     }
 
     @Test(timeout = 10_000)

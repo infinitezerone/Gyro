@@ -7,8 +7,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.media.PlaylistManager
-import dev.gyro.feature.player.session.PlaybackSessionController
+import dev.gyro.core.playback.PlaybackSessionController
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -26,7 +25,6 @@ sealed interface MainActivityUiState {
 @HiltViewModel
 class MainActivityViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
-    private val playlistManager: PlaylistManager,
     private val engine: PlayerEngine,
     private val session: PlaybackSessionController
 ) : ViewModel() {
@@ -41,7 +39,7 @@ class MainActivityViewModel @Inject constructor(
 
     fun onPlayVideo(item: VideoMediaItem, currentList: List<VideoMediaItem>) {
         val idx = currentList.indexOfFirst { it.uriString == item.uriString }
-        playlistManager.setPlaylist(currentList, if (idx >= 0) idx else 0)
+        engine.setPlaylist(currentList, if (idx >= 0) idx else 0)
     }
 
     fun handleAppStop(isPip: Boolean) {

@@ -11,3 +11,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 }
+
+dependencies {
+    // Tests drive the real DataStore-backed SettingsRepository, so they declare the persistence
+    // module explicitly instead of inheriting it from :core:data.
+    testImplementation(project(":core:datastore"))
+}

@@ -3,14 +3,12 @@ package dev.gyro.engine.session
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.session.PlaybackState
-import android.net.TestUri
 import android.view.KeyEvent
 import dev.gyro.core.testing.util.MainDispatcherRule
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
-import dev.gyro.engine.media.PlaylistManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -19,6 +17,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -35,7 +34,6 @@ class MediaSessionManagerTest {
     private lateinit var testContext: Context
     private lateinit var fakeBridge: FakeMpvNativeBridge
     private lateinit var engine: GyroPlayerEngine
-    private lateinit var playlistManager: PlaylistManager
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
 
@@ -53,16 +51,13 @@ class MediaSessionManagerTest {
         fakeBridge = FakeMpvNativeBridge()
         engine = GyroPlayerEngine(context = testContext, bridge = fakeBridge)
         engine.warmUp()
-        playlistManager = PlaylistManager()
     }
 
     private fun createMediaSessionManager(): MediaSessionManager {
         return MediaSessionManager(
             context = testContext,
             engine = engine,
-            playlistManager = playlistManager,
             coroutineScope = testScope,
-            uriParser = { str -> TestUri(str) }
         )
     }
 
@@ -183,7 +178,7 @@ class MediaSessionManagerTest {
     }
 
     @Test
-    fun testPlaylistNavigationViaMediaSession() {
+    fun testPlaylistNavigationRequiresHost() {
         val manager = createMediaSessionManager()
         val item1 = VideoMediaItem(
             id = 1,
@@ -207,23 +202,14 @@ class MediaSessionManagerTest {
             dateModified = 1,
             folderName = "Anime"
         )
-        playlistManager.setPlaylist(listOf(item1, item2), 0)
+        engine.setPlaylist(listOf(item1, item2), 0)
 
-        // Next
-        assertTrue(manager.skipToNext())
-        assertEquals(1, playlistManager.currentIndex.value)
-        assertEquals("content://media/2", engine.currentUri.value?.toString())
-
-        // No more next
+        // The session manager is a transport surface, not a second implementation of "next":
+        // without a wired host it must report "not handled" and leave the cursor alone.
         assertFalse(manager.skipToNext())
-
-        // Previous
-        assertTrue(manager.skipToPrevious())
-        assertEquals(0, playlistManager.currentIndex.value)
-        assertEquals("content://media/1", engine.currentUri.value?.toString())
-
-        // No more previous
         assertFalse(manager.skipToPrevious())
+        assertEquals(0, engine.playlist.currentIndex.value)
+        assertNull(engine.currentUri.value)
     }
 
     @Test
@@ -231,26 +217,26 @@ class MediaSessionManagerTest {
         val manager = createMediaSessionManager()
         val item1 = VideoMediaItem(1L, "content://media/1", "Ep 1", 10000L, 100L, 1920, 1080, 1L, "Anime")
         val item2 = VideoMediaItem(2L, "content://media/2", "Ep 2", 10000L, 100L, 1920, 1080, 1L, "Anime")
-        playlistManager.setPlaylist(listOf(item1, item2), 0)
+        engine.setPlaylist(listOf(item1, item2), 0)
 
         var nextCalls = 0
         var prevCalls = 0
         manager.onSkipToNext = { nextCalls++; true }
         manager.onSkipToPrevious = { prevCalls++; true }
 
-        // The wired hook owns the load: the fallback must not also advance the playlist.
+        // The wired hook owns the load: the manager must not also advance the playlist.
         assertTrue(manager.skipToNext())
         assertEquals(1, nextCalls)
-        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals(0, engine.playlist.currentIndex.value)
 
         assertTrue(manager.skipToPrevious())
         assertEquals(1, prevCalls)
-        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals(0, engine.playlist.currentIndex.value)
 
-        // A hook reporting "not handled" falls through to the default playlist traversal.
+        // A hook reporting "not handled" is final: there is no local fallback to fall through to.
         manager.onSkipToNext = { false }
-        assertTrue(manager.skipToNext())
-        assertEquals(1, playlistManager.currentIndex.value)
+        assertFalse(manager.skipToNext())
+        assertEquals(0, engine.playlist.currentIndex.value)
     }
 
     // =========================================================================

@@ -68,6 +68,32 @@ class PlaybackStoreTest {
     }
 
     @Test
+    fun diagnosticsTickWithoutInvalidatingPlaybackState() {
+        val store = PlaybackStore()
+        val stateEmissions = mutableListOf<PlaybackSnapshot>()
+        val scope = CoroutineScope(Job() + Dispatchers.Unconfined)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            store.state.collect { stateEmissions.add(it) }
+        }
+        try {
+            store.update { it.copy(isPlaying = true) }
+            val stateEmissionCount = stateEmissions.size
+
+            repeat(20) { tick ->
+                store.updateDiagnostics { it.copy(droppedFrames = tick.toLong(), fps = 60.0) }
+            }
+
+            // Telemetry must not cost a playback-state emission: the screen collects `state`,
+            // and a dropped-frame counter moving is not a reason to recompose it.
+            assertEquals(stateEmissionCount, stateEmissions.size)
+            assertEquals(19L, store.diagnostics.value.droppedFrames)
+            assertEquals(60.0, store.diagnostics.value.fps, 0.0)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun controllerWritesLandInTheEnginesOnlyState_pureEngineWithoutPlatformContext() {
         val bridge = FakeMpvNativeBridge()
         val engine = GyroPlayerEngine(bridge = bridge)

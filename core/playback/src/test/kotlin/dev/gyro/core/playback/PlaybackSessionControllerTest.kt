@@ -1,4 +1,4 @@
-package dev.gyro.feature.player.session
+package dev.gyro.core.playback
 
 import android.content.Context
 import android.content.ContextWrapper
@@ -18,7 +18,7 @@ import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.media.PlaylistManager
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -58,7 +58,6 @@ class PlaybackSessionControllerTest {
     private lateinit var historyRepo: PlaybackHistoryRepository
     private lateinit var historyLookup: suspend (Uri) -> PlaybackProgress?
     private lateinit var mediaRepo: FakeMediaRepository
-    private lateinit var playlistManager: PlaylistManager
     private lateinit var controller: PlaybackSessionController
     private lateinit var testScope: CoroutineScope
 
@@ -100,7 +99,6 @@ class PlaybackSessionControllerTest {
             override suspend fun getProgress(uri: Uri): PlaybackProgress? = historyLookup(uri)
         }
         mediaRepo = FakeMediaRepository()
-        playlistManager = PlaylistManager()
         val fakeSubtitleRepo = object : SubtitleRepository {
             override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<String> = emptyList()
         }
@@ -112,7 +110,6 @@ class PlaybackSessionControllerTest {
             subtitleRepository = fakeSubtitleRepo,
             uriParser = UriParser { TestUri(it) },
             mediaRepository = mediaRepo,
-            playlist = playlistManager,
             scope = testScope
         )
     }
@@ -142,8 +139,8 @@ class PlaybackSessionControllerTest {
         controller.setPlaylistAndPlay(listOf(item1, item2), item2)
         runCurrent()
 
-        assertEquals(1, playlistManager.currentIndex.value)
-        assertEquals("Video 2", playlistManager.currentItem?.displayName)
+        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals("Video 2", engine.playlist.currentItem?.displayName)
         assertEquals("file:///tmp/v2.mp4", controller.activeUri.value?.toString())
     }
 
@@ -153,8 +150,8 @@ class PlaybackSessionControllerTest {
         controller.setSingleAndPlay(uri, "Single Video")
         runCurrent()
 
-        assertEquals(1, playlistManager.items.value.size)
-        assertEquals("Single Video", playlistManager.currentItem?.displayName)
+        assertEquals(1, engine.playlist.items.value.size)
+        assertEquals("Single Video", engine.playlist.currentItem?.displayName)
         assertEquals(uri, controller.activeUri.value)
     }
 
@@ -165,14 +162,14 @@ class PlaybackSessionControllerTest {
         controller.setPlaylistAndPlay(listOf(item1, item2), item1)
         runCurrent()
 
-        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals(0, engine.playlist.currentIndex.value)
 
         fakeBridge.emitEndFile()
         runCurrent()
         advanceTimeBy(600L)
         runCurrent()
 
-        assertEquals(1, playlistManager.currentIndex.value)
+        assertEquals(1, engine.playlist.currentIndex.value)
         assertEquals("file:///tmp/b.mp4", controller.activeUri.value?.toString())
     }
 
@@ -195,8 +192,40 @@ class PlaybackSessionControllerTest {
         advanceTimeBy(600L)
         runCurrent()
 
-        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals(0, engine.playlist.currentIndex.value)
         assertEquals("file:///tmp/a.mp4", controller.activeUri.value?.toString())
+    }
+
+    @Test
+    fun testAutoAdvance_noDoubleAdvanceWhenUserSkipsDuringGraceDelay() = runControllerTest {
+        val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
+        val item3 = VideoMediaItem(3L, "file:///tmp/c.mp4", "C", 3000L, 300L, 0, 0, 0L, "F")
+        controller.setPlaylistAndPlay(listOf(item1, item2, item3), item1)
+        runCurrent()
+        advanceUntilIdle()
+
+        fakeBridge.emitEndFile()
+        runCurrent()
+        assertEquals(dev.gyro.engine.model.PlaybackState.ENDED, engine.playbackState.value)
+
+        // The user taps "next" inside the grace delay. The cursor moves at once, but the load
+        // stalls on the resume-point read, so the engine still reports the old URI - exactly the
+        // window in which a URI-based guard concluded "the user did nothing" and advanced again.
+        val gate = CompletableDeferred<Unit>()
+        historyLookup = { gate.await(); null }
+        assertTrue(controller.playNext())
+        runCurrent()
+        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals("file:///tmp/a.mp4", engine.currentUri.value?.toString())
+
+        advanceTimeBy(600L)
+        runCurrent()
+        assertEquals(1, engine.playlist.currentIndex.value)
+
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals("file:///tmp/b.mp4", controller.activeUri.value?.toString())
     }
 
     @Test
@@ -205,6 +234,7 @@ class PlaybackSessionControllerTest {
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
         controller.setPlaylistAndPlay(listOf(item1, item2), item1)
         runCurrent()
+        advanceUntilIdle()
 
         fakeBridge.emitEndFile()
         runCurrent()
@@ -216,7 +246,7 @@ class PlaybackSessionControllerTest {
         advanceTimeBy(600L)
         runCurrent()
 
-        assertEquals(0, playlistManager.currentIndex.value)
+        assertEquals(0, engine.playlist.currentIndex.value)
         assertEquals("file:///tmp/a.mp4", controller.activeUri.value?.toString())
     }
 
@@ -271,13 +301,13 @@ class PlaybackSessionControllerTest {
 
         assertTrue(controller.playNext())
         runCurrent()
-        assertEquals(1, playlistManager.currentIndex.value)
-        assertEquals("Two", playlistManager.currentItem?.displayName)
+        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals("Two", engine.playlist.currentItem?.displayName)
 
         assertTrue(controller.playPrevious())
         runCurrent()
-        assertEquals(0, playlistManager.currentIndex.value)
-        assertEquals("One", playlistManager.currentItem?.displayName)
+        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals("One", engine.playlist.currentItem?.displayName)
     }
 
     @Test

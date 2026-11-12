@@ -2,6 +2,7 @@ package dev.gyro.engine.media
 
 import android.content.ContentResolver
 import android.content.Context
+import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

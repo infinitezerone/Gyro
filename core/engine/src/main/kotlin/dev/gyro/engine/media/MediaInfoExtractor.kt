@@ -16,6 +16,7 @@ object MediaInfoExtractor {
         fallbackSize: Long = 0L
     ): MediaInfo {
         val snapshot = store.current
+        val diagnostics = store.diagnostics.value
         val title = snapshot.mediaTitle.ifBlank { fallbackTitle }
         val resStr = if (videoDimensions.width > 0 && videoDimensions.height > 0) {
             "${videoDimensions.width} x ${videoDimensions.height}"
@@ -39,14 +40,14 @@ object MediaInfoExtractor {
             durationMs = durationMs,
             videoCodec = vCodec,
             videoResolution = resStr,
-            videoFps = snapshot.fps,
+            videoFps = diagnostics.fps,
             videoBitrate = vBitrate,
             audioCodec = aCodec,
             audioChannels = aChannels,
             audioSampleRate = aSampleRate,
             audioBitrate = aBitrate,
             hwdecCurrent = snapshot.hwdecCurrent,
-            droppedFrames = snapshot.droppedFrames
+            droppedFrames = diagnostics.droppedFrames
         )
     }
 }

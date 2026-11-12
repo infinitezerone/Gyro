@@ -9,6 +9,7 @@ import dev.gyro.feature.player.gesture.rememberPlayerZoomState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,10 +45,22 @@ class PlayerState(
 
     var activeSheetTab by mutableStateOf<PlayerSheetTab?>(null)
 
+    /** Persistent stats readout, toggled from the STATS tab; survives a track change by design. */
+    var statsOverlayEnabled by mutableStateOf(false)
+
+    /** HDR / Dolby Vision entrance badge. Owned here so the 3.2s window is one piece of logic. */
+    var formatBadgeVisible by mutableStateOf(false)
+        private set
+
+    /** Predictive-back drag progress, 0..1. Rendered through a deferred lambda in graphicsLayer. */
+    var backProgress by mutableFloatStateOf(0f)
+
     var gestureHudState by mutableStateOf<GestureHudState>(GestureHudState.Idle)
 
     var lastInteractionTrigger by mutableLongStateOf(0L)
         private set
+
+    private var formatBadgeJob: Job? = null
 
     fun toggleControls() {
         if (showControls) {
@@ -73,6 +86,41 @@ class PlayerState(
         lastInteractionTrigger = SystemClock.uptimeMillis()
     }
 
+    /**
+     * Whether the 3.5s auto-hide timer may run.
+     *
+     * Pulled out of the screen's `LaunchedEffect` so the rule can be asserted without composing
+     * anything: controls must be visible, playback running, no scrub in flight, not locked,
+     * not in PiP, and no sheet covering the screen.
+     */
+    fun canAutoHide(isPlaying: Boolean, isScrubbing: Boolean, isPipLayout: Boolean): Boolean =
+        showControls && isPlaying && !isScrubbing && !isLocked && !isPipLayout && activeSheetTab == null
+
+    /** Sleeps out the idle window, then hides the controls. Call only when [canAutoHide] holds. */
+    suspend fun autoHideAfter(delayMs: Long = AUTO_HIDE_DELAY_MS) {
+        delay(delayMs)
+        showControls = false
+    }
+
+    /**
+     * Shows the HDR/Dolby badge for [AUTO_HIDE_DELAY_MS] of badge time, cancelling any previous
+     * window so a fast track change does not leave the badge up for the sum of both timers.
+     */
+    fun revealFormatBadge() {
+        formatBadgeJob?.cancel()
+        formatBadgeJob = scope.launch {
+            formatBadgeVisible = true
+            delay(BADGE_VISIBLE_MS)
+            formatBadgeVisible = false
+        }
+    }
+
+    fun hideFormatBadge() {
+        formatBadgeJob?.cancel()
+        formatBadgeJob = null
+        formatBadgeVisible = false
+    }
+
     fun applySystemBars(isPipLayout: Boolean, isLandscape: Boolean) {
         val window = activity?.window ?: return
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -93,6 +141,11 @@ class PlayerState(
         val window = activity?.window ?: return
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    private companion object {
+        const val AUTO_HIDE_DELAY_MS = 3_500L
+        const val BADGE_VISIBLE_MS = 3_200L
     }
 }
 

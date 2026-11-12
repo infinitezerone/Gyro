@@ -1,6 +1,7 @@
 package dev.gyro.engine.session
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.tracks.TrackAndChapterManager
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope

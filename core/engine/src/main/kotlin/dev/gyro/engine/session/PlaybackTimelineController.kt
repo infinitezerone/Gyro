@@ -3,6 +3,7 @@ package dev.gyro.engine.session
 import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog

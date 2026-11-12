@@ -1,4 +1,4 @@
-package dev.gyro.engine.media
+package dev.gyro.engine.api.media
 
 import android.net.Uri
 

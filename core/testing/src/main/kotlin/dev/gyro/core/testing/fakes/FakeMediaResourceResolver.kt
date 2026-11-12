@@ -1,6 +1,6 @@
 package dev.gyro.core.testing.fakes
 
-import dev.gyro.engine.media.MediaItem
+import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.engine.media.ResolvedMediaSource
 import java.util.concurrent.CopyOnWriteArrayList

@@ -23,9 +23,10 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * - Lifecycle events ([MpvEvent.Lifecycle], [MpvEvent.EndFile]) are state transitions whose
  *   volume is bounded by mpv's serial playback model. They flow through a small FIFO channel
- *   (default 64, far beyond anything mpv can produce between pump passes) and are never
- *   dropped. Overflowing it means engine internals are broken, so it is logged loudly
- *   instead of silently swallowing a transition.
+ *   (default 64, far beyond anything mpv can produce between pump passes). If the channel is
+ *   full the transition is lost, which is why a drop is not merely logged: it arms a
+ *   [MpvEvent.Desync] marker that the pump emits once the backlog drains, telling consumers to
+ *   re-read mpv instead of trusting a state machine that missed a step.
  *
  * - Property events (everything else: snapshots carrying a property `name`) are merged per
  *   key into a concurrent map - every publish succeeds instantly on the JNI thread - and
@@ -55,6 +56,10 @@ class MpvEventPipeline(
     private val lifecycleChannel = Channel<MpvEvent>(lifecycleCapacity)
     private val propertyLatest = ConcurrentHashMap<String, MpvEvent>()
     private val wakeUp = Channel<Unit>(Channel.CONFLATED)
+
+    /** Set when a lifecycle transition could not be queued; cleared when its marker is emitted. */
+    private val desyncPending = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val droppedLifecycleEvents = java.util.concurrent.atomic.AtomicInteger(0)
 
     // Epoch ownership: the native bridge (Rust `G_SESSION_EPOCH`) is the single authority. This
     // AtomicLong is the Kotlin mirror, only advanced through `GyroNative.nextEpoch()` (native
@@ -88,6 +93,14 @@ class MpvEventPipeline(
                 if (event.epoch >= _currentEpoch.get()) {
                     _events.emit(event)
                 }
+                // A gap is reported only once the surviving backlog is out, so consumers see a
+                // consistent prefix before being told to re-read mpv.
+                if (desyncPending.get() && lifecycleChannel.isEmpty) {
+                    if (desyncPending.compareAndSet(true, false)) {
+                        val dropped = droppedLifecycleEvents.getAndSet(0)
+                        _events.emit(MpvEvent.Desync(dropped, _currentEpoch.get()))
+                    }
+                }
             }
         },
         pumpScope.launch {
@@ -119,10 +132,13 @@ class MpvEventPipeline(
         if (event is MpvEvent.Lifecycle || event is MpvEvent.EndFile) {
             val result = lifecycleChannel.trySend(event)
             if (result.isFailure) {
+                droppedLifecycleEvents.incrementAndGet()
+                desyncPending.set(true)
                 EngineLog.e(
                     TAG,
                     "Lifecycle channel overflow (capacity=$lifecycleCapacity), dropping $event - " +
-                        "a collector is stalled far beyond any legitimate mpv burst"
+                        "a collector is stalled far beyond any legitimate mpv burst; a Desync " +
+                        "marker will be delivered once the backlog drains"
                 )
             }
         } else {

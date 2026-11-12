@@ -5,6 +5,7 @@ import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.audio.AudioFocusController
 import dev.gyro.engine.model.PlaybackState
+import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.state.PlaybackStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -113,7 +114,7 @@ class PlaybackLifecycleControllerTest {
         assertEquals(1.75f, store.current.speed, 0.001f)
 
         controller.onEvent(MpvEvent.LongProperty("frame-drop-count", 42L))
-        assertEquals(42L, store.current.droppedFrames)
+        assertEquals(42L, store.diagnostics.value.droppedFrames)
 
         controller.onEvent(MpvEvent.Lifecycle(MpvNativeBridge.Event.END_FILE))
         assertEquals(PlaybackState.ENDED, store.current.playbackState)
@@ -124,6 +125,52 @@ class PlaybackLifecycleControllerTest {
 
         controller.release()
         assertTrue(releaseCalled)
+    }
+
+    @Test
+    fun desync_reconcilesTerminalStateFromMpvProperties() {
+        store.update {
+            it.copy(
+                session = SessionPhase.Loaded("/tmp/a.mp4"),
+                playbackState = PlaybackState.READY,
+                isPlaying = true
+            )
+        }
+        // The END_FILE transition was dropped on the way in; the flag is the only surviving trace.
+        bridge.setPropertyBoolean("eof-reached", true)
+
+        controller.onEvent(MpvEvent.Desync(droppedEvents = 2))
+
+        assertEquals(PlaybackState.ENDED, store.current.playbackState)
+        assertFalse(store.current.isPlaying)
+    }
+
+    @Test
+    fun desync_withoutTerminalStateAdoptsMpvPauseFlag() {
+        store.update {
+            it.copy(
+                session = SessionPhase.Loaded("/tmp/a.mp4"),
+                playbackState = PlaybackState.READY,
+                isPlaying = false
+            )
+        }
+        bridge.setPropertyBoolean("eof-reached", false)
+        bridge.setPropertyBoolean("idle-active", false)
+        bridge.setPropertyBoolean("pause", false)
+
+        controller.onEvent(MpvEvent.Desync())
+
+        assertTrue(store.current.isPlaying)
+        assertEquals(PlaybackState.READY, store.current.playbackState)
+    }
+
+    @Test
+    fun desync_ignoredWhileSessionIsNotLoaded() {
+        bridge.setPropertyBoolean("eof-reached", true)
+
+        controller.onEvent(MpvEvent.Desync())
+
+        assertEquals(PlaybackState.IDLE, store.current.playbackState)
     }
 
     @Test

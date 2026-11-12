@@ -4,12 +4,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Looper
 import android.view.KeyEvent
 import androidx.media3.session.MediaSession
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
@@ -29,11 +27,10 @@ import kotlinx.coroutines.launch
 class MediaSessionManager(
     private val context: Context,
     val engine: dev.gyro.engine.api.PlayerEngine,
-    val playlistManager: PlaylistManager = engine.playlist,
+    val playlist: dev.gyro.engine.api.media.Playlist = engine.playlist,
     private val mediaButtonReceiver: PendingIntent? = null,
     private val sessionActivityPendingIntent: PendingIntent? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
-    private val uriParser: (String) -> Uri = { Uri.parse(it) },
     looper: Looper? = null
 ) : MediaSessionControls {
     companion object {
@@ -75,7 +72,7 @@ class MediaSessionManager(
         if (resolvedLooper != null) {
             MpvPlayerAdapter(
                 engine = engine,
-                playlistManager = playlistManager,
+                playlist = playlist,
                 coroutineScope = coroutineScope,
                 onSkipToNext = { skipToNext() },
                 onSkipToPrevious = { skipToPrevious() },
@@ -197,19 +194,13 @@ class MediaSessionManager(
     }
 
     override fun skipToNext(): Boolean {
-        val handled = onSkipToNext?.invoke()
-        if (handled == true) return true
-        val next = playlistManager.playNext() ?: return false
-        engine.load(uriParser(next.uriString), displayTitle = next.displayName)
-        return true
+        // Single command path: the host decides what "next" means (resume point, progress write,
+        // queue advance). A local fallback here would be a second, weaker implementation.
+        return onSkipToNext?.invoke() ?: false
     }
 
     override fun skipToPrevious(): Boolean {
-        val handled = onSkipToPrevious?.invoke()
-        if (handled == true) return true
-        val prev = playlistManager.playPrevious() ?: return false
-        engine.load(uriParser(prev.uriString), displayTitle = prev.displayName)
-        return true
+        return onSkipToPrevious?.invoke() ?: false
     }
 
     fun handleKeyCode(action: Int, keyCode: Int): Boolean {

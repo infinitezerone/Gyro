@@ -4,7 +4,7 @@ import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.audio.AudioEffectsController
 import dev.gyro.engine.video.VideoEffectsController
 import dev.gyro.engine.model.VideoDimensions
-import dev.gyro.engine.session.PlaybackSessionState
+import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import dev.gyro.engine.tracks.TrackAndChapterManager
 import kotlinx.coroutines.CoroutineScope

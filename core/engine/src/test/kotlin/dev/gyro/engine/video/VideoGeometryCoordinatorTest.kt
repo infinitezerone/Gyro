@@ -2,7 +2,7 @@ package dev.gyro.engine.video
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.model.VideoDimensions
-import dev.gyro.engine.session.PlaybackSessionState
+import dev.gyro.engine.api.session.PlaybackSessionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

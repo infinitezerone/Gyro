@@ -19,7 +19,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -81,7 +80,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
@@ -113,12 +111,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
-import dev.gyro.engine.media.PlaylistManager
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.feature.player.component.PlayerBufferingSpinner
 import dev.gyro.feature.player.component.PlayerControlsOverlay
+import dev.gyro.feature.player.component.PlayerEmptyStateCard
+import dev.gyro.feature.player.component.PlayerPlaybackErrorCard
 import dev.gyro.feature.player.component.PlayerHudOverlay
 import dev.gyro.feature.player.component.StatsDiagnosticOverlay
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
@@ -136,7 +136,6 @@ import dev.gyro.engine.ui.GyroPlayerSurface
 import dev.gyro.engine.ui.GyroSurfaceView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -147,7 +146,6 @@ fun PlayerScreen(
     engine: PlayerEngine = viewModel.engine,
     currentUri: Uri? = null,
     settings: UserSettings = UserSettings(),
-    playlistManager: PlaylistManager? = null,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -160,16 +158,15 @@ fun PlayerScreen(
     val playerState = rememberPlayerState(activity = activity, scope = scope)
 
     // Handle system back gesture / back button to return to Home Screen
-    var backProgress by remember { mutableFloatStateOf(0f) }
     PredictiveBackHandler { progress ->
         try {
             progress.collect { backEvent ->
-                backProgress = backEvent.progress
+                playerState.backProgress = backEvent.progress
             }
             viewModel.onUserExit()
             onBack()
         } catch (_: Throwable) {
-            backProgress = 0f
+            playerState.backProgress = 0f
         }
     }
 
@@ -218,44 +215,15 @@ fun PlayerScreen(
         tracks.firstOrNull { it.type == "sub" && it.isSelected }?.let { lastSubTrackId = it.id }
     }
 
-    // 常驻诊断浮层开关（STATS sheet 中切换；会话级状态，跨播放切换保留由用户重新开关）
-    var statsOverlayEnabled by remember { mutableStateOf(false) }
-
-    // 实时码率波形采样序列（环形缓存，每 500ms 采样一次）
-    // 性能优化：仅当用户开启常驻诊断浮层，或抽屉切至统计/设置中心时才启动采样协程；关闭时自动取消协程，零后台 CPU / 零 UI 重组开销
-    val bitrateHistory = remember { androidx.compose.runtime.mutableStateListOf<Long>() }
-    var liveVideoBitrate by remember { mutableLongStateOf(0L) }
-    var liveAudioBitrate by remember { mutableLongStateOf(0L) }
-    val isStatsActive = statsOverlayEnabled ||
+    // Live bitrate sampling is owned by a state holder: the 500ms loop and its 50-sample cache
+    // are bookkeeping, not screen layout. It only runs while a stats surface is visible.
+    val isStatsActive = playerState.statsOverlayEnabled ||
         playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.STATS ||
         playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.SETTINGS_HUB
-
-    LaunchedEffect(isPlaying, isStatsActive) {
-        if (!isPlaying || !isStatsActive) return@LaunchedEffect
-        while (true) {
-            val (vLive, aLive) = engine.queryLiveBitrate()
-            val currentV: Long = if (vLive > 0L) {
-                vLive
-            } else if (snapshot.videoBitrate > 0L) {
-                snapshot.videoBitrate
-            } else {
-                0L
-            }
-            if (currentV > 0L) {
-                liveVideoBitrate = currentV
-                bitrateHistory.add(currentV)
-                if (bitrateHistory.size > 50) {
-                    bitrateHistory.removeAt(0)
-                }
-            }
-            if (aLive > 0L) {
-                liveAudioBitrate = aLive
-            } else if (snapshot.audioBitrate > 0L) {
-                liveAudioBitrate = snapshot.audioBitrate
-            }
-            kotlinx.coroutines.delay(500L)
-        }
-    }
+    val telemetryState = rememberPlayerTelemetryState(
+        engine = engine,
+        isActive = isPlaying && isStatsActive,
+    )
 
     var surfaceViewRef by remember { mutableStateOf<GyroSurfaceView?>(null) }
 
@@ -348,18 +316,15 @@ fun PlayerScreen(
     val activeUri = vmActiveUri ?: engineCurrentUri ?: currentUri
 
     val hdrFormat = snapshot.hdrFormat
-    var showFormatBadgeToast by remember { mutableStateOf(false) }
     LaunchedEffect(activeUri, hdrFormat) {
         if (hdrFormat.isNotBlank()) {
-            showFormatBadgeToast = true
-            delay(3200L)
-            showFormatBadgeToast = false
+            playerState.revealFormatBadge()
         } else {
-            showFormatBadgeToast = false
+            playerState.hideFormatBadge()
         }
     }
 
-    val playlistMgr = playlistManager ?: engine.playlist
+    val playlistMgr = engine.playlist
     val playlist by playlistMgr.items.collectAsState()
     val currentPlaylistIndex by playlistMgr.currentIndex.collectAsState()
     val hasPrevious = playlistMgr.hasPrevious
@@ -512,7 +477,6 @@ fun PlayerScreen(
 
     // 5. Power & Thermal Monitor
     val powerMonitor = remember { PowerMonitor(context) }
-    val powerMetrics by powerMonitor.powerMetrics.collectAsState()
     LaunchedEffect(Unit) {
         powerMonitor.startMonitoring(this)
     }
@@ -546,11 +510,13 @@ fun PlayerScreen(
         playerState.activeSheetTab,
         playerState.lastInteractionTrigger
     ) {
-        if (playerState.showControls && isPlaying && !scrubState.isActive &&
-            !playerState.isLocked && !isPipLayout && playerState.activeSheetTab == null
+        if (playerState.canAutoHide(
+                isPlaying = isPlaying,
+                isScrubbing = scrubState.isActive,
+                isPipLayout = isPipLayout,
+            )
         ) {
-            delay(3500L)
-            playerState.showControls = false
+            playerState.autoHideAfter()
         }
     }
 
@@ -753,64 +719,39 @@ fun PlayerScreen(
     val firstFrameRendered = snapshot.firstFrameRendered
     val geometryReady = snapshot.geometryReady
     val sessionState = snapshot.sessionState
-    val isSwitching = sessionState is dev.gyro.engine.session.PlaybackSessionState.Switching
-    var isShutterReady by remember(activeUri, sessionState) { mutableStateOf(false) }
-    var shutterTimedOut by remember(activeUri, sessionState) { mutableStateOf(false) }
-    // Size the surface buffer was actually re-locked to. `setFixedSize` is async, so this lags the
-    // requested geometry and is the only honest signal that a frame can be shown un-distorted.
+    val isSwitching = sessionState is dev.gyro.engine.api.session.PlaybackSessionState.Switching
     var appliedBufferSize by remember { mutableStateOf(IntSize.Zero) }
-    LaunchedEffect(activeUri, sessionState, firstFrameRendered, geometryReady, videoContainerSize, videoAspect, appliedBufferSize) {
-        SwitchTrace.log("SHUTTER_EVALUATE", "activeUri=$activeUri, firstFrame=$firstFrameRendered, geometryReady=$geometryReady, containerSize=$videoContainerSize, buffer=$appliedBufferSize, aspect=$videoAspect, isSwitching=$isSwitching")
-        if (isSwitching || !firstFrameRendered) {
-            isShutterReady = false
-            return@LaunchedEffect
-        }
-        val decision = ShutterRevealPolicy.evaluate(
-            firstFrameRendered = firstFrameRendered,
-            geometryReady = geometryReady,
-            videoAspect = videoAspect,
-            videoWidth = videoDimensions.width,
-            videoHeight = videoDimensions.height,
-            resizeMode = resizeMode,
-            containerWidth = videoContainerSize.width,
-            containerHeight = videoContainerSize.height,
-            bufferWidth = appliedBufferSize.width,
-            bufferHeight = appliedBufferSize.height
-        )
-        if (decision == ShutterRevealPolicy.Decision.Reveal) {
-            withFrameNanos { }
-            withFrameNanos { }
-            SwitchTrace.end("SHUTTER_REVEALED", "aspect=$videoAspect, containerSize=$videoContainerSize")
-            isShutterReady = true
-            shutterTimedOut = false
-            return@LaunchedEffect
-        }
-        isShutterReady = false
-        delay(1_500L)
-        // Force reveal after the deadline no matter which gate is stuck - a permanent black
-        // screen is worse than a transiently mis-shaped frame.
-        SwitchTrace.log(
-            "SHUTTER_TIMEOUT_EXPIRED",
-            "firstFrame=${engine.state.value.firstFrameRendered}, geometry=${engine.state.value.geometryReady}"
-        )
-        shutterTimedOut = true
-        isShutterReady = true
-    }
-    val showShutter = !isPipLayout && activeUri != null &&
-        playbackState != PlaybackState.ERROR &&
-        (!firstFrameRendered || !isShutterReady || isSwitching) &&
-        !shutterTimedOut
+    val shutter = rememberPlayerShutterState(
+        activeUri = activeUri,
+        sessionState = sessionState,
+        firstFrameRendered = firstFrameRendered,
+        geometryReady = geometryReady,
+        videoAspect = videoAspect,
+        videoWidth = videoDimensions.width,
+        videoHeight = videoDimensions.height,
+        resizeMode = resizeMode,
+        containerSize = videoContainerSize,
+        bufferSize = appliedBufferSize,
+    )
+    val showShutter = shutter.covers(
+        activeUri = activeUri,
+        playbackState = playbackState,
+        isPipLayout = isPipLayout,
+        firstFrameRendered = firstFrameRendered,
+        isSwitching = isSwitching,
+    )
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
             .graphicsLayer {
-                if (backProgress > 0f) {
-                    val scale = 1f - (backProgress * 0.1f)
+                val progress = playerState.backProgress
+                if (progress > 0f) {
+                    val scale = 1f - (progress * 0.1f)
                     scaleX = scale
                     scaleY = scale
-                    alpha = 1f - (backProgress * 0.2f)
+                    alpha = 1f - (progress * 0.2f)
                 }
             }
             .onPreviewKeyEvent { keyEvent ->
@@ -865,7 +806,7 @@ fun PlayerScreen(
             snapshotFlow { pagerState.settledPage }
                 .collect { settledPage ->
                     if (settledPage in playlist.indices && settledPage != currentPlaylistIndex) {
-                        playlistMgr.playAtIndex(settledPage)?.let { playMediaItem(it) }
+                        viewModel.playAtIndex(settledPage)
                     }
                 }
         }
@@ -1015,103 +956,28 @@ fun PlayerScreen(
         // ERROR (see showShutter).
         val playbackError = if (playbackState == PlaybackState.ERROR) snapshot.error else null
         if (playbackError != null && !isPipLayout) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.82f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color(0xFFE57373).copy(alpha = 0.35f)),
+            PlayerPlaybackErrorCard(
+                error = playbackError,
+                onRetry = { activeUri?.let { viewModel.openUri(it, forceReload = true) } },
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(24.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ErrorOutline,
-                        contentDescription = null,
-                        tint = Color(0xFFE57373),
-                        modifier = Modifier.size(54.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.player_error_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = stringResource(R.string.player_error_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.7f)
-                    )
-                    Button(
-                        onClick = {
-                            activeUri?.let { viewModel.openUri(it, forceReload = true) }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.action_retry))
-                    }
-                }
-            }
+            )
         }
-
 
         // C. Buffering Spinner
         if (playbackState == PlaybackState.BUFFERING && !isPipLayout) {
-            CircularProgressIndicator(
-                color = Color(0xFF64B5F6),
-                modifier = Modifier.align(Alignment.Center)
-            )
+            PlayerBufferingSpinner(modifier = Modifier.align(Alignment.Center))
         }
 
         // D. Empty State / No Media Selected Card
         if (playbackState == PlaybackState.IDLE && durationMs == 0L && !isPipLayout) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.82f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+            PlayerEmptyStateCard(
+                onOpenFile = { videoPicker.launch(arrayOf("video/*", "audio/*", "*/*")) },
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(24.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VideoLibrary,
-                        contentDescription = null,
-                        tint = Color(0xFF64B5F6),
-                        modifier = Modifier.size(54.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.player_empty_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = stringResource(R.string.player_empty_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.7f)
-                    )
-                    Button(
-                        onClick = {
-                            videoPicker.launch(arrayOf("video/*", "audio/*", "*/*"))
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
-                    ) {
-                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.action_open_file))
-                    }
-                }
-            }
+            )
         }
 
         // E. Clean Floating HUD (Scrub Preview / Volume / Brightness / Speed / Double-Tap)
@@ -1127,7 +993,7 @@ fun PlayerScreen(
         // E1. 杜比视界 / HDR 格式入场标识 (进入播放界面弹出，3秒后自动淡出)
         if (!isPipLayout && !hideChrome) {
             androidx.compose.animation.AnimatedVisibility(
-                visible = showFormatBadgeToast,
+                visible = playerState.formatBadgeVisible,
                 enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { -it / 2 }),
                 exit = fadeOut(tween(600)),
                 modifier = Modifier
@@ -1164,14 +1030,12 @@ fun PlayerScreen(
         }
 
         // E2. 常驻诊断浮层（控制层隐藏时显示，替代 mpv stats 页核心读数）
-        if (!isPipLayout && !hideChrome && statsOverlayEnabled && !playerState.showControls) {
-            StatsDiagnosticOverlay(
-                fps = snapshot.fps,
-                droppedFrames = snapshot.droppedFrames,
+        if (!isPipLayout && !hideChrome && playerState.statsOverlayEnabled && !playerState.showControls) {
+            PlayerStatsOverlay(
+                engine = engine,
                 hwdec = snapshot.hwdecCurrent,
-                vsyncRatio = snapshot.vsyncRatio,
                 speed = snapshot.speed,
-                bitrate = liveVideoBitrate,
+                bitrate = telemetryState.liveVideoBitrate,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .displayCutoutPadding()
@@ -1211,7 +1075,7 @@ fun PlayerScreen(
                 },
                 onSelectPlaylistItem = { idx ->
                     playerState.resetControlsTimeout()
-                    playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
+                    viewModel.playAtIndex(idx)
                 },
                 onToggleLock = {
                     playerState.resetControlsTimeout()
@@ -1292,8 +1156,12 @@ fun PlayerScreen(
             playerState.activeSheetTab?.let { tab ->
                 if (!isPipLayout && !hideChrome) {
                 val timePosMs by engine.timePosMs.collectAsState()
-                val fps = snapshot.fps
-                val droppedFrames = snapshot.droppedFrames
+                val telemetry by engine.diagnostics.collectAsState()
+                // Battery/thermal sampling ticks every second; subscribing here keeps it from
+                // invalidating the player layout while the sheet is closed.
+                val powerMetrics by powerMonitor.powerMetrics.collectAsState()
+                val fps = telemetry.fps
+                val droppedFrames = telemetry.droppedFrames
                 val currentMediaInfo = remember(playerState.activeSheetTab, activeUri) {
                     engine.queryMediaInfo(
                         fallbackTitle = mediaTitle,
@@ -1308,7 +1176,7 @@ fun PlayerScreen(
                     currentTimePosMs = timePosMs,
                     tracks = tracks,
                     secondarySubId = snapshot.secondarySubId,
-                    statsOverlayEnabled = statsOverlayEnabled,
+                    statsOverlayEnabled = playerState.statsOverlayEnabled,
                     currentResizeMode = resizeMode,
                     currentSpeed = speed,
                     subDelaySec = subDelaySec,
@@ -1318,9 +1186,9 @@ fun PlayerScreen(
                     hwdec = hwdecCurrent,
                     fps = fps,
                     droppedFrames = droppedFrames,
-                    videoBitrate = liveVideoBitrate,
-                    audioBitrate = liveAudioBitrate,
-                    bitrateHistory = bitrateHistory.toList(),
+                    videoBitrate = telemetryState.liveVideoBitrate,
+                    audioBitrate = telemetryState.liveAudioBitrate,
+                    bitrateHistory = telemetryState.bitrateHistory.toList(),
                     videoWidth = videoDimensions.width,
                     videoHeight = videoDimensions.height,
                     powerMetrics = powerMetrics,
@@ -1345,7 +1213,7 @@ fun PlayerScreen(
 
                 val sheetCallbacks = PlayerSheetCallbacks(
                     onSelectPlaylistItem = { idx ->
-                        playlistMgr.playAtIndex(idx)?.let { playMediaItem(it) }
+                        viewModel.playAtIndex(idx)
                         playerState.activeSheetTab = null
                     },
                     onSelectChapter = { idx ->
@@ -1377,7 +1245,7 @@ fun PlayerScreen(
                     onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
                     onToggleHwdec = { engine.toggleHwdec() },
                     onSetHwdec = { target -> engine.setHwdec(target) },
-                    onToggleStatsOverlay = { statsOverlayEnabled = it },
+                    onToggleStatsOverlay = { playerState.statsOverlayEnabled = it },
                     onAddExternalSubtitle = {
                         subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
                     },
@@ -1509,4 +1377,28 @@ private fun VideoPagePoster(
             }
         }
     }
+}
+
+/**
+ * Diagnostic readout. Subscribes to telemetry here, not in the screen body: these values tick on
+ * mpv's reporting cadence, and a dropped-frame counter must not invalidate the player layout.
+ */
+@Composable
+private fun PlayerStatsOverlay(
+    engine: PlayerEngine,
+    hwdec: String,
+    speed: Float,
+    bitrate: Long,
+    modifier: Modifier = Modifier,
+) {
+    val telemetry by engine.diagnostics.collectAsState()
+    StatsDiagnosticOverlay(
+        fps = telemetry.fps,
+        droppedFrames = telemetry.droppedFrames,
+        hwdec = hwdec,
+        vsyncRatio = telemetry.vsyncRatio,
+        speed = speed,
+        bitrate = bitrate,
+        modifier = modifier,
+    )
 }

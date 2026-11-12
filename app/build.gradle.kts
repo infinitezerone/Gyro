@@ -45,5 +45,6 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:database"))
     implementation(project(":core:datastore"))
+    implementation(project(":core:playback"))
     implementation(libs.androidx.media3.session)
 }
