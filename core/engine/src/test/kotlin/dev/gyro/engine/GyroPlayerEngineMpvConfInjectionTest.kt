@@ -56,7 +56,7 @@ class GyroPlayerEngineMpvConfInjectionTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
 
         val engine = GyroPlayerEngine(
             context = testContext,
@@ -86,7 +86,7 @@ class GyroPlayerEngineMpvConfInjectionTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
         val settings = UserSettings(defaultHwdec = "mediacodec", subAutoLoad = true)
         val settingsRepo = runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -115,7 +115,7 @@ class GyroPlayerEngineMpvConfInjectionTest {
         val confFile = File(filesDir, "mpv.conf").apply {
             writeText("speed=1.5\n")
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
 
         val engine = GyroPlayerEngine(
             context = testContext,

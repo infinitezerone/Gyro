@@ -13,7 +13,6 @@ import dev.gyro.core.datastore.di.CustomFolderUris
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -48,7 +47,7 @@ interface CustomFolderRepository {
 class DefaultCustomFolderRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @CustomFolderUris private val dataStore: DataStore<List<String>>,
-    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : CustomFolderRepository {
 
     override val savedFolderUris: Flow<Set<Uri>> = dataStore.data

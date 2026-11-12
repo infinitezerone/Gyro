@@ -310,7 +310,7 @@ class GyroPlayerEngineM2StressTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
 
         val engine = GyroPlayerEngine(
             context = testContext,
@@ -349,7 +349,7 @@ class GyroPlayerEngineM2StressTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
 
         val engine = GyroPlayerEngine(
             context = testContext,
@@ -375,7 +375,7 @@ class GyroPlayerEngineM2StressTest {
         val confFile = File(filesDir, "mpv.conf").apply {
             writeText("hwdec=no\n")
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
         val settings = UserSettings(defaultHwdec = "mediacodec-copy")
 
         val engine = GyroPlayerEngine(
@@ -394,7 +394,7 @@ class GyroPlayerEngineM2StressTest {
         val confFile = File(filesDir, "mpv.conf").apply {
             writeText("hwdec=no\n")
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
         val settings = UserSettings()
 
         val engine = GyroPlayerEngine(
@@ -416,7 +416,7 @@ class GyroPlayerEngineM2StressTest {
         val dirA = tempFolder.newFolder("dirA")
         File(dirA, "mpv.conf").writeText("sub-auto=all\n")
         val ctxA = object : ContextWrapper(null) { override fun getFilesDir() = dirA }
-        val mpvRepoA = DefaultMpvConfigRepository(context = ctxA)
+        val mpvRepoA = DefaultMpvConfigRepository(context = ctxA, ioDispatcher = Dispatchers.IO)
         val settingsA = UserSettings(subAutoLoad = false)
         val bridgeA = FakeMpvNativeBridge()
 
@@ -434,7 +434,7 @@ class GyroPlayerEngineM2StressTest {
         val dirB = tempFolder.newFolder("dirB")
         File(dirB, "mpv.conf").writeText("sub-auto=no\n")
         val ctxB = object : ContextWrapper(null) { override fun getFilesDir() = dirB }
-        val mpvRepoB = DefaultMpvConfigRepository(context = ctxB)
+        val mpvRepoB = DefaultMpvConfigRepository(context = ctxB, ioDispatcher = Dispatchers.IO)
         val settingsB = UserSettings(subAutoLoad = true)
         val bridgeB = FakeMpvNativeBridge()
 
@@ -459,7 +459,7 @@ class GyroPlayerEngineM2StressTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
 
         val engine = GyroPlayerEngine(
             context = testContext,
@@ -486,7 +486,7 @@ class GyroPlayerEngineM2StressTest {
                 """.trimIndent()
             )
         }
-        val mpvRepo = DefaultMpvConfigRepository(context = testContext)
+        val mpvRepo = DefaultMpvConfigRepository(context = testContext, ioDispatcher = Dispatchers.IO)
 
         val engine = GyroPlayerEngine(
             context = testContext,

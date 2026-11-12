@@ -6,7 +6,6 @@ import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.MpvConfig
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -31,7 +30,7 @@ interface MpvConfigRepository {
  */
 class DefaultMpvConfigRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : MpvConfigRepository {
 
     private val configFile: File get() = context.filesDir.resolve("mpv.conf")

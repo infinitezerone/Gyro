@@ -13,7 +13,6 @@ import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
@@ -35,7 +34,7 @@ interface MediaRepository {
 
 class DefaultMediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
     private val customFolderRepository: CustomFolderRepository,
 ) : MediaRepository {
 

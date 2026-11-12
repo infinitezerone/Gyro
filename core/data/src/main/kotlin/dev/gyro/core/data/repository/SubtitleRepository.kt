@@ -8,7 +8,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -27,7 +26,7 @@ interface SubtitleRepository {
 
 class DefaultSubtitleRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : SubtitleRepository {
 
     override suspend fun findCompanionSubtitles(
