@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import dev.gyro.feature.player.component.sheet.common.formatBitrate
+import dev.gyro.core.model.time.formatDuration
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -636,10 +637,7 @@ internal fun MediaInfoTabContent(
                 MediaInfoRow(label = stringResource(R.string.info_file_size), value = resolvedInfo.formattedFileSize)
             }
             if (resolvedInfo.durationMs > 0) {
-                val sec = resolvedInfo.durationMs / 1000
-                val min = sec / 60
-                val remSec = sec % 60
-                val durStr = String.format(Locale.US, "%02d:%02d", min, remSec)
+                val durStr = formatDuration(resolvedInfo.durationMs)
                 MediaInfoRow(label = stringResource(R.string.info_duration), value = durStr)
             }
         }

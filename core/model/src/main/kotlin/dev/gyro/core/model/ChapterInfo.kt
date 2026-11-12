@@ -1,6 +1,6 @@
 package dev.gyro.core.model
 
-import java.util.Locale
+import dev.gyro.core.model.time.formatDuration
 
 /**
  * Represents a video chapter marker parsed from mpv or media container.
@@ -18,15 +18,5 @@ data class ChapterInfo(
      * Formats the chapter timestamp into standard "MM:SS" or "H:MM:SS" string.
      */
     val formattedTime: String
-        get() {
-            val totalSec = (timeMs / 1000).coerceAtLeast(0)
-            val hours = totalSec / 3600
-            val minutes = (totalSec % 3600) / 60
-            val seconds = totalSec % 60
-            return if (hours > 0) {
-                String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-            } else {
-                String.format(Locale.US, "%02d:%02d", minutes, seconds)
-            }
-        }
+        get() = formatDuration(timeMs)
 }

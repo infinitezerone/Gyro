@@ -51,6 +51,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetGreen
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.formatBitrate
+import dev.gyro.core.model.time.formatDuration
 import java.util.Locale
 
 /**
@@ -282,10 +283,7 @@ internal fun MediaInfoStatsTabContent(
                 MediaInfoRow(label = "文件大小", value = resolvedInfo.formattedFileSize)
             }
             if (resolvedInfo.durationMs > 0) {
-                val sec = resolvedInfo.durationMs / 1000
-                val min = sec / 60
-                val remSec = sec % 60
-                val durStr = String.format(Locale.US, "%02d:%02d", min, remSec)
+                val durStr = formatDuration(resolvedInfo.durationMs)
                 MediaInfoRow(label = "片源总长", value = durStr)
             }
         }

@@ -62,23 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
-import java.util.Locale
-
-/**
- * Format milliseconds into mm:ss or hh:mm:ss.
- */
-fun formatTime(ms: Long): String {
-    if (ms <= 0L) return "00:00"
-    val totalSec = (ms + 500L) / 1000L
-    val s = totalSec % 60
-    val m = (totalSec / 60) % 60
-    val h = totalSec / 3600
-    return if (h > 0) {
-        String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
-    } else {
-        String.format(Locale.US, "%02d:%02d", m, s)
-    }
-}
+import dev.gyro.core.model.time.formatDuration
 
 /**
  * Clean, lightweight HUD overlay:
@@ -318,7 +302,7 @@ private fun ScrubTimePreview(
         horizontalArrangement = Arrangement.Center
     ) {
         Text(
-            text = formatTime(targetMs),
+            text = formatDuration(targetMs, padHours = true),
             style = TextStyle(
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
@@ -331,7 +315,7 @@ private fun ScrubTimePreview(
             )
         )
         Text(
-            text = " / " + formatTime(totalMs),
+            text = " / " + formatDuration(totalMs, padHours = true),
             style = TextStyle(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Medium,

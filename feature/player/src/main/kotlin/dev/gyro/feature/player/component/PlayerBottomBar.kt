@@ -43,6 +43,7 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.ChapterInfo
+import dev.gyro.core.model.time.formatDuration
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 
@@ -134,9 +135,9 @@ fun PlayerBottomBar(
         var showRemainingTime by remember { mutableStateOf(false) }
         val secondaryTimeText = if (showRemainingTime && totalMs > 0L) {
             val remainingMs = (totalMs - displayPos).coerceAtLeast(0L)
-            " / -${formatTime(remainingMs)}"
+            " / -${formatDuration(remainingMs, padHours = true)}"
         } else {
-            " / ${formatTime(totalMs)}"
+            " / ${formatDuration(totalMs, padHours = true)}"
         }
 
         val timeHubContent: @Composable () -> Unit = {
@@ -148,7 +149,7 @@ fun PlayerBottomBar(
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = formatTime(displayPos),
+                    text = formatDuration(displayPos, padHours = true),
                     style = TextStyle(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
