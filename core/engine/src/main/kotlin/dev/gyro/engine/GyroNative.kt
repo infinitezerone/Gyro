@@ -60,9 +60,9 @@ internal object GyroNative {
     private external fun getPropertyBoolean(name: String): Byte
     external fun getPropertyString(name: String): String?
 
-    fun getLong(name: String): Long? = getPropertyLong(name).takeUnless { it == Long.MIN_VALUE }
-    fun getDouble(name: String): Double? = getPropertyDouble(name).takeUnless { it.isNaN() }
-    fun getBoolean(name: String): Boolean? = getPropertyBoolean(name).takeIf { it.toInt() != 2 }?.toInt() != 0
+    fun getLong(name: String): Long? = normalizeLong(getPropertyLong(name))
+    fun getDouble(name: String): Double? = normalizeDouble(getPropertyDouble(name))
+    fun getBoolean(name: String): Boolean? = normalizeBoolean(getPropertyBoolean(name))
 
     external fun setPropertyLong(name: String, value: Long)
     external fun setPropertyDouble(name: String, value: Double)
@@ -119,3 +119,26 @@ internal object GyroNative {
         eventPipeline.publish(MpvEvent.StringProperty(name, value, epoch))
     }
 }
+
+/**
+ * Translates the sentinel values the native bridge returns when a property read fails.
+ *
+ * Rust cannot throw across the JNI boundary, so each getter encodes failure in its own return
+ * value: [Long.MIN_VALUE] for INT64, NaN for DOUBLE, and `2` for FLAG (a `jboolean` is only ever
+ * 0 or 1, so any other value means "unknown"). These three functions are the single translation
+ * point from that convention to Kotlin nullable types, so a new sentinel only has to be taught
+ * once and every call site inherits it.
+ *
+ * The boolean case matches exhaustively instead of testing `!= 2` on purpose: an unexpected value
+ * has to read as "unknown", never as `true`.
+ */
+internal fun normalizeLong(raw: Long): Long? = raw.takeUnless { it == Long.MIN_VALUE }
+
+internal fun normalizeDouble(raw: Double): Double? = raw.takeUnless { it.isNaN() }
+
+internal fun normalizeBoolean(raw: Byte): Boolean? =
+    when (raw.toInt()) {
+        0 -> false
+        1 -> true
+        else -> null
+    }
