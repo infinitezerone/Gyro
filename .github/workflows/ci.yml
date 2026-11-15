@@ -71,5 +71,17 @@ jobs:
 
       # compileSdk 37 may not be in the runner image; licenses are pre-accepted there, so AGP
       # can fetch missing packages on demand.
+      # assembleRelease exercises the release variant too (no signing config -> unsigned APK;
+      # R8 is not configured, so no minify coverage).
       - name: Build and run all unit tests
-        run: ./gradlew assembleDebug testDebugUnitTest
+        run: ./gradlew assembleDebug assembleRelease testDebugUnitTest
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: apks-run-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          retention-days: 14
+          if-no-files-found: error
