@@ -481,16 +481,18 @@ fun rememberPlayerPipState(
                         autoEnter = true
                     )
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        // Route manual entry through the last-applied-params path: on ColorOS the
-                        // explicit-params overload runs the legacy window-shrink animation (the
-                        // fullscreen letterbox bars ride along in landscape), while the no-arg
-                        // entry right after setPictureInPictureParams rides the same seamless
-                        // animation as the system-initiated auto-enter (swipe home), which honors
-                        // the source rect hint. pipRequested is reset by the enter-timeout effect
-                        // if the system rejects the entry.
+                        // setPictureInPictureParams keeps the just-built params as the ones the
+                        // system resolves for this entry; the explicit overload is used so the
+                        // boolean result can reset pipRequested on rejection. The enter animation
+                        // itself is the ROM's programmatic-entry path and does not crop to the
+                        // source rect hint (verified 2026-11-15: params verified correct and
+                        // freshly applied, landscape bars still ride along - see
+                        // docs/player_state_ownership.md section 4).
                         activity.setPictureInPictureParams(params)
-                        @Suppress("DEPRECATION")
-                        activity.enterPictureInPictureMode()
+                        val entered = activity.enterPictureInPictureMode(params)
+                        if (!entered) {
+                            pipRequested = false
+                        }
                     }
                 }
             }
