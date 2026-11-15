@@ -35,6 +35,22 @@ class PlayerViewportStateTest {
     }
 
     @Test
+    fun onVideoContainerPlacedUpdatesBoundsInWindow() {
+        val state = PlayerViewportState()
+        val rect = android.graphics.Rect().apply {
+            left = 10
+            top = 20
+            right = 110
+            bottom = 120
+        }
+        state.onVideoContainerPlaced(Offset(10f, 20f), IntSize(100, 100), rect)
+        assertEquals(10, state.videoBoundsInWindow?.left)
+        assertEquals(20, state.videoBoundsInWindow?.top)
+        assertEquals(110, state.videoBoundsInWindow?.right)
+        assertEquals(120, state.videoBoundsInWindow?.bottom)
+    }
+
+    @Test
     fun appliedBufferSizeIsIndependentOfContainerSize() {
         val state = PlayerViewportState()
         state.onVideoContainerPlaced(Offset.Zero, IntSize(100, 100))

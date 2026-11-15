@@ -415,6 +415,10 @@ fun rememberPlayerPipState(
     val context = LocalContext.current
     LaunchedEffect(activity, isPlaying, autoPipEnabled, targetAspectRatio, videoSourceRect) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity != null) {
+            dev.gyro.engine.trace.SwitchTrace.log(
+                "PIP_PARAMS_APPLY",
+                "aspect=$targetAspectRatio, sourceRect=$videoSourceRect, autoEnter=${isPlaying && autoPipEnabled}"
+            )
             val params = buildPipParams(
                 context = context,
                 isPlaying = isPlaying,
@@ -454,7 +458,7 @@ fun rememberPlayerPipState(
 
     val coroutineScope = rememberCoroutineScope()
     val latestOnControlsVisibilityChange by rememberUpdatedState(onControlsVisibilityChange)
-    val enterPipAction = remember(activity, context, isPlaying, targetAspectRatio, videoSourceRect) {
+    val enterPipAction = remember(activity, context) {
         {
             if (!pipRequested && activity != null) {
                 pipRequested = true
@@ -462,16 +466,31 @@ fun rememberPlayerPipState(
                 coroutineScope.launch {
                     withFrameNanos {}
                     withFrameNanos {}
+                    val sourceRect = latestSourceRect
+                    val aspect = latestAspectRatio
+                    val playing = latestIsPlaying
+                    dev.gyro.engine.trace.SwitchTrace.log(
+                        "PIP_ENTER_REQUEST",
+                        "aspect=$aspect, sourceRect=$sourceRect, windowFocused=$windowFocused"
+                    )
                     val params = buildPipParams(
                         context = context,
-                        isPlaying = isPlaying,
-                        aspectRatio = targetAspectRatio,
-                        sourceRect = videoSourceRect,
+                        isPlaying = playing,
+                        aspectRatio = aspect,
+                        sourceRect = sourceRect,
                         autoEnter = true
                     )
-                    val entered = activity.enterPictureInPictureMode(params)
-                    if (!entered) {
-                        pipRequested = false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        // Route manual entry through the last-applied-params path: on ColorOS the
+                        // explicit-params overload runs the legacy window-shrink animation (the
+                        // fullscreen letterbox bars ride along in landscape), while the no-arg
+                        // entry right after setPictureInPictureParams rides the same seamless
+                        // animation as the system-initiated auto-enter (swipe home), which honors
+                        // the source rect hint. pipRequested is reset by the enter-timeout effect
+                        // if the system rejects the entry.
+                        activity.setPictureInPictureParams(params)
+                        @Suppress("DEPRECATION")
+                        activity.enterPictureInPictureMode()
                     }
                 }
             }

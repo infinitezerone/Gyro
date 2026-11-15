@@ -43,6 +43,10 @@ internal class PlayerViewportState {
     var videoContainerSize by mutableStateOf(IntSize.Zero)
         private set
 
+    /** Exact bounds of the video surface in window coordinates for seamless PiP sourceRectHint. */
+    var videoBoundsInWindow by mutableStateOf<android.graphics.Rect?>(null)
+        private set
+
     /**
      * Buffer dims actually applied by the platform, forwarded from GyroPlayerSurface's
      * `onAppliedBufferSizeChanged`. Unlike the requested lock these reflect the live BufferQueue.
@@ -56,10 +60,17 @@ internal class PlayerViewportState {
     }
 
     /** @return true when the container's layout size changed (drives the CONTAINER_LAYOUT trace). */
-    fun onVideoContainerPlaced(origin: Offset, size: IntSize): Boolean {
+    fun onVideoContainerPlaced(
+        origin: Offset,
+        size: IntSize,
+        boundsInWindow: android.graphics.Rect? = null
+    ): Boolean {
         val sizeChanged = videoContainerSize != size
         videoContainerOrigin = origin
         videoContainerSize = size
+        if (boundsInWindow != null) {
+            videoBoundsInWindow = boundsInWindow
+        }
         return sizeChanged
     }
 

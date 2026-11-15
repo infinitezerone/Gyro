@@ -104,7 +104,6 @@ fun createPlayerOverlayActions(
             engine.seekTo(target)
         },
         onEnterPiP = {
-            onResetControlsTimeout()
             onEnterPiP()
         },
         onOpenSheetTab = { tab: PlayerSheetTab ->

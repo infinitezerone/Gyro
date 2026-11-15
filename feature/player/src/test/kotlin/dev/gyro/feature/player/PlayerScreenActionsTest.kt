@@ -157,46 +157,47 @@ class PlayerScreenActionsTest {
         assertEquals(3, timeoutResetCount)
 
         actions.onEnterPiP()
-        assertEquals(4, timeoutResetCount)
+        // onEnterPiP hides controls and begins transition, so it does not reset controls timeout
+        assertEquals(3, timeoutResetCount)
 
         actions.onOpenSheetTab(PlayerSheetTab.AUDIO)
-        assertEquals(5, timeoutResetCount)
+        assertEquals(4, timeoutResetCount)
 
         actions.onToggleOrientation()
-        assertEquals(6, timeoutResetCount)
+        assertEquals(5, timeoutResetCount)
 
         actions.onBack()
-        assertEquals(7, timeoutResetCount)
+        assertEquals(6, timeoutResetCount)
 
         actions.onPlayPrevious()
-        assertEquals(8, timeoutResetCount)
+        assertEquals(7, timeoutResetCount)
 
         actions.onPlayNext()
-        assertEquals(9, timeoutResetCount)
+        assertEquals(8, timeoutResetCount)
 
         actions.onSelectPlaylistItem(0)
-        assertEquals(10, timeoutResetCount)
+        assertEquals(9, timeoutResetCount)
 
         actions.onRewind10()
-        assertEquals(11, timeoutResetCount)
+        assertEquals(10, timeoutResetCount)
 
         actions.onForward10()
-        assertEquals(12, timeoutResetCount)
+        assertEquals(11, timeoutResetCount)
 
         actions.onToggleSubtitle()
-        assertEquals(13, timeoutResetCount)
+        assertEquals(12, timeoutResetCount)
 
         actions.onCycleAbLoop()
-        assertEquals(14, timeoutResetCount)
+        assertEquals(13, timeoutResetCount)
 
         actions.onClearAbLoop()
-        assertEquals(15, timeoutResetCount)
+        assertEquals(14, timeoutResetCount)
 
         actions.onScreenshot()
-        assertEquals(16, timeoutResetCount)
+        assertEquals(15, timeoutResetCount)
 
         actions.onCycleHwdec()
-        assertEquals(17, timeoutResetCount)
+        assertEquals(16, timeoutResetCount)
     }
 
     @Test

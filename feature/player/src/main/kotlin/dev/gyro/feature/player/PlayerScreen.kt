@@ -95,8 +95,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import kotlin.math.roundToInt
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
@@ -304,8 +306,8 @@ fun PlayerScreen(
 
     val viewport = rememberPlayerViewportState()
 
-    val videoSourceRect = remember(viewport.fullscreenContainerSize, targetAspectRatio, resizeMode) {
-        if (viewport.fullscreenContainerSize.width > 0 && viewport.fullscreenContainerSize.height > 0) {
+    val videoSourceRect = remember(viewport.videoBoundsInWindow, viewport.fullscreenContainerSize, targetAspectRatio, resizeMode) {
+        viewport.videoBoundsInWindow ?: if (viewport.fullscreenContainerSize.width > 0 && viewport.fullscreenContainerSize.height > 0) {
             calculateVideoSourceRect(
                 Rect(
                     0,
@@ -700,7 +702,20 @@ fun PlayerScreen(
             modifier = videoContainerModifier
                 .align(Alignment.Center)
                 .onGloballyPositioned { coords ->
-                    val sizeChanged = viewport.onVideoContainerPlaced(coords.positionInParent(), coords.size)
+                    val windowBounds = coords.boundsInWindow()
+                    val windowRect = if (windowBounds.width > 0f && windowBounds.height > 0f) {
+                        android.graphics.Rect(
+                            windowBounds.left.roundToInt(),
+                            windowBounds.top.roundToInt(),
+                            windowBounds.right.roundToInt(),
+                            windowBounds.bottom.roundToInt()
+                        )
+                    } else null
+                    val sizeChanged = viewport.onVideoContainerPlaced(
+                        coords.positionInParent(),
+                        coords.size,
+                        windowRect
+                    )
                     if (sizeChanged) {
                         SwitchTrace.log(
                             "CONTAINER_LAYOUT_CHANGED",
