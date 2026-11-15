@@ -335,6 +335,13 @@ fun PlayerScreen(
     )
     val isPipLayout = pipState.isPipLayout
     val hideChrome = pipState.shouldHideChrome
+    // Frozen across the whole PiP in-flight window: hideChrome turns true the instant the PiP
+    // button is clicked (pipRequested) and stays true through the exit settle. The system's PiP
+    // mode callback lags the physical window resize by frames, so gating on isPipLayout alone
+    // lets the PiP window rect poison the source-rect hint and PIP params re-fire mid-animation
+    // (mask / black-edge artifacts on programmatic entry - the swipe-home path is unaffected
+    // because the system ignores param updates during the gesture-driven animation).
+    val freezeViewportFullscreen = hideChrome
 
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val overlayActions = rememberPlayerScreenActions(
@@ -604,12 +611,7 @@ fun PlayerScreen(
                 } else false
             }
             .clipToBounds()
-            .onSizeChanged {
-                // shouldHideChrome turns true the instant the PiP button is clicked (pipRequested)
-                // and stays true through the exit settle, so the fullscreen rect is frozen across
-                // the whole in-flight window where the system mode callback still lags.
-                viewport.onContainerSized(it, isPipLayout || pipState.shouldHideChrome)
-            }
+            .onSizeChanged { viewport.onContainerSized(it, freezeViewportFullscreen) }
     ) {
         val videoCoverSize = remember(viewport.containerSize, videoAspect) {
             if (viewport.containerSize == IntSize.Zero || videoAspect <= 0f) null
@@ -708,7 +710,9 @@ fun PlayerScreen(
                 .align(Alignment.Center)
                 .onGloballyPositioned { coords ->
                     val windowBounds = coords.boundsInWindow()
-                    val windowRect = if (windowBounds.width > 0f && windowBounds.height > 0f) {
+                    // While the PiP in-flight freeze holds, keep the last fullscreen bounds:
+                    // onVideoContainerPlaced only overwrites the rect when passed a non-null one.
+                    val windowRect = if (!freezeViewportFullscreen && windowBounds.width > 0f && windowBounds.height > 0f) {
                         android.graphics.Rect(
                             windowBounds.left.roundToInt(),
                             windowBounds.top.roundToInt(),

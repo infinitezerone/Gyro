@@ -76,6 +76,28 @@ class PlayerViewportStateTest {
     }
 
     @Test
+    fun nullBoundsKeepsTheLastFullscreenRect() {
+        // During the PiP in-flight freeze the placement callback passes null bounds: the holder
+        // must keep the last fullscreen rect, otherwise the PiP window rect becomes the
+        // source-rect hint and PIP params re-fire mid-animation.
+        // android.graphics.Rect is a stubbed jar in JVM tests - assert field-wise, never equals.
+        val state = PlayerViewportState()
+        val fullscreen = android.graphics.Rect().apply {
+            left = 256
+            top = 0
+            right = 2517
+            bottom = 1272
+        }
+        state.onVideoContainerPlaced(Offset(256f, 0f), IntSize(2261, 1272), fullscreen)
+
+        state.onVideoContainerPlaced(Offset.Zero, IntSize(696, 392), null)
+        assertEquals(256, state.videoBoundsInWindow?.left)
+        assertEquals(0, state.videoBoundsInWindow?.top)
+        assertEquals(2517, state.videoBoundsInWindow?.right)
+        assertEquals(1272, state.videoBoundsInWindow?.bottom)
+    }
+
+    @Test
     fun appliedBufferSizeIsIndependentOfContainerSize() {
         val state = PlayerViewportState()
         state.onVideoContainerPlaced(Offset.Zero, IntSize(100, 100))

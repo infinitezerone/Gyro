@@ -34,8 +34,29 @@
 - [ ] 换片窗口内 `updateHdrState` 不读旧文件属性（已有测试 ✓，VideoGeometryCoordinatorTest）
 - [ ] `rememberPlayerGestureModifier` 的 zoom 重置在 PiP 中仍然运行
 - UI 层无法 JVM 测，需 FakeNative + Robolectric 或下推到纯函数层后测
-- [ ] `PlayerViewportState.onContainerSized` 在 PiP 中不得更新 fullscreenContainerSize
-- 可测：纯类，直接 JVM 单测
+- [x] `PlayerViewportState` PiP 冻结不变量（已有测试 ✓，PlayerViewportStateTest）
 - [ ] START_FILE 清零几何缓存 → 首帧信号前几何必须已知（native 侧，FakeNative 状态机）
 - [ ] `PlayerSheetsHost` 的订阅只活在 sheet 可见期（语义由组合位置保证，文档化即可）
 - [ ] `normalizeContentFps` 匹配顺序敏感（已有测试 ✓，DisplayFitTest）
+
+## 四、PiP 进入动画的两个症状（2026-11-15 诊断归档）
+
+**证据链**（SwitchTrace 的 `PIP_PARAMS_APPLY` / `PIP_ENTER_REQUEST` 钉子）：
+
+- 应用侧参数全程正确且新鲜：横屏 sourceRect = `Rect(256, 0 - 2517, 1272)`（剥黑边后的精确视频矩形），enter 请求与最近一次 apply 完全一致。
+- 修复前：进入动画进行到一半（enter 后约 550ms），PiP 窗口尺寸（1019×573 → 1160×653）会污染
+  `fullscreenContainerSize` 与 `videoBoundsInWindow` → `setPictureInPictureParams` 带着
+  错误 hint **在动画中途重放两次**。根因：系统的 PiP mode 回调滞后物理窗口收缩若干帧，
+  `isPipLayout` 门控存在空窗。修复：`freezeViewportFullscreen = hideChrome`（含
+  `pipRequested`，点击瞬间即冻结），覆盖 `onSizeChanged` 与 `onGloballyPositioned` 两条路径。
+- 修复后：进入期间参数重放归零（日志验证）。
+
+**症状裁决**：
+
+1. **偶发遮罩过渡** —— 参数中途重放是高置信根因，修复已消除重放；偶发概率低，未能二次
+   复现确认，但机制上已闭环。
+2. **横屏黑边延迟消失（必现）** —— 参数正确仍存在 → 坐实是 **ColorOS 对程序化
+   `enterPictureInPictureMode` 的动画实现**（整窗快照收缩，不做 sourceRectHint 即时裁剪）；
+   上滑自动进入（系统驱动）不受影响。应用层无解。用户侧缓解：横屏用"填充"模式时全屏无黑边，
+   动画自然无此痕迹。屏幕刚进入时另有 9 次/100ms 的 params 重放（入场动画 bounds 连续变化），
+   与本症状无关，值得日后防抖。
