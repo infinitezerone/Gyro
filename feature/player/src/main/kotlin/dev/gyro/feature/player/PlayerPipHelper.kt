@@ -55,6 +55,9 @@ const val PIP_EXIT_SETTLE_MS = 300L
 
 /**
  * Builds the interactive Play/Pause action for the system PiP window.
+ *
+ * The label surfaces in the system window and TalkBack, so it must follow app locale, not a
+ * hardcoded string.
  */
 fun buildPipToggleAction(context: Context, isPlaying: Boolean): RemoteAction {
     val iconRes = if (isPlaying) {
@@ -62,7 +65,13 @@ fun buildPipToggleAction(context: Context, isPlaying: Boolean): RemoteAction {
     } else {
         android.R.drawable.ic_media_play
     }
-    val label = if (isPlaying) "Pause" else "Play"
+    val label = context.getString(
+        if (isPlaying) {
+            dev.gyro.core.designsystem.R.string.cd_pause
+        } else {
+            dev.gyro.core.designsystem.R.string.cd_play
+        }
+    )
     val intent = Intent(PIP_ACTION_TOGGLE)
         .setPackage(context.packageName)
         .setAction(PIP_ACTION_TOGGLE)
@@ -96,9 +105,37 @@ fun calculateVideoSourceRect(
         ResizeMode.ASPECT_21_9 -> 21f / 9f
         ResizeMode.CROP, ResizeMode.STRETCH -> return containerBounds
     }
-    val containerWidth = containerBounds.width().toFloat()
-    val containerHeight = containerBounds.height().toFloat()
-    if (containerWidth <= 0f || containerHeight <= 0f || videoRatio <= 0f) return containerBounds
+    return calculateVideoSourceRect(
+        left = containerBounds.left,
+        top = containerBounds.top,
+        right = containerBounds.right,
+        bottom = containerBounds.bottom,
+        videoRatio = videoRatio
+    )
+}
+
+/**
+ * Pure strip math over primitives so it stays JVM-testable: android.graphics.Rect methods are
+ * stubbed no-ops in unit tests, so the real geometry must never be read from a Rect instance.
+ * The returned rect is built via field assignment for the same reason.
+ */
+internal fun calculateVideoSourceRect(
+    left: Int,
+    top: Int,
+    right: Int,
+    bottom: Int,
+    videoRatio: Float
+): Rect {
+    val containerWidth = (right - left).toFloat()
+    val containerHeight = (bottom - top).toFloat()
+    if (containerWidth <= 0f || containerHeight <= 0f || videoRatio <= 0f) {
+        return Rect().apply {
+            this.left = left
+            this.top = top
+            this.right = right
+            this.bottom = bottom
+        }
+    }
 
     val containerRatio = containerWidth / containerHeight
 
@@ -106,22 +143,22 @@ fun calculateVideoSourceRect(
         // Container wider than video (pillarbox): strip left and right black bars
         val actualWidth = containerHeight * videoRatio
         val horizontalPadding = (containerWidth - actualWidth) / 2f
-        Rect(
-            (containerBounds.left + horizontalPadding).toInt(),
-            containerBounds.top,
-            (containerBounds.right - horizontalPadding).toInt(),
-            containerBounds.bottom
-        )
+        Rect().apply {
+            this.left = (left + horizontalPadding).toInt()
+            this.top = top
+            this.right = (right - horizontalPadding).toInt()
+            this.bottom = bottom
+        }
     } else {
         // Container taller than video (letterbox): strip top and bottom black bars
         val actualHeight = containerWidth / videoRatio
         val verticalPadding = (containerHeight - actualHeight) / 2f
-        Rect(
-            containerBounds.left,
-            (containerBounds.top + verticalPadding).toInt(),
-            containerBounds.right,
-            (containerBounds.bottom - verticalPadding).toInt()
-        )
+        Rect().apply {
+            this.left = left
+            this.top = (top + verticalPadding).toInt()
+            this.right = right
+            this.bottom = (bottom - verticalPadding).toInt()
+        }
     }
 }
 
@@ -140,6 +177,11 @@ fun buildPipParams(
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         builder.setAutoEnterEnabled(autoEnter)
+        // Seamless resize stretches the last frame during window resizes instead of waiting for
+        // a redraw. This is the documented recommendation for video content - and on ColorOS,
+        // where the PiP window is freely resizable by dragging its edges, every drag hits this
+        // path. Distortion of one frame beats a redraw gap; never "tune" this to false for a
+        // player without a device-verified reason.
         builder.setSeamlessResizeEnabled(true)
     }
 
@@ -381,6 +423,10 @@ fun rememberPlayerPipState(
     // 用它抢在转场前收起控制层；isTransitioningToPip 作为兜底。
     // 焦点丢失期间 chrome 硬隐藏；焦点回来后若没进小窗（手势取消、下拉通知栏等），恢复正常显隐。
     val windowFocused = LocalWindowInfo.current.isWindowFocused
+    // enterPipAction's lambda outlives this recomposition (remember keys are only activity and
+    // context), so the log line inside must read the latest focus through a state holder instead
+    // of a value captured when the lambda was built.
+    val latestWindowFocused by rememberUpdatedState(windowFocused)
     var pipEntering by remember { mutableStateOf(false) }
 
     var pipRequested by remember { mutableStateOf(false) }
@@ -471,7 +517,7 @@ fun rememberPlayerPipState(
                     val playing = latestIsPlaying
                     dev.gyro.engine.trace.SwitchTrace.log(
                         "PIP_ENTER_REQUEST",
-                        "aspect=$aspect, sourceRect=$sourceRect, windowFocused=$windowFocused"
+                        "aspect=$aspect, sourceRect=$sourceRect, windowFocused=$latestWindowFocused"
                     )
                     val params = buildPipParams(
                         context = context,
