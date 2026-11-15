@@ -168,13 +168,9 @@ class GyroPlayerEngineTest {
     fun testResizeMode() {
         engine.geometry.setResizeMode(ResizeMode.CROP)
         assertEquals(ResizeMode.CROP, engine.geometry.resizeMode.value)
-        assertEquals(1.0, fakeBridge.properties["panscan"] as Double, 0.001)
-        assertEquals("-1", fakeBridge.properties["video-aspect-override"])
 
         engine.geometry.setResizeMode(ResizeMode.ASPECT_16_9)
         assertEquals(ResizeMode.ASPECT_16_9, engine.geometry.resizeMode.value)
-        assertEquals(0.0, fakeBridge.properties["panscan"] as Double, 0.001)
-        assertEquals("16:9", fakeBridge.properties["video-aspect-override"])
     }
 
     @Test

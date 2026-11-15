@@ -143,6 +143,9 @@ class VideoGeometryCoordinator(
         _videoFrameRate.value = 0f
         _isHdr.value = false
         _hdrFormat.value = ""
+        bridge.setPropertyString("hdr-output", "no")
+        bridge.setPropertyString("target-trc", "auto")
+        bridge.setPropertyString("target-prim", "auto")
         if (initialWidth > 0 && initialHeight > 0) {
             val aspect = initialWidth.toFloat() / initialHeight
             val dims = VideoDimensions(initialWidth, initialHeight)
@@ -167,8 +170,6 @@ class VideoGeometryCoordinator(
             return
         }
 
-        updateHdrState()
-
         // Prioritize demux dimensions from container track header (accurate and available immediately)
         val targetDims = getDemuxDimensions() ?: getVoDimensions()
         val (w, h) = targetDims ?: Pair(0, 0)
@@ -181,6 +182,8 @@ class VideoGeometryCoordinator(
             _geometryReady.value = true
             SwitchTrace.log("DIMS_PUBLISHED", "${w}x${h}, aspect=$aspect, source=demux")
         }
+
+        updateHdrState()
 
         bridge.getDouble("container-fps")?.let { fps ->
             if (fps > 1.0 && fps < 1000.0) {
@@ -226,6 +229,7 @@ class VideoGeometryCoordinator(
             is PlaybackSessionState.Switching -> {
                 // VO still reports previous video's parameters during switch; suppress completely
                 SwitchTrace.log("DIMS_IGNORED_SWITCH_PENDING", "")
+                return
             }
             is PlaybackSessionState.Demuxed -> {
                 // If demux dims were not found (0x0), fallback to VO when it becomes available
@@ -249,6 +253,7 @@ class VideoGeometryCoordinator(
                 val (w, h) = voDims
                 if (w <= 0 || h <= 0) return
                 val current = _videoDimensions.value
+
                 if (current.width != w || current.height != h) {
                     val aspect = w.toFloat() / h
                     val dims = VideoDimensions(w, h)
@@ -292,6 +297,9 @@ class VideoGeometryCoordinator(
     }
 
     private fun updateHdrState() {
+        if (_sessionState.value is PlaybackSessionState.Switching) {
+            return
+        }
         val gamma = bridge.getPropertyString("video-params/gamma")?.lowercase()?.trim() ?: ""
         val colormatrix = bridge.getPropertyString("video-params/colormatrix")?.lowercase()?.trim() ?: ""
 
@@ -394,28 +402,6 @@ class VideoGeometryCoordinator(
 
     override fun setResizeMode(mode: ResizeMode) {
         _resizeMode.value = mode
-        when (mode) {
-            ResizeMode.FIT -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "-1")
-            }
-            ResizeMode.CROP -> {
-                bridge.setPropertyDouble("panscan", 1.0)
-                bridge.setPropertyString("video-aspect-override", "-1")
-            }
-            ResizeMode.STRETCH -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "no")
-            }
-            ResizeMode.ASPECT_16_9 -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "16:9")
-            }
-            ResizeMode.ASPECT_21_9 -> {
-                bridge.setPropertyDouble("panscan", 0.0)
-                bridge.setPropertyString("video-aspect-override", "21:9")
-            }
-        }
     }
     override fun resetZoomAndPan() {
         bridge.setPropertyDouble("video-zoom", 0.0)

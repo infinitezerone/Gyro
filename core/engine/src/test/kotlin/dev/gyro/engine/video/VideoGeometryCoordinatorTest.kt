@@ -176,4 +176,121 @@ class VideoGeometryCoordinatorTest {
         assertFalse(coordinator.firstFrameRendered.value)
         assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
     }
+
+    @Test
+    fun testStartFileToGeometryToFirstFrameSequenceWithOutOfOrderArrival() {
+        // 1. 模拟旧视频 (1920x1080) 处于 Presenting 稳定播放态
+        coordinator.onSwitchStarted("test://video1.mp4", 0L)
+        bridge.properties["track-list/count"] = 1L
+        bridge.properties["track-list/0/type"] = "video"
+        bridge.properties["track-list/0/demux-w"] = 1920L
+        bridge.properties["track-list/0/demux-h"] = 1080L
+        coordinator.onFileLoaded("test://video1.mp4", hasVideo = true)
+        coordinator.onFirstFramePresented()
+
+        assertEquals(VideoDimensions(1920, 1080), coordinator.videoDimensions.value)
+        assertTrue(coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+
+        // 2. 切换到新视频（竖屏 720x1280），触发 START_FILE / onSwitchStarted
+        bridge.nextEpoch()
+        val newEpoch = bridge.currentEpoch()
+        coordinator.onSwitchStarted("test://vertical_reel.mp4", 0L)
+
+        // 时序不变量 1：首帧标记与尺寸就绪状态必须立即拉低，严防旧视频首帧残影泄露
+        assertFalse("换片开始必须立即拉低首帧状态", coordinator.firstFrameRendered.value)
+        assertFalse("换片开始必须重置几何就绪状态", coordinator.geometryReady.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+
+        // 3. 乱序到达场景：上一部残留的 VO 属性在 T+5ms 到达
+        bridge.properties["video-out-params/dw"] = 1920L
+        bridge.properties["video-out-params/dh"] = 1080L
+        coordinator.onVoParamsChanged()
+
+        // 时序不变量 2：Switching 状态下必须彻底压制旧 VO 属性，尺寸不得发布
+        assertEquals(VideoDimensions(0, 0), coordinator.videoDimensions.value)
+        assertFalse(coordinator.geometryReady.value)
+        assertFalse(coordinator.firstFrameRendered.value)
+
+        // 4. 新视频 Demuxer 尺寸就绪并触发 FILE_LOADED
+        bridge.properties["track-list/count"] = 1L
+        bridge.properties["track-list/0/type"] = "video"
+        bridge.properties["track-list/0/demux-w"] = 720L
+        bridge.properties["track-list/0/demux-h"] = 1280L
+        coordinator.onFileLoaded("test://vertical_reel.mp4", hasVideo = true)
+
+        // 时序不变量 3：Demux 尺寸确立，状态机进入 Demuxed，但首帧必须仍在等待解码
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Demuxed)
+        assertEquals(VideoDimensions(720, 1280), coordinator.videoDimensions.value)
+        assertTrue(coordinator.geometryReady.value)
+        assertFalse("首帧仍未绘制，不得提前置 true", coordinator.firstFrameRendered.value)
+
+        // 5. 跨纪元旧首帧事件到达（上一部视频在旧 epoch 延迟发出的 FIRST_FRAME）
+        coordinator.onEvent(dev.gyro.engine.MpvEvent.Lifecycle(
+            dev.gyro.engine.MpvNativeBridge.Event.FIRST_FRAME,
+            epoch = newEpoch - 1
+        ))
+        // 时序不变量 4：过期纪元事件必须被丢弃
+        assertFalse("过期纪元事件不得放行首帧", coordinator.firstFrameRendered.value)
+        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Demuxed)
+
+        // 6. 真实首帧在新 epoch 完成绘制并上屏
+        coordinator.onEvent(dev.gyro.engine.MpvEvent.Lifecycle(
+            dev.gyro.engine.MpvNativeBridge.Event.FIRST_FRAME,
+            epoch = newEpoch
+        ))
+
+        // 时序不变量 5：状态机进入 Presenting，首帧已呈现，几何完备且为新尺寸
+        assertTrue("新纪元首帧成功放行", coordinator.firstFrameRendered.value)
+        val presentingState = coordinator.sessionState.value as PlaybackSessionState.Presenting
+        assertEquals(VideoDimensions(720, 1280), presentingState.dimensions)
+    }
+
+    @Test
+    fun testHdrStateSuppressedDuringSwitchAndResetToSdr() {
+        // 1. 模拟上一部视频为 HLG HDR，处于正常 Presenting 状态
+        coordinator.onSwitchStarted("test://hdr_video.mp4", 0L)
+        bridge.properties["video-params/gamma"] = "hlg"
+        bridge.properties["video-params/colormatrix"] = "bt.2020-ncl"
+        bridge.properties["track-list/count"] = 1L
+        bridge.properties["track-list/0/type"] = "video"
+        bridge.properties["track-list/0/demux-w"] = 1920L
+        bridge.properties["track-list/0/demux-h"] = 1080L
+        coordinator.onFileLoaded("test://hdr_video.mp4", hasVideo = true)
+        coordinator.onFirstFramePresented()
+
+        // 验证 HDR 已被点亮
+        assertTrue(coordinator.isHdr.value)
+        assertEquals("HLG", coordinator.hdrFormat.value)
+        assertEquals("yes", bridge.properties["hdr-output"])
+
+        // 2. 切换到 SDR 视频（onSwitchStarted 换片起点）
+        coordinator.onSwitchStarted("test://sdr_video.mp4", 0L)
+
+        // 时序不变量 1：换片开始必须立即复位 HDR UI 状态，并主动将底层 hdr-output 置回 "no"
+        assertFalse("换片开始必须立即拉低 isHdr", coordinator.isHdr.value)
+        assertEquals("", coordinator.hdrFormat.value)
+        assertEquals("no", bridge.properties["hdr-output"])
+        assertEquals("auto", bridge.properties["target-trc"])
+        assertEquals("auto", bridge.properties["target-prim"])
+
+        // 3. 模拟换片真空期内，底层残留的旧 HLG VO 属性在 T+5ms 再次发来
+        bridge.properties["video-params/gamma"] = "hlg"
+        coordinator.onVoParamsChanged()
+
+        // 时序不变量 2：在 Switching 期间，即使收到残留的 hlg 属性，也必须被严格抑制！
+        assertFalse("换片真空期内旧 HDR 属性不得翻转状态", coordinator.isHdr.value)
+        assertEquals("", coordinator.hdrFormat.value)
+        assertEquals("no", bridge.properties["hdr-output"])
+
+        // 4. 新 SDR 视频加载完成 (onFileLoaded)，此时新视频 gamma 为标准 sdr
+        bridge.properties["video-params/gamma"] = "bt.709"
+        bridge.properties["video-params/colormatrix"] = "bt.709"
+        coordinator.onFileLoaded("test://sdr_video.mp4", hasVideo = true)
+
+        // 时序不变量 3：新视频加载完成后，真实裁决为 SDR，绝不发生误判为 HDR
+        assertFalse("新视频装载后稳定为 SDR", coordinator.isHdr.value)
+        assertEquals("", coordinator.hdrFormat.value)
+        assertEquals("no", bridge.properties["hdr-output"])
+    }
 }
