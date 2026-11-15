@@ -12,9 +12,14 @@ import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.playback.PlaybackSessionController
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.media.Playlist
+import dev.gyro.feature.player.domain.PlaybackTriggerSource
+import dev.gyro.feature.player.domain.PlayerDomainEvent
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -49,6 +54,9 @@ class PlayerViewModel @Inject constructor(
         )
 
     val activeUri: StateFlow<Uri?> get() = session.activeUri
+
+    private val _domainEvents = MutableSharedFlow<PlayerDomainEvent>(extraBufferCapacity = 64)
+    val domainEvents: SharedFlow<PlayerDomainEvent> = _domainEvents.asSharedFlow()
 
     /**
      * Bumped on every playback request to key UI resets (e.g. controls visibility).
@@ -117,7 +125,33 @@ class PlayerViewModel @Inject constructor(
 
     fun playPrevious(): Boolean = session.playPrevious()
 
-    fun playAtIndex(index: Int): Boolean = session.playAtIndex(index)
+    fun playAtIndex(
+        index: Int,
+        source: PlaybackTriggerSource = PlaybackTriggerSource.USER_PLAYLIST_CLICK
+    ): Boolean {
+        val fromIndex = playlistManager.currentIndex.value
+        _domainEvents.tryEmit(
+            PlayerDomainEvent.SwitchInitiated(
+                fromIndex = fromIndex,
+                toIndex = index,
+                source = source
+            )
+        )
+        val success = session.playAtIndex(index)
+        if (success) {
+            val item = playlistManager.items.value.getOrNull(index)
+            val uri = item?.let { session.uriParser.parse(it.uriString) }
+                ?: session.activeUri.value
+                ?: session.uriParser.parse("")
+            _domainEvents.tryEmit(
+                PlayerDomainEvent.SwitchCompleted(
+                    index = index,
+                    uri = uri
+                )
+            )
+        }
+        return success
+    }
 
     fun saveCurrentProgress() {
         session.saveCurrentProgress()

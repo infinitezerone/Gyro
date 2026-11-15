@@ -859,6 +859,23 @@ fun PlayerScreen(
 
         // F. Top & Bottom Streamline Controls Overlay (hidden in PiP)
         if (!isPipLayout && !hideChrome) {
+            val overlayActions = rememberPlayerScreenActions(
+                engine = engine,
+                viewModel = viewModel,
+                playerState = playerState,
+                screenshotController = screenshotController,
+                activity = activity,
+                configuration = configuration,
+                onBack = onBack,
+                durationMsProvider = { durationMs },
+                timePosMsProvider = { timePosState.value },
+                surfaceViewProvider = { surfaceViewRef },
+                mediaTitleProvider = { snapshot.mediaTitle },
+                subtitleEnabled = subtitleEnabled,
+                lastSubTrackId = lastSubTrackId,
+                seekStepSeconds = liveSettings.seekStepSeconds,
+                onEnterPiP = { pipState.enterPip() }
+            )
             PlayerControlsOverlay(
                 isVisible = playerState.showControls,
                 isLocked = playerState.isLocked,
@@ -874,87 +891,7 @@ fun PlayerScreen(
                 currentPlaylistIndex = currentPlaylistIndex,
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
-                actions = PlayerOverlayActions(
-                    onTogglePlayPause = {
-                        playerState.resetControlsTimeout()
-                        engine.togglePlayPause()
-                    },
-                    onPlayPrevious = {
-                        playerState.resetControlsTimeout()
-                        viewModel.playPrevious()
-                    },
-                    onPlayNext = {
-                        playerState.resetControlsTimeout()
-                        viewModel.playNext()
-                    },
-                    onSelectPlaylistItem = { idx ->
-                        playerState.resetControlsTimeout()
-                        viewModel.playAtIndex(idx)
-                    },
-                    onToggleLock = {
-                        playerState.resetControlsTimeout()
-                        playerState.isLocked = !playerState.isLocked
-                        playerState.showControls = !playerState.isLocked
-                    },
-                    onSeekToFraction = { fraction ->
-                        playerState.resetControlsTimeout()
-                        val target = (fraction * durationMs).toLong()
-                        engine.seekTo(target)
-                    },
-                    onRewind10 = {
-                        playerState.resetControlsTimeout()
-                        engine.seekRelative(-liveSettings.seekStepSeconds * 1000L)
-                    },
-                    onForward10 = {
-                        playerState.resetControlsTimeout()
-                        engine.seekRelative(liveSettings.seekStepSeconds * 1000L)
-                    },
-                    onToggleSubtitle = {
-                        playerState.resetControlsTimeout()
-                        if (subtitleEnabled) {
-                            engine.trackManager.selectTrack("sub", 0)
-                        } else {
-                            engine.trackManager.selectTrack("sub", lastSubTrackId.coerceAtLeast(1))
-                        }
-                    },
-                    onCycleAbLoop = {
-                        playerState.resetControlsTimeout()
-                        engine.cycleAbLoop()
-                    },
-                    onScreenshot = {
-                        playerState.resetControlsTimeout()
-                        screenshotController.capture(
-                            surfaceView = surfaceViewRef,
-                            mediaTitle = snapshot.mediaTitle,
-                            positionMs = timePosState.value,
-                        )
-                    },
-                    onOpenSheetTab = { tab ->
-                        // 打开 sheet 时收起控制层（取消自动隐藏计时），避免顶/底栏透过 scrim 与 sheet 叠显
-                        playerState.hideControls()
-                        playerState.activeSheetTab = tab
-                    },
-                    onEnterPiP = {
-                        pipState.enterPip()
-                    },
-                    onToggleOrientation = {
-                        activity?.let { act ->
-                            val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                            act.requestedOrientation = if (isLandscape) {
-                                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                            } else {
-                                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                            }
-                        }
-                    },
-                    onBack = {
-                        viewModel.onUserExit()
-                        onBack()
-                    },
-                    onCycleHwdec = {
-                        engine.cycleHwdec()
-                    }
-                ),
+                actions = overlayActions,
                 subtitleEnabled = subtitleEnabled,
                 abLoopASeconds = snapshot.abLoopASeconds,
                 abLoopBSeconds = snapshot.abLoopBSeconds,
