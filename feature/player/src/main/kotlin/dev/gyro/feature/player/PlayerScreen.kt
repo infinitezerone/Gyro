@@ -425,7 +425,6 @@ fun PlayerScreen(
         playerState.lastInteractionTrigger
     ) {
         if (playerState.canAutoHide(
-                isPlaying = isPlaying,
                 isScrubbing = scrubState.isActive,
                 isPipLayout = isPipLayout,
             )

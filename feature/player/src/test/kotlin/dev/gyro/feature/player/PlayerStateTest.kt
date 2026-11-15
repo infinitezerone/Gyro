@@ -28,28 +28,27 @@ class PlayerStateTest {
     )
 
     @Test
-    fun autoHideOnlyWhilePlayingWithVisibleControls() {
+    fun autoHideRunsWithVisibleControlsEvenWhenPaused() {
         val subject = state(CoroutineScope(StandardTestDispatcher()))
 
-        assertTrue(subject.canAutoHide(isPlaying = true, isScrubbing = false, isPipLayout = false))
+        assertTrue(subject.canAutoHide(isScrubbing = false, isPipLayout = false))
 
         subject.hideControls()
         assertFalse(
             "hidden controls have nothing left to hide",
-            subject.canAutoHide(isPlaying = true, isScrubbing = false, isPipLayout = false),
+            subject.canAutoHide(isScrubbing = false, isPipLayout = false),
         )
         subject.showControls()
 
-        assertFalse("paused", subject.canAutoHide(isPlaying = false, isScrubbing = false, isPipLayout = false))
-        assertFalse("scrubbing", subject.canAutoHide(isPlaying = true, isScrubbing = true, isPipLayout = false))
-        assertFalse("PiP", subject.canAutoHide(isPlaying = true, isScrubbing = false, isPipLayout = true))
+        assertFalse("scrubbing", subject.canAutoHide(isScrubbing = true, isPipLayout = false))
+        assertFalse("PiP", subject.canAutoHide(isScrubbing = false, isPipLayout = true))
 
         subject.isLocked = true
-        assertFalse("locked", subject.canAutoHide(isPlaying = true, isScrubbing = false, isPipLayout = false))
+        assertFalse("locked", subject.canAutoHide(isScrubbing = false, isPipLayout = false))
         subject.isLocked = false
 
         subject.activeSheetTab = PlayerSheetTab.STATS
-        assertFalse("sheet open", subject.canAutoHide(isPlaying = true, isScrubbing = false, isPipLayout = false))
+        assertFalse("sheet open", subject.canAutoHide(isScrubbing = false, isPipLayout = false))
     }
 
     @Test
