@@ -16,7 +16,7 @@ use crate::{nlog, reset_engine_lifecycle_state};
 
 pub enum RenderCommand {
     AttachSurface(NativeWindowPtr),
-    DetachSurface,
+    DetachSurface(Option<std::sync::mpsc::SyncSender<()>>),
     /// Recreate the window surface on the same window, honouring the current HDR colourspace.
     RebuildSurface,
     Redraw,
@@ -113,6 +113,20 @@ pub fn destroy_render_context_sync() {
     }
 }
 
+pub fn detach_surface_sync() {
+    if let Some(sender) = render_sender() {
+        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(0);
+        if sender.send(RenderCommand::DetachSurface(Some(ack_tx))).is_ok() {
+            let timeout = std::time::Duration::from_millis(DETACH_ACK_TIMEOUT_MS);
+            if ack_rx.recv_timeout(timeout).is_err() {
+                nlog("detach_surface_sync: 等待渲染线程解绑 Surface 超时");
+            }
+        } else {
+            nlog("detach_surface_sync: 渲染线程已退出，无需解绑");
+        }
+    }
+}
+
 #[cfg(target_os = "android")]
 unsafe fn create_render_strategy() -> Result<Box<dyn RenderStrategy>, String> {
     init_egl_strategy().map(|egl| Box::new(egl) as Box<dyn RenderStrategy>)
@@ -194,10 +208,13 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                         request_vo_check_wakeup();
                     }
                 }
-                RenderCommand::DetachSurface => {
+                RenderCommand::DetachSurface(ack) => {
                     strategy.detach_surface();
                     G_SESSION.render_slot_ready.store(false, Ordering::Release);
                     nlog(&format!("{}: Surface 已解绑", strategy.name()));
+                    if let Some(ack) = ack {
+                        let _ = ack.send(());
+                    }
                 }
                 RenderCommand::RebuildSurface => {
                     if !strategy.is_ready() {
@@ -253,6 +270,9 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
     {
         while let Ok(cmd) = receiver.recv() {
             match cmd {
+                RenderCommand::DetachSurface(Some(ack)) => {
+                    let _ = ack.send(());
+                }
                 RenderCommand::DestroyContext(ack) => {
                     let _ = ack.send(());
                 }

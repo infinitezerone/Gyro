@@ -473,11 +473,7 @@ jni_fn! {
         _env: JNIEnv,
         _class: JClass
     ) {
-        if let Some(sender) = render_sender() {
-            if sender.send(RenderCommand::DetachSurface).is_err() {
-                nlog("detachSurface: 渲染线程已退出，无需解绑");
-            }
-        }
+        crate::render::detach_surface_sync();
     }
 }
 

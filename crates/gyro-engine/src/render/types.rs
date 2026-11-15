@@ -54,6 +54,9 @@ pub const GL_EXTENSIONS: u32 = 0x1F03;
 /// Upper bound on how long the DestroyContext *caller* waits for the render thread's ack.
 pub const DESTROY_ACK_TIMEOUT_MS: u64 = 2000;
 
+/// Upper bound on how long the DetachSurface *caller* waits for the render thread's ack (surfaceDestroyed sync).
+pub const DETACH_ACK_TIMEOUT_MS: u64 = 150;
+
 #[cfg(target_os = "android")]
 #[link(name = "EGL")]
 extern "C" {

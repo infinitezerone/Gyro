@@ -33,8 +33,8 @@ pub use self::frame::{
 };
 pub use self::probe::{G_GPU_RENDERER, G_GPU_VENDOR, G_ZERO_COPY_SAFE};
 pub use self::thread::{
-    clear_render_thread, destroy_render_context_sync, ensure_render_thread, native_render_loop,
-    render_sender, RenderCommand, G_FRAME_GATE,
+    clear_render_thread, destroy_render_context_sync, detach_surface_sync, ensure_render_thread,
+    native_render_loop, render_sender, RenderCommand, G_FRAME_GATE,
 };
 pub use crate::strategy::{DrawOutcome, RenderBackend, RenderStrategy};
 
