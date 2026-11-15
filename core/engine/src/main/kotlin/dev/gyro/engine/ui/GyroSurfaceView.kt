@@ -1,124 +1,25 @@
 package dev.gyro.engine.ui
 
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
-import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.AttributeSet
 import android.view.Display
-import android.view.PixelCopy
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.WindowManager
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
-import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** A stored buffer whose aspect has drifted from a newly reported one by more than this is re-locked. */
 private const val ASPECT_EPSILON = 0.01
-
-/**
- * Computes the optimal fixed SurfaceHolder buffer dimensions by fitting the video's display aspect
- * ratio into the physical screen's native resolution bounds.
- *
- * Why this design:
- * 1. **PiP & window transition stability**: By locking the SurfaceHolder (`setFixedSize`) to an
- *    aspect-matched resolution decoupled from the transient view layout size, entering/exiting PiP
- *    or rotating the screen becomes a pure SurfaceFlinger hardware matrix scale with zero
- *    `BLASTBufferQueue` reallocation (eliminating the 40-70ms resize lag / flash).
- * 2. **Full-resolution shaders & subtitles**: Fitting to the display's physical bounds rather than
- *    clamping down to low-res video dimensions (`min(1f, ...)`) guarantees that 480p/720p videos
- *    still get a native screen-resolution OpenGL FBO for Anime4K upscaling and crisp ASS subtitles.
- * 3. **Zero re-lock on same-aspect playlist switches**: A 360p (16:9) video and a 4K (16:9) video
- *    map to the exact same screen-fitted buffer size, avoiding buffer churn across playlist items.
- */
-internal fun computeDisplayFittedBufferSize(
-    videoWidth: Int,
-    videoHeight: Int,
-    displayWidth: Int,
-    displayHeight: Int
-): Pair<Int, Int> {
-    if (videoWidth <= 0 || videoHeight <= 0 || displayWidth <= 0 || displayHeight <= 0) {
-        return Pair(videoWidth.coerceAtLeast(1), videoHeight.coerceAtLeast(1))
-    }
-    val shortEdge = minOf(displayWidth, displayHeight)
-    val longEdge = maxOf(displayWidth, displayHeight)
-    val aspect = videoWidth.toDouble() / videoHeight.toDouble()
-
-    val maxW = if (aspect >= 1.0) longEdge else shortEdge
-    val maxH = if (aspect >= 1.0) shortEdge else longEdge
-    val boxAspect = maxW.toDouble() / maxH.toDouble()
-
-    return if (aspect > boxAspect) {
-        val w = maxW
-        val h = (maxW / aspect).roundToInt().coerceAtLeast(1)
-        Pair(w, h)
-    } else {
-        val h = maxH
-        val w = (maxH * aspect).roundToInt().coerceAtLeast(1)
-        Pair(w, h)
-    }
-}
-
-private fun resolvePhysicalDisplaySize(context: Context): Pair<Int, Int> {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val wm = context.getSystemService(WindowManager::class.java)
-        val bounds = wm?.maximumWindowMetrics?.bounds
-        if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
-            return Pair(bounds.width(), bounds.height())
-        }
-    }
-    val metrics = context.applicationContext.resources.displayMetrics
-    return Pair(metrics.widthPixels, metrics.heightPixels)
-}
-
-/**
- * Normalizes content frame rate to standard broadcast/digital video nominal rates
- * if it falls within a 3.5% tolerance window. Returns the nominal rate if matched,
- * or the contentFps itself if > 1f, or 0f if non-positive.
- */
-internal fun normalizeContentFps(contentFps: Float): Float {
-    if (contentFps <= 1f) return 0f
-    val nominalRates = floatArrayOf(
-        23.976f, 24.0f, 25.0f, 29.97f, 30.0f,
-        48.0f, 50.0f, 59.94f, 60.0f,
-        72.0f, 75.0f, 90.0f, 120.0f, 144.0f, 165.0f, 240.0f
-    )
-    for (nominal in nominalRates) {
-        if (abs(contentFps - nominal) / nominal <= 0.035f) {
-            return nominal
-        }
-    }
-    return if (contentFps in 1.0f..1000.0f) contentFps else 0f
-}
 
 /**
  * High-performance, zero-overhead SurfaceView for Gyro MPV player.
@@ -129,6 +30,10 @@ internal fun normalizeContentFps(contentFps: Float): Float {
  * This SurfaceView only acts as the window handle provider:
  * - `surfaceCreated`: passes the native ANativeWindow to Rust.
  * - `surfaceDestroyed`: detaches surface without tearing down EGLContext.
+ *
+ * Pure display math lives in [DisplayFit.kt], display capability probes in
+ * [DisplayCapabilities.kt], frame capture in [SurfaceCapture.kt], and the refresh-rate vote
+ * in [ContentFrameRateController] - this class is the window-handle and buffer-format bridge.
  */
 class GyroSurfaceView @JvmOverloads constructor(
     context: Context,
@@ -139,7 +44,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         private const val TAG = "GyroSurfaceView"
     }
 
-    var engine: dev.gyro.engine.api.PlayerEngine? = null
+    var engine: PlayerEngine? = null
 
     /** Buffer size currently fixed on the holder; 0 until the first lock. */
     private var lockedWidth = 0
@@ -167,9 +72,7 @@ class GyroSurfaceView @JvmOverloads constructor(
      */
     private var appliedFormat = 0
 
-    /** Frame rate of the content on screen, 0 when the system should pick. */
-    private var contentFrameRate = 0f
-
+    private val frameRateController = ContentFrameRateController { attachedSurface ?: holder.surface }
 
     /** Surface whose window the engine currently holds, for the ownership check in `surfaceDestroyed`. */
     private var attachedSurface: Surface? = null
@@ -277,78 +180,18 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     /**
-     * Captures the current visible frame directly from the hardware [SurfaceView]
-     * using [PixelCopy], completely bypassing decoder memory access restrictions
-     * (such as zero-copy MediaCodec hardware decoding).
+     * Captures the current visible frame straight from the hardware surface. See
+     * [captureSurfaceBitmap] for the pixel-copy mechanics and failure semantics.
      */
-    suspend fun captureBitmap(): Bitmap? = withContext(Dispatchers.Main) {
-        val s = holder.surface
-        if (s == null || !s.isValid || width <= 0 || height <= 0) {
-            EngineLog.w(TAG, "captureBitmap aborted: surface valid=${s?.isValid}, size=${width}x$height")
-            return@withContext null
-        }
-        val bitmap = try {
-            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        } catch (t: Throwable) {
-            EngineLog.e(TAG, "captureBitmap Bitmap.createBitmap failed", t)
-            return@withContext null
-        }
-        suspendCancellableCoroutine { continuation ->
-            val handler = Handler(Looper.getMainLooper())
-            try {
-                PixelCopy.request(
-                    this@GyroSurfaceView,
-                    bitmap,
-                    { copyResult ->
-                        if (copyResult == PixelCopy.SUCCESS) {
-                            EngineLog.i(TAG, "captureBitmap PixelCopy SUCCESS: ${bitmap.width}x${bitmap.height}")
-                            continuation.resume(bitmap)
-                        } else {
-                            EngineLog.w(TAG, "captureBitmap PixelCopy failed: code=$copyResult")
-                            bitmap.recycle()
-                            continuation.resume(null)
-                        }
-                    },
-                    handler
-                )
-            } catch (e: Throwable) {
-                EngineLog.e(TAG, "captureBitmap PixelCopy.request exception", e)
-                bitmap.recycle()
-                continuation.resume(null)
-            }
-        }
-    }
+    suspend fun captureBitmap(): Bitmap? = captureSurfaceBitmap(
+        surface = holder.surface,
+        viewWidth = width,
+        viewHeight = height,
+        bufferWidth = appliedBufferWidth,
+        bufferHeight = appliedBufferHeight
+    )
 
-    fun applyContentFrameRate(fps: Float) {
-        EngineLog.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
-        contentFrameRate = fps
-        val requested = if (fps > 1f && fps < 1000f) fps else 0f
-        val normalized = normalizeContentFps(requested)
-
-        // Vote on the Surface itself (Android 11+).
-        // Uses CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS so the display compositor adapts smoothly
-        // without disruptive hardware mode switches, flickering, or panel clock resyncs.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val surface = attachedSurface ?: holder.surface
-            if (surface != null && surface.isValid) {
-                runCatching {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        surface.setFrameRate(
-                            normalized,
-                            Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                            Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
-                        )
-                    } else {
-                        surface.setFrameRate(
-                            normalized,
-                            Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
-                        )
-                    }
-                    EngineLog.i(TAG, "setFrameRate: vote=$normalized (compat=DEFAULT, SEAMLESS)")
-                }.onFailure { EngineLog.w(TAG, "setFrameRate($normalized) failed: ${it.message}") }
-            }
-        }
-    }
+    fun applyContentFrameRate(fps: Float) = frameRateController.apply(fps)
 
     private fun lockBufferSize(holder: SurfaceHolder?, w: Int, h: Int) {
         if (holder == null || w <= 0 || h <= 0) return
@@ -368,7 +211,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
         // A fresh surface starts at the platform default rate; re-apply the content rate that
         // was published before it existed.
-        applyContentFrameRate(contentFrameRate)
+        frameRateController.reapplyCurrent()
         engine?.attachSurface(surface)
     }
 
@@ -376,7 +219,7 @@ class GyroSurfaceView @JvmOverloads constructor(
      * Releases surface ownership if this view's surface is currently attached to [targetEngine],
      * without unconditionally detaching a newer surface owned by another [GyroSurfaceView].
      */
-    fun releaseSurfaceOwnership(targetEngine: dev.gyro.engine.api.PlayerEngine? = engine) {
+    fun releaseSurfaceOwnership(targetEngine: PlayerEngine? = engine) {
         val surfaceToDetach = attachedSurface ?: holder.surface
         attachedSurface = null
         if (surfaceToDetach != null) {
@@ -431,152 +274,4 @@ class GyroSurfaceView @JvmOverloads constructor(
             engine?.detachSurface(surfaceToDetach)
         }
     }
-}
-
-/**
- * Jetpack Compose wrapper for [GyroSurfaceView].
- * Native MPV handles hardware zoom and pan directly in GPU shaders on the EGL render thread,
- * avoiding SurfaceView scaling and SurfaceFlinger BLAST transaction locks on the UI thread.
- */
-@Composable
-fun GyroPlayerSurface(
-    modifier: Modifier = Modifier,
-    engine: dev.gyro.engine.api.PlayerEngine? = null,
-    videoDimensions: VideoDimensions? = null,
-    videoFrameRate: Float? = null,
-    pipTransitionActive: Boolean = false,
-    onAppliedBufferSizeChanged: ((androidx.compose.ui.unit.IntSize) -> Unit)? = null,
-    onSurfaceViewAvailable: ((GyroSurfaceView) -> Unit)? = null
-) {
-    val context = LocalContext.current
-    val surfaceView = remember {
-        GyroSurfaceView(context).apply {
-            this.engine = engine
-            onSurfaceViewAvailable?.invoke(this)
-        }
-    }
-    LaunchedEffect(surfaceView) {
-        onSurfaceViewAvailable?.invoke(surfaceView)
-    }
-
-    SideEffect {
-        surfaceView.pipTransitionActive = pipTransitionActive
-    }
-
-    // Tell the engine up front whether the panel can present HDR. Without it mpv is told to
-    // output PQ on an SDR display, where it skips tone-mapping and the picture washes out.
-    LaunchedEffect(engine) {
-        engine?.geometry?.setDisplayHdrCapable(context.displaySupportsHdr())
-    }
-
-    val isHdr by (engine?.geometry?.isHdr ?: remember { MutableStateFlow(false) }).collectAsState()
-    LaunchedEffect(isHdr) {
-        val activity = context.findActivity()
-        val canHdr = isHdr && context.displaySupportsHdr()
-        surfaceView.setHdrOutput(canHdr)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            activity?.window?.colorMode = if (canHdr) {
-                ActivityInfo.COLOR_MODE_HDR
-            } else if (context.displaySupportsWideColorGamut()) {
-                ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-            } else {
-                ActivityInfo.COLOR_MODE_DEFAULT
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val activity = context.findActivity()
-                activity?.window?.colorMode = if (context.displaySupportsWideColorGamut()) {
-                    ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-                } else {
-                    ActivityInfo.COLOR_MODE_DEFAULT
-                }
-            }
-        }
-    }
-
-    DisposableEffect(engine) {
-        surfaceView.engine = engine
-        onDispose {
-            surfaceView.releaseSurfaceOwnership(engine)
-        }
-    }
-
-    LaunchedEffect(surfaceView) {
-        snapshotFlow { androidx.compose.ui.unit.IntSize(surfaceView.appliedBufferWidth, surfaceView.appliedBufferHeight) }
-            .collect { onAppliedBufferSizeChanged?.invoke(it) }
-    }
-
-    val observedFrameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
-    val effectiveFrameRate = videoFrameRate ?: observedFrameRate
-    LaunchedEffect(effectiveFrameRate) {
-        EngineLog.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$effectiveFrameRate), engine=$engine")
-        surfaceView.applyContentFrameRate(effectiveFrameRate)
-    }
-
-    // Pin the buffer to the physical display resolution fitted to the video's aspect ratio.
-    // From then on window resizes (including PiP entry/exit) never touch the BufferQueue again;
-    // low-res videos still get full screen-resolution FBOs for Anime4K shaders and ASS subtitles,
-    // while same-aspect playlist switches reuse the exact same BufferQueue without re-locking.
-    val observedDimensions: VideoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState(initial = VideoDimensions())
-    val effectiveDimensions = videoDimensions ?: observedDimensions
-    LaunchedEffect(effectiveDimensions.width, effectiveDimensions.height) {
-        if (effectiveDimensions.width <= 0 || effectiveDimensions.height <= 0) return@LaunchedEffect
-        val (displayW, displayH) = resolvePhysicalDisplaySize(context)
-        val (targetW, targetH) = computeDisplayFittedBufferSize(
-            videoWidth = effectiveDimensions.width,
-            videoHeight = effectiveDimensions.height,
-            displayWidth = displayW,
-            displayHeight = displayH
-        )
-        surfaceView.lockBufferSizeToVideo(targetW, targetH)
-    }
-
-    AndroidView(
-        factory = {
-            if (effectiveDimensions.width > 0 && effectiveDimensions.height > 0) {
-                val (displayW, displayH) = resolvePhysicalDisplaySize(context)
-                val (targetW, targetH) = computeDisplayFittedBufferSize(
-                    videoWidth = effectiveDimensions.width,
-                    videoHeight = effectiveDimensions.height,
-                    displayWidth = displayW,
-                    displayHeight = displayH
-                )
-                surfaceView.lockBufferSizeToVideo(targetW, targetH)
-            }
-            surfaceView
-        },
-        update = { view ->
-            view.engine = engine
-        },
-        modifier = modifier
-    )
-}
-
-private fun Context.findActivity(): Activity? {
-    var ctx = this
-    while (ctx is ContextWrapper) {
-        if (ctx is Activity) return ctx
-        ctx = ctx.baseContext
-    }
-    return null
-}
-
-/** True when the current display advertises HDR support to the platform. */
-@Suppress("DEPRECATION")
-private fun Context.displaySupportsHdr(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-    val display = findActivity()?.windowManager?.defaultDisplay ?: return false
-    return display.isHdr
-}
-
-/** True when the current display advertises wide color gamut (P3) support. */
-@Suppress("DEPRECATION")
-private fun Context.displaySupportsWideColorGamut(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-    val display = findActivity()?.windowManager?.defaultDisplay ?: return false
-    return display.isWideColorGamut
 }
