@@ -57,15 +57,13 @@ jobs:
           key: android-targets
 
       # NDK version pinned to the one used locally (29.0.14206865); cargo-ndk locates it
-      # through ANDROID_NDK_HOME.
-      - uses: nttld/setup-ndk@v1
-        id: ndk
-        with:
-          ndk-version: '29.0.14206865'
-          add-to-path: false
+      # through ANDROID_NDK_HOME. Installed via sdkmanager - the runner's prebuilt
+      # setup-ndk actions lag behind new NDK releases (r29 404s in nttld/setup-ndk).
+      - name: Install NDK 29.0.14206865
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;29.0.14206865" > /dev/null'
 
       - name: Export NDK path for cargo-ndk
-        run: echo "ANDROID_NDK_HOME=${{ steps.ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+        run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
       - uses: taiki-e/install-action@v2
         with:
