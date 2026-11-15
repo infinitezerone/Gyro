@@ -39,6 +39,15 @@ class PlayerZoomState(
     val isZoomed: Boolean
         get() = scale > 1.05f
 
+    var savedScale: Float? = null
+        private set
+
+    var savedContentOffset: Offset? = null
+        private set
+
+    val hasSavedZoom: Boolean
+        get() = savedScale != null
+
     /**
      * Executes anchored zoom transformation:
      * Maintains the exact content point under [centroid] at [centroid + panDelta] across scale changes,
@@ -135,14 +144,55 @@ class PlayerZoomState(
      */
     fun reset(
         viewportSize: Size? = null,
-        contentBounds: Rect? = null
+        contentBounds: Rect? = null,
+        clearSaved: Boolean = true
     ) {
+        if (clearSaved) {
+            savedScale = null
+            savedContentOffset = null
+        }
         scale = 1.0f
         contentOffset = if (viewportSize != null && viewportSize.width > 0f && viewportSize.height > 0f) {
             clampOffset(Offset.Zero, 1.0f, viewportSize, contentBounds)
         } else {
             Offset.Zero
         }
+    }
+
+    /**
+     * Stashes current zoom & pan (if currently zoomed in) and resets to identity (1.0x).
+     * Used when entering Picture-in-Picture mode so the floating window displays full video context.
+     */
+    fun saveAndReset(
+        viewportSize: Size? = null,
+        contentBounds: Rect? = null
+    ) {
+        if (isZoomed) {
+            savedScale = scale
+            savedContentOffset = contentOffset
+        }
+        reset(viewportSize, contentBounds, clearSaved = false)
+    }
+
+    /**
+     * Restores previously stashed zoom & pan state upon exiting Picture-in-Picture mode.
+     * @return true if a previous zoom state was successfully restored.
+     */
+    fun restore(
+        viewportSize: Size? = null,
+        contentBounds: Rect? = null
+    ): Boolean {
+        val stashedScale = savedScale ?: return false
+        val stashedOffset = savedContentOffset ?: return false
+        savedScale = null
+        savedContentOffset = null
+        scale = stashedScale
+        contentOffset = if (viewportSize != null && viewportSize.width > 0f && viewportSize.height > 0f) {
+            clampOffset(stashedOffset, stashedScale, viewportSize, contentBounds)
+        } else {
+            stashedOffset
+        }
+        return true
     }
 
     /**
@@ -153,6 +203,8 @@ class PlayerZoomState(
         viewportSize: Size? = null,
         contentBounds: Rect? = null
     ) {
+        savedScale = null
+        savedContentOffset = null
         val startScale = scale
         val startTransX = translationX
         val startTransY = translationY

@@ -493,6 +493,33 @@ fun PlayerScreen(
         }
     }
 
+    // PiP Zoom lifecycle: reset to 1.0x on enter so small floating window shows full video context;
+    // restore previous user zoom & pan seamlessly on return to full screen.
+    LaunchedEffect(hideChrome, isPipLayout) {
+        val inPip = hideChrome || isPipLayout
+        if (inPip) {
+            if (zoomState.isZoomed) {
+                zoomState.saveAndReset(
+                    viewportSize = viewport.containerSize.takeIf { it.width > 0 && it.height > 0 }?.let {
+                        androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat())
+                    },
+                    contentBounds = composeVideoBounds
+                )
+            }
+        } else {
+            if (zoomState.hasSavedZoom) {
+                zoomState.restore(
+                    viewportSize = viewport.fullscreenContainerSize.takeIf { it.width > 0 && it.height > 0 }?.let {
+                        androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat())
+                    } ?: viewport.containerSize.takeIf { it.width > 0 && it.height > 0 }?.let {
+                        androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat())
+                    },
+                    contentBounds = composeVideoBounds
+                )
+            }
+        }
+    }
+
     val dynamicConfig = liveSettings.gestureConfig
     val gestureConfig = remember(dynamicConfig, liveSettings.gesturesEnabled, playerState.isLocked) {
         if (!liveSettings.gesturesEnabled) {
@@ -544,6 +571,7 @@ fun PlayerScreen(
     val rawGestureModifier = rememberPlayerGestureModifier(
         context = context,
         isLandscape = isLandscape,
+        isPipActive = isPipLayout || hideChrome,
         activeUri = activeUri,
         playerState = playerState,
         isPlaying = isPlaying,
@@ -620,7 +648,10 @@ fun PlayerScreen(
                 IntSize((viewport.containerSize.height * videoAspect).toInt(), viewport.containerSize.height)
             }
         }
-        val videoContainerModifier = when (resizeMode) {
+        // In PiP mode, always fit to the native video aspect ratio to perfectly fill the PiP floating window
+        // without letterbox or crop; reverts to user's selected resizeMode upon exiting PiP back to fullscreen.
+        val effectiveResizeMode = if (isPipLayout) ResizeMode.FIT else resizeMode
+        val videoContainerModifier = when (effectiveResizeMode) {
             ResizeMode.FIT -> if (videoAspect > 0f) Modifier.aspectRatio(videoAspect) else Modifier.fillMaxSize()
             ResizeMode.ASPECT_16_9 -> Modifier.aspectRatio(16f / 9f)
             ResizeMode.ASPECT_21_9 -> Modifier.aspectRatio(21f / 9f)

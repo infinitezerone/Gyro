@@ -369,4 +369,76 @@ class PlayerZoomStateTest {
             assertEquals(viewport.height / 2f, renderedVerticalCenter, 0.01f)
         }
     }
+
+    @Test
+    fun testSaveAndResetStashesZoomAndResetsToIdentity() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+
+        // 1. Zoom to 2.5x
+        zoomState.onGesture(
+            zoomChange = 2.5f,
+            panDelta = Offset.Zero,
+            centroid = Offset(500f, 300f),
+            viewportSize = viewport,
+            isPinch = true
+        )
+        assertTrue(zoomState.isZoomed)
+        assertEquals(2.5f, zoomState.scale, 0.001f)
+        assertFalse(zoomState.hasSavedZoom)
+
+        // 2. Stash and reset (simulate entering PiP)
+        zoomState.saveAndReset(viewport)
+        assertEquals(1.0f, zoomState.scale, 0.001f)
+        assertFalse(zoomState.isZoomed)
+        assertTrue(zoomState.hasSavedZoom)
+        assertEquals(2.5f, zoomState.savedScale ?: 0f, 0.001f)
+
+        // 3. Restore (simulate exiting PiP)
+        val restored = zoomState.restore(viewport)
+        assertTrue(restored)
+        assertEquals(2.5f, zoomState.scale, 0.001f)
+        assertTrue(zoomState.isZoomed)
+        assertFalse(zoomState.hasSavedZoom)
+    }
+
+    @Test
+    fun testSaveAndResetWhenNotZoomedDoesNotStash() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+
+        assertFalse(zoomState.isZoomed)
+        zoomState.saveAndReset(viewport)
+        assertFalse(zoomState.hasSavedZoom)
+        assertEquals(null, zoomState.savedScale)
+
+        val restored = zoomState.restore(viewport)
+        assertFalse(restored)
+        assertEquals(1.0f, zoomState.scale, 0.001f)
+    }
+
+    @Test
+    fun testResetClearsStashedZoom() {
+        val zoomState = PlayerZoomState()
+        val viewport = Size(1000f, 600f)
+
+        zoomState.onGesture(
+            zoomChange = 2.0f,
+            panDelta = Offset.Zero,
+            centroid = Offset(500f, 300f),
+            viewportSize = viewport,
+            isPinch = true
+        )
+        zoomState.saveAndReset(viewport)
+        assertTrue(zoomState.hasSavedZoom)
+
+        // File switch / rotation resets and drops stashed zoom
+        zoomState.reset()
+        assertFalse(zoomState.hasSavedZoom)
+        assertEquals(null, zoomState.savedScale)
+
+        val restored = zoomState.restore(viewport)
+        assertFalse(restored)
+        assertEquals(1.0f, zoomState.scale, 0.001f)
+    }
 }

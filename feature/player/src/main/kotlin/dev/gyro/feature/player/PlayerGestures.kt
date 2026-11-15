@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 internal fun rememberPlayerGestureModifier(
     context: Context,
     isLandscape: Boolean,
+    isPipActive: Boolean = false,
     activeUri: android.net.Uri?,
     playerState: PlayerState,
     isPlaying: Boolean,
@@ -51,10 +52,13 @@ internal fun rememberPlayerGestureModifier(
     var priorSpeedBeforeBoost by remember { mutableStateOf<Float?>(null) }
 
     // Reset zoom state on orientation change so portrait pan offsets don't displace video in landscape
-    LaunchedEffect(isLandscape) {
-        resetJob?.cancel()
-        resetJob = null
-        zoomState.reset()
+    // Ignored while PiP is active so floating window dimensions or restore transitions don't discard zoom.
+    LaunchedEffect(isLandscape, isPipActive) {
+        if (!isPipActive) {
+            resetJob?.cancel()
+            resetJob = null
+            zoomState.reset()
+        }
     }
 
     // A file switch must start from the identity transform
