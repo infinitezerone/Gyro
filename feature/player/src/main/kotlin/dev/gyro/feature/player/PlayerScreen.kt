@@ -307,17 +307,17 @@ fun PlayerScreen(
         Rational((ratio * 1000).toInt(), 1000)
     }
 
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
-    // The PiP source rect hint describes where the video sits in the *fullscreen* window and only
-    // matters for the enter transition. Sizing it from the container while already in picture in
-    // picture would rebuild the params for the shrunk window, and every re-applied params set makes
-    // the system run the resize again - that second pass is the flash seen on entering PiP.
-    var fullscreenContainerSize by remember { mutableStateOf(IntSize.Zero) }
+    val viewport = rememberPlayerViewportState()
 
-    val videoSourceRect = remember(fullscreenContainerSize, targetAspectRatio, resizeMode) {
-        if (fullscreenContainerSize.width > 0 && fullscreenContainerSize.height > 0) {
+    val videoSourceRect = remember(viewport.fullscreenContainerSize, targetAspectRatio, resizeMode) {
+        if (viewport.fullscreenContainerSize.width > 0 && viewport.fullscreenContainerSize.height > 0) {
             calculateVideoSourceRect(
-                Rect(0, 0, fullscreenContainerSize.width, fullscreenContainerSize.height),
+                Rect(
+                    0,
+                    0,
+                    viewport.fullscreenContainerSize.width,
+                    viewport.fullscreenContainerSize.height
+                ),
                 targetAspectRatio,
                 resizeMode
             )
@@ -441,22 +441,20 @@ fun PlayerScreen(
         }
     }
 
-    var videoContainerOrigin by remember { mutableStateOf(Offset.Zero) }
-    var videoContainerSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
-    val videoBottomDp = remember(videoContainerOrigin, videoContainerSize, density) {
-        if (videoContainerSize.height > 0) {
-            with(density) { (videoContainerOrigin.y + videoContainerSize.height).toDp() }
+    val videoBottomDp = remember(viewport.videoContainerOrigin, viewport.videoContainerSize, density) {
+        if (viewport.videoContainerSize.height > 0) {
+            with(density) { (viewport.videoContainerOrigin.y + viewport.videoContainerSize.height).toDp() }
         } else null
     }
 
-    val composeVideoBounds = remember(videoContainerOrigin, videoContainerSize, videoSourceRect) {
-        if (videoContainerSize.width > 0 && videoContainerSize.height > 0) {
+    val composeVideoBounds = remember(viewport.videoContainerOrigin, viewport.videoContainerSize, videoSourceRect) {
+        if (viewport.videoContainerSize.width > 0 && viewport.videoContainerSize.height > 0) {
             androidx.compose.ui.geometry.Rect(
-                left = videoContainerOrigin.x,
-                top = videoContainerOrigin.y,
-                right = videoContainerOrigin.x + videoContainerSize.width.toFloat(),
-                bottom = videoContainerOrigin.y + videoContainerSize.height.toFloat()
+                left = viewport.videoContainerOrigin.x,
+                top = viewport.videoContainerOrigin.y,
+                right = viewport.videoContainerOrigin.x + viewport.videoContainerSize.width.toFloat(),
+                bottom = viewport.videoContainerOrigin.y + viewport.videoContainerSize.height.toFloat()
             )
         } else {
             videoSourceRect?.let {
@@ -530,7 +528,7 @@ fun PlayerScreen(
         scope = scope,
         zoomState = zoomState,
         scrubState = scrubState,
-        containerSize = containerSize,
+        containerSize = viewport.containerSize,
         composeVideoBounds = composeVideoBounds,
         viewModel = viewModel,
         gestureConfig = gestureConfig
@@ -541,7 +539,6 @@ fun PlayerScreen(
     val geometryReady = snapshot.geometryReady
     val sessionState = snapshot.sessionState
     val isSwitching = sessionState is dev.gyro.engine.api.session.PlaybackSessionState.Switching
-    var appliedBufferSize by remember { mutableStateOf(IntSize.Zero) }
     val shutter = rememberPlayerShutterState(
         activeUri = activeUri,
         sessionState = sessionState,
@@ -551,8 +548,8 @@ fun PlayerScreen(
         videoWidth = videoDimensions.width,
         videoHeight = videoDimensions.height,
         resizeMode = resizeMode,
-        containerSize = videoContainerSize,
-        bufferSize = appliedBufferSize,
+        containerSize = viewport.videoContainerSize,
+        bufferSize = viewport.appliedBufferSize,
     )
     val showShutter = shutter.covers(
         activeUri = activeUri,
@@ -588,17 +585,14 @@ fun PlayerScreen(
                 } else false
             }
             .clipToBounds()
-            .onSizeChanged {
-                containerSize = it
-                if (!isPipLayout) fullscreenContainerSize = it
-            }
+            .onSizeChanged { viewport.onContainerSized(it, isPipLayout) }
     ) {
-        val videoCoverSize = remember(containerSize, videoAspect) {
-            if (containerSize == IntSize.Zero || videoAspect <= 0f) null
-            else if (containerSize.width.toFloat() / containerSize.height > videoAspect) {
-                IntSize(containerSize.width, (containerSize.width / videoAspect).toInt())
+        val videoCoverSize = remember(viewport.containerSize, videoAspect) {
+            if (viewport.containerSize == IntSize.Zero || videoAspect <= 0f) null
+            else if (viewport.containerSize.width.toFloat() / viewport.containerSize.height > videoAspect) {
+                IntSize(viewport.containerSize.width, (viewport.containerSize.width / videoAspect).toInt())
             } else {
-                IntSize((containerSize.height * videoAspect).toInt(), containerSize.height)
+                IntSize((viewport.containerSize.height * videoAspect).toInt(), viewport.containerSize.height)
             }
         }
         val videoContainerModifier = when (resizeMode) {
@@ -659,12 +653,12 @@ fun PlayerScreen(
         val density = LocalDensity.current
         val statusBarInsetPx = with(density) { WindowInsets.statusBars.asPaddingValues().calculateTopPadding().toPx() }
 
-        val targetShiftY = remember(isSheetActive, containerSize, videoAspect, statusBarInsetPx) {
-            if (!isSheetActive || containerSize.height <= 0) {
+        val targetShiftY = remember(isSheetActive, viewport.containerSize, videoAspect, statusBarInsetPx) {
+            if (!isSheetActive || viewport.containerSize.height <= 0) {
                 0f
             } else if (videoAspect >= 1.0f) {
                 // 横屏视频 (16:9 / 21:9 / 4:3)：平滑上移至上半区视口正中央，完全脱离底部抽屉遮挡
-                val totalH = containerSize.height.toFloat()
+                val totalH = viewport.containerSize.height.toFloat()
                 val topWindowH = totalH * 0.48f // 底部抽屉占 52%，上半区视口占 48%
                 val topPadding = statusBarInsetPx + with(density) { 8.dp.toPx() }
                 val targetCenterY = (topPadding + topWindowH) / 2f
@@ -689,10 +683,8 @@ fun PlayerScreen(
             modifier = videoContainerModifier
                 .align(Alignment.Center)
                 .onGloballyPositioned { coords ->
-                    val oldSize = videoContainerSize
-                    videoContainerOrigin = coords.positionInParent()
-                    videoContainerSize = coords.size
-                    if (coords.size != oldSize) {
+                    val sizeChanged = viewport.onVideoContainerPlaced(coords.positionInParent(), coords.size)
+                    if (sizeChanged) {
                         SwitchTrace.log(
                             "CONTAINER_LAYOUT_CHANGED",
                             "${coords.size.width}x${coords.size.height} aspect=${if (coords.size.height > 0) coords.size.width.toFloat() / coords.size.height else 0f}"
@@ -700,13 +692,13 @@ fun PlayerScreen(
                     }
                 }
                 .graphicsLayer {
-                    val containerH = containerSize.height.toFloat()
+                    val containerH = viewport.containerSize.height.toFloat()
                     val offsetY = if (containerH > 0f) pageOffset * containerH else 0f
                     scaleX = zoomState.scale
                     scaleY = zoomState.scale
-                    translationX = (videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - videoContainerOrigin.x
+                    translationX = (viewport.videoContainerOrigin.x - zoomState.contentOffset.x) * zoomState.scale - viewport.videoContainerOrigin.x
                     translationY = offsetY + animatedSheetShiftY +
-                        ((videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - videoContainerOrigin.y)
+                        ((viewport.videoContainerOrigin.y - zoomState.contentOffset.y) * zoomState.scale - viewport.videoContainerOrigin.y)
                     transformOrigin = zoomState.transformOrigin
                 },
             engine = engine,
@@ -714,7 +706,7 @@ fun PlayerScreen(
             videoFrameRate = videoFrameRate,
             pipTransitionActive = pipState.isTransitionActive,
             onSurfaceViewAvailable = { surfaceViewRef = it },
-            onAppliedBufferSizeChanged = { appliedBufferSize = it }
+            onAppliedBufferSizeChanged = { viewport.onAppliedBufferSizeChanged(it) }
         )
 
         val activePlaylistItem = playlist.getOrNull(currentPlaylistIndex)
