@@ -240,19 +240,3 @@ pub fn take_mpv_handle_for_teardown() -> *mut c_void {
     *guard = 0;
     old
 }
-
-pub unsafe fn safe_terminate_mpv(api: &MpvApi, handle: *mut c_void) {
-    if handle.is_null() { return; }
-    nlog("safe_terminate_mpv: 开始安全释放 mpv 实例");
-
-    // 1. 停止并等待事件泵退出
-    HANDLE_VALID.store(false, Ordering::Release);
-    crate::events::stop_event_thread(api, handle);
-
-    // 2. 必须在 mpv_destroy 前释放 render context
-    crate::render::destroy_render_context_sync();
-
-    // 3. 安全销毁 mpv 句柄
-    (api.mpv_terminate_destroy)(handle);
-    nlog("safe_terminate_mpv: mpv_terminate_destroy 顺利完成");
-}

@@ -3,6 +3,7 @@ package dev.gyro.engine
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -45,6 +46,7 @@ import java.util.concurrent.ConcurrentHashMap
  * scheduler, so pipeline tests must drive it with real time and bounded latches rather
  * than `runTest`'s virtual clock.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class MpvEventPipeline(
     parentScope: CoroutineScope? = null,
     private val lifecycleCapacity: Int = 64,

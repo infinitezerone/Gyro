@@ -13,6 +13,7 @@ pub mod probe;
 pub mod thread;
 pub mod types;
 
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -37,10 +38,6 @@ pub use self::thread::{
 };
 pub use crate::strategy::{DrawOutcome, RenderBackend, RenderStrategy};
 
-// ---------- 全局 mpv 句柄指针镜像 ----------
-
-pub(crate) static G_MPVP: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-
 // ---------- 渲染线程会话状态 ----------
 
 pub struct SessionState {
@@ -60,9 +57,17 @@ pub struct SessionState {
     pub real_gl_delete_sync: AtomicPtr<c_void>,
     pub real_egl_presentation_time: AtomicPtr<c_void>,
     pub egl_presentation_resolved: AtomicBool,
-    pub active_fences: Mutex<Vec<SyncHandle>>,
+    pub active_fences: Mutex<VecDeque<SyncHandle>>,
     pub render_slot_ready: AtomicBool,
     pub pending_vo_check: AtomicBool,
+    pub hdr_output: AtomicBool,
+    pub hdr_capable: AtomicBool,
+}
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SessionState {
@@ -84,9 +89,11 @@ impl SessionState {
             real_gl_delete_sync: AtomicPtr::new(std::ptr::null_mut()),
             real_egl_presentation_time: AtomicPtr::new(std::ptr::null_mut()),
             egl_presentation_resolved: AtomicBool::new(false),
-            active_fences: Mutex::new(Vec::new()),
+            active_fences: Mutex::new(VecDeque::new()),
             render_slot_ready: AtomicBool::new(false),
             pending_vo_check: AtomicBool::new(false),
+            hdr_output: AtomicBool::new(false),
+            hdr_capable: AtomicBool::new(false),
         }
     }
 
@@ -112,33 +119,28 @@ impl SessionState {
         }
         self.render_slot_ready.store(false, Ordering::Release);
         self.pending_vo_check.store(false, Ordering::Release);
+        self.hdr_output.store(false, Ordering::Release);
+        self.hdr_capable.store(false, Ordering::Release);
     }
 }
 
 pub static G_SESSION: SessionState = SessionState::new();
 pub static G_RENDER_EPOCH: AtomicU64 = AtomicU64::new(0);
-pub static G_HDR_OUTPUT: AtomicBool = AtomicBool::new(false);
-/// Whether this session may output HDR at all (user mode is not SDR).
-///
-/// Known before the EGL surface exists, unlike [`G_HDR_OUTPUT`], which only becomes true once the
-/// loaded file turns out to be HDR. The EGL config is chosen once per render thread, so the
-/// 10-bit decision has to be made from this flag rather than from the per-file one.
-pub static G_HDR_CAPABLE: AtomicBool = AtomicBool::new(false);
 
 pub fn set_hdr_output(enabled: bool) {
-    G_HDR_OUTPUT.store(enabled, Ordering::Release);
+    G_SESSION.hdr_output.store(enabled, Ordering::Release);
 }
 
 pub fn is_hdr_output() -> bool {
-    G_HDR_OUTPUT.load(Ordering::Acquire)
+    G_SESSION.hdr_output.load(Ordering::Acquire)
 }
 
 pub fn set_hdr_capable(capable: bool) {
-    G_HDR_CAPABLE.store(capable, Ordering::Release);
+    G_SESSION.hdr_capable.store(capable, Ordering::Release);
 }
 
 pub fn is_hdr_capable() -> bool {
-    G_HDR_CAPABLE.load(Ordering::Acquire)
+    G_SESSION.hdr_capable.load(Ordering::Acquire)
 }
 
 #[cfg(test)]
@@ -164,9 +166,11 @@ mod tests {
             real_gl_delete_sync: AtomicPtr::new(0x5678 as *mut c_void),
             real_egl_presentation_time: AtomicPtr::new(0x9999 as *mut c_void),
             egl_presentation_resolved: AtomicBool::new(true),
-            active_fences: Mutex::new(vec![SyncHandle(0xABCD as *mut c_void)]),
+            active_fences: Mutex::new(VecDeque::from([SyncHandle(0xABCD as *mut c_void)])),
             render_slot_ready: AtomicBool::new(true),
             pending_vo_check: AtomicBool::new(true),
+            hdr_output: AtomicBool::new(true),
+            hdr_capable: AtomicBool::new(true),
         };
 
         s.reset();
@@ -176,6 +180,8 @@ mod tests {
         assert_eq!(0, s.last_draw_ms.load(Ordering::Acquire));
         assert!(!s.rearm_video.load(Ordering::Acquire));
         assert!(!s.pending_wid_rebind.load(Ordering::Acquire));
+        assert!(!s.hdr_output.load(Ordering::Acquire));
+        assert!(!s.hdr_capable.load(Ordering::Acquire));
         assert!(!s.awaiting_first_frame.load(Ordering::Acquire));
         assert!(!s.file_loaded_reached.load(Ordering::Acquire));
         assert_eq!(0, s.load_started_ms.load(Ordering::Acquire));

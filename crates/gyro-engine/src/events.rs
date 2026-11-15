@@ -2,7 +2,9 @@
 
 #![cfg_attr(not(target_os = "android"), allow(dead_code, unused_imports))]
 
-use jni::objects::{GlobalRef, JClass, JValue};
+use jni::objects::{GlobalRef, JClass, JStaticMethodID, JValue};
+use jni::signature::{Primitive, ReturnType};
+use jni::sys::jvalue;
 use jni::{JNIEnv, JavaVM};
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -20,8 +22,20 @@ use crate::mpv::{
 use crate::render::{G_SESSION, G_RENDER_EPOCH};
 use crate::{monotonic_ms, nlog};
 
-const GYRO_NATIVE_CLASS: &str = "dev/gyro/engine/GyroNative";
+pub const GYRO_NATIVE_CLASS: &str = "dev/gyro/engine/GyroNative";
 static G_CLASS: OnceLock<GlobalRef> = OnceLock::new();
+
+pub struct CachedCallbacks {
+    pub on_event: JStaticMethodID,
+    pub on_end_file: JStaticMethodID,
+    pub on_property_none: JStaticMethodID,
+    pub on_property_flag: JStaticMethodID,
+    pub on_property_long: JStaticMethodID,
+    pub on_property_double: JStaticMethodID,
+    pub on_property_string: JStaticMethodID,
+}
+
+static G_CALLBACKS: OnceLock<CachedCallbacks> = OnceLock::new();
 
 pub static G_SESSION_EPOCH: AtomicU64 = AtomicU64::new(0);
 
@@ -54,6 +68,12 @@ pub struct EventPumpState {
     pub cache_time_throttle: Mutex<SampleThrottle>,
 }
 
+impl Default for EventPumpState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventPumpState {
     pub const fn new() -> Self {
         Self {
@@ -83,12 +103,57 @@ pub fn cache_class(env: &mut JNIEnv) {
         return;
     }
     if let Ok(class) = env.find_class(GYRO_NATIVE_CLASS) {
+        if G_CALLBACKS.get().is_none() {
+            if let (Ok(on_event), Ok(on_end_file), Ok(on_none), Ok(on_flag), Ok(on_long), Ok(on_double), Ok(on_str)) = (
+                env.get_static_method_id(&class, "onEvent", "(IJ)V"),
+                env.get_static_method_id(&class, "onEndFile", "(IJ)V"),
+                env.get_static_method_id(&class, "onPropertyNone", "(Ljava/lang/String;J)V"),
+                env.get_static_method_id(&class, "onPropertyFlag", "(Ljava/lang/String;ZJ)V"),
+                env.get_static_method_id(&class, "onPropertyLong", "(Ljava/lang/String;JJ)V"),
+                env.get_static_method_id(&class, "onPropertyDouble", "(Ljava/lang/String;DJ)V"),
+                env.get_static_method_id(&class, "onPropertyString", "(Ljava/lang/String;Ljava/lang/String;J)V"),
+            ) {
+                let _ = G_CALLBACKS.set(CachedCallbacks {
+                    on_event,
+                    on_end_file,
+                    on_property_none: on_none,
+                    on_property_flag: on_flag,
+                    on_property_long: on_long,
+                    on_property_double: on_double,
+                    on_property_string: on_str,
+                });
+                nlog("cache_class: 成功预缓存 7 个核心 JNI 静态回调方法 ID");
+            }
+        }
         if let Ok(global) = env.new_global_ref(class) {
             let _ = G_CLASS.set(global);
         }
     }
 }
 
+#[inline]
+pub fn call_cached(env: &mut JNIEnv, method_id: JStaticMethodID, args: &[jvalue]) {
+    let class = match G_CLASS.get() {
+        Some(global) => unsafe { JClass::from_raw(global.as_obj().as_raw().cast()) },
+        None => match env.find_class(GYRO_NATIVE_CLASS) {
+            Ok(c) => c,
+            Err(_) => return,
+        },
+    };
+    let res = unsafe {
+        env.call_static_method_unchecked(
+            class,
+            method_id,
+            ReturnType::Primitive(Primitive::Void),
+            args,
+        )
+    };
+    if res.is_err() {
+        let _ = env.exception_clear();
+    }
+}
+
+#[allow(dead_code)]
 pub fn call_static(env: &mut JNIEnv, name: &str, sig: &str, args: &[JValue]) {
     let class = match G_CLASS.get() {
         Some(global) => unsafe { JClass::from_raw(global.as_obj().as_raw().cast()) },
@@ -201,8 +266,25 @@ pub fn update_cached_video_geometry(name: &str, value: i64) {
     }
 }
 
-fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_void) {
-    let epoch = current_epoch() as i64;
+#[inline]
+pub fn emit_event(env: &mut JNIEnv, event_id: i32, epoch: i64) {
+    if let Some(cb) = G_CALLBACKS.get() {
+        let args = [jvalue { i: event_id }, jvalue { j: epoch }];
+        call_cached(env, cb.on_event, &args);
+    }
+}
+
+#[inline]
+pub fn emit_end_file(env: &mut JNIEnv, reason: i32, epoch: i64) {
+    if let Some(cb) = G_CALLBACKS.get() {
+        let args = [jvalue { i: reason }, jvalue { j: epoch }];
+        call_cached(env, cb.on_end_file, &args);
+    }
+}
+
+/// 拦截并消费 Native 内部关心的属性变更（几何尺寸、监控计数器等）
+#[inline]
+fn intercept_internal_properties(name: &str, format: c_int, data: *mut c_void) {
     if format == MPV_FORMAT_INT64 && !data.is_null() {
         let v = unsafe { *(data as *const i64) };
         update_cached_video_geometry(name, v);
@@ -210,13 +292,22 @@ fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_v
             record_frame_counter(counter, v);
         }
     }
-    if is_throttled_property(name) && !throttle_allows(name) {
-        return;
-    }
+}
 
+/// 纯粹的 JNI 属性回调派发（单向序列化与事件传递，严格走编译期/初始化缓存的 MethodID）
+fn dispatch_property_to_jni(
+    env: &mut JNIEnv,
+    name: &str,
+    format: c_int,
+    data: *mut c_void,
+    epoch: i64,
+) {
+    let Some(cb) = G_CALLBACKS.get() else { return };
     let Ok(jname) = env.new_string(name) else { return };
     if data.is_null() {
-        call_static(env, "onPropertyNone", "(Ljava/lang/String;J)V", &[JValue::Object(&jname), JValue::Long(epoch)]);
+        let args = [jvalue { l: jname.as_raw() }, jvalue { j: epoch }];
+        call_cached(env, cb.on_property_none, &args);
+        let _ = env.delete_local_ref(jname);
         return;
     }
 
@@ -224,30 +315,48 @@ fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_v
         match format {
             MPV_FORMAT_FLAG => {
                 let v = *(data as *const c_int) != 0;
-                call_static(env, "onPropertyFlag", "(Ljava/lang/String;ZJ)V", &[JValue::Object(&jname), JValue::Bool(v as u8), JValue::Long(epoch)]);
+                let args = [jvalue { l: jname.as_raw() }, jvalue { z: v as u8 }, jvalue { j: epoch }];
+                call_cached(env, cb.on_property_flag, &args);
             }
             MPV_FORMAT_INT64 => {
                 let v = *(data as *const i64);
-                call_static(env, "onPropertyLong", "(Ljava/lang/String;JJ)V", &[JValue::Object(&jname), JValue::Long(v), JValue::Long(epoch)]);
+                let args = [jvalue { l: jname.as_raw() }, jvalue { j: v }, jvalue { j: epoch }];
+                call_cached(env, cb.on_property_long, &args);
             }
             MPV_FORMAT_DOUBLE => {
                 let v = *(data as *const f64);
-                call_static(env, "onPropertyDouble", "(Ljava/lang/String;DJ)V", &[JValue::Object(&jname), JValue::Double(v), JValue::Long(epoch)]);
+                let args = [jvalue { l: jname.as_raw() }, jvalue { d: v }, jvalue { j: epoch }];
+                call_cached(env, cb.on_property_double, &args);
             }
             MPV_FORMAT_STRING => {
                 let str_ptr = *(data as *const *const c_char);
                 if !str_ptr.is_null() {
                     let s = CStr::from_ptr(str_ptr).to_string_lossy();
                     if let Ok(jv) = env.new_string(s.as_ref()) {
-                        call_static(env, "onPropertyString", "(Ljava/lang/String;Ljava/lang/String;J)V", &[JValue::Object(&jname), JValue::Object(&jv), JValue::Long(epoch)]);
+                        let args = [jvalue { l: jname.as_raw() }, jvalue { l: jv.as_raw() }, jvalue { j: epoch }];
+                        call_cached(env, cb.on_property_string, &args);
+                        let _ = env.delete_local_ref(jv);
                     }
                 }
             }
             _ => {
-                call_static(env, "onPropertyNone", "(Ljava/lang/String;J)V", &[JValue::Object(&jname), JValue::Long(epoch)]);
+                let args = [jvalue { l: jname.as_raw() }, jvalue { j: epoch }];
+                call_cached(env, cb.on_property_none, &args);
             }
         }
     }
+    let _ = env.delete_local_ref(jname);
+}
+
+fn dispatch_property(env: &mut JNIEnv, name: &str, format: c_int, data: *mut c_void) {
+    intercept_internal_properties(name, format, data);
+
+    if is_throttled_property(name) && !throttle_allows(name) {
+        return;
+    }
+
+    let epoch = current_epoch() as i64;
+    dispatch_property_to_jni(env, name, format, data, epoch);
 }
 
 pub fn signal_first_frame() {
@@ -273,30 +382,48 @@ pub fn signal_first_frame() {
 
     let Some(VmPtr(vm_ptr)) = G_VM.get() else { return };
     let Ok(vm) = (unsafe { JavaVM::from_raw(vm_ptr.cast()) }) else { return };
-    let Ok(mut guard) = vm.attach_current_thread() else { return };
-    call_static(
-        &mut guard,
-        "onEvent",
-        "(IJ)V",
-        &[JValue::Int(JAVA_EVENT_FIRST_FRAME), JValue::Long(current as i64)],
-    );
+    let Ok(mut guard) = vm.attach_current_thread_as_daemon() else { return };
+    emit_event(&mut guard, JAVA_EVENT_FIRST_FRAME, current as i64);
 }
 
 pub fn run_mpv_command(args: &[&str]) -> Option<c_int> {
     with_api(|api| {
         let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;
         let owned: Vec<CString> = args.iter().map(|a| CString::new(*a).unwrap_or_default()).collect();
-        let mut arg_ptrs: Vec<*mut c_char> = owned.iter().map(|c| c.as_ptr() as *mut c_char).collect();
-        arg_ptrs.push(std::ptr::null_mut());
-        Some(unsafe { (api.mpv_command)(handle, arg_ptrs.as_mut_ptr()) })
+        let total = owned.len() + 1;
+        if total <= 8 {
+            let mut stack_ptrs: [*mut c_char; 8] = [std::ptr::null_mut(); 8];
+            for (i, c) in owned.iter().enumerate() {
+                stack_ptrs[i] = c.as_ptr() as *mut c_char;
+            }
+            Some(unsafe { (api.mpv_command)(handle, stack_ptrs.as_mut_ptr()) })
+        } else {
+            let mut arg_ptrs: Vec<*mut c_char> = owned.iter().map(|c| c.as_ptr() as *mut c_char).collect();
+            arg_ptrs.push(std::ptr::null_mut());
+            Some(unsafe { (api.mpv_command)(handle, arg_ptrs.as_mut_ptr()) })
+        }
     })
     .ok()
     .flatten()
 }
 
 pub fn rearm_video_output() -> bool {
-    run_mpv_command(&["set", "vid", "no"]);
-    let restored = run_mpv_command(&["set", "vid", "auto"]);
+    let run_cmd = |mut args: [*mut c_char; 4]| -> Option<c_int> {
+        with_api(|api| {
+            let (_guard, handle) = unsafe { mpv_handle_guarded() }.ok()?;
+            Some(unsafe { (api.mpv_command)(handle, args.as_mut_ptr()) })
+        })
+        .ok()
+        .flatten()
+    };
+
+    let set = c"set".as_ptr() as *mut c_char;
+    let vid = c"vid".as_ptr() as *mut c_char;
+    let no = c"no".as_ptr() as *mut c_char;
+    let auto = c"auto".as_ptr() as *mut c_char;
+
+    run_cmd([set, vid, no, std::ptr::null_mut()]);
+    let restored = run_cmd([set, vid, auto, std::ptr::null_mut()]);
     if restored != Some(MPV_ERROR_SUCCESS) {
         nlog(&format!("EGL: 重新启用视频轨失败 rc={restored:?}"));
     }
@@ -392,7 +519,7 @@ pub fn event_thread() {
         None => return,
     };
     let Ok(vm) = (unsafe { JavaVM::from_raw(vm_ptr.cast()) }) else { return };
-    let Ok(mut guard) = vm.attach_current_thread() else { return };
+    let Ok(mut guard) = vm.attach_current_thread_as_daemon() else { return };
     let env: &mut JNIEnv = &mut guard;
 
     let wait_event = match with_api(|api| api.mpv_wait_event) {
@@ -446,7 +573,7 @@ pub fn event_thread() {
                     nlog("event_thread: 收到 MPV_EVENT_SHUTDOWN 事件");
                     HANDLE_VALID.store(false, Ordering::Release);
                     let epoch = current_epoch() as i64;
-                    call_static(env, "onEvent", "(IJ)V", &[JValue::Int(MPV_EVENT_SHUTDOWN), JValue::Long(epoch)]);
+                    emit_event(env, MPV_EVENT_SHUTDOWN, epoch);
                     break;
                 }
                 MPV_EVENT_START_FILE => {
@@ -458,21 +585,19 @@ pub fn event_thread() {
                     G_SESSION.cached_rotate.store(0, Ordering::Release);
                     G_SESSION.file_loaded_reached.store(false, Ordering::Release);
                     G_SESSION.awaiting_first_frame.store(true, Ordering::Release);
+                    G_SESSION.hdr_output.store(false, Ordering::Release);
                     crate::render::G_RENDER_EPOCH.store(epoch, Ordering::Release);
                 }
                 MPV_EVENT_FILE_LOADED => {
                     crate::tracelog("NATIVE_MPV_FILE_LOADED", "");
                     G_SESSION.file_loaded_reached.store(true, Ordering::Release);
-                    G_SESSION.cached_dwidth.store(0, Ordering::Release);
-                    G_SESSION.cached_dheight.store(0, Ordering::Release);
-                    G_SESSION.cached_rotate.store(0, Ordering::Release);
                     nlog("event_thread: 收到 MPV_EVENT_FILE_LOADED 事件");
                     // The loadfile may have raced ahead of the render context: mpv initializes
                     // its VO during load and permanently disables video when none exists yet.
                     // If the render context landed after that failure, nothing else will retry.
                     maybe_rearm_video_output();
                     let epoch = current_epoch() as i64;
-                    call_static(env, "onEvent", "(IJ)V", &[JValue::Int(event_id), JValue::Long(epoch)]);
+                    emit_event(env, event_id, epoch);
                 }
                 MPV_EVENT_END_FILE => {
                     let reason = if !(*ev).data.is_null() {
@@ -483,23 +608,13 @@ pub fn event_thread() {
                     };
                     nlog(&format!("event_thread: 收到 MPV_EVENT_END_FILE, reason={reason}"));
                     let epoch = current_epoch() as i64;
-                    // Legacy path kept while Kotlin migrates: Lifecycle(END_FILE) drives the
-                    // ENDED playback state, and only EOF may produce it — STOP is the engine's
-                    // own `replace` load tearing down the previous entry.
-                    if reason == MPV_END_FILE_REASON_EOF {
-                        call_static(env, "onEvent", "(IJ)V", &[JValue::Int(MPV_EVENT_END_FILE), JValue::Long(epoch)]);
-                    }
-                    // Reason-bearing delivery for every END_FILE. mpv rejecting a file outright
-                    // (corrupt container, no playable stream) arrives as reason=ERROR and used to
-                    // be swallowed here, which left the Kotlin session phase in Submitting with no
-                    // terminal state to show. GyroNative only answers once the Kotlin side grows
-                    // `onEndFile`; until then call_static no-ops, so this is additive.
-                    call_static(env, "onEndFile", "(IJ)V", &[JValue::Int(reason), JValue::Long(epoch)]);
+                    // Reason-bearing delivery for every END_FILE (EOF, STOP, ERROR, QUIT).
+                    emit_end_file(env, reason, epoch);
                 }
                 MPV_EVENT_PLAYBACK_RESTART => {
                     nlog(&format!("event_thread: 收到事件 event_id={event_id}"));
                     let epoch = current_epoch() as i64;
-                    call_static(env, "onEvent", "(IJ)V", &[JValue::Int(event_id), JValue::Long(epoch)]);
+                    emit_event(env, event_id, epoch);
                 }
                 _ => {}
             }

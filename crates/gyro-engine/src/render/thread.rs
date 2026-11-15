@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(target_os = "android"), allow(dead_code, unused_variables, unused_imports))]
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -11,7 +11,7 @@ use super::types::*;
 use super::egl::init_egl_strategy;
 use super::G_SESSION;
 use crate::logic::{AffinityVerdict, FrameCoalescer, ThreadAffinity};
-use crate::strategy::{RenderBackend, RenderStrategy};
+use crate::strategy::RenderStrategy;
 use crate::{nlog, reset_engine_lifecycle_state};
 
 pub enum RenderCommand {
@@ -118,12 +118,46 @@ unsafe fn create_render_strategy() -> Result<Box<dyn RenderStrategy>, String> {
     init_egl_strategy().map(|egl| Box::new(egl) as Box<dyn RenderStrategy>)
 }
 
+#[cfg(target_os = "android")]
+fn boost_render_thread_priority() {
+    extern "C" {
+        fn setpriority(which: std::ffi::c_int, who: std::ffi::c_int, prio: std::ffi::c_int) -> std::ffi::c_int;
+    }
+    // PRIO_PROCESS = 0, who = 0 (当前调用线程), -4 对应 Android 的 THREAD_PRIORITY_DISPLAY
+    unsafe {
+        let rc = setpriority(0, 0, -4);
+        if rc == 0 {
+            nlog("native_render_loop: 成功提升渲染线程优先级至 THREAD_PRIORITY_DISPLAY (-4)");
+        } else {
+            nlog(&format!("native_render_loop: 提升渲染线程优先级未能完成 (rc={rc})"));
+        }
+    }
+}
+
+/// 渲染管线模板执行器：统一管理就绪检查、上下文确认、渲染执行与跳帧兜底
+#[inline]
+fn render_pipeline_frame(
+    strategy: &mut Box<dyn RenderStrategy>,
+    mpv_render_ctx: &mut *mut std::ffi::c_void,
+    force: bool,
+) {
+    if strategy.is_ready() {
+        strategy.ensure_render_context(mpv_render_ctx);
+        strategy.draw_frame(*mpv_render_ctx, force);
+    } else if !mpv_render_ctx.is_null() && !force {
+        strategy.skip_frame(*mpv_render_ctx);
+    }
+}
+
 pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
     let owner_tid = logical_thread_id();
     if let Ok(mut affinity) = G_AFFINITY.lock() {
         affinity.claim(owner_tid);
     }
     G_AFFINITY_OWNER.store(owner_tid, Ordering::Release);
+
+    #[cfg(target_os = "android")]
+    boost_render_thread_priority();
 
     #[cfg(target_os = "android")]
     unsafe {
@@ -179,9 +213,7 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                                 crate::render::is_hdr_output(),
                                 strategy.is_ready()
                             ));
-                            if !mpv_render_ctx.is_null() {
-                                strategy.draw_frame(mpv_render_ctx, true);
-                            }
+                            render_pipeline_frame(&mut strategy, &mut mpv_render_ctx, true);
                         }
                         Err(err) => {
                             G_SESSION.render_slot_ready.store(false, Ordering::Release);
@@ -190,30 +222,13 @@ pub fn native_render_loop(receiver: Receiver<RenderCommand>) {
                     }
                 }
                 RenderCommand::Redraw => {
-                    let awaiting = G_SESSION.awaiting_first_frame.load(Ordering::Acquire);
-                    let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
-                    let ready = strategy.is_ready();
-                    crate::tracelog(
-                        "NATIVE_CMD_REDRAW",
-                        &format!("slot_ready={ready}, awaiting_first_frame={awaiting}, file_loaded={file_loaded}"),
-                    );
-                    if awaiting {
-                        crate::tracelog("NATIVE_REDRAW_SKIPPED_AWAITING_FIRST_FRAME", "");
-                        continue;
-                    }
-                    nlog(&format!("{}: 收到 Redraw 命令", strategy.name()));
-                    if ready && !mpv_render_ctx.is_null() {
-                        strategy.draw_frame(mpv_render_ctx, true);
+                    if !G_SESSION.awaiting_first_frame.load(Ordering::Acquire) {
+                        render_pipeline_frame(&mut strategy, &mut mpv_render_ctx, true);
                     }
                 }
                 RenderCommand::NotifyFrame => {
                     G_FRAME_GATE.release();
-                    if strategy.is_ready() {
-                        strategy.ensure_render_context(&mut mpv_render_ctx);
-                        strategy.draw_frame(mpv_render_ctx, false);
-                    } else if !mpv_render_ctx.is_null() {
-                        strategy.skip_frame(mpv_render_ctx);
-                    }
+                    render_pipeline_frame(&mut strategy, &mut mpv_render_ctx, false);
                 }
                 RenderCommand::DestroyContext(ack) => {
                     nlog(&format!("{}: 收到 DestroyContext 请求，开始销毁 mpv_render_context", strategy.name()));

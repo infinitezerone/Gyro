@@ -10,11 +10,11 @@ use std::time::Instant;
 use super::types::*;
 use super::egl::{egl_error_name, egl_failure, EglCore, SurfaceSlot};
 use super::thread::assert_render_thread;
-use super::{G_MPVP, G_RENDER_EPOCH, G_SESSION};
+use super::{G_RENDER_EPOCH, G_SESSION};
 use crate::logic::{ContextRecovery, FirstFrameGate, RecoveryVerdict};
 use crate::mpv::{
-    mpv_handle_guarded, with_api, with_api_logged, MpvOpenGLFbo, MpvOpenGLInitParams,
-    MpvRenderFrameInfo, MpvRenderParam, MPV_ERROR_SUCCESS, MPV_FORMAT_INT64,
+    G_MPVP, mpv_handle_guarded, with_api, with_api_logged, MpvOpenGLFbo, MpvOpenGLInitParams,
+    MpvRenderFrameInfo, MpvRenderParam, MPV_ERROR_SUCCESS,
     MPV_RENDER_FRAME_INFO_REDRAW, MPV_RENDER_PARAM_API_TYPE,
     MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, MPV_RENDER_PARAM_FLIP_Y,
     MPV_RENDER_PARAM_NEXT_FRAME_INFO, MPV_RENDER_PARAM_OPENGL_FBO,
@@ -41,13 +41,14 @@ unsafe extern "C" fn wrapped_gl_fence_sync(condition: u32, flags: u32) -> *mut c
     let sync = f(condition, flags);
     if !sync.is_null() {
         if let Ok(mut lock) = G_SESSION.active_fences.lock() {
-            lock.push(SyncHandle(sync));
+            lock.push_back(SyncHandle(sync));
             if lock.len() > MAX_TRACKED_FENCES {
-                let old_sync = lock.remove(0);
-                let del_fn = G_SESSION.real_gl_delete_sync.load(Ordering::Relaxed);
-                if !del_fn.is_null() {
-                    let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
-                    del(old_sync.0);
+                if let Some(old_sync) = lock.pop_front() {
+                    let del_fn = G_SESSION.real_gl_delete_sync.load(Ordering::Relaxed);
+                    if !del_fn.is_null() {
+                        let del: unsafe extern "C" fn(*mut c_void) = std::mem::transmute(del_fn);
+                        del(old_sync.0);
+                    }
                 }
             }
         }
@@ -452,6 +453,7 @@ pub unsafe fn draw_frame_native(
     }
     assert_render_thread("draw_frame_native");
     with_api(|api| {
+        let _trace_frame = crate::TraceScope::new(c"draw_frame_native");
         let flags = (api.mpv_render_context_update)(ctx);
         if !force && (flags & MPV_RENDER_UPDATE_FRAME == 0) {
             let starved = G_SESSION.frames_starved.fetch_add(1, Ordering::Relaxed) + 1;
@@ -512,7 +514,10 @@ pub unsafe fn draw_frame_native(
         };
 
         let render_start = Instant::now();
-        let render_rc = (api.mpv_render_context_render)(ctx, params.as_mut_ptr());
+        let render_rc = {
+            let _trace_render = crate::TraceScope::new(c"mpv_render_context_render");
+            (api.mpv_render_context_render)(ctx, params.as_mut_ptr())
+        };
         let render_ms = render_start.elapsed().as_millis();
 
         if let (Some(target_mono_ns), Some(set_pts)) = (presentation_ns, pts_fn) {
@@ -520,7 +525,10 @@ pub unsafe fn draw_frame_native(
         }
 
         let swap_start = Instant::now();
-        let swap_rc = eglSwapBuffers(display, surface);
+        let swap_rc = {
+            let _trace_swap = crate::TraceScope::new(c"eglSwapBuffers");
+            eglSwapBuffers(display, surface)
+        };
         let swap_ms = swap_start.elapsed().as_millis();
         if render_ms > 150 || swap_ms > 150 {
             nlog(&format!(
@@ -530,50 +538,9 @@ pub unsafe fn draw_frame_native(
 
         let file_loaded = G_SESSION.file_loaded_reached.load(Ordering::Acquire);
         let (final_w, final_h) = if awaiting_first_frame && file_loaded {
-            let mut dwidth = G_SESSION.cached_dwidth.load(Ordering::Acquire);
-            let mut dheight = G_SESSION.cached_dheight.load(Ordering::Acquire);
-            let mut rotate = G_SESSION.cached_rotate.load(Ordering::Acquire);
-            if dwidth <= 0 || dheight <= 0 {
-                let mpv_h = G_MPVP.load(Ordering::Acquire);
-                if !mpv_h.is_null() {
-                    let dwidth_cstr = b"dwidth\0";
-                    let dheight_cstr = b"dheight\0";
-                    let rotate_cstr = b"video-params/rotate\0";
-                    let _ = (api.mpv_get_property)(
-                        mpv_h,
-                        dwidth_cstr.as_ptr() as *const c_char,
-                        MPV_FORMAT_INT64,
-                        &mut dwidth as *mut _ as *mut c_void,
-                    );
-                    let _ = (api.mpv_get_property)(
-                        mpv_h,
-                        dheight_cstr.as_ptr() as *const c_char,
-                        MPV_FORMAT_INT64,
-                        &mut dheight as *mut _ as *mut c_void,
-                    );
-                    let _ = (api.mpv_get_property)(
-                        mpv_h,
-                        rotate_cstr.as_ptr() as *const c_char,
-                        MPV_FORMAT_INT64,
-                        &mut rotate as *mut _ as *mut c_void,
-                    );
-                    if rotate == 0 {
-                        let out_rotate_cstr = b"video-out-params/rotate\0";
-                        let _ = (api.mpv_get_property)(
-                            mpv_h,
-                            out_rotate_cstr.as_ptr() as *const c_char,
-                            MPV_FORMAT_INT64,
-                            &mut rotate as *mut _ as *mut c_void,
-                        );
-                    }
-                    if dwidth > 0 && dheight > 0 {
-                        G_SESSION.cached_dwidth.store(dwidth, Ordering::Release);
-                        G_SESSION.cached_dheight.store(dheight, Ordering::Release);
-                        G_SESSION.cached_rotate.store(rotate, Ordering::Release);
-                    }
-                }
-            }
-
+            let dwidth = G_SESSION.cached_dwidth.load(Ordering::Acquire);
+            let dheight = G_SESSION.cached_dheight.load(Ordering::Acquire);
+            let rotate = G_SESSION.cached_rotate.load(Ordering::Acquire);
             if rotate % 180 != 0 {
                 (dheight, dwidth)
             } else {
@@ -596,33 +563,13 @@ pub unsafe fn draw_frame_native(
 
         if render_rc == MPV_ERROR_SUCCESS && swap_rc == EGL_TRUE {
             (api.mpv_render_context_report_swap)(ctx);
-            if awaiting_first_frame {
-                crate::tracelog(
-                    "NATIVE_SWAP_WHILE_AWAITING",
-                    &format!(
-                        "force={force}, is_redraw={is_redraw}, file_loaded={file_loaded}, buf={w}x{h}, vid={final_w}x{final_h}, mismatch={aspect_mismatch}, waited={waited_ms}ms"
-                    ),
-                );
-                if FirstFrameGate::should_signal(file_loaded, force, is_redraw, aspect_mismatch, waited_ms) {
-                    let cur_epoch = crate::events::current_epoch();
-                    let frame_epoch = G_RENDER_EPOCH.load(Ordering::Acquire);
-                    if frame_epoch >= cur_epoch {
-                        crate::events::signal_first_frame();
-                    } else {
-                        crate::tracelog(
-                            "NATIVE_SUPPRESS_FIRST_FRAME_EXPIRED_EPOCH",
-                            &format!(
-                                "frame_epoch={frame_epoch}, current_epoch={cur_epoch}"
-                            ),
-                        );
-                    }
-                } else {
-                    crate::tracelog(
-                        "NATIVE_SUPPRESS_FIRST_FRAME",
-                        &format!(
-                            "file_loaded={file_loaded}, force={force}, is_redraw={is_redraw}, mismatch={aspect_mismatch}, waited={waited_ms}ms"
-                        ),
-                    );
+            if awaiting_first_frame
+                && FirstFrameGate::should_signal(file_loaded, force, is_redraw, aspect_mismatch, waited_ms)
+            {
+                let cur_epoch = crate::events::current_epoch();
+                let frame_epoch = G_RENDER_EPOCH.load(Ordering::Acquire);
+                if frame_epoch >= cur_epoch {
+                    crate::events::signal_first_frame();
                 }
             }
         }
@@ -647,24 +594,14 @@ pub unsafe fn draw_frame_native(
 
         let presented = G_SESSION.frames_drawn.fetch_add(1, Ordering::Relaxed) + 1;
         if presented <= 3 || presented % 300 == 0 {
-            let (delayed, mistimed, vo_drop, dec_drop) = match crate::events::G_EVENT_PUMP.frame_health.lock() {
-                Ok(m) => (
-                    m.late_frames(),
-                    m.mistimed_frames(),
-                    m.skipped_frames(),
-                    m.dropped_frames(),
-                ),
-                Err(_) => (0, 0, 0, 0),
-            };
             nlog(&format!(
-                "RENDER: presented={} elapsed={}ms starved={} vo_drop={} dec_drop={} delayed={} mistimed={}",
+                "RENDER: presented={} elapsed={}ms starved={} gap={}ms buf={}x{}",
                 presented,
                 elapsed.as_millis(),
                 G_SESSION.frames_starved.load(Ordering::Relaxed),
-                vo_drop,
-                dec_drop,
-                delayed,
-                mistimed
+                gap_ms,
+                w,
+                h
             ));
         }
 
