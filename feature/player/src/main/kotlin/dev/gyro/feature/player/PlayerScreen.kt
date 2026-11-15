@@ -252,7 +252,7 @@ fun PlayerScreen(
         }
     }
 
-    val playlistMgr = engine.playlist
+    val playlistMgr = viewModel.playlistManager
     val playlist by playlistMgr.items.collectAsState()
     val currentPlaylistIndex by playlistMgr.currentIndex.collectAsState()
     val hasPrevious = playlistMgr.hasPrevious
@@ -290,13 +290,8 @@ fun PlayerScreen(
 
     // Clear any residual MPV native video-zoom
     LaunchedEffect(Unit) {
-        engine.geometry.resetZoomAndPan()
+        viewModel.resetZoomAndPan()
     }
-
-    // 2. Picture-in-Picture (PiP) Architecture (Aligned with MiniBgm)
-    PipBroadcastReceiver(
-        onTogglePlayPause = { engine.togglePlayPause() }
-    )
 
     val targetAspectRatio = remember(videoDimensions, videoAspect) {
         val ratio = when {
@@ -340,6 +335,28 @@ fun PlayerScreen(
     val hideChrome = pipState.shouldHideChrome
 
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val overlayActions = rememberPlayerScreenActions(
+        engine = engine,
+        viewModel = viewModel,
+        playerState = playerState,
+        screenshotController = screenshotController,
+        activity = componentActivity,
+        configuration = configuration,
+        onBack = onBack,
+        durationMsProvider = { durationMs },
+        timePosMsProvider = { timePosState.value },
+        surfaceViewProvider = { surfaceViewRef },
+        mediaTitleProvider = { snapshot.mediaTitle },
+        subtitleEnabled = subtitleEnabled,
+        lastSubTrackId = lastSubTrackId,
+        seekStepSeconds = liveSettings.seekStepSeconds,
+        onEnterPiP = { pipState.enterPip() }
+    )
+
+    // Picture-in-Picture (PiP) Architecture (Aligned with MiniBgm)
+    PipBroadcastReceiver(
+        onTogglePlayPause = { overlayActions.onTogglePlayPause() }
+    )
     var orientationBeforePip by rememberSaveable {
         mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
     }
@@ -421,7 +438,7 @@ fun PlayerScreen(
             } else {
                 pickedUri.path ?: pickedUri.toString()
             }
-            engine.trackManager.addSubtitle(target)
+            viewModel.addSubtitle(target)
         }
     }
 
@@ -437,7 +454,7 @@ fun PlayerScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
-            engine.shaders.importAndSetCustomShader(it)
+            viewModel.setCustomShader(it)
         }
     }
 
@@ -510,7 +527,7 @@ fun PlayerScreen(
     // software gain so the next screen does not inherit an overdriven volume.
     DisposableEffect(activeUri) {
         onDispose {
-            engine.audio.resetSoftwareGain()
+            viewModel.resetAudioSoftwareGain()
         }
     }
 
@@ -577,7 +594,7 @@ fun PlayerScreen(
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         android.view.KeyEvent.KEYCODE_SPACE,
                         android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                            engine.togglePlayPause()
+                            overlayActions.onTogglePlayPause()
                             true
                         }
                         else -> false
@@ -859,23 +876,6 @@ fun PlayerScreen(
 
         // F. Top & Bottom Streamline Controls Overlay (hidden in PiP)
         if (!isPipLayout && !hideChrome) {
-            val overlayActions = rememberPlayerScreenActions(
-                engine = engine,
-                viewModel = viewModel,
-                playerState = playerState,
-                screenshotController = screenshotController,
-                activity = activity,
-                configuration = configuration,
-                onBack = onBack,
-                durationMsProvider = { durationMs },
-                timePosMsProvider = { timePosState.value },
-                surfaceViewProvider = { surfaceViewRef },
-                mediaTitleProvider = { snapshot.mediaTitle },
-                subtitleEnabled = subtitleEnabled,
-                lastSubTrackId = lastSubTrackId,
-                seekStepSeconds = liveSettings.seekStepSeconds,
-                onEnterPiP = { pipState.enterPip() }
-            )
             PlayerControlsOverlay(
                 isVisible = playerState.showControls,
                 isLocked = playerState.isLocked,

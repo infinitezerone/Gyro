@@ -157,6 +157,22 @@ class PlayerViewModel @Inject constructor(
         session.saveCurrentProgress()
     }
 
+    fun addSubtitle(target: String) {
+        engine.trackManager.addSubtitle(target)
+    }
+
+    fun setCustomShader(uri: Uri) {
+        engine.shaders.importAndSetCustomShader(uri)
+    }
+
+    fun resetZoomAndPan() {
+        engine.geometry.resetZoomAndPan()
+    }
+
+    fun resetAudioSoftwareGain() {
+        engine.audio.resetSoftwareGain()
+    }
+
     public override fun onCleared() {
         super.onCleared()
         // Nothing here may drive playback state. `onCleared` is a destructor for this instance, not
