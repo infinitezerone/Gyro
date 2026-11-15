@@ -98,19 +98,16 @@ fun BoxScope.PlayerControlsOverlay(
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    // Control-layer visibility has exactly one input: PlayerState.showControls.
-    // [scrubState] is a transient playhead preview (bottom-bar drag or full-screen swipe) and is
-    // never allowed to gate or drive it: a swipe on the video surface must not pull the bars up,
-    // and dragging the progress bar must not tear them down either.
-    val showControls = isVisible
+    val isScrubbing = scrubState.isActive
+    val showBottomBar = isVisible || isScrubbing
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. 顶部与底部沉浸式非线性暗角渐变（零动画，随控制层瞬时显隐）
-        if (showControls && !isLocked) {
+        if (!isLocked) {
             val topScrimHeight = if (isLandscape) 100.dp else 70.dp
             val bottomScrimHeight = if (isLandscape) 120.dp else 80.dp
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            if (isVisible && !isScrubbing) {
                 // 顶部向下淡出暗角
                 Box(
                     modifier = Modifier
@@ -127,7 +124,9 @@ fun BoxScope.PlayerControlsOverlay(
                             )
                         )
                 )
+            }
 
+            if (showBottomBar) {
                 // 底部向上淡出暗角
                 Box(
                     modifier = Modifier
@@ -147,8 +146,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 2. 锁屏浮动悬浮按键（零动画，瞬时响应）
-        if (isVisible) {
+        // 2. 锁屏浮动悬浮按键（零动画，瞬时响应；拖动进度时隐藏）
+        if (isVisible && !isScrubbing) {
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -168,8 +167,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 2.5. 截图浮动悬浮按键（零动画，瞬时响应）
-        if (isVisible && !isLocked) {
+        // 2.5. 截图浮动悬浮按键（零动画，瞬时响应；拖动进度时隐藏）
+        if (isVisible && !isLocked && !isScrubbing) {
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -192,8 +191,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏胶囊按键（零动画，瞬时响应）
-        if (!isLandscape && isVisible) {
+        // 2. 竖屏模式下的全屏胶囊按键（零动画，瞬时响应；拖动进度时隐藏）
+        if (!isLandscape && isVisible && !isScrubbing) {
             val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
                 Modifier
                     .align(Alignment.TopCenter)
@@ -217,8 +216,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 3. 顶部操作栏（零动画，瞬时响应）
-        if (isVisible) {
+        // 3. 顶部操作栏（零动画，瞬时响应；拖动进度时隐藏）
+        if (isVisible && !isScrubbing) {
             Box(modifier = Modifier.align(Alignment.TopCenter)) {
                 PlayerTopBar(
                     title = title,
@@ -234,8 +233,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 4. 底部控制栏（零动画，瞬时响应）
-        if (showControls) {
+        // 4. 底部控制栏（支持拖拽进度或屏幕水平滑动快进，仅显进度条与底部时间；平时显全套控制行）
+        if (showBottomBar) {
             Box(modifier = Modifier.align(Alignment.BottomCenter)) {
                 PlayerBottomBar(
                     isVisible = isVisible,
