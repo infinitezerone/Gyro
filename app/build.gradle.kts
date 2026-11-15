@@ -50,6 +50,18 @@ android {
             )
         }
     }
+
+    splits {
+        abi {
+            // Per-ABI APKs for direct distribution (roughly halves each download), plus the
+            // universal one for sideloading onto unknown devices. ABI list stays coupled to
+            // the nativeAbis cargo builds for, so a split can never advertise a missing .so.
+            isEnable = true
+            reset()
+            include(*nativeAbis.toTypedArray())
+            isUniversalApk = true
+        }
+    }
 }
 
 dependencies {
