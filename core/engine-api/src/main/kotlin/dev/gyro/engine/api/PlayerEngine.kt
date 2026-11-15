@@ -17,7 +17,6 @@ import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import kotlinx.coroutines.flow.StateFlow
-import java.io.File
 
 /**
  * Common playback engine facade interface following Now in Android (NiA) architecture guidelines.
@@ -114,7 +113,6 @@ interface PlayerEngine {
         fallbackUri: String = "",
         fallbackSize: Long = 0L
     ): MediaInfo
-    fun screenshotToFile(targetFile: File): Boolean
 
     fun abandonAudioFocus()
     fun release()

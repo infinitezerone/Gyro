@@ -85,6 +85,7 @@ class TrackAndChapterManager(
             bridge.events.collect(::onEvent)
         }
 
+    @Synchronized
     fun refreshTracks() {
         try {
             val count = bridge.getLong("track-list/count") ?: 0L
@@ -129,14 +130,26 @@ class TrackAndChapterManager(
                 }
             }
         }
-        refreshTracks()
+        // 乐观同步内存中的选中状态，消除在 UI 主线程阻塞发起数十次同步 JNI 往返；
+        // 底层 mpv 生效后会触发 TRACKS_CHANGED 事件在后台协程自动权威核实刷新。
+        if (type != "secondary-sub") {
+            val targetType = if (type == "sub") "sub" else "audio"
+            _tracks.value = _tracks.value.map { track ->
+                if (track.type == targetType) {
+                    track.copy(isSelected = (id > 0 && track.id == id))
+                } else {
+                    track
+                }
+            }
+        }
     }
 
     override fun addSubtitle(path: String) {
         bridge.command(arrayOf("sub-add", path, "select"))
-        refreshTracks()
+        // sub-add 命令由 mpv 执行后会发布 TRACKS_CHANGED 事件，自动触发后台权威刷新
     }
 
+    @Synchronized
     fun refreshChapters() {
         try {
             val count = bridge.getLong("chapter-list/count") ?: 0L

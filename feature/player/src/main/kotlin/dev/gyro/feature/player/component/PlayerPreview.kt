@@ -65,15 +65,17 @@ fun PlayerControlsPortraitPreview() {
             resizeMode = ResizeMode.FIT,
             speed = 1.0f,
             scrubState = PlayerScrubState(),
-            onTogglePlayPause = {},
-            onSeekToFraction = {},
-            onRewind10 = {},
-            onForward10 = {},
-            onOpenSheetTab = {},
-            onToggleOrientation = {},
-            onBack = {},
-            onEnterPiP = {},
-            onToggleLock = {},
+            actions = PlayerOverlayActions(
+                onTogglePlayPause = {},
+                onSeekToFraction = {},
+                onRewind10 = {},
+                onForward10 = {},
+                onOpenSheetTab = {},
+                onToggleOrientation = {},
+                onBack = {},
+                onEnterPiP = {},
+                onToggleLock = {}
+            ),
             chapters = sampleChapters
         )
     }
@@ -103,15 +105,17 @@ fun PlayerControlsLandscapePreview() {
             resizeMode = ResizeMode.FIT,
             speed = 1.0f,
             scrubState = PlayerScrubState(),
-            onTogglePlayPause = {},
-            onSeekToFraction = {},
-            onRewind10 = {},
-            onForward10 = {},
-            onOpenSheetTab = {},
-            onToggleOrientation = {},
-            onBack = {},
-            onEnterPiP = {},
-            onToggleLock = {},
+            actions = PlayerOverlayActions(
+                onTogglePlayPause = {},
+                onSeekToFraction = {},
+                onRewind10 = {},
+                onForward10 = {},
+                onOpenSheetTab = {},
+                onToggleOrientation = {},
+                onBack = {},
+                onEnterPiP = {},
+                onToggleLock = {}
+            ),
             chapters = sampleChapters
         )
     }

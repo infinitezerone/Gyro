@@ -157,11 +157,22 @@ fun PlayerTopBar(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // 横屏：纯播放器快捷操作 (画中画 -> 音轨 -> 设置)
+                // 横屏：纯播放器快捷操作 (画中画 -> 截图 -> 音轨 -> 设置)
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
                     contentDescription = stringResource(R.string.cd_pip),
+                    size = 38.dp,
+                    iconSize = 22.dp,
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    border = null
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                GyroCircleActionButton(
+                    onClick = onScreenshot,
+                    icon = Icons.Default.PhotoCamera,
+                    contentDescription = stringResource(R.string.cd_screenshot),
                     size = 38.dp,
                     iconSize = 22.dp,
                     containerColor = Color.Transparent,
@@ -191,7 +202,7 @@ fun PlayerTopBar(
                     border = null
                 )
             } else {
-                // 竖屏：解码胶囊 + 画中画直达 + 设置直达
+                // 竖屏：解码胶囊 + 画中画直达 + 截图直达 + 设置直达
                 HwdecCapsuleButton(
                     hwdec = hwdec,
                     onClick = onCycleHwdec
@@ -202,6 +213,17 @@ fun PlayerTopBar(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
                     contentDescription = stringResource(R.string.cd_pip),
+                    size = 38.dp,
+                    iconSize = 22.dp,
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    border = null
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                GyroCircleActionButton(
+                    onClick = onScreenshot,
+                    icon = Icons.Default.PhotoCamera,
+                    contentDescription = stringResource(R.string.cd_screenshot),
                     size = 38.dp,
                     iconSize = 22.dp,
                     containerColor = Color.Transparent,

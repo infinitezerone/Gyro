@@ -65,31 +65,35 @@ fun BoxScope.PlayerControlsOverlay(
     currentPlaylistIndex: Int = -1,
     hasPrevious: Boolean = false,
     hasNext: Boolean = false,
-    onTogglePlayPause: () -> Unit,
-    onPlayPrevious: () -> Unit = {},
-    onPlayNext: () -> Unit = {},
-    onSelectPlaylistItem: (Int) -> Unit = {},
-    onToggleLock: () -> Unit,
-    onSeekToFraction: (Float) -> Unit,
-    onRewind10: () -> Unit = {},
-    onForward10: () -> Unit = {},
+    actions: PlayerOverlayActions,
     subtitleEnabled: Boolean = true,
     onToggleSubtitle: () -> Unit = {},
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
     onCycleAbLoop: () -> Unit = {},
-    onScreenshot: () -> Unit = {},
-    onEnterPiP: () -> Unit,
-    onOpenSheetTab: (PlayerSheetTab) -> Unit,
-    onToggleOrientation: () -> Unit,
-    onBack: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
     ambientColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Transparent,
     videoBottomDp: Dp? = null,
     hdrFormat: String = "",
-    hwdec: String = "",
-    onCycleHwdec: () -> Unit = {}
+    hwdec: String = ""
 ) {
+    // Local aliases keep the forwarding bodies below unchanged while the lambda dump moves
+    // into [PlayerOverlayActions].
+    val onTogglePlayPause = actions.onTogglePlayPause
+    val onPlayPrevious = actions.onPlayPrevious
+    val onPlayNext = actions.onPlayNext
+    val onSelectPlaylistItem = actions.onSelectPlaylistItem
+    val onToggleLock = actions.onToggleLock
+    val onSeekToFraction = actions.onSeekToFraction
+    val onRewind10 = actions.onRewind10
+    val onForward10 = actions.onForward10
+    val onScreenshot = actions.onScreenshot
+    val onEnterPiP = actions.onEnterPiP
+    val onOpenSheetTab = actions.onOpenSheetTab
+    val onToggleOrientation = actions.onToggleOrientation
+    val onBack = actions.onBack
+    val onCycleHwdec = actions.onCycleHwdec
+
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     // Control-layer visibility has exactly one input: PlayerState.showControls.

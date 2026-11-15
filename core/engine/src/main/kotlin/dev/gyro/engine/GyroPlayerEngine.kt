@@ -283,18 +283,6 @@ class GyroPlayerEngine(
     override fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
     override fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
 
-    /** 对当前画面截图（含字幕），保存到 [targetFile]；命令返回后以文件落盘为准。 */
-    override fun screenshotToFile(targetFile: java.io.File): Boolean = runCatching {
-        bridge.command(arrayOf("screenshot-to-file", targetFile.absolutePath, "subtitles"))
-        val ok = targetFile.exists() && targetFile.length() > 0L
-        if (ok) {
-            android.util.Log.i("GyroPlayerEngine", "screenshot saved: ${targetFile.absolutePath}")
-        } else {
-            android.util.Log.w("GyroPlayerEngine", "screenshot command produced no file")
-        }
-        ok
-    }.getOrDefault(false)
-
     // =========================================================================
     // Media Loading & Surface Lifecycle
     // =========================================================================

@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Build
 import android.util.Rational
 import android.view.WindowManager
-import android.util.Size
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -72,7 +71,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -110,22 +108,17 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toSize
-import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.feature.player.component.PlayerBufferingSpinner
 import dev.gyro.feature.player.component.PlayerControlsOverlay
+import dev.gyro.feature.player.component.PlayerOverlayActions
 import dev.gyro.feature.player.component.PlayerEmptyStateCard
 import dev.gyro.feature.player.component.PlayerPlaybackErrorCard
 import dev.gyro.feature.player.component.PlayerHudOverlay
 import dev.gyro.feature.player.component.StatsDiagnosticOverlay
-import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
-import dev.gyro.feature.player.component.sheet.PlayerPlaylistSheet
-import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
-import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.gesture.*
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.theme.GyroColors
@@ -134,10 +127,7 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
 import dev.gyro.engine.ui.GyroSurfaceView
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
@@ -226,69 +216,7 @@ fun PlayerScreen(
     )
 
     var surfaceViewRef by remember { mutableStateOf<GyroSurfaceView?>(null) }
-
-    // 截图：优先通过 PixelCopy 从硬件合成缓冲无损抓取当前帧，并写入系统 MediaStore 相册
-    fun takeScreenshot() {
-        scope.launch(Dispatchers.IO) {
-            val sv = surfaceViewRef
-            var saved = false
-            if (sv != null) {
-                val bitmap = sv.captureBitmap()
-                if (bitmap != null) {
-                    val uri = runCatching {
-                        val filename = "Gyro_${System.currentTimeMillis()}.jpg"
-                        val contentValues = android.content.ContentValues().apply {
-                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
-                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Gyro")
-                                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
-                            }
-                        }
-                        val resolver = context.contentResolver
-                        val insertUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                        if (insertUri != null) {
-                            resolver.openOutputStream(insertUri)?.use { os ->
-                                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, os)
-                            }
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                                contentValues.clear()
-                                contentValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
-                                resolver.update(insertUri, contentValues, null, null)
-                            }
-                        }
-                        insertUri
-                    }.getOrNull()
-                    bitmap.recycle()
-                    saved = (uri != null)
-                }
-            }
-            if (!saved) {
-                // 回退到 mpv screenshot-to-file
-                val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
-                if (dir != null) {
-                    val file = java.io.File(dir, "Gyro_${System.currentTimeMillis()}.jpg")
-                    val ok = engine.screenshotToFile(file)
-                    if (ok) {
-                        android.media.MediaScannerConnection.scanFile(
-                            context,
-                            arrayOf(file.absolutePath),
-                            arrayOf("image/jpeg"),
-                            null
-                        )
-                        saved = true
-                    }
-                }
-            }
-            withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(
-                    context,
-                    context.getString(if (saved) R.string.screenshot_saved else R.string.screenshot_failed),
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-    }
+    val screenshotController = rememberPlayerScreenshotController()
     val resizeMode = snapshot.resizeMode
     val subDelaySec = snapshot.subtitleDelaySec
     val audioDelaySec = snapshot.audioDelaySec
@@ -331,37 +259,12 @@ fun PlayerScreen(
     val hasNext = playlistMgr.hasNext
 
     // In-memory poster bitmap cache to eliminate blank/black flashes during swipe transitions
-    val thumbnailCache = remember { mutableStateMapOf<String, android.graphics.Bitmap>() }
+    val thumbnailCache = rememberThumbnailCache()
     LaunchedEffect(playlist) {
-        withContext(Dispatchers.IO) {
-            playlist.forEach { item ->
-                val uriStr = item.uriString
-                if (!thumbnailCache.containsKey(uriStr)) {
-                    val uri = runCatching { Uri.parse(uriStr) }.getOrNull() ?: return@forEach
-                    val bmp = runCatching {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == "content") {
-                            context.contentResolver.loadThumbnail(uri, Size(720, 1280), null)
-                        } else {
-                            val path = uri.path ?: uriStr
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                android.media.ThumbnailUtils.createVideoThumbnail(
-                                    java.io.File(path),
-                                    Size(720, 1280),
-                                    null
-                                )
-                            } else {
-                                @Suppress("DEPRECATION")
-                                android.media.ThumbnailUtils.createVideoThumbnail(
-                                    path,
-                                    android.provider.MediaStore.Images.Thumbnails.MINI_KIND
-                                )
-                            }
-                        }
-                    }.getOrNull()
-                    if (bmp != null) {
-                        thumbnailCache[uriStr] = bmp
-                    }
-                }
+        playlist.forEach { item ->
+            val uriStr = item.uriString
+            if (!thumbnailCache.containsKey(uriStr)) {
+                loadVideoThumbnail(context, uriStr)?.let { thumbnailCache[uriStr] = it }
             }
         }
     }
@@ -473,26 +376,11 @@ fun PlayerScreen(
 
     val scrubState = playerState.scrubState
     val zoomState = playerState.zoomState
-    var resetJob by remember { mutableStateOf<Job?>(null) }
 
     // 5. Power & Thermal Monitor
     val powerMonitor = remember { PowerMonitor(context) }
     LaunchedEffect(Unit) {
         powerMonitor.startMonitoring(this)
-    }
-
-    // Reset zoom state on orientation change so portrait pan offsets don't displace video in landscape
-    LaunchedEffect(isLandscape) {
-        resetJob?.cancel()
-        resetJob = null
-        zoomState.reset()
-    }
-
-    // A file switch must start from the identity transform
-    LaunchedEffect(activeUri) {
-        resetJob?.cancel()
-        resetJob = null
-        zoomState.reset()
     }
 
     // 6. Sticky Immersive System Bars (Transient Swipe)
@@ -628,93 +516,26 @@ fun PlayerScreen(
         }
     }
 
-    var priorSpeedBeforeBoost by remember { mutableStateOf<Float?>(null) }
-
-    val gestureModifier = if (!isPipLayout) {
-        Modifier.playerGestures(
-            context = context,
-            isLocked = playerState.isLocked,
-            isPlaying = isPlaying,
-            currentPosMs = { engine.timePosMs.value },
-            durationMs = { durationMs },
-            scrubState = scrubState,
-            zoomScale = { zoomState.scale },
-            onZoomChange = { zoom, pan, centroid, isPinch ->
-                resetJob?.cancel()
-                resetJob = null
-                val vpSize = containerSize.toSize()
-                zoomState.onGesture(
-                    zoomChange = zoom,
-                    panDelta = pan,
-                    centroid = centroid,
-                    viewportSize = vpSize,
-                    contentBounds = composeVideoBounds,
-                    isPinch = isPinch
-                )
-            },
-            onResetZoom = {
-                resetJob?.cancel()
-                resetJob = scope.launch {
-                    val vpSize = containerSize.toSize()
-                    zoomState.animateReset(vpSize, composeVideoBounds)
-                }
-            },
-            onSettleZoom = {
-                resetJob?.cancel()
-                resetJob = scope.launch {
-                    val vpSize = containerSize.toSize()
-                    zoomState.animateSettle(vpSize, composeVideoBounds)
-                }
-            },
-            onSingleTap = {
-                playerState.showControls = !playerState.showControls
-                if (playerState.showControls) {
-                    playerState.resetControlsTimeout()
-                }
-            },
-            onDoubleTapSeek = { deltaMs ->
-                engine.seekRelative(deltaMs)
-            },
-            onDoubleTapPlayPause = {
-                engine.togglePlayPause()
-            },
-            onFastForwardStart = { targetSpeed ->
-                priorSpeedBeforeBoost = speed
-                engine.setSpeed(targetSpeed)
-                playerState.gestureHudState = GestureHudState.Speed(targetSpeed)
-            },
-            onFastForwardEnd = {
-                val restoreSpeed = priorSpeedBeforeBoost ?: 1.0f
-                engine.setSpeed(restoreSpeed)
-                priorSpeedBeforeBoost = null
-                playerState.gestureHudState = GestureHudState.Idle
-            },
-            onHudStateChange = { newState ->
-                playerState.gestureHudState = newState
-            },
-            onSoftwareVolumeChange = { gain ->
-                engine.audio.setSoftwareVolume(gain)
-            },
-            getSoftwareVolume = {
-                engine.state.value.softwareVolume
-            },
-            onSeekTo = { targetMs ->
-                // Commit the gesture seek only. Control-layer visibility is owned by the
-                // auto-hide timer in PlayerState, not by gesture callbacks.
-                engine.seekTo(targetMs)
-            },
-            onPlayPrevious = {
-                viewModel.playPrevious()
-            },
-            onPlayNext = {
-                viewModel.playNext()
-            },
-            videoBounds = { composeVideoBounds },
-            config = gestureConfig
-        )
-    } else {
-        Modifier
-    }
+    // Built unconditionally: the zoom-reset effects inside must keep running in PiP too.
+    // Only the returned Modifier's application is gated on PiP.
+    val rawGestureModifier = rememberPlayerGestureModifier(
+        context = context,
+        isLandscape = isLandscape,
+        activeUri = activeUri,
+        playerState = playerState,
+        isPlaying = isPlaying,
+        engine = engine,
+        durationMs = durationMs,
+        speed = speed,
+        scope = scope,
+        zoomState = zoomState,
+        scrubState = scrubState,
+        containerSize = containerSize,
+        composeVideoBounds = composeVideoBounds,
+        viewModel = viewModel,
+        gestureConfig = gestureConfig
+    )
+    val gestureModifier = if (!isPipLayout) rawGestureModifier else Modifier
 
     val firstFrameRendered = snapshot.firstFrameRendered
     val geometryReady = snapshot.geometryReady
@@ -1061,89 +882,95 @@ fun PlayerScreen(
                 currentPlaylistIndex = currentPlaylistIndex,
                 hasPrevious = hasPrevious,
                 hasNext = hasNext,
-                onTogglePlayPause = {
-                    playerState.resetControlsTimeout()
-                    engine.togglePlayPause()
-                },
-                onPlayPrevious = {
-                    playerState.resetControlsTimeout()
-                    viewModel.playPrevious()
-                },
-                onPlayNext = {
-                    playerState.resetControlsTimeout()
-                    viewModel.playNext()
-                },
-                onSelectPlaylistItem = { idx ->
-                    playerState.resetControlsTimeout()
-                    viewModel.playAtIndex(idx)
-                },
-                onToggleLock = {
-                    playerState.resetControlsTimeout()
-                    playerState.isLocked = !playerState.isLocked
-                    playerState.showControls = !playerState.isLocked
-                },
-                onSeekToFraction = { fraction ->
-                    playerState.resetControlsTimeout()
-                    val target = (fraction * durationMs).toLong()
-                    engine.seekTo(target)
-                },
-                onRewind10 = {
-                    playerState.resetControlsTimeout()
-                    engine.seekRelative(-liveSettings.seekStepSeconds * 1000L)
-                },
-                onForward10 = {
-                    playerState.resetControlsTimeout()
-                    engine.seekRelative(liveSettings.seekStepSeconds * 1000L)
-                },
-                subtitleEnabled = subtitleEnabled,
-                onToggleSubtitle = {
-                    playerState.resetControlsTimeout()
-                    if (subtitleEnabled) {
-                        engine.trackManager.selectTrack("sub", 0)
-                    } else {
-                        engine.trackManager.selectTrack("sub", lastSubTrackId.coerceAtLeast(1))
+                actions = PlayerOverlayActions(
+                    onTogglePlayPause = {
+                        playerState.resetControlsTimeout()
+                        engine.togglePlayPause()
+                    },
+                    onPlayPrevious = {
+                        playerState.resetControlsTimeout()
+                        viewModel.playPrevious()
+                    },
+                    onPlayNext = {
+                        playerState.resetControlsTimeout()
+                        viewModel.playNext()
+                    },
+                    onSelectPlaylistItem = { idx ->
+                        playerState.resetControlsTimeout()
+                        viewModel.playAtIndex(idx)
+                    },
+                    onToggleLock = {
+                        playerState.resetControlsTimeout()
+                        playerState.isLocked = !playerState.isLocked
+                        playerState.showControls = !playerState.isLocked
+                    },
+                    onSeekToFraction = { fraction ->
+                        playerState.resetControlsTimeout()
+                        val target = (fraction * durationMs).toLong()
+                        engine.seekTo(target)
+                    },
+                    onRewind10 = {
+                        playerState.resetControlsTimeout()
+                        engine.seekRelative(-liveSettings.seekStepSeconds * 1000L)
+                    },
+                    onForward10 = {
+                        playerState.resetControlsTimeout()
+                        engine.seekRelative(liveSettings.seekStepSeconds * 1000L)
+                    },
+                    onToggleSubtitle = {
+                        playerState.resetControlsTimeout()
+                        if (subtitleEnabled) {
+                            engine.trackManager.selectTrack("sub", 0)
+                        } else {
+                            engine.trackManager.selectTrack("sub", lastSubTrackId.coerceAtLeast(1))
+                        }
+                    },
+                    onCycleAbLoop = {
+                        playerState.resetControlsTimeout()
+                        engine.cycleAbLoop()
+                    },
+                    onScreenshot = {
+                        playerState.resetControlsTimeout()
+                        screenshotController.capture(
+                            surfaceView = surfaceViewRef,
+                            mediaTitle = snapshot.mediaTitle,
+                            positionMs = timePosState.value,
+                        )
+                    },
+                    onOpenSheetTab = { tab ->
+                        // 打开 sheet 时收起控制层（取消自动隐藏计时），避免顶/底栏透过 scrim 与 sheet 叠显
+                        playerState.hideControls()
+                        playerState.activeSheetTab = tab
+                    },
+                    onEnterPiP = {
+                        pipState.enterPip()
+                    },
+                    onToggleOrientation = {
+                        activity?.let { act ->
+                            val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                            act.requestedOrientation = if (isLandscape) {
+                                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                            } else {
+                                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            }
+                        }
+                    },
+                    onBack = {
+                        viewModel.onUserExit()
+                        onBack()
+                    },
+                    onCycleHwdec = {
+                        engine.cycleHwdec()
                     }
-                },
+                ),
+                subtitleEnabled = subtitleEnabled,
                 abLoopASeconds = snapshot.abLoopASeconds,
                 abLoopBSeconds = snapshot.abLoopBSeconds,
-                onCycleAbLoop = {
-                    playerState.resetControlsTimeout()
-                    engine.cycleAbLoop()
-                },
-                onScreenshot = {
-                    playerState.resetControlsTimeout()
-                    takeScreenshot()
-                },
-                onOpenSheetTab = { tab ->
-                    // 打开 sheet 时收起控制层（取消自动隐藏计时），避免顶/底栏透过 scrim 与 sheet 叠显
-                    playerState.hideControls()
-                    playerState.activeSheetTab = tab
-                },
-                onEnterPiP = {
-                    pipState.enterPip()
-                },
-                onToggleOrientation = {
-                    activity?.let { act ->
-                        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                        act.requestedOrientation = if (isLandscape) {
-                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                        } else {
-                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                        }
-                    }
-                },
-                onBack = {
-                    viewModel.onUserExit()
-                    onBack()
-                },
                 chapters = chapters,
                 videoBottomDp = videoBottomDp,
                 ambientColor = dynamicPalette.darkMutedColor,
                 hdrFormat = hdrFormat,
-                hwdec = hwdecCurrent,
-                onCycleHwdec = {
-                    engine.cycleHwdec()
-                }
+                hwdec = hwdecCurrent
             )
         }
 
@@ -1155,140 +982,33 @@ fun PlayerScreen(
         ) {
             playerState.activeSheetTab?.let { tab ->
                 if (!isPipLayout && !hideChrome) {
-                val timePosMs by engine.timePosMs.collectAsState()
-                val telemetry by engine.diagnostics.collectAsState()
-                // Battery/thermal sampling ticks every second; subscribing here keeps it from
-                // invalidating the player layout while the sheet is closed.
-                val powerMetrics by powerMonitor.powerMetrics.collectAsState()
-                val fps = telemetry.fps
-                val droppedFrames = telemetry.droppedFrames
-                val currentMediaInfo = remember(playerState.activeSheetTab, activeUri) {
-                    engine.queryMediaInfo(
-                        fallbackTitle = mediaTitle,
-                        fallbackUri = activeUri?.toString() ?: ""
-                    )
-                }
-                val sheetUiState = PlayerSheetUiState(
-                    playlist = playlist,
-                    currentPlaylistIndex = currentPlaylistIndex,
-                    chapters = chapters,
-                    currentChapterIndex = currentChapter,
-                    currentTimePosMs = timePosMs,
-                    tracks = tracks,
-                    secondarySubId = snapshot.secondarySubId,
-                    statsOverlayEnabled = playerState.statsOverlayEnabled,
-                    currentResizeMode = resizeMode,
-                    currentSpeed = speed,
-                    subDelaySec = subDelaySec,
-                    audioDelaySec = audioDelaySec,
-                    subScale = subScale,
-                    subPos = subPos,
-                    hwdec = hwdecCurrent,
-                    fps = fps,
-                    droppedFrames = droppedFrames,
-                    videoBitrate = telemetryState.liveVideoBitrate,
-                    audioBitrate = telemetryState.liveAudioBitrate,
-                    bitrateHistory = telemetryState.bitrateHistory.toList(),
-                    videoWidth = videoDimensions.width,
-                    videoHeight = videoDimensions.height,
-                    powerMetrics = powerMetrics,
-                    mediaInfo = currentMediaInfo,
-                    shaderState = shaderState,
-                    customShaders = remember(shaderState) { engine.shaders.getCustomShaders() },
-                    deband = deband,
-                    brightness = brightness,
-                    contrast = contrast,
-                    saturation = saturation,
-                    softwareVolume = engine.state.value.softwareVolume,
-                    nightMode = nightMode,
-                    stereoDownmix = stereoDownmix,
-                    isHdr = snapshot.isHdr,
-                    hdrFormat = snapshot.hdrFormat,
-                    hdrOutputMode = snapshot.hdrOutputMode,
-                    toneMappingAlgorithm = snapshot.toneMappingAlgorithm,
-                    videoScale = snapshot.videoScale,
-                    interpolation = snapshot.interpolation,
-                    audioPassthrough = snapshot.audioPassthrough
-                )
-
-                val sheetCallbacks = PlayerSheetCallbacks(
-                    onSelectPlaylistItem = { idx ->
-                        viewModel.playAtIndex(idx)
-                        playerState.activeSheetTab = null
-                    },
-                    onSelectChapter = { idx ->
-                        engine.seekToChapter(idx)
-                        playerState.activeSheetTab = null
-                    },
-                    onSelectShader = { shader -> engine.shaders.setShader(shader) },
-                    onClearShader = { engine.shaders.clearShader() },
-                    onSelectCustomShaderFile = { file ->
-                        engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
-                    },
-                    onImportCustomShader = {
-                        shaderPicker.launch(arrayOf("*/*"))
-                    },
-                    onSetDeband = { enabled -> engine.video.setDeband(enabled) },
-                    onSetBrightness = { value -> engine.video.setBrightness(value) },
-                    onSetContrast = { value -> engine.video.setContrast(value) },
-                    onSetSaturation = { value -> engine.video.setSaturation(value) },
-                    onResetColors = { engine.video.resetColors() },
-                    onSetSoftwareVolume = { gain -> engine.audio.setSoftwareVolume(gain) },
-                    onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
-                    onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
-                    onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
-                    onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
-                    onSelectSpeed = { sp -> engine.setSpeed(sp) },
-                    onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
-                    onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
-                    onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
-                    onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
-                    onToggleHwdec = { engine.toggleHwdec() },
-                    onSetHwdec = { target -> engine.setHwdec(target) },
-                    onToggleStatsOverlay = { playerState.statsOverlayEnabled = it },
-                    onAddExternalSubtitle = {
-                        subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
-                    },
-                    onSetHdrOutputMode = { mode -> engine.setHdrOutputMode(mode) },
-                    onSetToneMappingAlgorithm = { algo -> engine.setToneMappingAlgorithm(algo) },
-                    onSetVideoScale = { scale -> engine.setVideoScale(scale) },
-                    onToggleInterpolation = { enabled -> engine.setInterpolation(enabled) },
-                    onToggleAudioPassthrough = { enabled -> engine.setAudioPassthrough(enabled) },
-                    onOpenFullSettings = {
-                        playerState.activeSheetTab = null
-                        onOpenSettings()
-                    }
-                )
-
-                val isPlaylistScene = tab == PlayerSheetTab.PLAYLIST || tab == PlayerSheetTab.CHAPTERS
-                if (isPlaylistScene) {
-                    PlayerPlaylistSheet(
-                        state = sheetUiState,
-                        callbacks = sheetCallbacks,
+                    PlayerSheetsHost(
+                        tab = tab,
                         isLandscape = isLandscape,
-                        animatedVisibilityScope = this,
-                        onDismiss = {
-                            playerState.activeSheetTab = null
-                            playerState.showControls()
-                        }
-                    )
-                } else {
-                    PlayerSettingsSheet(
-                        initialTab = tab,
-                        isLandscape = isLandscape,
-                        animatedVisibilityScope = this,
-                        state = sheetUiState,
-                        callbacks = sheetCallbacks,
-                        onDismiss = {
-                            playerState.activeSheetTab = null
-                            playerState.showControls()
-                        }
+                        engine = engine,
+                        viewModel = viewModel,
+                        playerState = playerState,
+                        snapshot = snapshot,
+                        playlist = playlist,
+                        currentPlaylistIndex = currentPlaylistIndex,
+                        mediaTitle = mediaTitle,
+                        activeUri = activeUri,
+                        telemetryState = telemetryState,
+                        powerMetrics = powerMonitor.powerMetrics.collectAsState().value,
+                        onImportCustomShader = { shaderPicker.launch(arrayOf("*/*")) },
+                        onAddExternalSubtitle = {
+                            subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
+                        },
+                        onOpenFullSettings = onOpenSettings,
+                        animatedVisibilityScope = this
                     )
                 }
             }
         }
+
+        // H. 截屏快门白闪微动效（即时视效反馈）
+        PlayerShutterFlashOverlay(controller = screenshotController)
     }
-}
 }
 
 /**
@@ -1305,39 +1025,15 @@ private fun VideoPagePoster(
     val cachedBitmap = uriStr?.let { thumbnailCache[it] }
     var bitmap by remember(uriStr) { mutableStateOf(cachedBitmap) }
 
-    LaunchedEffect(uriStr, cachedBitmap) {
-        if (cachedBitmap != null) {
-            bitmap = cachedBitmap
-            return@LaunchedEffect
-        }
-        val uri = runCatching { Uri.parse(uriStr ?: "") }.getOrNull() ?: return@LaunchedEffect
-        val loaded = withContext(Dispatchers.IO) {
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == "content") {
-                    context.contentResolver.loadThumbnail(uri, Size(720, 1280), null)
-                } else {
-                    val path = uri.path ?: (uriStr ?: "")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        android.media.ThumbnailUtils.createVideoThumbnail(
-                            java.io.File(path),
-                            Size(720, 1280),
-                            null
-                        )
-                    } else {
-                        @Suppress("DEPRECATION")
-                        android.media.ThumbnailUtils.createVideoThumbnail(
-                            path,
-                            android.provider.MediaStore.Images.Thumbnails.MINI_KIND
-                        )
-                    }
-                }
-            }.getOrNull()
-        }
-        if (loaded != null) {
+        LaunchedEffect(uriStr, cachedBitmap) {
+            if (cachedBitmap != null) {
+                bitmap = cachedBitmap
+                return@LaunchedEffect
+            }
+            val loaded = uriStr?.let { loadVideoThumbnail(context, it) } ?: return@LaunchedEffect
             bitmap = loaded
             uriStr?.let { (thumbnailCache as? MutableMap<String, android.graphics.Bitmap>)?.put(it, loaded) }
         }
-    }
 
     Box(
         modifier = modifier
