@@ -448,6 +448,7 @@
     <string name="page_playlist">Playlist</string>
 
     <!-- Dynamic track and chapter labels -->
+    <string name="ab_loop_title">A-B Loop</string>
     <string name="ab_loop_running">Looping</string>
     <string name="ab_loop_set_b_short">A set / set B</string>
     <string name="subtitle_track_section_fmt">Primary subtitles (%1$d)</string>

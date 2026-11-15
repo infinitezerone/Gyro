@@ -173,6 +173,14 @@ class PlayerViewModel @Inject constructor(
         engine.audio.resetSoftwareGain()
     }
 
+    fun cycleAbLoop() {
+        engine.cycleAbLoop()
+    }
+
+    fun clearAbLoop() {
+        engine.clearAbLoop()
+    }
+
     public override fun onCleared() {
         super.onCleared()
         // Nothing here may drive playback state. `onCleared` is a destructor for this instance, not

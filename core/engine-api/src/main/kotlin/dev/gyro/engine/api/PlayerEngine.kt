@@ -97,6 +97,7 @@ interface PlayerEngine {
     fun setSingleItem(uri: Uri, displayName: String)
 
     fun cycleAbLoop()
+    fun clearAbLoop()
     fun cycleHwdec(): String
     fun toggleHwdec()
     fun setHwdec(target: String)

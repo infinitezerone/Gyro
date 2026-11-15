@@ -1,7 +1,9 @@
 package dev.gyro.feature.player.component
 
 import dev.gyro.feature.player.PlayerScrubState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -69,6 +71,7 @@ fun PlayerBottomBar(
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
     onCycleAbLoop: () -> Unit = {},
+    onClearAbLoop: () -> Unit = {},
     speed: Float,
     resizeMode: ResizeMode,
     scrubState: PlayerScrubState,
@@ -217,8 +220,8 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 3. AB 循环按钮（仅在激活状态或横屏时展示）
-                if (isLandscape && abLoopASeconds >= 0) {
+                // 3. AB 循环按钮（横屏常驻；激活状态下横竖屏均展示，长按可直接清除）
+                if (isLandscape || abLoopASeconds >= 0) {
                     val abStateLabel = when {
                         abLoopASeconds >= 0 && abLoopBSeconds >= 0 -> stringResource(R.string.ab_loop_running)
                         abLoopASeconds >= 0 -> stringResource(R.string.ab_loop_set_b_short)
@@ -228,6 +231,7 @@ fun PlayerBottomBar(
                     PlayerTextActionButton(
                         text = abStateLabel,
                         onClick = onCycleAbLoop,
+                        onLongClick = if (abLoopASeconds >= 0) onClearAbLoop else null,
                         color = abColor
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -306,19 +310,26 @@ fun PlayerBottomBar(
  * - 携带底层文字阴影保证高光背景下依然清晰；
  * - 支持平滑水波触控反馈。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayerTextActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
     color: Color = Color.White.copy(alpha = 0.95f),
     fontSize: TextUnit = 14.sp,
     fontWeight: FontWeight = FontWeight.SemiBold
 ) {
+    val clickModifier = if (onLongClick != null) {
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
+            .then(clickModifier)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {

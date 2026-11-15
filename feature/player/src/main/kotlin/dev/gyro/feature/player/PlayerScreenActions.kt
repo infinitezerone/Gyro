@@ -158,7 +158,11 @@ fun createPlayerOverlayActions(
         },
         onCycleAbLoop = {
             onResetControlsTimeout()
-            engine.cycleAbLoop()
+            viewModel.cycleAbLoop()
+        },
+        onClearAbLoop = {
+            onResetControlsTimeout()
+            viewModel.clearAbLoop()
         },
         onScreenshot = {
             onResetControlsTimeout()

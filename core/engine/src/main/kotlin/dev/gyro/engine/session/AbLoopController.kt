@@ -50,6 +50,7 @@ class AbLoopController(
                 "ab-loop-b" -> _abLoopBSeconds.value = parseLoopPoint(event.value)
             }
             is MpvEvent.Lifecycle -> when (event.id) {
+                MpvNativeBridge.Event.FILE_LOADED,
                 MpvNativeBridge.Event.END_FILE,
                 MpvNativeBridge.Event.SHUTDOWN -> {
                     _abLoopASeconds.value = NO_LOOP
@@ -67,24 +68,29 @@ class AbLoopController(
 
     /**
      * 三态循环：未设 A → 设 A；已设 A 未设 B → 设 B；两端齐备 → 清除。
-     * 显式写属性而非依赖无参 `ab-loop` 命令，保证本地状态先落、观察事件随后收敛。
      */
     fun cycleLoopPoint() {
         val aSet = _abLoopASeconds.value != NO_LOOP
         val bSet = _abLoopBSeconds.value != NO_LOOP
         when {
-            !aSet -> {
-                bridge.command(arrayOf("ab-loop", "a"))
-                EngineLog.i(TAG, "cycleLoopPoint: set A at playhead")
-            }
-            aSet && !bSet -> {
-                if (_abLoopBSeconds.value == NO_LOOP && _abLoopASeconds.value >= 0) {
-                    bridge.command(arrayOf("ab-loop", "b"))
-                    EngineLog.i(TAG, "cycleLoopPoint: set B at playhead (A=${_abLoopASeconds.value}s)")
-                }
+            !aSet || !bSet -> {
+                bridge.command(arrayOf("ab-loop"))
+                EngineLog.i(TAG, "cycleLoopPoint: advancing ab-loop at playhead (aSet=$aSet, bSet=$bSet)")
             }
             else -> clearLoop()
         }
+    }
+
+    fun setLoopA(seconds: Double) {
+        bridge.setPropertyString("ab-loop-a", seconds.toString())
+        _abLoopASeconds.value = seconds
+        EngineLog.i(TAG, "setLoopA: explicit A set to ${seconds}s")
+    }
+
+    fun setLoopB(seconds: Double) {
+        bridge.setPropertyString("ab-loop-b", seconds.toString())
+        _abLoopBSeconds.value = seconds
+        EngineLog.i(TAG, "setLoopB: explicit B set to ${seconds}s")
     }
 
     fun clearLoop() {

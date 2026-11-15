@@ -272,7 +272,7 @@ class GyroPlayerEngine(
     override fun seekToChapter(index: Int) = timeline.seekToChapter(index)
 
     override fun cycleAbLoop() = abLoop.cycleLoopPoint()
-    fun clearAbLoop() = abLoop.clearLoop()
+    override fun clearAbLoop() = abLoop.clearLoop()
 
     override fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
     override fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())

@@ -93,6 +93,8 @@ fun BoxScope.PlayerControlsOverlay(
     val onToggleOrientation = actions.onToggleOrientation
     val onBack = actions.onBack
     val onCycleHwdec = actions.onCycleHwdec
+    val onCycleAbLoop = actions.onCycleAbLoop
+    val onClearAbLoop = actions.onClearAbLoop
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -256,6 +258,7 @@ fun BoxScope.PlayerControlsOverlay(
                     abLoopASeconds = abLoopASeconds,
                     abLoopBSeconds = abLoopBSeconds,
                     onCycleAbLoop = onCycleAbLoop,
+                    onClearAbLoop = onClearAbLoop,
                     onOpenSheetTab = onOpenSheetTab,
                     onToggleOrientation = onToggleOrientation,
                     chapters = chapters,

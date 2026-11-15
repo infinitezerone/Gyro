@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Monitor
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SurroundSound
@@ -277,6 +278,28 @@ internal fun SettingsHubTabContent(
             icon = Icons.Default.Speed,
             currentValue = "${state.currentSpeed}x",
             onClick = { onNavigate(PlayerSheetTab.SPEED) }
+        )
+
+        val abLoopText = when {
+            state.abLoopASeconds >= 0 && state.abLoopBSeconds >= 0 -> {
+                val aSec = state.abLoopASeconds.toInt()
+                val bSec = state.abLoopBSeconds.toInt()
+                val aStr = "%02d:%02d".format(Locale.US, aSec / 60, aSec % 60)
+                val bStr = "%02d:%02d".format(Locale.US, bSec / 60, bSec % 60)
+                "$aStr - $bStr"
+            }
+            state.abLoopASeconds >= 0 -> {
+                val aSec = state.abLoopASeconds.toInt()
+                val aStr = "%02d:%02d".format(Locale.US, aSec / 60, aSec % 60)
+                stringResource(R.string.ab_loop_set_b_short) + " ($aStr)"
+            }
+            else -> stringResource(R.string.common_off)
+        }
+        SettingsItemRow(
+            title = stringResource(R.string.ab_loop_title),
+            icon = Icons.Default.Repeat,
+            currentValue = abLoopText,
+            onClick = callbacks.onCycleAbLoop
         )
 
         SettingsItemRow(

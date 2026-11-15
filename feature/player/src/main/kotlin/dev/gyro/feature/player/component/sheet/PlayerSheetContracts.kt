@@ -56,7 +56,9 @@ data class PlayerSheetUiState(
     val toneMappingAlgorithm: String = dev.gyro.core.model.TONE_MAPPING_AUTO,
     val videoScale: String = dev.gyro.core.model.SCALE_AUTO,
     val interpolation: Boolean = false,
-    val audioPassthrough: Boolean = false
+    val audioPassthrough: Boolean = false,
+    val abLoopASeconds: Double = -1.0,
+    val abLoopBSeconds: Double = -1.0
 ) {
     val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "audio" } }
     val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "sub" } }
@@ -98,5 +100,7 @@ class PlayerSheetCallbacks(
     val onSetVideoScale: (String) -> Unit = {},
     val onToggleInterpolation: (Boolean) -> Unit = {},
     val onToggleAudioPassthrough: (Boolean) -> Unit = {},
+    val onCycleAbLoop: () -> Unit = {},
+    val onClearAbLoop: () -> Unit = {},
     val onOpenFullSettings: () -> Unit = {}
 )

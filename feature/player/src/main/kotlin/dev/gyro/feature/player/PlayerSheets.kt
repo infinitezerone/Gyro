@@ -93,7 +93,9 @@ internal fun PlayerSheetsHost(
         toneMappingAlgorithm = snapshot.toneMappingAlgorithm,
         videoScale = snapshot.videoScale,
         interpolation = snapshot.interpolation,
-        audioPassthrough = snapshot.audioPassthrough
+        audioPassthrough = snapshot.audioPassthrough,
+        abLoopASeconds = snapshot.abLoopASeconds,
+        abLoopBSeconds = snapshot.abLoopBSeconds
     )
 
     val sheetCallbacks = PlayerSheetCallbacks(
@@ -135,6 +137,8 @@ internal fun PlayerSheetsHost(
         onSetVideoScale = { scale -> engine.setVideoScale(scale) },
         onToggleInterpolation = { enabled -> engine.setInterpolation(enabled) },
         onToggleAudioPassthrough = { enabled -> engine.setAudioPassthrough(enabled) },
+        onCycleAbLoop = { viewModel.cycleAbLoop() },
+        onClearAbLoop = { viewModel.clearAbLoop() },
         onOpenFullSettings = {
             playerState.activeSheetTab = null
             onOpenFullSettings()

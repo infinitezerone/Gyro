@@ -189,11 +189,14 @@ class PlayerScreenActionsTest {
         actions.onCycleAbLoop()
         assertEquals(14, timeoutResetCount)
 
-        actions.onScreenshot()
+        actions.onClearAbLoop()
         assertEquals(15, timeoutResetCount)
 
-        actions.onCycleHwdec()
+        actions.onScreenshot()
         assertEquals(16, timeoutResetCount)
+
+        actions.onCycleHwdec()
+        assertEquals(17, timeoutResetCount)
     }
 
     @Test

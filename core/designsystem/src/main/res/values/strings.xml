@@ -459,6 +459,7 @@
     <string name="subtitle_off_desc">纯净原片</string>
     <string name="action_add_external_sub">添加外挂</string>
     <string name="downmix_desc">将 5.1 / 7.1 等多声道智能下混为双声道立体声</string>
+    <string name="ab_loop_title">AB 循环播放</string>
     <string name="ab_loop_running">循环中</string>
     <string name="ab_loop_set_b_short">A✓ 设B</string>
     <string name="subtitle_track_section_fmt">主字幕轨道 (%1$d)</string>
