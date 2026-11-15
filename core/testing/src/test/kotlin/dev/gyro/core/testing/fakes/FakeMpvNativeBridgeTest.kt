@@ -402,6 +402,7 @@ class FakeMpvNativeBridgeTest {
                     is MpvEvent.StringProperty -> fakeBridge.getPropertyString(event.name)
                     is MpvEvent.Lifecycle -> null
                     is MpvEvent.EndFile -> event.reason
+                    is MpvEvent.Desync -> null
                 }
             )
         }
