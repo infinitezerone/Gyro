@@ -225,7 +225,6 @@ fun BoxScope.PlayerControlsOverlay(
                     onBack = onBack,
                     onEnterPiP = onEnterPiP,
                     onOpenSheetTab = onOpenSheetTab,
-                    onScreenshot = onScreenshot,
                     hdrFormat = hdrFormat,
                     hwdec = hwdec,
                     onCycleHwdec = onCycleHwdec

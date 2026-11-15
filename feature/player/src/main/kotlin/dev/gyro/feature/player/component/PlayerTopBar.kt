@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
@@ -71,8 +70,8 @@ import java.util.Locale
  * 顶部导航与快捷入口栏 (PlayerTopBar)。
  *
  * - 沉浸式通透顶栏：置于顶部渐变遮罩中，摒弃生硬的悬浮胶囊框；
- * - 竖屏：返回 + 标题（自适应居中、中间省略）+ 画中画 + ⋮ 更多（截图/字幕/设置）；
- * - 横屏：返回 + 标题 + 字幕 + 画中画 + 截图 + 设置。
+ * - 竖屏：返回 + 标题（自适应居中、中间省略）+ 解码胶囊 + 画中画 + 设置；
+ * - 横屏：返回 + 标题 + 画中画 + 音轨 + 设置。
  */
 @Composable
 fun PlayerTopBar(
@@ -81,7 +80,6 @@ fun PlayerTopBar(
     onBack: () -> Unit,
     onEnterPiP: () -> Unit,
     onOpenSheetTab: (PlayerSheetTab) -> Unit,
-    onScreenshot: () -> Unit = {},
     hdrFormat: String = "",
     hwdec: String = "",
     onCycleHwdec: () -> Unit = {},
@@ -157,22 +155,11 @@ fun PlayerTopBar(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // 横屏：纯播放器快捷操作 (画中画 -> 截图 -> 音轨 -> 设置)
+                // 横屏：纯播放器快捷操作 (画中画 -> 音轨 -> 设置)
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
                     contentDescription = stringResource(R.string.cd_pip),
-                    size = 38.dp,
-                    iconSize = 22.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    border = null
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                GyroCircleActionButton(
-                    onClick = onScreenshot,
-                    icon = Icons.Default.PhotoCamera,
-                    contentDescription = stringResource(R.string.cd_screenshot),
                     size = 38.dp,
                     iconSize = 22.dp,
                     containerColor = Color.Transparent,
@@ -202,7 +189,7 @@ fun PlayerTopBar(
                     border = null
                 )
             } else {
-                // 竖屏：解码胶囊 + 画中画直达 + 截图直达 + 设置直达
+                // 竖屏：解码胶囊 + 画中画直达 + 设置直达
                 HwdecCapsuleButton(
                     hwdec = hwdec,
                     onClick = onCycleHwdec
@@ -213,17 +200,6 @@ fun PlayerTopBar(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
                     contentDescription = stringResource(R.string.cd_pip),
-                    size = 38.dp,
-                    iconSize = 22.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    border = null
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                GyroCircleActionButton(
-                    onClick = onScreenshot,
-                    icon = Icons.Default.PhotoCamera,
-                    contentDescription = stringResource(R.string.cd_screenshot),
                     size = 38.dp,
                     iconSize = 22.dp,
                     containerColor = Color.Transparent,
