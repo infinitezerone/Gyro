@@ -11,17 +11,42 @@ import org.junit.Test
 class PlayerViewportStateTest {
 
     @Test
-    fun onContainerSizedInPipDoesNotTouchFullscreenSize() {
+    fun onContainerSizedWithFrozenFullscreenDoesNotTouchFullscreenSize() {
         val state = PlayerViewportState()
-        state.onContainerSized(IntSize(100, 200), inPipLayout = false)
+        state.onContainerSized(IntSize(100, 200), freezeFullscreen = false)
         assertEquals(IntSize(100, 200), state.fullscreenContainerSize)
 
         // Entering PiP: the container shrinks, but the PiP source-rect hint must keep
         // describing the fullscreen window - re-deriving it here re-triggers the resize
         // flash on enter.
-        state.onContainerSized(IntSize(40, 40), inPipLayout = true)
+        state.onContainerSized(IntSize(40, 40), freezeFullscreen = true)
         assertEquals(IntSize(100, 200), state.fullscreenContainerSize)
         assertEquals(IntSize(40, 40), state.containerSize)
+    }
+
+    @Test
+    fun fullscreenSizeSurvivesTheWindowShrinkThatArrivesBeforeTheModeCallback() {
+        // The regression from the 2026-11-15 PiP repro: the physical window shrinks BEFORE
+        // the system's picture-in-picture mode callback flips isPipLayout, so the shrink
+        // event arrives with the freeze flag not yet raised if callers gate on the layout
+        // flag alone. The caller must therefore raise the freeze at the enter request
+        // (shouldHideChrome includes pipRequested); this test pins the holder side.
+        val state = PlayerViewportState()
+        state.onContainerSized(IntSize(2772, 1272), freezeFullscreen = false)
+        assertEquals(IntSize(2772, 1272), state.fullscreenContainerSize)
+
+        // Enter requested -> freeze raised BEFORE the shrink event arrives.
+        state.onContainerSized(IntSize(1019, 573), freezeFullscreen = true)
+        assertEquals(IntSize(2772, 1272), state.fullscreenContainerSize)
+        assertEquals(IntSize(1019, 573), state.containerSize)
+
+        // PiP window adjusts again (1019 -> 1160): still frozen, still no poisoning.
+        state.onContainerSized(IntSize(1160, 653), freezeFullscreen = true)
+        assertEquals(IntSize(2772, 1272), state.fullscreenContainerSize)
+
+        // Exit settles: freeze released, the real fullscreen size lands again.
+        state.onContainerSized(IntSize(2772, 1272), freezeFullscreen = false)
+        assertEquals(IntSize(2772, 1272), state.fullscreenContainerSize)
     }
 
     @Test

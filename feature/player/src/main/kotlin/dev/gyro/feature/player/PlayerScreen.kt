@@ -604,7 +604,12 @@ fun PlayerScreen(
                 } else false
             }
             .clipToBounds()
-            .onSizeChanged { viewport.onContainerSized(it, isPipLayout) }
+            .onSizeChanged {
+                // shouldHideChrome turns true the instant the PiP button is clicked (pipRequested)
+                // and stays true through the exit settle, so the fullscreen rect is frozen across
+                // the whole in-flight window where the system mode callback still lags.
+                viewport.onContainerSized(it, isPipLayout || pipState.shouldHideChrome)
+            }
     ) {
         val videoCoverSize = remember(viewport.containerSize, videoAspect) {
             if (viewport.containerSize == IntSize.Zero || videoAspect <= 0f) null

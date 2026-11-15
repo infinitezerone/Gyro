@@ -54,9 +54,16 @@ internal class PlayerViewportState {
     var appliedBufferSize by mutableStateOf(IntSize.Zero)
         private set
 
-    fun onContainerSized(size: IntSize, inPipLayout: Boolean) {
+    /**
+     * @param freezeFullscreen true while a PiP enter/exit is in flight. The system's
+     *   picture-in-picture mode callback lags the physical window resize by frames: the PiP
+     *   window shrink arrives as an ordinary `onSizeChanged` while [PlayerPipState.isPipLayout]
+     *   is still false, so gating on the layout flag alone poisons this rect with the PiP
+     *   window size and re-fires PIP params mid-animation (mask / black-edge artifacts).
+     */
+    fun onContainerSized(size: IntSize, freezeFullscreen: Boolean) {
         containerSize = size
-        if (!inPipLayout) fullscreenContainerSize = size
+        if (!freezeFullscreen) fullscreenContainerSize = size
     }
 
     /** @return true when the container's layout size changed (drives the CONTAINER_LAYOUT trace). */
