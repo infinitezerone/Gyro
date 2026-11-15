@@ -1,8 +1,14 @@
 pluginManagement {
+    // Aliyun mirrors accelerate downloads from China but are unreliable from GitHub Actions'
+    // overseas runners (2026-11-15: KSP resolution failed on CI while the same cold-cache
+    // resolution succeeded locally). GitHub Actions sets CI=true; local builds keep the mirrors.
+    val useAliyunMirror = System.getenv("CI") != "true"
     includeBuild("build-logic")
     repositories {
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/public")
+        if (useAliyunMirror) {
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/public")
+        }
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -16,10 +22,13 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
+    val useAliyunMirror = System.getenv("CI") != "true"
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/public")
+        if (useAliyunMirror) {
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/public")
+        }
         google()
         mavenCentral()
     }

@@ -1,7 +1,13 @@
+// Same mirror policy as the root settings: Aliyun accelerates local (China) builds but is
+// unreliable from GitHub Actions' overseas runners, so CI resolves from the origin repos.
+val useAliyunMirror = System.getenv("CI") != "true"
+
 dependencyResolutionManagement {
     repositories {
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/public")
+        if (useAliyunMirror) {
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/public")
+        }
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
