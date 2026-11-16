@@ -77,7 +77,6 @@ fun BoxScope.PlayerHudOverlay(
     hudState: GestureHudState,
     scrubState: PlayerScrubState,
     durationMs: () -> Long,
-    swapVolumeAndBrightness: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {

@@ -39,7 +39,6 @@ import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.component.GyroPillButton
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.core.model.ChapterInfo
-import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
 
 /**
@@ -61,16 +60,12 @@ fun BoxScope.PlayerControlsOverlay(
     resizeMode: ResizeMode,
     speed: Float,
     scrubState: PlayerScrubState,
-    playlist: List<VideoMediaItem> = emptyList(),
-    currentPlaylistIndex: Int = -1,
     hasPrevious: Boolean = false,
     hasNext: Boolean = false,
     actions: PlayerOverlayActions,
     subtitleEnabled: Boolean = true,
-    onToggleSubtitle: () -> Unit = {},
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
-    onCycleAbLoop: () -> Unit = {},
     chapters: List<ChapterInfo> = emptyList(),
     ambientColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Transparent,
     videoBottomDp: Dp? = null,
@@ -82,17 +77,15 @@ fun BoxScope.PlayerControlsOverlay(
     val onTogglePlayPause = actions.onTogglePlayPause
     val onPlayPrevious = actions.onPlayPrevious
     val onPlayNext = actions.onPlayNext
-    val onSelectPlaylistItem = actions.onSelectPlaylistItem
     val onToggleLock = actions.onToggleLock
     val onSeekToFraction = actions.onSeekToFraction
-    val onRewind10 = actions.onRewind10
-    val onForward10 = actions.onForward10
     val onScreenshot = actions.onScreenshot
     val onEnterPiP = actions.onEnterPiP
     val onOpenSheetTab = actions.onOpenSheetTab
     val onToggleOrientation = actions.onToggleOrientation
     val onBack = actions.onBack
     val onCycleHwdec = actions.onCycleHwdec
+    val onToggleSubtitle = actions.onToggleSubtitle
     val onCycleAbLoop = actions.onCycleAbLoop
     val onClearAbLoop = actions.onClearAbLoop
 
