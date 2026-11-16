@@ -4,6 +4,7 @@ import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.state.PlaybackStore
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -173,7 +174,7 @@ class AudioEffectsController(
         val nodes = bands.zip(_equalizerGains.value)
             .filter { (_, gain) -> kotlin.math.abs(gain) > 0.1 }
             .map { (freq, gain) ->
-                "equalizer=f=${freq.toInt()}:width_type=o:width=1.5:g=${"%.1f".format(gain)}"
+                "equalizer=f=${freq.toInt()}:width_type=o:width=1.5:g=${String.format(Locale.US, "%.1f", gain)}"
             }
         if (nodes.isEmpty()) return null
         return "lavfi=[${nodes.joinToString(",")}]"

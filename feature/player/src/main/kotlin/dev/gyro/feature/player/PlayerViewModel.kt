@@ -14,6 +14,9 @@ import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.media.Playlist
 import dev.gyro.feature.player.domain.PlaybackTriggerSource
 import dev.gyro.feature.player.domain.PlayerDomainEvent
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -179,6 +182,26 @@ class PlayerViewModel @Inject constructor(
 
     fun clearAbLoop() {
         engine.clearAbLoop()
+    }
+
+    private var sleepTimerJob: Job? = null
+    private val _sleepTimerSecondsRemaining = MutableStateFlow(0L)
+    val sleepTimerSecondsRemaining: StateFlow<Long> = _sleepTimerSecondsRemaining.asStateFlow()
+
+    fun setSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        if (minutes <= 0) {
+            _sleepTimerSecondsRemaining.value = 0L
+            return
+        }
+        _sleepTimerSecondsRemaining.value = minutes * 60L
+        sleepTimerJob = viewModelScope.launch {
+            while (_sleepTimerSecondsRemaining.value > 0) {
+                delay(1000L)
+                _sleepTimerSecondsRemaining.value -= 1
+            }
+            engine.pause()
+        }
     }
 
     public override fun onCleared() {

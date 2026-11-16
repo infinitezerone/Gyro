@@ -60,7 +60,9 @@ data class PlayerSheetUiState(
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
     val abLoopASeconds: Double = -1.0,
-    val abLoopBSeconds: Double = -1.0
+    val abLoopBSeconds: Double = -1.0,
+    val sleepTimerSecondsRemaining: Long = 0L,
+    val subAssOverride: Boolean = false
 ) {
     val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "audio" } }
     val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "sub" } }
@@ -106,5 +108,10 @@ class PlayerSheetCallbacks(
     val onCycleAbLoop: () -> Unit = {},
     val onClearAbLoop: () -> Unit = {},
     val onOpenFullSettings: () -> Unit = {},
-    val onEnterPip: () -> Unit = {}
+    val onEnterPip: () -> Unit = {},
+    val onSelectSecondarySubtitle: (Int) -> Unit = {},
+    val onSetSubAssOverride: (Boolean) -> Unit = {},
+    val onFrameStep: () -> Unit = {},
+    val onFrameBackStep: () -> Unit = {},
+    val onSetSleepTimer: (Int) -> Unit = {}
 )

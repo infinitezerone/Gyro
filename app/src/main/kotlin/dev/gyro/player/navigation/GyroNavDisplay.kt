@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.core.net.toUri
@@ -128,7 +129,9 @@ fun GyroNavDisplay(
             }
             entry<Screen.Player> { playerScreen ->
                 val playerViewModel: PlayerViewModel = hiltViewModel()
-                playerViewModel.initialize(playerScreen.uri)
+                LaunchedEffect(playerScreen.uri) {
+                    playerViewModel.initialize(playerScreen.uri)
+                }
                 PlayerScreen(
                     viewModel = playerViewModel,
                     currentUri = playerScreen.uri,

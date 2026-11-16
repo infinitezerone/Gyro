@@ -30,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -103,6 +104,11 @@ fun PlayerScrubBar(
     val snapRadiusPx = with(LocalDensity.current) { 8.dp.toPx() }
     val haptics = rememberChapterHaptics()
 
+    val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
+    val currentChapterFractions by rememberUpdatedState(chapterFractions)
+    val currentSnapRadiusPx by rememberUpdatedState(snapRadiusPx)
+    val currentHaptics by rememberUpdatedState(haptics)
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -110,6 +116,7 @@ fun PlayerScrubBar(
             // chapterFractions is a fresh List on many recompositions (it derives from snapshot).
             // Using it as a key restarts the gesture on every position tick and breaks the drag.
             // A stable scalar is enough: chapters only change when the file changes.
+            // rememberUpdatedState ensures gestures always read the latest callbacks & markers.
             .pointerInput(durationMs, chapters.size) {
                 if (durationMs <= 0L) return@pointerInput
                 awaitEachGesture {
@@ -118,9 +125,9 @@ fun PlayerScrubBar(
                     val width = size.width.toFloat()
                     var lastChapter = -1
                     if (width > 0f) {
-                        val snap = snapToChapterResult(down.position.x, width, chapterFractions, snapRadiusPx)
+                        val snap = snapToChapterResult(down.position.x, width, currentChapterFractions, currentSnapRadiusPx)
                         lastChapter = snap.chapterIndex
-                        if (snap.chapterIndex >= 0) haptics.tick()
+                        if (snap.chapterIndex >= 0) currentHaptics.tick()
                         scrubState.begin(snap.fraction)
                     }
 
@@ -129,11 +136,11 @@ fun PlayerScrubBar(
                         val change = event.changes.firstOrNull() ?: break
                         if (change.pressed) {
                             change.consume()
-                            val snap = snapToChapterResult(change.position.x, width, chapterFractions, snapRadiusPx)
+                            val snap = snapToChapterResult(change.position.x, width, currentChapterFractions, currentSnapRadiusPx)
                             // Fire only when the finger crosses onto a different marker. Staying
                             // within one marker's radius must not buzz on every drag event.
                             if (snap.chapterIndex >= 0 && snap.chapterIndex != lastChapter) {
-                                haptics.tick()
+                                currentHaptics.tick()
                             }
                             lastChapter = snap.chapterIndex
                             scrubState.update(snap.fraction)
@@ -141,7 +148,7 @@ fun PlayerScrubBar(
                             change.consume()
                             val finalFraction = scrubState.fraction
                             scrubState.end(finalFraction)
-                            onSeekToFraction(finalFraction)
+                            currentOnSeekToFraction(finalFraction)
                             break
                         }
                     }

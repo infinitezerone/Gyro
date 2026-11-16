@@ -47,6 +47,8 @@ internal fun PlayerSheetsHost(
     val timePosMs by engine.timePosMs.collectAsState()
     val telemetry by engine.diagnostics.collectAsState()
     val eqGainsDb by engine.audio.equalizerGains.collectAsState()
+    val subAssOverride by engine.tuning.subAssOverride.collectAsState()
+    val sleepTimerSec by viewModel.sleepTimerSecondsRemaining.collectAsState()
     val fps = telemetry.fps
     val droppedFrames = telemetry.droppedFrames
     val currentMediaInfo = remember(tab, activeUri) {
@@ -86,7 +88,7 @@ internal fun PlayerSheetsHost(
         brightness = snapshot.brightness,
         contrast = snapshot.contrast,
         saturation = snapshot.saturation,
-        softwareVolume = engine.state.value.softwareVolume,
+        softwareVolume = snapshot.softwareVolume,
         nightMode = snapshot.nightMode,
         stereoDownmix = snapshot.stereoDownmix,
         eqGainsDb = eqGainsDb,
@@ -98,7 +100,9 @@ internal fun PlayerSheetsHost(
         interpolation = snapshot.interpolation,
         audioPassthrough = snapshot.audioPassthrough,
         abLoopASeconds = snapshot.abLoopASeconds,
-        abLoopBSeconds = snapshot.abLoopBSeconds
+        abLoopBSeconds = snapshot.abLoopBSeconds,
+        sleepTimerSecondsRemaining = sleepTimerSec,
+        subAssOverride = subAssOverride
     )
 
     val sheetCallbacks = PlayerSheetCallbacks(
@@ -152,7 +156,12 @@ internal fun PlayerSheetsHost(
         onEnterPip = {
             playerState.activeSheetTab = null
             onEnterPip()
-        }
+        },
+        onSelectSecondarySubtitle = { id -> engine.trackManager.selectSecondarySubtitle(id) },
+        onSetSubAssOverride = { force -> engine.tuning.setSubAssOverride(force) },
+        onFrameStep = { engine.frameStep() },
+        onFrameBackStep = { engine.frameBackStep() },
+        onSetSleepTimer = { minutes -> viewModel.setSleepTimer(minutes) }
     )
 
     val isPlaylistScene = tab == PlayerSheetTab.PLAYLIST || tab == PlayerSheetTab.CHAPTERS

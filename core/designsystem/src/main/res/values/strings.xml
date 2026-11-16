@@ -480,4 +480,43 @@
     <string name="track_audio_index_fmt">音频轨道 #%1$d</string>
     <string name="chapters_banner_fmt">本视频包含 %1$d 个内嵌章节，可点击顶部【章节】查看</string>
 
+    <!-- Sleep Timer -->
+    <string name="sleep_timer_title">定时关闭</string>
+    <string name="sleep_timer_off">关闭</string>
+    <string name="sleep_timer_15m">15 分钟</string>
+    <string name="sleep_timer_30m">30 分钟</string>
+    <string name="sleep_timer_60m">60 分钟</string>
+    <string name="sleep_timer_end_of_video">播完当前视频</string>
+    <string name="sleep_timer_active_fmt">倒计时 %1$s</string>
+
+    <!-- Quick Action Matrix & Loop -->
+    <string name="action_bg_play">后台播放</string>
+    <string name="action_loop_mode">循环播放</string>
+    <string name="loop_mode_single">单片循环</string>
+    <string name="loop_mode_all">列表循环</string>
+    <string name="loop_mode_none">顺序播放</string>
+
+    <!-- Subtitle Preview & Styling Enhancements -->
+    <string name="sub_preview_sample_cn">这是字幕排版与样式预览效果</string>
+    <string name="sub_preview_sample_en">This is a subtitle typography and style preview</string>
+    <string name="sub_preset_white">经典白</string>
+    <string name="sub_preset_yellow">护眼黄</string>
+    <string name="sub_preset_card">卡片底</string>
+    <string name="sub_ass_override_title">覆盖特效原生样式</string>
+    <string name="sub_ass_override_desc">强制应用自定义字号与颜色，忽略内置特效字体</string>
+    <string name="track_secondary_subtitle">次字幕 (双语)</string>
+    <string name="track_secondary_none">无次字幕</string>
+
+    <!-- Frame Stepping -->
+    <string name="frame_step_forward">下一帧</string>
+    <string name="frame_step_back">上一帧</string>
+    <string name="frame_step_title">逐帧微调</string>
+
+    <!-- Group Headers -->
+    <string name="hub_group_video_rendering">画面与画质</string>
+    <string name="hub_group_audio_effects">声音与音效</string>
+    <string name="hub_group_subtitle_styling">字幕与排版</string>
+    <string name="hub_group_info_advanced">信息与极客</string>
+    <string name="custom_speed_slider">无级调速</string>
+
 </resources>

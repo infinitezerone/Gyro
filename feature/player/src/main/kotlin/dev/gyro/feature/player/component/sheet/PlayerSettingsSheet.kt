@@ -1,13 +1,17 @@
 package dev.gyro.feature.player.component.sheet
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Column
@@ -51,6 +55,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -124,7 +129,8 @@ fun PlayerSettingsSheet(
     onSheetDragOffsetChanged: (Float) -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
+    val tabBackStack = remember(initialTab) { mutableStateListOf(initialTab) }
+    val selectedTab = tabBackStack.lastOrNull() ?: PlayerSheetTab.SETTINGS_HUB
     val isPlaylistScene = initialTab == PlayerSheetTab.PLAYLIST || initialTab == PlayerSheetTab.CHAPTERS
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
@@ -208,10 +214,10 @@ fun PlayerSettingsSheet(
             .navigationBarsPadding()
     }
 
-    // 物理返回按键/返回手势拦截：二级页退回主设置，主设置直接收起抽屉
+    // 物理返回按键/返回手势拦截：多级返回逐级弹出，最后一级收起抽屉
     BackHandler(enabled = true) {
-        if (selectedTab != PlayerSheetTab.SETTINGS_HUB && !isPlaylistScene) {
-            selectedTab = PlayerSheetTab.SETTINGS_HUB
+        if (tabBackStack.size > 1) {
+            tabBackStack.removeAt(tabBackStack.lastIndex)
         } else {
             onDismiss()
         }
@@ -365,7 +371,14 @@ fun PlayerSettingsSheet(
                     state = state,
                     callbacks = callbacks,
                     selectedTab = selectedTab,
-                    onSelectTab = { selectedTab = it },
+                    onSelectTab = { tabBackStack.add(it) },
+                    onNavigateBack = {
+                        if (tabBackStack.size > 1) {
+                            tabBackStack.removeAt(tabBackStack.lastIndex)
+                        } else {
+                            onDismiss()
+                        }
+                    },
                     initialTab = initialTab,
                     onDismiss = onDismiss
                 )
@@ -384,12 +397,20 @@ fun PlayerSettingsSheetContent(
     initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
     onDismiss: () -> Unit = {}
 ) {
-    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
+    val tabBackStack = remember(initialTab) { mutableStateListOf(initialTab) }
+    val selectedTab = tabBackStack.lastOrNull() ?: PlayerSheetTab.SETTINGS_HUB
     PlayerSettingsSheetContent(
         state = state,
         callbacks = callbacks,
         selectedTab = selectedTab,
-        onSelectTab = { selectedTab = it },
+        onSelectTab = { tabBackStack.add(it) },
+        onNavigateBack = {
+            if (tabBackStack.size > 1) {
+                tabBackStack.removeAt(tabBackStack.lastIndex)
+            } else {
+                onDismiss()
+            }
+        },
         initialTab = initialTab,
         onDismiss = onDismiss
     )
@@ -401,6 +422,27 @@ fun PlayerSettingsSheetContent(
     callbacks: PlayerSheetCallbacks,
     selectedTab: PlayerSheetTab,
     onSelectTab: (PlayerSheetTab) -> Unit,
+    initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
+    onDismiss: () -> Unit = {}
+) {
+    PlayerSettingsSheetContent(
+        state = state,
+        callbacks = callbacks,
+        selectedTab = selectedTab,
+        onSelectTab = onSelectTab,
+        onNavigateBack = { onSelectTab(PlayerSheetTab.SETTINGS_HUB) },
+        initialTab = initialTab,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+fun PlayerSettingsSheetContent(
+    state: PlayerSheetUiState,
+    callbacks: PlayerSheetCallbacks,
+    selectedTab: PlayerSheetTab,
+    onSelectTab: (PlayerSheetTab) -> Unit,
+    onNavigateBack: () -> Unit,
     initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
     onDismiss: () -> Unit = {}
 ) {
@@ -446,7 +488,7 @@ fun PlayerSettingsSheetContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { onSelectTab(PlayerSheetTab.SETTINGS_HUB) },
+                    onClick = onNavigateBack,
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
@@ -483,49 +525,63 @@ fun PlayerSettingsSheetContent(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        when (selectedTab) {
-            PlayerSheetTab.SETTINGS_HUB -> SettingsHubTabContent(
-                state = state,
-                callbacks = callbacks,
-                onNavigate = onSelectTab
-            )
-            PlayerSheetTab.HWDEC -> HwdecSubTabContent(state, callbacks)
-            PlayerSheetTab.SHADERS -> ShadersSubTabContent(state, callbacks)
-            PlayerSheetTab.ASPECT -> AspectSubTabContent(state, callbacks)
-            PlayerSheetTab.COLOR -> ColorSubTabContent(state, callbacks)
-            PlayerSheetTab.HDR_TONE_MAPPING -> HdrToneMappingSubTabContent(state, callbacks)
-            PlayerSheetTab.VIDEO_SCALE -> VideoScaleSubTabContent(state, callbacks)
-            PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> AudioTracksSubTabContent(state, callbacks)
-            PlayerSheetTab.AUDIO_BOOST -> AudioBoostSubTabContent(state, callbacks)
-            PlayerSheetTab.VIDEO_QUALITY -> VideoQualityTabContent(
-                state = state,
-                callbacks = callbacks,
-                onNavigate = onSelectTab
-            )
-            PlayerSheetTab.AUDIO_EFFECTS -> AudioEffectsTabContent(
-                state = state,
-                callbacks = callbacks,
-                onNavigate = onSelectTab
-            )
-            PlayerSheetTab.AUDIO_DELAY -> DelaySubTabContent(
-                currentSec = state.audioDelaySec,
-                label = stringResource(R.string.sync_audio_delay),
-                onValueChange = callbacks.onSetAudioDelay
-            )
-            PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> SubtitleTracksSubTabContent(state, callbacks)
-            PlayerSheetTab.SUBTITLE_DELAY -> DelaySubTabContent(
-                currentSec = state.subDelaySec,
-                label = stringResource(R.string.sync_sub_delay),
-                onValueChange = callbacks.onSetSubDelay
-            )
-            PlayerSheetTab.SUBTITLE_STYLE -> SubtitleStyleSubTabContent(state, callbacks)
-            PlayerSheetTab.SPEED -> SpeedSubTabContent(state, callbacks)
-            PlayerSheetTab.STATS_INFO, PlayerSheetTab.STATS, PlayerSheetTab.INFO -> MediaInfoStatsTabContent(state, callbacks)
-            PlayerSheetTab.PLAYLIST -> PlaylistTabContent(state, callbacks)
-            PlayerSheetTab.CHAPTERS -> ChaptersTabContent(state, callbacks)
-            PlayerSheetTab.VIDEO -> VideoTabContent(state, callbacks)
-            PlayerSheetTab.SYNC -> SyncTabContent(state, callbacks)
-            PlayerSheetTab.AUDIOVISUAL -> VideoTabContent(state, callbacks)
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                if (targetState == PlayerSheetTab.SETTINGS_HUB) {
+                    (slideInHorizontally(animationSpec = tween(180)) { -it } + fadeIn(animationSpec = tween(180)))
+                        .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { it } + fadeOut(animationSpec = tween(180)))
+                } else {
+                    (slideInHorizontally(animationSpec = tween(180)) { it } + fadeIn(animationSpec = tween(180)))
+                        .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { -it } + fadeOut(animationSpec = tween(180)))
+                }
+            },
+            label = "SheetTabTransition"
+        ) { currentTab ->
+            when (currentTab) {
+                PlayerSheetTab.SETTINGS_HUB -> SettingsHubTabContent(
+                    state = state,
+                    callbacks = callbacks,
+                    onNavigate = onSelectTab
+                )
+                PlayerSheetTab.HWDEC -> HwdecSubTabContent(state, callbacks)
+                PlayerSheetTab.SHADERS -> ShadersSubTabContent(state, callbacks)
+                PlayerSheetTab.ASPECT -> AspectSubTabContent(state, callbacks)
+                PlayerSheetTab.COLOR -> ColorSubTabContent(state, callbacks)
+                PlayerSheetTab.HDR_TONE_MAPPING -> HdrToneMappingSubTabContent(state, callbacks)
+                PlayerSheetTab.VIDEO_SCALE -> VideoScaleSubTabContent(state, callbacks)
+                PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> AudioTracksSubTabContent(state, callbacks)
+                PlayerSheetTab.AUDIO_BOOST -> AudioBoostSubTabContent(state, callbacks)
+                PlayerSheetTab.VIDEO_QUALITY -> VideoQualityTabContent(
+                    state = state,
+                    callbacks = callbacks,
+                    onNavigate = onSelectTab
+                )
+                PlayerSheetTab.AUDIO_EFFECTS -> AudioEffectsTabContent(
+                    state = state,
+                    callbacks = callbacks,
+                    onNavigate = onSelectTab
+                )
+                PlayerSheetTab.AUDIO_DELAY -> DelaySubTabContent(
+                    currentSec = state.audioDelaySec,
+                    label = stringResource(R.string.sync_audio_delay),
+                    onValueChange = callbacks.onSetAudioDelay
+                )
+                PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> SubtitleTracksSubTabContent(state, callbacks)
+                PlayerSheetTab.SUBTITLE_DELAY -> DelaySubTabContent(
+                    currentSec = state.subDelaySec,
+                    label = stringResource(R.string.sync_sub_delay),
+                    onValueChange = callbacks.onSetSubDelay
+                )
+                PlayerSheetTab.SUBTITLE_STYLE -> SubtitleStyleSubTabContent(state, callbacks)
+                PlayerSheetTab.SPEED -> SpeedSubTabContent(state, callbacks)
+                PlayerSheetTab.STATS_INFO, PlayerSheetTab.STATS, PlayerSheetTab.INFO -> MediaInfoStatsTabContent(state, callbacks)
+                PlayerSheetTab.PLAYLIST -> PlaylistTabContent(state, callbacks)
+                PlayerSheetTab.CHAPTERS -> ChaptersTabContent(state, callbacks)
+                PlayerSheetTab.VIDEO -> VideoTabContent(state, callbacks)
+                PlayerSheetTab.SYNC -> SyncTabContent(state, callbacks)
+                PlayerSheetTab.AUDIOVISUAL -> VideoTabContent(state, callbacks)
+            }
         }
     }
 }

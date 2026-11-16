@@ -98,6 +98,8 @@ interface PlayerEngine {
 
     fun cycleAbLoop()
     fun clearAbLoop()
+    fun frameStep() {}
+    fun frameBackStep() {}
     fun cycleHwdec(): String
     fun toggleHwdec()
     fun setHwdec(target: String)

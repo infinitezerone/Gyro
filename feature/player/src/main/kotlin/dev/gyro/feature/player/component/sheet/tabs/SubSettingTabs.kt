@@ -1,17 +1,20 @@
 package dev.gyro.feature.player.component.sheet.tabs
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -26,9 +29,16 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -40,9 +50,11 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.EmptyTrackNotice
+import dev.gyro.feature.player.component.sheet.common.SettingsItemRow
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetChip
+import dev.gyro.feature.player.component.sheet.common.SheetSwitch
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.SheetTrackColor
@@ -304,16 +316,44 @@ private fun SubCompactSlider(
     label: String,
     value: Int,
     range: ClosedFloatingPointRange<Float>,
+    step: Float = 1f,
     onChange: (Float) -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
+    var lastValue by remember { mutableIntStateOf(value) }
+
     Row(
-        modifier = Modifier.fillMaxWidth().height(36.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = label, fontSize = 13.sp, color = SheetTextColor, modifier = Modifier.width(48.dp))
+
+        // Precision step down
+        Text(
+            text = "−",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = SheetAccentBlue,
+            modifier = Modifier
+                .clickable {
+                    val next = (value - step).coerceIn(range.start, range.endInclusive)
+                    onChange(next)
+                }
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+        )
+
         Slider(
             value = value.toFloat(),
-            onValueChange = onChange,
+            onValueChange = { raw ->
+                val snapped = if (Math.abs(raw) < 2.5f && range.start < 0f && range.endInclusive > 0f) 0f else raw
+                if (snapped.toInt() == 0 && lastValue != 0) {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                lastValue = snapped.toInt()
+                onChange(snapped)
+            },
             valueRange = range,
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(
@@ -322,6 +362,21 @@ private fun SubCompactSlider(
                 inactiveTrackColor = SheetTrackColor
             )
         )
+
+        // Precision step up
+        Text(
+            text = "+",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = SheetAccentBlue,
+            modifier = Modifier
+                .clickable {
+                    val next = (value + step).coerceIn(range.start, range.endInclusive)
+                    onChange(next)
+                }
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+        )
+
         Text(
             text = if (value > 0) "+$value" else "$value",
             fontSize = 12.sp,
@@ -437,6 +492,33 @@ internal fun DelaySubTabContent(
             accentColor = SheetAccentBlue,
             onValueChange = onValueChange
         )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                -0.5 to "-0.5s",
+                -0.1 to "-0.1s",
+                0.0 to stringResource(R.string.action_reset),
+                0.1 to "+0.1s",
+                0.5 to "+0.5s"
+            ).forEach { (offset, btnLabel) ->
+                SheetChip(
+                    selected = offset == 0.0 && Math.abs(currentSec) < 0.01,
+                    onClick = {
+                        if (offset == 0.0) {
+                            onValueChange(0.0)
+                        } else {
+                            val next = (Math.round((currentSec + offset) * 10.0) / 10.0).coerceIn(-10.0, 10.0)
+                            onValueChange(next)
+                        }
+                    },
+                    label = btnLabel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 
@@ -483,6 +565,14 @@ internal fun SubtitleTracksSubTabContent(
 
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
+        Text(
+            text = stringResource(R.string.settings_subtitle_track),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = SheetAccentBlue,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
+        )
+
         SettingRadioRow(
             title = stringResource(R.string.track_none_subtitle),
             isSelected = state.subtitleTracks.none { it.isSelected },
@@ -498,6 +588,34 @@ internal fun SubtitleTracksSubTabContent(
                 onClick = { callbacks.onSelectTrack("sub", track.id) }
             )
         }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = stringResource(R.string.track_secondary_subtitle),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = SheetAccentBlue,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
+        )
+
+        SettingRadioRow(
+            title = stringResource(R.string.track_secondary_none),
+            isSelected = state.secondarySubId <= 0,
+            onClick = { callbacks.onSelectSecondarySubtitle(0) }
+        )
+
+        state.subtitleTracks.forEach { track ->
+            HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
+            SettingRadioRow(
+                title = track.title ?: stringResource(R.string.track_builtin_subtitle_fmt, track.id),
+                subtitle = track.lang?.uppercase() ?: "ASS/SRT",
+                isSelected = state.secondarySubId == track.id,
+                onClick = { callbacks.onSelectSecondarySubtitle(track.id) }
+            )
+        }
     }
 }
 
@@ -509,12 +627,43 @@ internal fun SubtitleStyleSubTabContent(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks
 ) {
+    var previewPreset by remember { mutableIntStateOf(0) } // 0: White, 1: Yellow, 2: Card
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // 1. 顶部沉浸式字幕预览卡片
+        SubtitlePreviewCard(
+            fontScale = state.subScale,
+            presetStyle = previewPreset
+        )
+
+        // 样式预设切换
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                0 to stringResource(R.string.sub_preset_white),
+                1 to stringResource(R.string.sub_preset_yellow),
+                2 to stringResource(R.string.sub_preset_card)
+            ).forEach { (presetIdx, label) ->
+                SheetChip(
+                    selected = previewPreset == presetIdx,
+                    onClick = { previewPreset = presetIdx },
+                    label = label,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+        // 2. 字号缩放
         Text(text = stringResource(R.string.sub_scale_section), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -537,6 +686,7 @@ internal fun SubtitleStyleSubTabContent(
 
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
+        // 3. 字幕位置
         Text(text = stringResource(R.string.sub_pos_title), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SheetAccentBlue)
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -552,6 +702,77 @@ internal fun SubtitleStyleSubTabContent(
                     onClick = { callbacks.onSetSubPos(pos) },
                     label = label,
                     modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+        // 4. ASS 样式覆盖开关 (mpv sub-ass-override)
+        SettingsItemRow(
+            title = stringResource(R.string.sub_ass_override_title),
+            icon = Icons.Default.ClosedCaption,
+            trailingContent = {
+                SheetSwitch(
+                    checked = state.subAssOverride,
+                    onCheckedChange = callbacks.onSetSubAssOverride
+                )
+            }
+        )
+        Text(
+            text = stringResource(R.string.sub_ass_override_desc),
+            fontSize = 11.sp,
+            color = SheetTextSecondaryColor,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun SubtitlePreviewCard(
+    fontScale: Double,
+    presetStyle: Int,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color.Black.copy(alpha = 0.85f),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(96.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(8.dp)
+            ) {
+                val textColor = when (presetStyle) {
+                    1 -> Color(0xFFFFEB3B)
+                    else -> Color.White
+                }
+                val bgModifier = if (presetStyle == 2) {
+                    Modifier
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                } else Modifier
+
+                Text(
+                    text = stringResource(R.string.sub_preview_sample_cn),
+                    color = textColor,
+                    fontSize = (13 * fontScale).coerceIn(10.0, 22.0).sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = bgModifier
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = stringResource(R.string.sub_preview_sample_en),
+                    color = textColor.copy(alpha = 0.85f),
+                    fontSize = (10 * fontScale).coerceIn(8.0, 18.0).sp,
+                    modifier = bgModifier
                 )
             }
         }

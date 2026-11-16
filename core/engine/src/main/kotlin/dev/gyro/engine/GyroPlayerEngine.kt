@@ -273,6 +273,8 @@ class GyroPlayerEngine(
 
     override fun cycleAbLoop() = abLoop.cycleLoopPoint()
     override fun clearAbLoop() = abLoop.clearLoop()
+    override fun frameStep() = playback.frameStep()
+    override fun frameBackStep() = playback.frameBackStep()
 
     override fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
     override fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())

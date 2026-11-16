@@ -1,6 +1,8 @@
 package dev.gyro.feature.player.component.sheet.tabs
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -9,14 +11,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Gradient
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroPillButton
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.HDR_OUTPUT_HLG
 import dev.gyro.core.model.HDR_OUTPUT_PQ
@@ -56,6 +62,18 @@ internal fun VideoQualityTabContent(
         SheetSectionHeader(
             stringResource(R.string.hub_group_video),
             modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp)
+        )
+
+        val hwLabel = when {
+            state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
+            state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
+            else -> stringResource(R.string.hwdec_sw)
+        }
+        SettingsItemRow(
+            title = stringResource(R.string.stats_decoder),
+            icon = Icons.Default.Memory,
+            currentValue = hwLabel,
+            onClick = { onNavigate(PlayerSheetTab.HWDEC) }
         )
 
         val shaderLabel = when (state.shaderState.activeShader) {
@@ -134,11 +152,26 @@ internal fun VideoQualityTabContent(
             onClick = { onNavigate(PlayerSheetTab.COLOR) }
         )
 
-        SettingsItemRow(
-            title = stringResource(R.string.aspect_title),
-            icon = Icons.Default.Tune,
-            currentValue = state.currentResizeMode.displayLabel(),
-            onClick = { onNavigate(PlayerSheetTab.ASPECT) }
+        SheetSectionHeader(
+            stringResource(R.string.frame_step_title),
+            modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp)
         )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            GyroPillButton(
+                text = stringResource(R.string.frame_step_back),
+                onClick = callbacks.onFrameBackStep,
+                modifier = Modifier.weight(1f)
+            )
+            GyroPillButton(
+                text = stringResource(R.string.frame_step_forward),
+                onClick = callbacks.onFrameStep,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }

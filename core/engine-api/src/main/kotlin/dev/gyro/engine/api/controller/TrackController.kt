@@ -14,5 +14,6 @@ interface TrackController {
     val secondarySubId: StateFlow<Int>
 
     fun selectTrack(type: String, id: Int)
+    fun selectSecondarySubtitle(id: Int) = selectTrack("secondary-sub", id)
     fun addSubtitle(path: String)
 }

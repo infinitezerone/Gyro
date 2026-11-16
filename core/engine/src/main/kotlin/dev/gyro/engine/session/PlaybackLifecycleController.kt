@@ -284,6 +284,14 @@ open class PlaybackLifecycleController(
         return next
     }
 
+    fun frameStep() {
+        bridge.command(arrayOf("frame-step"))
+    }
+
+    fun frameBackStep() {
+        bridge.command(arrayOf("frame-back-step"))
+    }
+
     fun abandonAudioFocus() {
         audioFocusManager.abandon()
     }

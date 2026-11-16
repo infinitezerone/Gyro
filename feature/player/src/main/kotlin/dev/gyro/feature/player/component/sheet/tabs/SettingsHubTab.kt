@@ -14,27 +14,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -44,24 +43,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.GlslShader
+import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SettingsItemRow
-import dev.gyro.feature.player.component.sheet.common.SheetSwitch
-import dev.gyro.feature.player.component.sheet.common.shortCodecName
-import dev.gyro.feature.player.component.sheet.common.SheetChip
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetCardColor
+import dev.gyro.feature.player.component.sheet.common.SheetChip
+import dev.gyro.feature.player.component.sheet.common.SheetSwitch
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.displayLabel
+import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import java.util.Locale
 
 /**
- * 主播放设置菜单 (SettingsHubTab) - 高密度扁平列表
+ * 主播放设置菜单 (SettingsHubTab)
  *
- * 规范：左边图标+标题，右边当前状态/Switch，去除所有冗余说明文案，需要二级就二级。
+ * 现代化抽屉布局结构（参考 Bilibili / YouTube / Infuse 设计哲学）：
+ * 1. 顶部 2x2 快捷操作矩阵 (PiP 画中画、后台播放、定时关闭倒计时、A-B 循环)
+ * 2. 高频属性分段快切 (倍速预设、画面比例预设)
+ * 3. 四大核心收纳枢纽 (画面与画质、声音与音效、字幕与排版、信息与极客)
+ * 4. 辅助开关与全局设置 (统计浮层开关、更多设置)
  */
 @Composable
 internal fun SettingsHubTabContent(
@@ -69,6 +73,8 @@ internal fun SettingsHubTabContent(
     callbacks: PlayerSheetCallbacks,
     onNavigate: (PlayerSheetTab) -> Unit
 ) {
+    var showSleepPresets by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -76,25 +82,139 @@ internal fun SettingsHubTabContent(
             .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        // The only tile left is the one action that cannot live in a list: entering PiP closes the
-        // sheet and changes the whole window mode. The three selectors that used to sit here were
-        // choices, not actions, so they moved into their own groups below where the rest of the
-        // settings of the same kind live.
-        PipTile(onClick = callbacks.onEnterPip, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        // ==================== 0. 顶部快捷操作矩阵 ====================
+        val abLoopText = when {
+            state.abLoopASeconds >= 0 && state.abLoopBSeconds >= 0 -> {
+                val aSec = state.abLoopASeconds.toInt()
+                val bSec = state.abLoopBSeconds.toInt()
+                val aStr = "%02d:%02d".format(Locale.US, aSec / 60, aSec % 60)
+                val bStr = "%02d:%02d".format(Locale.US, bSec / 60, bSec % 60)
+                "$aStr - $bStr"
+            }
+            state.abLoopASeconds >= 0 -> {
+                val aSec = state.abLoopASeconds.toInt()
+                val aStr = "%02d:%02d".format(Locale.US, aSec / 60, aSec % 60)
+                stringResource(R.string.ab_loop_set_b_short) + " ($aStr)"
+            }
+            else -> stringResource(R.string.common_off)
+        }
 
-        // ==================== 1. 播放分组 ====================
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            QuickActionCard(
+                title = stringResource(R.string.cd_pip),
+                subtitle = "",
+                icon = Icons.Default.PictureInPicture,
+                onClick = callbacks.onEnterPip,
+                modifier = Modifier.weight(1f)
+            )
+            QuickActionCard(
+                title = stringResource(R.string.action_bg_play),
+                subtitle = stringResource(R.string.common_enabled),
+                icon = Icons.AutoMirrored.Filled.VolumeUp,
+                onClick = callbacks.onEnterPip,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val sleepTimerActive = state.sleepTimerSecondsRemaining > 0
+            val sleepTimerSubtitle = if (sleepTimerActive) {
+                val rem = state.sleepTimerSecondsRemaining
+                "%02d:%02d".format(Locale.US, rem / 60, rem % 60)
+            } else {
+                stringResource(R.string.sleep_timer_off)
+            }
+            QuickActionCard(
+                title = stringResource(R.string.sleep_timer_title),
+                subtitle = sleepTimerSubtitle,
+                icon = Icons.Default.Schedule,
+                isActive = sleepTimerActive,
+                onClick = { showSleepPresets = !showSleepPresets },
+                modifier = Modifier.weight(1f)
+            )
+
+            val loopActive = state.abLoopASeconds >= 0
+            QuickActionCard(
+                title = stringResource(R.string.action_loop_mode),
+                subtitle = abLoopText,
+                icon = Icons.Default.Repeat,
+                isActive = loopActive,
+                onClick = callbacks.onCycleAbLoop,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // 定时关闭快捷选择展开行
+        if (showSleepPresets) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    0 to stringResource(R.string.sleep_timer_off),
+                    15 to stringResource(R.string.sleep_timer_15m),
+                    30 to stringResource(R.string.sleep_timer_30m),
+                    60 to stringResource(R.string.sleep_timer_60m)
+                ).forEach { (minutes, label) ->
+                    SheetChip(
+                        selected = (minutes == 0 && state.sleepTimerSecondsRemaining == 0L) ||
+                            (minutes > 0 && state.sleepTimerSecondsRemaining in (minutes * 60 - 5L)..(minutes * 60L)),
+                        onClick = {
+                            callbacks.onSetSleepTimer(minutes)
+                            if (minutes == 0) showSleepPresets = false
+                        },
+                        label = label,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        // A-B 循环清除按钮
+        if (state.abLoopASeconds >= 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = stringResource(R.string.ab_loop_clear),
+                    fontSize = 12.sp,
+                    color = SheetAccentBlue,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clickable(onClick = callbacks.onClearAbLoop)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        SectionDivider()
+
+        // ==================== 1. 常用播放快捷分段 ====================
         CategoryHeader(stringResource(R.string.hub_group_playback))
 
+        // 倍速
         SettingsItemRow(
             title = stringResource(R.string.settings_playback_speed),
             icon = Icons.Default.Speed,
             currentValue = "${state.currentSpeed}x",
             onClick = { onNavigate(PlayerSheetTab.SPEED) }
         )
-
-        // The presets sit under the row instead of behind it: the row is the way into the fine
-        // control, the chips are the shortcut for the few speeds people actually switch between.
-        val speedPresets = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f)
+        val speedPresets = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -111,164 +231,96 @@ internal fun SettingsHubTabContent(
             }
         }
 
-        val abLoopText = when {
-            state.abLoopASeconds >= 0 && state.abLoopBSeconds >= 0 -> {
-                val aSec = state.abLoopASeconds.toInt()
-                val bSec = state.abLoopBSeconds.toInt()
-                val aStr = "%02d:%02d".format(Locale.US, aSec / 60, aSec % 60)
-                val bStr = "%02d:%02d".format(Locale.US, bSec / 60, bSec % 60)
-                "$aStr - $bStr"
-            }
-            state.abLoopASeconds >= 0 -> {
-                val aSec = state.abLoopASeconds.toInt()
-                val aStr = "%02d:%02d".format(Locale.US, aSec / 60, aSec % 60)
-                stringResource(R.string.ab_loop_set_b_short) + " ($aStr)"
-            }
-            else -> stringResource(R.string.common_off)
-        }
-        SettingsItemRow(
-            title = stringResource(R.string.ab_loop_title),
-            icon = Icons.Default.Repeat,
-            currentValue = abLoopText,
-            onClick = callbacks.onCycleAbLoop
-        )
-
-        // The loop row only ever cycles A -> B -> off, so getting out of a half-set loop meant
-        // cycling through states. This row appears only while a loop is armed.
-        if (state.abLoopASeconds >= 0) {
-            SettingsItemRow(
-                title = stringResource(R.string.ab_loop_clear),
-                icon = Icons.Default.Close,
-                onClick = callbacks.onClearAbLoop
-            )
-        }
-
-        SectionDivider()
-
-        // ==================== 2. 画面设置分组 ====================
-        CategoryHeader(stringResource(R.string.hub_group_video))
-
+        // 画面比例
         SettingsItemRow(
             title = stringResource(R.string.aspect_title),
             icon = Icons.Default.FitScreen,
             currentValue = state.currentResizeMode.displayLabel(),
             onClick = { onNavigate(PlayerSheetTab.ASPECT) }
         )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ResizeMode.entries.forEach { mode ->
+                SheetChip(
+                    selected = state.currentResizeMode == mode,
+                    onClick = { callbacks.onSelectResizeMode(mode) },
+                    label = mode.displayLabel(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
 
+        SectionDivider()
+
+        // ==================== 2. 四大核心收纳枢纽 ====================
+        CategoryHeader(stringResource(R.string.settings_title))
+
+        // 1. 画面与画质 (Video & Rendering)
         val hwLabel = when {
             state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
             state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
             else -> stringResource(R.string.hwdec_sw)
         }
-
-        SettingsItemRow(
-            title = stringResource(R.string.stats_decoder),
-            icon = Icons.Default.Memory,
-            currentValue = hwLabel,
-            onClick = { onNavigate(PlayerSheetTab.HWDEC) }
-        )
-
         val shaderLabel = when (state.shaderState.activeShader) {
             GlslShader.ANIME4K -> stringResource(R.string.shader_anime4k_short)
             GlslShader.CAS -> stringResource(R.string.shader_cas_short)
             GlslShader.CUSTOM -> state.shaderState.displayName ?: stringResource(R.string.shader_custom)
             else -> stringResource(R.string.shader_none_short)
         }
-
         SettingsItemRow(
-            title = stringResource(R.string.video_quality),
+            title = stringResource(R.string.hub_group_video_rendering),
             icon = Icons.Default.AutoAwesome,
-            currentValue = shaderLabel,
+            currentValue = "$hwLabel · $shaderLabel",
             onClick = { onNavigate(PlayerSheetTab.VIDEO_QUALITY) }
         )
 
-        SectionDivider()
-
-        // ==================== 3. 声音设置分组 ====================
-        CategoryHeader(stringResource(R.string.hub_group_audio))
-
-        val audioTrack = state.audioTracks.firstOrNull { it.isSelected }?.title
-            ?: stringResource(R.string.track_no_internal_audio)
-        SettingsItemRow(
-            title = stringResource(R.string.settings_audio_track),
-            icon = Icons.AutoMirrored.Filled.VolumeUp,
-            currentValue = audioTrack,
-            onClick = { onNavigate(PlayerSheetTab.AUDIO_TRACKS) }
-        )
-
+        // 2. 声音与音效 (Audio & Sound Effects)
         val roundedVolume = kotlin.math.round(state.softwareVolume).toInt()
-        SettingsItemRow(
-            title = stringResource(R.string.hub_audio_boost),
-            icon = Icons.Default.GraphicEq,
-            currentValue = "$roundedVolume%",
-            onClick = { onNavigate(PlayerSheetTab.AUDIO_BOOST) }
-        )
-
-        // Processing moved into its own page: loudness levelling, downmix, passthrough and delay
-        // are all "how the audio is treated", and they are only touched when something sounds
-        // wrong. The row shows the one that is currently active.
         val audioProcessingState = when {
             state.nightMode -> stringResource(R.string.audio_loudness_leveling)
             state.eqGainsDb.any { Math.abs(it) > 0.1 } -> stringResource(R.string.audio_equalizer)
             else -> stringResource(R.string.audio_equalizer_flat)
         }
         SettingsItemRow(
-            title = stringResource(R.string.sheet_tab_audio_effects),
-            icon = Icons.Default.Tune,
-            currentValue = audioProcessingState,
+            title = stringResource(R.string.hub_group_audio_effects),
+            icon = Icons.Default.GraphicEq,
+            currentValue = "$roundedVolume% · $audioProcessingState",
             onClick = { onNavigate(PlayerSheetTab.AUDIO_EFFECTS) }
         )
 
-        SectionDivider()
-
-        // ==================== 4. 字幕设置分组 ====================
-        CategoryHeader(stringResource(R.string.hub_group_subtitles))
-
+        // 3. 字幕与排版 (Subtitles & Typography)
         val subtitleTrack = state.subtitleTracks.firstOrNull { it.isSelected }?.title
             ?: stringResource(R.string.common_off)
+        val subTrackDisplay = if (state.secondarySubId > 0) {
+            val secTrack = state.subtitleTracks.firstOrNull { it.id == state.secondarySubId }?.title
+                ?: stringResource(R.string.track_secondary_subtitle)
+            "$subtitleTrack + $secTrack"
+        } else {
+            subtitleTrack
+        }
         SettingsItemRow(
-            title = stringResource(R.string.settings_subtitle_track),
+            title = stringResource(R.string.hub_group_subtitle_styling),
             icon = Icons.Default.ClosedCaption,
-            currentValue = subtitleTrack,
+            currentValue = subTrackDisplay,
             onClick = { onNavigate(PlayerSheetTab.SUBTITLE_TRACKS) }
         )
 
-        val subDelayText = if (Math.abs(state.subDelaySec) > 0.01) {
-            "${String.format(Locale.US, "%.1f", state.subDelaySec)}s"
-        } else stringResource(R.string.delay_synced_label)
-        SettingsItemRow(
-            title = stringResource(R.string.hub_sub_delay_sync),
-            icon = Icons.Default.Schedule,
-            currentValue = subDelayText,
-            onClick = { onNavigate(PlayerSheetTab.SUBTITLE_DELAY) }
-        )
-
-        SettingsItemRow(
-            title = stringResource(R.string.hub_sub_style),
-            icon = Icons.Default.TextFields,
-            currentValue = "${state.subScale}x",
-            onClick = { onNavigate(PlayerSheetTab.SUBTITLE_STYLE) }
-        )
-
-        SectionDivider()
-
-        // ==================== 5. 信息与诊断分组 ====================
-        CategoryHeader(stringResource(R.string.hub_group_advanced_diag))
-
-        // The file: what is in it. Static, and the thing people check when something looks wrong
-        // with the picture ("is this actually 1080p, is it really HEVC?").
+        // 4. 信息与极客 (Media Info & Diagnostics)
         val codecText = state.mediaInfo?.videoCodec?.let { shortCodecName(it) }?.ifBlank { null }
         val resolutionText = if (state.videoWidth > 0) "${state.videoHeight}P" else null
         val mediaSummary = listOfNotNull(resolutionText, codecText).joinToString(" ")
         SettingsItemRow(
-            title = stringResource(R.string.hub_media_details),
+            title = stringResource(R.string.hub_group_info_advanced),
             icon = Icons.Default.Assessment,
             currentValue = if (mediaSummary.isNotBlank()) mediaSummary else stringResource(R.string.action_view_details),
             onClick = { onNavigate(PlayerSheetTab.STATS_INFO) }
         )
 
-        // The playback: how it is running right now. Dynamic, and the answer to "why is it
-        // stuttering". Same group, because both answer questions about the same file.
+        // 实时极客统计浮层开关
         SettingsItemRow(
             title = stringResource(R.string.hub_stats_overlay),
             icon = Icons.Default.Monitor,
@@ -282,8 +334,7 @@ internal fun SettingsHubTabContent(
 
         SectionDivider()
 
-        // Not a diagnostic: this is the way out to app-level settings. Kept outside the group and
-        // last, the way every settings screen ends.
+        // 系统设置
         SettingsItemRow(
             title = stringResource(R.string.settings_more),
             icon = Icons.Default.Settings,
@@ -293,54 +344,57 @@ internal fun SettingsHubTabContent(
 }
 
 /**
- * A single full-width action entry. Unlike the settings rows below, this does not open a page -
- * it performs something (leaving the current window for PiP), so it gets a filled card rather than
- * a plain list row to say "this is a button, not a value".
+ * 快捷操作方卡
  */
 @Composable
-private fun PipTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun QuickActionCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    isActive: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = SheetCardColor,
+        color = if (isActive) SheetAccentBlue.copy(alpha = 0.15f) else SheetCardColor,
         modifier = modifier
-            .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.PictureInPicture,
+                imageVector = icon,
                 contentDescription = null,
-                tint = SheetAccentBlue,
+                tint = if (isActive) SheetAccentBlue else SheetTextColor,
                 modifier = Modifier.size(20.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = stringResource(R.string.cd_pip),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = SheetTextColor,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                contentDescription = null,
-                tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
-                modifier = Modifier.size(12.dp)
-            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = SheetTextColor
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        color = if (isActive) SheetAccentBlue else SheetTextSecondaryColor,
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun CategoryHeader(title: String) {
-    // Section labels in mainstream settings sheets are quiet: they separate groups, they are not
-    // another accent competing with the icons. Letter spacing carries the "label" reading instead
-    // of colour.
     Text(
         text = title,
         fontSize = 11.sp,
@@ -351,7 +405,6 @@ private fun CategoryHeader(title: String) {
     )
 }
 
-/** Prints the gap between groups; the group label above it already does the separating. */
 @Composable
 private fun SectionDivider() {
     Spacer(modifier = Modifier.height(6.dp))

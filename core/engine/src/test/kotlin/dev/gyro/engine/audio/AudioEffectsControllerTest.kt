@@ -1,6 +1,7 @@
 package dev.gyro.engine.audio
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -101,5 +102,39 @@ class AudioEffectsControllerTest {
         controller.setSoftwareVolume(100.0)
         controller.setNightMode(false)
         assertEquals("lavfi=[bs2b=profile=default]", bridge.properties["af"])
+    }
+
+    @Test
+    fun testEqualizer_appliesLavfiFilterAndLimiterWhenBoosted() {
+        controller.setEqualizerGains(listOf(3.5, 0.0, -2.0, 0.0, 0.0))
+
+        val expected = "lavfi=[equalizer=f=60:width_type=o:width=1.5:g=3.5,equalizer=f=910:width_type=o:width=1.5:g=-2.0],${AudioEffectsController.FILTER_ALIMITER}"
+        assertEquals(expected, bridge.properties["af"])
+    }
+
+    @Test
+    fun testEqualizer_cutOnlyDoesNotTriggerLimiter() {
+        controller.setEqualizerGains(listOf(-3.0, -1.0, 0.0, 0.0, 0.0))
+
+        val expected = "lavfi=[equalizer=f=60:width_type=o:width=1.5:g=-3.0,equalizer=f=230:width_type=o:width=1.5:g=-1.0]"
+        assertEquals(expected, bridge.properties["af"])
+    }
+
+    @Test
+    fun testEqualizer_localeIndependentDecimalSeparator() {
+        val originalLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            controller.setEqualizerGains(listOf(3.5, 0.0, 0.0, 0.0, 0.0))
+
+            val expected = "lavfi=[equalizer=f=60:width_type=o:width=1.5:g=3.5],${AudioEffectsController.FILTER_ALIMITER}"
+            assertEquals(expected, bridge.properties["af"])
+            assertFalse(
+                "Filter string must not contain comma as decimal separator",
+                (bridge.properties["af"] as String).contains("3,5")
+            )
+        } finally {
+            Locale.setDefault(originalLocale)
+        }
     }
 }

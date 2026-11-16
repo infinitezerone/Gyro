@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
@@ -44,6 +45,9 @@ class SyncTuningController(
 
     private val _subtitlePositionPercent = store.property({ it.subtitlePositionPercent }) { s, v -> s.copy(subtitlePositionPercent = v) }
     override val subtitlePositionPercent: StateFlow<Long> = _subtitlePositionPercent.asStateFlow()
+
+    private val _subAssOverride = MutableStateFlow(false)
+    override val subAssOverride: StateFlow<Boolean> = _subAssOverride.asStateFlow()
 
     override fun registerObservers() {
         bridge.observeProperty("sub-delay", MpvNativeBridge.Format.DOUBLE)
@@ -97,6 +101,11 @@ class SyncTuningController(
         val clamped = percent.coerceIn(SUB_POS_RANGE)
         _subtitlePositionPercent.value = clamped
         bridge.setPropertyLong("sub-pos", clamped)
+    }
+
+    override fun setSubAssOverride(force: Boolean) {
+        _subAssOverride.value = force
+        bridge.setPropertyString("sub-ass-override", if (force) "force" else "no")
     }
 
     override fun resetDelays() {

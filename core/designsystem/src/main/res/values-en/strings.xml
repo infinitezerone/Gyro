@@ -469,4 +469,43 @@
     <string name="track_audio_index_fmt">Audio track #%1$d</string>
     <string name="chapters_banner_fmt">This video has %1$d embedded chapters; open Chapters at the top to browse them</string>
 
+    <!-- Sleep Timer -->
+    <string name="sleep_timer_title">Sleep timer</string>
+    <string name="sleep_timer_off">Off</string>
+    <string name="sleep_timer_15m">15 min</string>
+    <string name="sleep_timer_30m">30 min</string>
+    <string name="sleep_timer_60m">60 min</string>
+    <string name="sleep_timer_end_of_video">End of video</string>
+    <string name="sleep_timer_active_fmt">%1$s left</string>
+
+    <!-- Quick Action Matrix & Loop -->
+    <string name="action_bg_play">Background play</string>
+    <string name="action_loop_mode">Loop mode</string>
+    <string name="loop_mode_single">Single loop</string>
+    <string name="loop_mode_all">Loop playlist</string>
+    <string name="loop_mode_none">Normal</string>
+
+    <!-- Subtitle Preview & Styling Enhancements -->
+    <string name="sub_preview_sample_cn">这是字幕排版与样式预览效果</string>
+    <string name="sub_preview_sample_en">This is a subtitle typography and style preview</string>
+    <string name="sub_preset_white">Classic White</string>
+    <string name="sub_preset_yellow">Comfort Yellow</string>
+    <string name="sub_preset_card">Boxed</string>
+    <string name="sub_ass_override_title">Override subtitle styles</string>
+    <string name="sub_ass_override_desc">Force custom size and color, ignoring embedded styling</string>
+    <string name="track_secondary_subtitle">Secondary subtitle</string>
+    <string name="track_secondary_none">None</string>
+
+    <!-- Frame Stepping -->
+    <string name="frame_step_forward">Next frame</string>
+    <string name="frame_step_back">Prev frame</string>
+    <string name="frame_step_title">Frame stepping</string>
+
+    <!-- Group Headers -->
+    <string name="hub_group_video_rendering">Picture and quality</string>
+    <string name="hub_group_audio_effects">Sound and effects</string>
+    <string name="hub_group_subtitle_styling">Subtitles and typography</string>
+    <string name="hub_group_info_advanced">Details and stats</string>
+    <string name="custom_speed_slider">Continuous speed</string>
+
 </resources>
