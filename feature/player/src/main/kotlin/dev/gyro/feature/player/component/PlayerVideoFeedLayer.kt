@@ -83,6 +83,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     isPipLayout: Boolean,
     isLandscape: Boolean,
     pipTransitionActive: Boolean,
+    freezeViewportFullscreen: Boolean = false,
     onSurfaceViewAvailable: (GyroSurfaceView?) -> Unit,
     onRetryPlayback: () -> Unit,
 ) {
@@ -180,7 +181,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
             .align(Alignment.Center)
             .onGloballyPositioned { coords ->
                 val windowBounds = coords.boundsInWindow()
-                val windowRect = if (windowBounds.width > 0 && windowBounds.height > 0) {
+                val windowRect = if (!freezeViewportFullscreen && windowBounds.width > 0 && windowBounds.height > 0) {
                     Rect(
                         windowBounds.left.roundToInt(),
                         windowBounds.top.roundToInt(),

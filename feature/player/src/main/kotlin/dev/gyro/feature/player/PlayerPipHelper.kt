@@ -445,7 +445,7 @@ fun rememberPlayerPipState(
     var pipRequested by remember { mutableStateOf(false) }
 
     var isSettling by remember { mutableStateOf(isInPipMode) }
-    LaunchedEffect(windowFocused) {
+    LaunchedEffect(windowFocused, isInPipMode, isSettling) {
         if (!windowFocused) {
             pipEntering = true
             onControlsHide()
@@ -462,6 +462,9 @@ fun rememberPlayerPipState(
         } else if (isSettling) {
             delay(PIP_EXIT_SETTLE_MS)
             isSettling = false
+            pipEntering = false
+        } else {
+            pipEntering = false
         }
     }
 

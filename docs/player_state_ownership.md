@@ -60,3 +60,14 @@
    上滑自动进入（系统驱动）不受影响。应用层无缓解手段（无参 enter 实验实测无效，已回退）。
    屏幕刚进入时另有 9 次/100ms 的 params 重放（入场动画 bounds 连续变化），
    与本症状无关，值得日后防抖。
+
+
+## 五、PiP 退出与展开动画下压黑屏归档（2026-11-16 诊断与修复）
+
+**症状**：从 PiP 小窗点击返回全屏时，画面瞬间被压到小窗可视范围下方，悬浮小窗全黑，随后随着窗口拉伸才从底部慢慢露出来，且返回后控制层无法唤起。
+
+**根因与修复**：
+1. **`PlayerVideoFeedLayer` 漏门控**：分层重构时 `onGloballyPositioned` 遗漏了 `!freezeViewportFullscreen` 门控，导致小窗坐标写入了 `videoBoundsInWindow`，污染了退出转场的系统 `sourceRectHint` 目标。修复：透传并在 `windowRect` 处恢复该保护。
+2. **`pipEntering` 焦点闭锁**：PiP 丢失焦点置位 `pipEntering = true`，返回时因 `isSettling == true`（300ms 延迟）无法清除，转场结束后不再触发焦点变化导致死锁。修复：`LaunchedEffect` 联合监听 `(windowFocused, isInPipMode, isSettling)` 并在退出延迟结束后显式清零。
+3. **退小窗第 0 帧修改 orientation**：原先无差别设置 `activity.requestedOrientation = orientationBeforePip`，即使原本为 `UNSPECIFIED` 也强行切 `SENSOR_PORTRAIT`，与 WindowManager 展开动画发生排版冲突。修复：仅在用户显式锁定方向时才恢复。
+4. **抽屉状态随进 PiP 关闭**：进入小窗时清理 `activeSheetTab = null`，杜绝退出时触发抽屉弹起与额外的 `sheetShiftY`。

@@ -70,8 +70,8 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
     val componentActivity = remember(context) { context.findComponentActivity() }
+    val activity: Activity? = componentActivity
     val configuration = LocalConfiguration.current
     val scope = rememberCoroutineScope()
     val playerState = rememberPlayerState(activity = activity, scope = scope)
@@ -189,7 +189,13 @@ fun PlayerScreen(
     )
     val isPipLayout = pipState.isPipLayout
     val hideChrome = pipState.shouldHideChrome
-    val freezeViewportFullscreen = hideChrome
+    val freezeViewportFullscreen = hideChrome || pipState.isTransitionActive
+
+    LaunchedEffect(isPipLayout) {
+        if (isPipLayout) {
+            playerState.activeSheetTab = null
+        }
+    }
 
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val overlayActions = rememberPlayerScreenActions(
@@ -416,6 +422,7 @@ fun PlayerScreen(
             isPipLayout = isPipLayout,
             isLandscape = isLandscape,
             pipTransitionActive = pipState.isTransitionActive,
+            freezeViewportFullscreen = freezeViewportFullscreen,
             onSurfaceViewAvailable = { surfaceViewRef = it },
             onRetryPlayback = { activeUri?.let { viewModel.openUri(it, forceReload = true) } },
         )
@@ -532,7 +539,10 @@ fun PlayerScreen(
                             subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
                         },
                         onOpenFullSettings = onOpenSettings,
-                        onEnterPip = { pipState.enterPip() },
+                        onEnterPip = {
+                            playerState.activeSheetTab = null
+                            pipState.enterPip()
+                        },
                         animatedVisibilityScope = this
                     )
                 }

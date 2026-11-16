@@ -45,13 +45,9 @@ internal fun PlayerPipLifecycleEffects(
         mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
     }
 
-    // In normal playback, record the current orientation
-    if (!isPipLayout && !hideChrome) {
-        orientationBeforePip = if (isLandscape) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        }
+    // In normal playback, record user-requested orientation only if explicitly requested
+    if (!isPipLayout && !hideChrome && activity != null) {
+        orientationBeforePip = activity.requestedOrientation
     }
 
     var wasInPipLayout by remember { mutableStateOf(false) }
@@ -61,7 +57,9 @@ internal fun PlayerPipLifecycleEffects(
             playerState.isLocked = false
         } else if (wasInPipLayout && !isPipLayout) {
             // Restore previous screen orientation when exiting PiP back to full screen
-            if (orientationBeforePip != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            if (orientationBeforePip != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED &&
+                activity?.requestedOrientation != orientationBeforePip
+            ) {
                 activity?.requestedOrientation = orientationBeforePip
             }
             playerState.showControls = false
