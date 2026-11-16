@@ -82,6 +82,22 @@ android {
     }
 }
 
+/**
+ * libmpv is loaded with dlopen, and its .so files are not committed (see .gitignore). Without this
+ * check a fresh clone fails deep in the linker; the message below says what to actually run.
+ */
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
+    doFirst {
+        val mpv = file("src/main/jniLibs/arm64-v8a/libmpv.so")
+        if (!mpv.exists()) {
+            throw GradleException(
+                "mpv native libraries are missing from src/main/jniLibs. " +
+                    "Run scripts/fetch_mpv_libs.sh once before building."
+            )
+        }
+    }
+}
+
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:database"))

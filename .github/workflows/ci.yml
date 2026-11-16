@@ -69,6 +69,18 @@ jobs:
         with:
           tool: cargo-ndk
 
+      # libmpv's .so files are not committed (see .gitignore); the build requires them because
+      # libmpv is dlopen'ed rather than pulled from the prebuilt AAR. Cached by script hash so a
+      # pinned mpv release is downloaded once per change instead of on every run.
+      - name: Cache mpv native libraries
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs
+          key: mpv-libs-${{ hashFiles('scripts/fetch_mpv_libs.sh') }}
+
+      - name: Fetch mpv native libraries
+        run: ./scripts/fetch_mpv_libs.sh
+
       # compileSdk 37 may not be in the runner image; licenses are pre-accepted there, so AGP
       # can fetch missing packages on demand.
       # assembleRelease runs the real release pipeline: R8 + resource shrinking, signed with the
