@@ -46,6 +46,7 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.FilterSwitchRow
 import dev.gyro.feature.player.component.sheet.common.MediaInfoRow
+import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetAmber
 import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
@@ -268,7 +269,7 @@ internal fun MediaInfoStatsTabContent(
                 stringResource(R.string.dynamic_range_sdr)
             }
 
-            MediaInfoRow(label = stringResource(R.string.info_video_codec), value = codec.uppercase())
+            MediaInfoRow(label = stringResource(R.string.info_video_codec), value = shortCodecName(codec))
             MediaInfoRow(label = stringResource(R.string.info_native_resolution), value = resolution)
             MediaInfoRow(label = stringResource(R.string.info_dynamic_range), value = hdr)
             if (resolvedInfo.videoFps > 0) {
@@ -280,10 +281,13 @@ internal fun MediaInfoStatsTabContent(
 
             val aCodec = resolvedInfo.audioCodec.ifBlank { stringResource(R.string.common_unknown) }
             val channels = resolvedInfo.audioChannels.ifBlank { stringResource(R.string.audio_channels_default) }
-            MediaInfoRow(label = stringResource(R.string.info_audio_codec_channels), value = "${aCodec.uppercase()} · $channels")
+            MediaInfoRow(label = stringResource(R.string.info_audio_codec_channels), value = "${shortCodecName(aCodec)} · $channels")
 
             if (resolvedInfo.containerFormat.isNotBlank()) {
-                MediaInfoRow(label = stringResource(R.string.info_container_type), value = resolvedInfo.containerFormat.uppercase())
+                MediaInfoRow(
+                label = stringResource(R.string.info_container_type),
+                value = resolvedInfo.containerFormat.substringBefore(',').trim().uppercase()
+            )
             }
             if (resolvedInfo.fileSize > 0) {
                 MediaInfoRow(label = stringResource(R.string.info_file_size), value = resolvedInfo.formattedFileSize)

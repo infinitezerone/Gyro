@@ -24,6 +24,5 @@ data class PlayerOverlayActions(
     val onToggleSubtitle: () -> Unit = {},
     val onCycleAbLoop: () -> Unit = {},
     val onClearAbLoop: () -> Unit = {},
-    val onScreenshot: () -> Unit = {},
-    val onCycleHwdec: () -> Unit = {}
+    val onScreenshot: () -> Unit = {}
 )

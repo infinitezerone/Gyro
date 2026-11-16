@@ -69,8 +69,7 @@ fun BoxScope.PlayerControlsOverlay(
     chapters: List<ChapterInfo> = emptyList(),
     ambientColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Transparent,
     videoBottomDp: Dp? = null,
-    hdrFormat: String = "",
-    hwdec: String = ""
+    hdrFormat: String = ""
 ) {
     // Local aliases keep the forwarding bodies below unchanged while the lambda dump moves
     // into [PlayerOverlayActions].
@@ -84,7 +83,6 @@ fun BoxScope.PlayerControlsOverlay(
     val onOpenSheetTab = actions.onOpenSheetTab
     val onToggleOrientation = actions.onToggleOrientation
     val onBack = actions.onBack
-    val onCycleHwdec = actions.onCycleHwdec
     val onToggleSubtitle = actions.onToggleSubtitle
     val onCycleAbLoop = actions.onCycleAbLoop
     val onClearAbLoop = actions.onClearAbLoop
@@ -218,9 +216,7 @@ fun BoxScope.PlayerControlsOverlay(
                     onBack = onBack,
                     onEnterPiP = onEnterPiP,
                     onOpenSheetTab = onOpenSheetTab,
-                    hdrFormat = hdrFormat,
-                    hwdec = hwdec,
-                    onCycleHwdec = onCycleHwdec
+                    hdrFormat = hdrFormat
                 )
             }
         }

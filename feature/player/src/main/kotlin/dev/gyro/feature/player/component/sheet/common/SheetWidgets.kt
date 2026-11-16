@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,10 +32,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +85,7 @@ internal fun SettingsItemRow(
     title: String,
     icon: ImageVector,
     currentValue: String? = null,
-    iconTint: Color = SheetAccentBlue,
+    iconTint: Color = SheetTextSecondaryColor,
     onClick: (() -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null
 ) {
@@ -101,54 +104,94 @@ internal fun SettingsItemRow(
 
     Row(
         modifier = rowModifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f, fill = false)
+            // The label owns the row: it takes the flexible width and truncates, so a long title
+            // never pushes the value off the edge.
+            modifier = Modifier.weight(1f)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = iconTint,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = SheetTextColor,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        // Breathing room between the two halves. Without it a long label and a long value read as
+        // one run of text.
+        Spacer(modifier = Modifier.width(16.dp))
 
         if (trailingContent != null) {
             trailingContent()
         } else if (currentValue != null) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                // The value yields before the label does; 45% of a phone width is about where a
+                // track name stops being readable anyway.
+                modifier = Modifier.widthIn(max = 180.dp)
             ) {
                 Text(
                     text = currentValue,
                     fontSize = 13.sp,
-                    color = SheetTextSecondaryColor,
+                    color = SheetTextColor.copy(alpha = 0.85f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    // Without the weight the text takes the whole 180dp and pushes the chevron out
+                    // of the row, so a long value silently loses its "opens a sub page" signal.
+                    modifier = Modifier.weight(1f, fill = false)
                 )
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                    contentDescription = null,
-                    tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
-                    modifier = Modifier.size(12.dp)
-                )
+                // Only rows that open a sub page get an arrow: it promises another screen. A row
+                // that just cycles a value in place (AB loop) would be lying.
+                if (onClick != null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        contentDescription = null,
+                        tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * The sheet's only switch.
+ *
+ * Material's switch is 52x32 with a filled track, which next to 13sp text and a 12dp chevron reads
+ * as a different design system - it dominates the row it sits in. Scaled down and drawn with the
+ * sheet's own palette it settles into the line instead of sitting on top of it.
+ */
+@Composable
+internal fun SheetSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = SheetAccentBlue,
+            checkedTrackColor = SheetAccentBlue.copy(alpha = 0.35f),
+            uncheckedThumbColor = SheetTextSecondaryColor,
+            uncheckedTrackColor = SheetTrackColor
+        ),
+        modifier = Modifier.scale(0.82f)
+    )
 }
 
 /**
@@ -349,20 +392,40 @@ internal fun MediaInfoGroup(
 }
 
 @Composable
+/**
+ * ffmpeg reports codecs as "H.265 / HEVC (High Efficiency Video Coding)"; a row needs "HEVC".
+ * Shared by the settings row and the media-info page so they never disagree on the same file.
+ */
+internal fun shortCodecName(raw: String): String {
+    val text = raw.trim()
+    return when {
+        text.contains("HEVC", true) || text.contains("H.265", true) -> "HEVC"
+        text.contains("AV1", true) -> "AV1"
+        text.contains("H.264", true) || text.contains("AVC", true) -> "H.264"
+        text.contains("VP9", true) -> "VP9"
+        text.contains("VP8", true) -> "VP8"
+        else -> text.substringBefore('/').trim().uppercase()
+    }
+}
+
+@Composable
 internal fun MediaInfoRow(
     label: String,
     value: String
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
             fontSize = 13.sp,
-            color = SheetTextSecondaryColor
+            color = SheetTextSecondaryColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
         )
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = value,
             style = TextStyle(
@@ -370,7 +433,13 @@ internal fun MediaInfoRow(
                 fontWeight = FontWeight.Medium,
                 color = SheetTextColor,
                 fontFeatureSettings = "tnum"
-            )
+            ),
+            textAlign = TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            // A long value yields before the label does, and stays right-aligned like every other
+            // row. Without the cap it butts right up against the label and breaks onto 3+ lines.
+            modifier = Modifier.widthIn(max = 210.dp)
         )
     }
 }
@@ -407,16 +476,7 @@ internal fun FilterSwitchRow(
                 )
             }
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = SheetAccentBlue,
-                checkedTrackColor = SheetAccentBlue.copy(alpha = 0.35f),
-                uncheckedThumbColor = SheetTrackColor,
-                uncheckedTrackColor = SheetCardAltColor
-            )
-        )
+        SheetSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

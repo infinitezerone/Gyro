@@ -198,18 +198,22 @@ fun PlayerFormatBadge(
 fun PlayerStatsOverlay(
     engine: PlayerEngine,
     hwdec: String,
-    speed: Float,
     bitrate: Long,
+    hdrLabel: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val telemetry by engine.diagnostics.collectAsState()
+    val dimensions by engine.geometry.videoDimensions.collectAsState()
+    val sourceFrameRate by engine.geometry.videoFrameRate.collectAsState()
     StatsDiagnosticOverlay(
         fps = telemetry.fps,
         droppedFrames = telemetry.droppedFrames,
         hwdec = hwdec,
-        vsyncRatio = telemetry.vsyncRatio,
-        speed = speed,
         bitrate = bitrate,
+        hdrLabel = hdrLabel,
+        sourceWidth = dimensions.width,
+        sourceHeight = dimensions.height,
+        sourceFrameRate = sourceFrameRate,
         modifier = modifier,
     )
 }

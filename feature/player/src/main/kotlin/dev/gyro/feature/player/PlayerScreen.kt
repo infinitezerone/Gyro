@@ -462,8 +462,8 @@ fun PlayerScreen(
             PlayerStatsOverlay(
                 engine = engine,
                 hwdec = hwdecCurrent,
-                speed = speed,
                 bitrate = telemetryState.liveVideoBitrate,
+                hdrLabel = if (snapshot.isHdr) hdrFormat else null,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .displayCutoutPadding()
@@ -494,8 +494,7 @@ fun PlayerScreen(
                 chapters = chapters,
                 videoBottomDp = videoBottomDp,
                 ambientColor = dynamicPalette.darkMutedColor,
-                hdrFormat = hdrFormat,
-                hwdec = hwdecCurrent
+                hdrFormat = hdrFormat
             )
         }
 
@@ -533,6 +532,7 @@ fun PlayerScreen(
                             subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
                         },
                         onOpenFullSettings = onOpenSettings,
+                        onEnterPip = { pipState.enterPip() },
                         animatedVisibilityScope = this
                     )
                 }

@@ -29,6 +29,8 @@ data class PlayerSheetUiState(
     val currentSpeed: Float = 1.0f,
     val subDelaySec: Double = 0.0,
     val audioDelaySec: Double = 0.0,
+    /** Five band gains in dB, aligned with [dev.gyro.engine.api.controller.AudioController.EQUALIZER_BANDS]. */
+    val eqGainsDb: List<Double> = List(5) { 0.0 },
     val subScale: Double = 1.0,
     val subPos: Long = 100L,
     val hwdec: String = "",
@@ -83,6 +85,7 @@ class PlayerSheetCallbacks(
     val onResetColors: () -> Unit = {},
     val onSetSoftwareVolume: (Double) -> Unit = {},
     val onSetNightMode: (Boolean) -> Unit = {},
+    val onSetEqualizerGains: (List<Double>) -> Unit = {},
     val onSetStereoDownmix: (Boolean) -> Unit = {},
     val onSelectTrack: (type: String, id: Int) -> Unit = { _, _ -> },
     val onSelectResizeMode: (ResizeMode) -> Unit = {},
@@ -102,5 +105,6 @@ class PlayerSheetCallbacks(
     val onToggleAudioPassthrough: (Boolean) -> Unit = {},
     val onCycleAbLoop: () -> Unit = {},
     val onClearAbLoop: () -> Unit = {},
-    val onOpenFullSettings: () -> Unit = {}
+    val onOpenFullSettings: () -> Unit = {},
+    val onEnterPip: () -> Unit = {}
 )

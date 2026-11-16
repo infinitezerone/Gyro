@@ -10,7 +10,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -96,6 +95,8 @@ import dev.gyro.feature.player.component.sheet.tabs.ChaptersTabContent
 import dev.gyro.feature.player.component.sheet.tabs.MediaInfoStatsTabContent
 import dev.gyro.feature.player.component.sheet.tabs.MediaInfoTabContent
 import dev.gyro.feature.player.component.sheet.tabs.PlaylistTabContent
+import dev.gyro.feature.player.component.sheet.tabs.AudioEffectsTabContent
+import dev.gyro.feature.player.component.sheet.tabs.VideoQualityTabContent
 import dev.gyro.feature.player.component.sheet.tabs.SettingsHubTabContent
 import dev.gyro.feature.player.component.sheet.tabs.ShadersTabContent
 import dev.gyro.feature.player.component.sheet.tabs.SpeedTabContent
@@ -147,6 +148,8 @@ fun PlayerSettingsSheet(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (isLandscape || dragOffsetY <= 0f) return Offset.Zero
+                // Momentum belongs to the list. Only a finger moves the sheet.
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
                 // Already dragging: the sheet owns the vertical axis until it is back at rest.
                 // Pulling up first returns the sheet to open, and only the remainder reaches the list.
                 val delta = if (available.y > 0f) available.y else (-dragOffsetY).coerceAtLeast(available.y)
@@ -161,6 +164,10 @@ fun PlayerSettingsSheet(
                 source: NestedScrollSource,
             ): Offset {
                 if (isLandscape || available.y <= 0f) return Offset.Zero
+                // Same rule for the handover: a fling that runs out of list must not tug the sheet
+                // down by itself, otherwise tossing the list to the top ends in a half-dismissed
+                // sheet. The sheet starts following only when the finger keeps pulling.
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
                 dragOffsetY = (dragOffsetY + available.y).coerceAtLeast(0f)
                 onSheetDragOffsetChanged(dragOffsetY)
                 return Offset(0f, available.y)
@@ -404,35 +411,10 @@ fun PlayerSettingsSheetContent(
             .fillMaxWidth()
             .padding(bottom = 10.dp)
     ) {
-        // 顶部导航栏：根设置显示标题与关闭按钮；二级设置显示返回键、当前二级标题与关闭按钮
-        if (isRootSettings) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_title),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = SheetTextColor
-                )
-
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.action_cancel),
-                        tint = SheetTextSecondaryColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        } else {
+        // The root hub spends no row on a title: it repeated what the sheet already is, and every
+        // pixel here comes out of the video's remaining height. Sub pages keep theirs, because the
+        // back arrow and the close button have no other entry point.
+        if (!isRootSettings) {
             val pageTitle = when (selectedTab) {
                 PlayerSheetTab.HWDEC -> stringResource(R.string.stats_decoder)
                 PlayerSheetTab.SHADERS -> stringResource(R.string.page_shaders)
@@ -443,6 +425,8 @@ fun PlayerSettingsSheetContent(
                 PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> stringResource(R.string.settings_audio_track)
                 PlayerSheetTab.AUDIO_BOOST -> stringResource(R.string.settings_audio_boost)
                 PlayerSheetTab.AUDIO_DELAY -> stringResource(R.string.sync_audio_delay)
+                PlayerSheetTab.AUDIO_EFFECTS -> stringResource(R.string.sheet_tab_audio_effects)
+                PlayerSheetTab.VIDEO_QUALITY -> stringResource(R.string.video_quality)
                 PlayerSheetTab.SUBTITLE_TRACKS, PlayerSheetTab.SUBTITLES -> stringResource(R.string.settings_subtitle_track)
                 PlayerSheetTab.SUBTITLE_DELAY -> stringResource(R.string.sync_sub_delay)
                 PlayerSheetTab.SUBTITLE_STYLE -> stringResource(R.string.settings_subtitle_style)
@@ -513,6 +497,16 @@ fun PlayerSettingsSheetContent(
             PlayerSheetTab.VIDEO_SCALE -> VideoScaleSubTabContent(state, callbacks)
             PlayerSheetTab.AUDIO_TRACKS, PlayerSheetTab.AUDIO -> AudioTracksSubTabContent(state, callbacks)
             PlayerSheetTab.AUDIO_BOOST -> AudioBoostSubTabContent(state, callbacks)
+            PlayerSheetTab.VIDEO_QUALITY -> VideoQualityTabContent(
+                state = state,
+                callbacks = callbacks,
+                onNavigate = onSelectTab
+            )
+            PlayerSheetTab.AUDIO_EFFECTS -> AudioEffectsTabContent(
+                state = state,
+                callbacks = callbacks,
+                onNavigate = onSelectTab
+            )
             PlayerSheetTab.AUDIO_DELAY -> DelaySubTabContent(
                 currentSec = state.audioDelaySec,
                 label = stringResource(R.string.sync_audio_delay),

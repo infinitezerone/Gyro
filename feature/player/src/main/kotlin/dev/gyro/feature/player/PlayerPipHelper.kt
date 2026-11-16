@@ -309,13 +309,16 @@ fun rememberIsPipWindow(activity: ComponentActivity?): Boolean {
  * shrinks is keyed on this signal instead.
  */
 @Composable
-fun rememberUserLeavingHint(onControlsHide: () -> Unit): Boolean {
+fun rememberUserLeavingHint(onControlsHide: () -> Unit, enabled: Boolean = true): Boolean {
     val context = LocalContext.current
     val activity = remember(context) { context.findComponentActivity() } ?: return false
 
     var leaving by remember(activity) { mutableStateOf(false) }
 
-    DisposableEffect(activity) {
+    DisposableEffect(activity, enabled) {
+        // Without auto-PiP a Home press leads nowhere: nothing shrinks into a floating window, so
+        // reacting to it only hid the chrome and collapsed the controls on the way out.
+        if (!enabled) return@DisposableEffect onDispose {}
         val hintListener = Runnable {
             leaving = true
             onControlsHide()
@@ -347,6 +350,11 @@ class PlayerPipState internal constructor(
     val isLeavingForeground: Boolean,
     val pipRequested: Boolean,
     val pipEntering: Boolean,
+    /**
+     * Whether leaving the foreground can start a PiP transition at all. Without it, a plain Home
+     * press would hide the chrome on the way out even though nothing is shrinking into PiP.
+     */
+    val autoPipEnabled: Boolean,
     private val enterPipAction: () -> Unit
 ) {
     /** True when either geometry or system mode indicates the player is in PiP floating layout. */
@@ -356,8 +364,13 @@ class PlayerPipState internal constructor(
      * True when in PiP layout or when entering PiP (transitioning gesture, manual request,
      * leaving hint, or window focus loss during swipe-to-home)
      * indicates controls and chrome should be hidden before window shrinking.
+     *
+     * [isLeavingForeground] only counts when [autoPipEnabled]: it is set by every Home press and
+     * app switch, so on its own it hid the chrome for users who never use PiP.
      */
-    val shouldHideChrome: Boolean get() = isPipLayout || isLeavingForeground || pipRequested || isTransitioning || pipEntering
+    val shouldHideChrome: Boolean
+        get() = isPipLayout || (isLeavingForeground && autoPipEnabled) ||
+            pipRequested || isTransitioning || pipEntering
 
     /** True while PiP transition or exit settle is active, used to freeze buffer relocking. */
     val isTransitionActive: Boolean get() = isSettling || isInPipMode
@@ -386,7 +399,7 @@ fun rememberPlayerPipState(
     val isInPipMode = rememberIsInPipMode()
     val isPipWindow = rememberIsPipWindow(activity)
     val isTransitioning = rememberIsTransitioningToPip(activity, isInPipMode, onControlsHide)
-    val isLeavingForeground = rememberUserLeavingHint(onControlsHide)
+    val isLeavingForeground = rememberUserLeavingHint(onControlsHide, enabled = autoPipEnabled)
 
     val latestOnPipDismissed by rememberUpdatedState(onPipDismissed)
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -545,7 +558,7 @@ fun rememberPlayerPipState(
         }
     }
 
-    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, pipEntering, enterPipAction) {
+    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, pipEntering, autoPipEnabled, enterPipAction) {
         PlayerPipState(
             isInPipMode = isInPipMode,
             isPipWindow = isPipWindow,
@@ -554,6 +567,7 @@ fun rememberPlayerPipState(
             isLeavingForeground = isLeavingForeground,
             pipRequested = pipRequested,
             pipEntering = pipEntering,
+            autoPipEnabled = autoPipEnabled,
             enterPipAction = enterPipAction
         )
     }

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import dev.gyro.feature.player.component.sheet.common.formatBitrate
+import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import dev.gyro.core.model.time.formatDuration
 
 import androidx.compose.foundation.layout.Arrangement
@@ -645,7 +646,7 @@ internal fun MediaInfoTabContent(
         // 2. 视频流
         MediaInfoGroup(title = stringResource(R.string.info_group_video)) {
             val codec = resolvedInfo.videoCodec.ifBlank { stringResource(R.string.common_unknown) }
-            MediaInfoRow(label = stringResource(R.string.info_video_codec), value = codec.uppercase())
+            MediaInfoRow(label = stringResource(R.string.info_video_codec), value = shortCodecName(codec))
             if (resolvedInfo.videoResolution.isNotBlank()) {
                 MediaInfoRow(
                     label = stringResource(R.string.info_video_resolution),
@@ -674,7 +675,7 @@ internal fun MediaInfoTabContent(
         // 3. 音频流
         MediaInfoGroup(title = stringResource(R.string.info_group_audio)) {
             val aCodec = resolvedInfo.audioCodec.ifBlank { stringResource(R.string.common_unknown) }
-            MediaInfoRow(label = stringResource(R.string.info_audio_codec), value = aCodec.uppercase())
+            MediaInfoRow(label = stringResource(R.string.info_audio_codec), value = shortCodecName(aCodec))
             if (resolvedInfo.audioChannels.isNotBlank()) {
                 MediaInfoRow(
                     label = stringResource(R.string.info_audio_channels),

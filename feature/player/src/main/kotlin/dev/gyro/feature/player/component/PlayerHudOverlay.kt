@@ -21,11 +21,13 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
@@ -48,11 +51,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -61,6 +71,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.time.formatDuration
 
@@ -339,9 +352,11 @@ fun StatsDiagnosticOverlay(
     fps: Double,
     droppedFrames: Long,
     hwdec: String,
-    vsyncRatio: Double,
-    speed: Float,
     bitrate: Long = 0L,
+    hdrLabel: String? = null,
+    sourceWidth: Int = 0,
+    sourceHeight: Int = 0,
+    sourceFrameRate: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -350,39 +365,126 @@ fun StatsDiagnosticOverlay(
         border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
         modifier = modifier
     ) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            val bitStr = if (bitrate >= 1_000_000L) {
-                String.format(java.util.Locale.US, "%.1fM", bitrate / 1_000_000.0)
-            } else if (bitrate >= 1_000L) {
-                String.format(java.util.Locale.US, "%.0fK", bitrate / 1_000.0)
-            } else {
-                "--"
+        // 60 samples, one per second. The number says where it is now; the line says how it got
+        // there, which is the only way a stutter is visible at all - a single frame of 58 fps
+        // reads as healthy until you see it fell from 60.
+        // Only the bitrate gets a line. Frame rate and drop count are near-constant by design -
+        // a flat line next to them would be decoration, not information.
+        val bitrateHistory = remember { mutableStateListOf<Float>() }
+        val latestBitrate by rememberUpdatedState(bitrate)
+
+        LaunchedEffect(Unit) {
+            while (isActive) {
+                delay(1000)
+                pushSample(bitrateHistory, latestBitrate.toFloat())
             }
-            DiagnosticRow(label = "BITRATE", value = bitStr)
-            DiagnosticRow(
-                label = "FPS",
-                value = if (fps > 0) String.format(java.util.Locale.US, "%.1f", fps) else "--"
-            )
-            DiagnosticRow(
-                label = "DROP",
-                value = if (droppedFrames > 0) "$droppedFrames" else "0"
-            )
-            DiagnosticRow(
-                label = "VSYNC",
-                value = if (vsyncRatio > 0) String.format(java.util.Locale.US, "%.2f", vsyncRatio) else "--"
-            )
-            DiagnosticRow(
-                label = "DEC",
-                value = if (hwdec.contains("mediacodec")) "HW" else "SW"
-            )
-            DiagnosticRow(label = "SPD", value = String.format(java.util.Locale.US, "%.2fx", speed))
+        }
+
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            // What the file is, before what is happening to it. Resolution and source frame rate
+            // were missing entirely, which made the panel unable to answer "is this really 1080p".
+            val spec = if (sourceHeight > 0) "${sourceHeight}p" else ""
+            if (spec.isNotEmpty()) {
+                Text(
+                    text = spec,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.75f)
+                )
+            }
+            if (!hdrLabel.isNullOrBlank()) {
+                Text(
+                    text = hdrLabel,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SheetAccentBlue,
+                    modifier = Modifier.padding(top = 1.dp)
+                )
+            }
+
+            // Grouped because the numbers answer different questions: VIDEO is the stream, RENDER
+            // is what this device manages to do with it.
+            DiagnosticGroup("VIDEO")
+            // "actual/source": a repeat of the spec line above would say nothing, while the pair
+            // answers whether the device is keeping up with the file.
+            val fpsText = when {
+                fps > 0 && sourceFrameRate > 0f -> "${fmt1(fps)}/${fmt2(sourceFrameRate.toDouble())}"
+                fps > 0 -> fmt1(fps)
+                else -> "--"
+            }
+            DiagnosticRow(label = "FPS", value = fpsText)
+            DiagnosticRow(label = "DROP", value = droppedFrames.toString())
+            DiagnosticRow(label = "RATE", value = fmtBitrate(bitrate), spark = bitrateHistory)
+
+            // Playback speed and vsync used to live here. Speed is a setting, not a measurement,
+            // and vsync-ratio is only published in display-sync mode - this pipeline does its own
+            // present timing, so it read "--" forever.
+            DiagnosticGroup("RENDER")
+            DiagnosticRow(label = "DEC", value = if (hwdec.contains("mediacodec")) "HW" else "SW")
         }
     }
 }
 
+private const val SPARK_CAPACITY = 60
+
+private fun pushSample(list: androidx.compose.runtime.snapshots.SnapshotStateList<Float>, value: Float) {
+    list.add(value)
+    if (list.size > SPARK_CAPACITY) list.removeAt(0)
+}
+
+/**
+ * A 60-sample sparkline: no axes, no labels, because there is no room and nothing to read off it
+ * except shape. Flat line means steady, a dip means the thing actually happened.
+ */
 @Composable
-private fun DiagnosticRow(label: String, value: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun Sparkline(values: List<Float>, modifier: Modifier = Modifier) {
+    if (values.size < 2) {
+        Spacer(modifier)
+        return
+    }
+    val minValue = values.min()
+    val maxValue = values.max()
+    val span = (maxValue - minValue).coerceAtLeast(0.001f)
+    Canvas(modifier) {
+        val step = size.width / (values.size - 1)
+        val path = Path()
+        values.forEachIndexed { index, value ->
+            val x = index * step
+            val y = size.height - ((value - minValue) / span) * size.height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path = path, color = SheetAccentBlue, style = Stroke(width = 1.2.dp.toPx()))
+    }
+}
+
+private fun fmt1(value: Double): String = String.format(java.util.Locale.US, "%.1f", value)
+
+private fun fmt2(value: Double): String = String.format(java.util.Locale.US, "%.2f", value)
+
+private fun fmtBitrate(bits: Long): String = when {
+    bits >= 1_000_000L -> String.format(java.util.Locale.US, "%.1fM", bits / 1_000_000.0)
+    bits >= 1_000L -> String.format(java.util.Locale.US, "%.0fK", bits / 1_000.0)
+    else -> "--"
+}
+
+@Composable
+private fun DiagnosticGroup(title: String) {
+    Text(
+        text = title,
+        fontSize = 8.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color.White.copy(alpha = 0.40f),
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(top = 4.dp, bottom = 1.dp)
+    )
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String, spark: List<Float>? = null) {
+    Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
         Text(
             text = label,
             fontSize = 10.sp,
@@ -396,8 +498,21 @@ private fun DiagnosticRow(label: String, value: String) {
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 fontFeatureSettings = "tnum"
-            )
+            ),
+            modifier = Modifier.width(66.dp)
         )
+        // Fixed width whether or not there is a series, so the columns line up between rows that
+        // have history and rows that do not.
+        if (spark != null) {
+            Sparkline(
+                values = spark,
+                modifier = Modifier
+                    .width(52.dp)
+                    .height(12.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(52.dp))
+        }
     }
 }
 

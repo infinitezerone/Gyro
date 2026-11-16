@@ -41,10 +41,12 @@ internal fun PlayerSheetsHost(
     onImportCustomShader: () -> Unit,
     onAddExternalSubtitle: () -> Unit,
     onOpenFullSettings: () -> Unit,
+    onEnterPip: () -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val timePosMs by engine.timePosMs.collectAsState()
     val telemetry by engine.diagnostics.collectAsState()
+    val eqGainsDb by engine.audio.equalizerGains.collectAsState()
     val fps = telemetry.fps
     val droppedFrames = telemetry.droppedFrames
     val currentMediaInfo = remember(tab, activeUri) {
@@ -87,6 +89,7 @@ internal fun PlayerSheetsHost(
         softwareVolume = engine.state.value.softwareVolume,
         nightMode = snapshot.nightMode,
         stereoDownmix = snapshot.stereoDownmix,
+        eqGainsDb = eqGainsDb,
         isHdr = snapshot.isHdr,
         hdrFormat = snapshot.hdrFormat,
         hdrOutputMode = snapshot.hdrOutputMode,
@@ -120,6 +123,7 @@ internal fun PlayerSheetsHost(
         onResetColors = { engine.video.resetColors() },
         onSetSoftwareVolume = { gain -> engine.audio.setSoftwareVolume(gain) },
         onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
+        onSetEqualizerGains = { gains -> engine.audio.setEqualizerGains(gains) },
         onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
         onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
         onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
@@ -142,6 +146,12 @@ internal fun PlayerSheetsHost(
         onOpenFullSettings = {
             playerState.activeSheetTab = null
             onOpenFullSettings()
+        },
+        // Close the sheet first: otherwise it is still open inside the floating window, which
+        // makes the PiP preview a picture of the settings panel.
+        onEnterPip = {
+            playerState.activeSheetTab = null
+            onEnterPip()
         }
     )
 
