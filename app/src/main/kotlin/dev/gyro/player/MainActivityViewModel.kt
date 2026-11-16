@@ -1,5 +1,6 @@
 package dev.gyro.player
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,11 +38,25 @@ class MainActivityViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000)
         )
 
+    val sessionActive: StateFlow<Boolean> get() = session.sessionActive
+    val activeUri: StateFlow<Uri?> get() = session.activeUri
+
     fun onPlayVideo(item: VideoMediaItem, currentList: List<VideoMediaItem>) {
         val idx = currentList.indexOfFirst { it.uriString == item.uriString }
         engine.setPlaylist(currentList, if (idx >= 0) idx else 0)
     }
 
+    /**
+     * Handles app-level backgrounding ([Activity.onStop]).
+     *
+     * Contract:
+     * - [UserSettings.backgroundAudio] governs whether playback continues when the entire application
+     *   is backgrounded (user presses Home, switches to another app, or screen is turned off).
+     * - If background audio is disabled, playback pauses; if enabled, audio continues via [PlaybackService].
+     *
+     * Contrast with [onPlayerDestinationRemoved]: leaving the player screen within the app terminates
+     * the session because there is currently no in-app mini-player host.
+     */
     fun handleAppStop(isPip: Boolean) {
         if (isPip) return
         if (engine.isPlaying.value) {
@@ -58,6 +73,10 @@ class MainActivityViewModel @Inject constructor(
      * predictive back, system back, programmatic pop). Navigation state is the authoritative signal;
      * a ViewModel/composable destructor is not, since it also fires for destinations that are merely
      * covered by another screen and never fires at all on process death.
+     *
+     * Contract:
+     * In the absence of an in-app MiniPlayer component, exiting the player screen cleanly terminates
+     * playback and the foreground service via [PlaybackSessionController.leavePlayer].
      */
     fun onPlayerDestinationRemoved() {
         session.leavePlayer()

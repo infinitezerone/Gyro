@@ -12,16 +12,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
@@ -29,34 +19,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.IntOffset
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
-import androidx.core.net.toUri
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
-import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.rememberNavBackStack
-import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.navigation3.ui.NavDisplay
-import androidx.navigationevent.NavigationEvent
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.designsystem.theme.GyroColors
-import dev.gyro.core.navigation.Screen
-import dev.gyro.feature.home.HomeScreen
-import dev.gyro.feature.player.PlayerScreen
-import dev.gyro.feature.player.PlayerViewModel
-import dev.gyro.feature.settings.SettingsScreen
-import dev.gyro.feature.settings.folders.FolderManagementScreen
-import dev.gyro.feature.settings.gestures.GestureSettingsScreen
-import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
+import dev.gyro.player.navigation.GyroNavDisplay
+import dev.gyro.player.navigation.rememberGyroAppState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-
-private val navSpatialSpec = tween<IntOffset>(300, easing = FastOutSlowInEasing)
-private val navSpatialFloatSpec = tween<Float>(300, easing = FastOutSlowInEasing)
-private val navEffectsSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
 
 /**
  * Single-Activity host adhering to Now in Android architecture guidelines.
@@ -89,7 +60,13 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val backStack = rememberNavBackStack(Screen.Home)
+            val sessionActive by viewModel.sessionActive.collectAsStateWithLifecycle()
+            val activeUri by viewModel.activeUri.collectAsStateWithLifecycle()
+
+            val appState = rememberGyroAppState(
+                initialSessionActive = sessionActive,
+                initialActiveUri = activeUri,
+            )
             val intentUri by incomingIntentUri.collectAsState()
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -112,21 +89,17 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
-                    val top = backStack.lastOrNull()
-                    if (top is Screen.Player && top.uri == uri) return@LaunchedEffect
-                    backStack.add(Screen.Player(uri))
+                    appState.handleIncomingUri(uri)
                 }
             }
 
-            // Leaving the player is a navigation fact, so it is observed as one: a Player entry that
-            // disappears from the back stack ends the playback session (covers top-bar back,
-            // predictive back, system back and programmatic pops). Pushing another destination on top
-            // keeps the entry in the stack, so opening Settings does not kill playback. Deliberately
-            // not hung off a composable/ViewModel destructor: that also fires for merely-covered
-            // destinations and never fires on process death.
-            LaunchedEffect(Unit) {
-                var playerOnStack = backStack.any { it is Screen.Player }
-                snapshotFlow { backStack.any { it is Screen.Player } }
+            // Leaving the player is a navigation fact: a Player entry that disappears from the back
+            // stack ends the playback session (covers top-bar back, predictive back, system back, and gestures).
+            // Initializing playerOnStack with (sessionActive || isPlayerOnStack) ensures that if Activity
+            // was restored while a background session was running, any absence of Player safely ends the session.
+            LaunchedEffect(appState) {
+                var playerOnStack = viewModel.sessionActive.value || appState.isPlayerOnStack
+                snapshotFlow { appState.isPlayerOnStack }
                     .distinctUntilChanged()
                     .collect { present ->
                         if (playerOnStack && !present) {
@@ -140,155 +113,18 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 color = GyroColors.Background
             ) {
-                NavDisplay(
-                    backStack = backStack,
-                    entryDecorators = listOf(
-                        rememberSaveableStateHolderNavEntryDecorator(),
-                        rememberViewModelStoreNavEntryDecorator()
-                    ),
-                    onBack = {
-                        if (backStack.size > 1) {
-                            val popped = backStack.removeAt(backStack.lastIndex)
-                            if (popped is Screen.Player) {
-                                if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                }
-                                incomingIntentUri.value = null
-                            }
-                        } else {
-                            finish()
+                GyroNavDisplay(
+                    appState = appState,
+                    viewModel = viewModel,
+                    onPlayerExit = {
+                        viewModel.onPlayerDestinationRemoved()
+                        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                         }
+                        incomingIntentUri.value = null
                     },
-                    transitionSpec = {
-                        slideInHorizontally(
-                            initialOffsetX = { fullWidth -> fullWidth },
-                            animationSpec = navSpatialSpec,
-                        ) togetherWith
-                            slideOutHorizontally(
-                                targetOffsetX = { fullWidth -> -fullWidth / 4 },
-                                animationSpec = navSpatialSpec,
-                            ) +
-                            fadeOut(
-                                targetAlpha = 0.0f,
-                                animationSpec = navEffectsSpec,
-                            )
-                    },
-                    popTransitionSpec = {
-                        slideInHorizontally(
-                            initialOffsetX = { fullWidth -> -fullWidth / 4 },
-                            animationSpec = navSpatialSpec,
-                        ) +
-                            fadeIn(
-                                initialAlpha = 0.0f,
-                                animationSpec = navEffectsSpec,
-                            ) togetherWith
-                            slideOutHorizontally(
-                                targetOffsetX = { fullWidth -> fullWidth },
-                                animationSpec = navSpatialSpec,
-                            )
-                    },
-                    predictivePopTransitionSpec = { swipeEdge ->
-                        val isFromRight = swipeEdge == NavigationEvent.EDGE_RIGHT
-                        slideInHorizontally(
-                            initialOffsetX = { fullWidth -> if (isFromRight) fullWidth / 4 else -fullWidth / 4 },
-                            animationSpec = navSpatialSpec,
-                        ) +
-                            scaleIn(
-                                initialScale = 0.96f,
-                                animationSpec = navSpatialFloatSpec,
-                            ) +
-                            fadeIn(animationSpec = navEffectsSpec) togetherWith
-                            slideOutHorizontally(
-                                targetOffsetX = { fullWidth -> if (isFromRight) -fullWidth else fullWidth },
-                                animationSpec = navSpatialSpec,
-                            ) +
-                            scaleOut(
-                                targetScale = 0.90f,
-                                animationSpec = navSpatialFloatSpec,
-                            ) +
-                            fadeOut(
-                                animationSpec = navEffectsSpec,
-                            )
-                    },
-                    entryProvider = entryProvider {
-                        entry<Screen.Home> {
-                            HomeScreen(
-                                viewModel = hiltViewModel(),
-                                onPlayVideo = { item, currentList ->
-                                    viewModel.onPlayVideo(item, currentList)
-                                    val itemAndroidUri = item.uriString.toUri()
-                                    backStack.add(Screen.Player(itemAndroidUri))
-                                },
-                                onOpenSettings = {
-                                    backStack.add(Screen.Settings)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        entry<Screen.Player> { playerScreen ->
-                            val playerViewModel: PlayerViewModel = hiltViewModel()
-                            playerViewModel.initialize(playerScreen.uri)
-                            PlayerScreen(
-                                viewModel = playerViewModel,
-                                currentUri = playerScreen.uri,
-                                onBack = {
-                                    playerViewModel.onUserExit()
-                                    if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                    }
-                                    incomingIntentUri.value = null
-                                    backStack.removeAt(backStack.lastIndex)
-                                },
-                                onOpenSettings = {
-                                    backStack.add(Screen.Settings)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        entry<Screen.Settings> {
-                            SettingsScreen(
-                                viewModel = hiltViewModel(),
-                                onBack = {
-                                    backStack.removeAt(backStack.lastIndex)
-                                },
-                                onOpenFolderManagement = {
-                                    backStack.add(Screen.FolderManagement)
-                                },
-                                onNavigateToMpvConfig = {
-                                    backStack.add(Screen.MpvConfigEditor)
-                                },
-                                onNavigateToGestures = {
-                                    backStack.add(Screen.GestureSettings)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        entry<Screen.FolderManagement> {
-                            FolderManagementScreen(
-                                viewModel = hiltViewModel(),
-                                onBack = {
-                                    backStack.removeAt(backStack.lastIndex)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        entry<Screen.MpvConfigEditor> {
-                            MpvConfigEditorScreen(
-                                onBack = {
-                                    backStack.removeAt(backStack.lastIndex)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        entry<Screen.GestureSettings> {
-                            GestureSettingsScreen(
-                                onBack = {
-                                    backStack.removeAt(backStack.lastIndex)
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+                    onFinish = { finish() },
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
