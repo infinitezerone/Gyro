@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
@@ -39,6 +40,11 @@ class AudioEffectsController(
 
     private val _stereoDownmix = store.property({ it.stereoDownmix }) { s, v -> s.copy(stereoDownmix = v) }
     override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
+
+    private val _equalizerGains = MutableStateFlow(
+        List(dev.gyro.engine.api.controller.AudioController.EQUALIZER_BANDS.size) { 0.0 }
+    )
+    override val equalizerGains: StateFlow<List<Double>> = _equalizerGains.asStateFlow()
 
     @Volatile
     var userBaseAf: String = ""
@@ -104,6 +110,24 @@ class AudioEffectsController(
         updateAudioFilters()
     }
 
+    /**
+     * Applies the five band gains. Bands within 0.1 dB of flat are dropped from the chain so an
+     * untouched equaliser costs nothing and does not risk a filter stage the platform rejects.
+     */
+    @Synchronized
+    override fun setEqualizerGains(gainsDb: List<Double>) {
+        val bands = dev.gyro.engine.api.controller.AudioController.EQUALIZER_BANDS
+        val normalised = bands.indices.map { index ->
+            gainsDb.getOrNull(index)?.coerceIn(
+                -dev.gyro.engine.api.controller.AudioController.EQUALIZER_GAIN_LIMIT_DB,
+                dev.gyro.engine.api.controller.AudioController.EQUALIZER_GAIN_LIMIT_DB
+            ) ?: 0.0
+        }
+        if (_equalizerGains.value == normalised) return
+        _equalizerGains.value = normalised
+        updateAudioFilters()
+    }
+
     @Synchronized
     private fun updateAudioFilters() {
         val activeFilters = ArrayList<String>(4)
@@ -116,17 +140,42 @@ class AudioEffectsController(
             activeFilters.add(FILTER_STEREO_DOWNMIX)
         }
 
-        // Pipeline Stage 2: Dynamic Range Normalization (dynaudnorm)
+        // Pipeline Stage 2: Equalisation (equalizer, one node per non-flat band). Placed before the
+        // compressor so night mode reacts to what the user shaped, not the other way round.
+        equalizerFilter()?.let(activeFilters::add)
+
+        // Pipeline Stage 3: Dynamic Range Normalization (dynaudnorm)
         if (_nightMode.value) {
             activeFilters.add(FILTER_DYNAUDNORM)
         }
 
-        // Pipeline Stage 3: Brickwall Anti-Clipping Limiter (alimiter)
-        if (_softwareVolume.value > 100.0) {
+        // Pipeline Stage 4: Brickwall Anti-Clipping Limiter (alimiter)
+        if (_softwareVolume.value > 100.0 || hasEqualizerBoost()) {
             activeFilters.add(FILTER_ALIMITER)
         }
 
         val afChain = activeFilters.joinToString(",")
         bridge.setPropertyString("af", afChain)
+    }
+
+    private fun hasEqualizerBoost(): Boolean = _equalizerGains.value.any { it > 0.1 }
+
+    /**
+     * One `equalizer` node per non-flat band, joined into a single lavfi graph.
+     *
+     * This only works because the bundled libavfilter was replaced with a complete build: the
+     * original AAR shipped a 138 KB libavfilter in which `equalizer`, `bass` and `superequalizer`
+     * were all absent, and any of them took the whole audio graph down with "No such filter".
+     * Bands share a 1.5-octave width so neighbours overlap instead of leaving notches.
+     */
+    private fun equalizerFilter(): String? {
+        val bands = dev.gyro.engine.api.controller.AudioController.EQUALIZER_BANDS
+        val nodes = bands.zip(_equalizerGains.value)
+            .filter { (_, gain) -> kotlin.math.abs(gain) > 0.1 }
+            .map { (freq, gain) ->
+                "equalizer=f=${freq.toInt()}:width_type=o:width=1.5:g=${"%.1f".format(gain)}"
+            }
+        if (nodes.isEmpty()) return null
+        return "lavfi=[${nodes.joinToString(",")}]"
     }
 }
