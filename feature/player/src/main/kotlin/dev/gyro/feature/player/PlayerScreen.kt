@@ -500,12 +500,20 @@ fun PlayerScreen(
         }
 
         // 8. Modal Tabbed Settings & Calibrator Bottom Sheet
+        // The exit transition animates the outgoing sheet, so its content has to outlive the flag
+        // that closes it: reading activeSheetTab inside the content made the lambda render nothing
+        // the moment it went null, and the slide-out played on an empty composition (reads as "no
+        // animation at all"). Keeping the last tab keeps the sheet on screen until it has slid away.
+        val openSheetTab = playerState.activeSheetTab
+        var retainedSheetTab by remember { mutableStateOf(openSheetTab) }
+        if (openSheetTab != null) retainedSheetTab = openSheetTab
+
         AnimatedVisibility(
-            visible = playerState.activeSheetTab != null && !isPipLayout && !hideChrome,
+            visible = openSheetTab != null && !isPipLayout && !hideChrome,
             enter = fadeIn(animationSpec = tween(180)),
             exit = fadeOut(animationSpec = tween(140))
         ) {
-            playerState.activeSheetTab?.let { tab ->
+            retainedSheetTab?.let { tab ->
                 if (!isPipLayout && !hideChrome) {
                     PlayerSheetsHost(
                         tab = tab,

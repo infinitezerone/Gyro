@@ -154,6 +154,10 @@ internal fun PlayerSheetsHost(
             animatedVisibilityScope = animatedVisibilityScope,
             onDismiss = {
                 playerState.activeSheetTab = null
+                // Cleared on dismiss rather than on drag end: the exit animation starts from the
+                // last dragged position, so the offset has to survive until then, but the next
+                // opening must not inherit it.
+                playerState.onSheetDragged(0f)
                 playerState.showControls()
             }
         )
@@ -164,8 +168,16 @@ internal fun PlayerSheetsHost(
             animatedVisibilityScope = animatedVisibilityScope,
             state = sheetUiState,
             callbacks = sheetCallbacks,
+            // The video is fitted into the space this sheet leaves, so the surface needs its
+            // measured height rather than a guessed offset.
+            onSheetHeightChanged = playerState::onSheetHeightMeasured,
+            onSheetDragOffsetChanged = playerState::onSheetDragged,
             onDismiss = {
                 playerState.activeSheetTab = null
+                // Cleared on dismiss rather than on drag end: the exit animation starts from the
+                // last dragged position, so the offset has to survive until then, but the next
+                // opening must not inherit it.
+                playerState.onSheetDragged(0f)
                 playerState.showControls()
             }
         )

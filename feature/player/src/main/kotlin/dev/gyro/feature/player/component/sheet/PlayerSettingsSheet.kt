@@ -2,6 +2,7 @@ package dev.gyro.feature.player.component.sheet
 
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -52,14 +54,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
@@ -110,6 +119,8 @@ fun PlayerSettingsSheet(
     initialTab: PlayerSheetTab = PlayerSheetTab.SETTINGS_HUB,
     isLandscape: Boolean = false,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onSheetHeightChanged: (Int) -> Unit = {},
+    onSheetDragOffsetChanged: (Float) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
@@ -122,8 +133,61 @@ fun PlayerSettingsSheet(
     val dismissThresholdPx = with(density) { 70.dp.toPx() }
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val dragScope = rememberCoroutineScope()
 
-    // 竖屏下抽屉钉在底部，高度限制提升至 65%；横屏下在右侧以侧边栏展示，宽度为 360dp 提升平铺利用率
+    // Scrolling the content to the top and pulling further has to keep dragging the sheet itself,
+    // otherwise the list swallows the rest of the dismiss gesture and the sheet cannot be closed
+    // from content that is already at its top.
+    //
+    // The two callbacks split the gesture by ownership: onPostScroll picks up the pull that the
+    // content could not consume (list already at its top), and once the sheet has started moving
+    // onPreScroll claims every further downward pull so the list stops scrolling underneath a sheet
+    // that is being dragged away - otherwise both move at once after the handover.
+    val verticalDismissConnection = remember(isLandscape, dismissThresholdPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (isLandscape || dragOffsetY <= 0f) return Offset.Zero
+                // Already dragging: the sheet owns the vertical axis until it is back at rest.
+                // Pulling up first returns the sheet to open, and only the remainder reaches the list.
+                val delta = if (available.y > 0f) available.y else (-dragOffsetY).coerceAtLeast(available.y)
+                dragOffsetY = (dragOffsetY + delta).coerceAtLeast(0f)
+                onSheetDragOffsetChanged(dragOffsetY)
+                return Offset(0f, delta)
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (isLandscape || available.y <= 0f) return Offset.Zero
+                dragOffsetY = (dragOffsetY + available.y).coerceAtLeast(0f)
+                onSheetDragOffsetChanged(dragOffsetY)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (isLandscape || dragOffsetY <= 0f) return Velocity.Zero
+                if (dragOffsetY > dismissThresholdPx) {
+                    onDismiss()
+                } else {
+                    val from = dragOffsetY
+                    animate(
+                        initialValue = from,
+                        targetValue = 0f,
+                        animationSpec = tween(200),
+                    ) { value, _ ->
+                        dragOffsetY = value
+                        onSheetDragOffsetChanged(value)
+                    }
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
+    // 竖屏下抽屉钉在底部，高度上限 45%：再高就会盖住画面，而视频在这之上还要完整放下。
+    // 横屏下在右侧以侧边栏展示，宽度为 360dp 提升平铺利用率
     val sheetModifier = if (isLandscape) {
         Modifier
             .fillMaxHeight()
@@ -133,7 +197,7 @@ fun PlayerSettingsSheet(
     } else {
         Modifier
             .fillMaxWidth()
-            .heightIn(max = screenHeight * 0.65f)
+            .heightIn(max = screenHeight * 0.45f)
             .navigationBarsPadding()
     }
 
@@ -188,6 +252,7 @@ fun PlayerSettingsSheet(
                     IntOffset(0, dragOffsetY.roundToInt())
                 }
             }
+            .nestedScroll(verticalDismissConnection)
             .pointerInput(isLandscape) {
                 if (isLandscape) {
                     detectHorizontalDragGestures(
@@ -205,19 +270,41 @@ fun PlayerSettingsSheet(
                             }
                         }
                     )
-                } else {
+                }
+                // The header and other non-scrolling parts of the sheet never reach the nested
+                // scroll, so they keep their own detector. It cannot double-count with
+                // verticalDismissConnection: a scrollable child consumes the pointer events first,
+                // and a consumed drag never reaches this detector.
+                else {
                     detectVerticalDragGestures(
                         onDragEnd = {
                             if (dragOffsetY > dismissThresholdPx) {
+                                // Keep both offsets: resetting here snaps the sheet back to fully
+                                // open for a frame before the slide-out starts, reading as a bounce.
                                 onDismiss()
+                            } else {
+                                val from = dragOffsetY
+                                dragScope.launch {
+                                    animate(
+                                        initialValue = from,
+                                        targetValue = 0f,
+                                        animationSpec = tween(200),
+                                    ) { value, _ ->
+                                        dragOffsetY = value
+                                        onSheetDragOffsetChanged(value)
+                                    }
+                                }
                             }
+                        },
+                        onDragCancel = {
+                            onSheetDragOffsetChanged(0f)
                             dragOffsetY = 0f
                         },
-                        onDragCancel = { dragOffsetY = 0f },
                         onVerticalDrag = { change, dragAmount ->
                             if (dragAmount > 0 || dragOffsetY > 0) {
                                 change.consume()
                                 dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
+                                onSheetDragOffsetChanged(dragOffsetY)
                             }
                         }
                     )
@@ -229,6 +316,7 @@ fun PlayerSettingsSheet(
                 .align(if (isLandscape) Alignment.CenterEnd else Alignment.BottomCenter)
                 .then(animationModifier)
                 .then(dragModifier)
+                .onSizeChanged { if (!isLandscape) onSheetHeightChanged(it.height) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

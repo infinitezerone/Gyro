@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +45,34 @@ class PlayerState(
     var isLocked by mutableStateOf(false)
 
     var activeSheetTab by mutableStateOf<PlayerSheetTab?>(null)
+
+    /**
+     * Measured height of the portrait bottom sheet, in pixels. The video surface is fitted into the
+     * space above it, so the shift has to follow the real height: sheet content varies per tab and
+     * a fixed offset either leaves the picture half-covered or pushes it too far.
+     *
+     * Zero while no sheet is showing, which is also the state the fit collapses to.
+     */
+    var sheetHeightPx by mutableIntStateOf(0)
+        private set
+
+    /** Reported by the sheet once it is laid out; the surface fit reads it back. */
+    fun onSheetHeightMeasured(heightPx: Int) {
+        sheetHeightPx = heightPx
+    }
+
+    /**
+     * How far the portrait sheet has been dragged down, in pixels. A drag shrinks the sheet's
+     * footprint without dismissing it, so the video has to read this to stay glued to the sheet's
+     * real edge instead of sitting at its fully-open position until the dismiss lands.
+     */
+    var sheetDragOffsetPx by mutableFloatStateOf(0f)
+        private set
+
+    /** Reported on every drag frame; reset to 0 on drag end and cancel. */
+    fun onSheetDragged(offsetPx: Float) {
+        sheetDragOffsetPx = offsetPx
+    }
 
     /** Persistent stats readout, toggled from the STATS tab; survives a track change by design. */
     var statsOverlayEnabled by mutableStateOf(false)
