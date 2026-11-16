@@ -71,8 +71,9 @@ jobs:
 
       # compileSdk 37 may not be in the runner image; licenses are pre-accepted there, so AGP
       # can fetch missing packages on demand.
-      # assembleRelease exercises the release variant too (no signing config -> unsigned APK;
-      # R8 is not configured, so no minify coverage).
+      # assembleRelease runs the real release pipeline: R8 + resource shrinking, signed with the
+      # debug key because GYRO_KEYSTORE_PATH is unset here. The artifact is installable, so the
+      # minified build can be smoke-tested instead of only compiled.
       - name: Build and run all unit tests
         run: ./gradlew assembleDebug assembleRelease testDebugUnitTest
 
