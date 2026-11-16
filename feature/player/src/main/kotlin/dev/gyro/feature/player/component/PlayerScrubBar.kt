@@ -1,6 +1,11 @@
 package dev.gyro.feature.player.component
 
+
+
+
 import dev.gyro.feature.player.PlayerScrubState
+import dev.gyro.feature.player.component.rememberChapterHaptics
+import dev.gyro.feature.player.component.snapToChapterResult
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -32,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.model.ChapterInfo
 
@@ -92,19 +98,30 @@ fun PlayerScrubBar(
         0f
     }
 
+    // Snap within 8dp of a chapter marker. Wide enough to hit a tick with a thumb, narrow enough
+    // that dragging past a chapter still feels continuous - the marker grabs, then releases.
+    val snapRadiusPx = with(LocalDensity.current) { 8.dp.toPx() }
+    val haptics = rememberChapterHaptics()
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(20.dp)
-            .pointerInput(durationMs) {
+            // chapterFractions is a fresh List on many recompositions (it derives from snapshot).
+            // Using it as a key restarts the gesture on every position tick and breaks the drag.
+            // A stable scalar is enough: chapters only change when the file changes.
+            .pointerInput(durationMs, chapters.size) {
                 if (durationMs <= 0L) return@pointerInput
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val width = size.width.toFloat()
+                    var lastChapter = -1
                     if (width > 0f) {
-                        val fraction = (down.position.x / width).coerceIn(0f, 1f)
-                        scrubState.begin(fraction)
+                        val snap = snapToChapterResult(down.position.x, width, chapterFractions, snapRadiusPx)
+                        lastChapter = snap.chapterIndex
+                        if (snap.chapterIndex >= 0) haptics.tick()
+                        scrubState.begin(snap.fraction)
                     }
 
                     while (true) {
@@ -112,8 +129,14 @@ fun PlayerScrubBar(
                         val change = event.changes.firstOrNull() ?: break
                         if (change.pressed) {
                             change.consume()
-                            val fraction = (change.position.x / width).coerceIn(0f, 1f)
-                            scrubState.update(fraction)
+                            val snap = snapToChapterResult(change.position.x, width, chapterFractions, snapRadiusPx)
+                            // Fire only when the finger crosses onto a different marker. Staying
+                            // within one marker's radius must not buzz on every drag event.
+                            if (snap.chapterIndex >= 0 && snap.chapterIndex != lastChapter) {
+                                haptics.tick()
+                            }
+                            lastChapter = snap.chapterIndex
+                            scrubState.update(snap.fraction)
                         } else {
                             change.consume()
                             val finalFraction = scrubState.fraction
@@ -194,7 +217,15 @@ fun PlayerScrubBar(
 
         // 5. 动态滑块 (Thumb)
         if (thumbSize > 0.dp && totalWidth > thumbSize) {
-            val thumbOffset = ((totalWidth - thumbSize) * playedRatio).coerceIn(0.dp, totalWidth - thumbSize)
+            // Centre the thumb on playedRatio, matching how chapter ticks, A-B marks and the
+            // played track are positioned (all use fraction * full width). The old formula
+            // ((width - thumb) * ratio) put the thumb's *left edge* on a shrunken track, so its
+            // centre drifted away from chapter markers towards either end.
+            val halfThumb = thumbSize / 2
+            // No clamping: the thumb centre must sit exactly on the fraction so it lines up with
+            // chapter/A-B marks. At 0% and 100% half of it extends past the track, which is the
+            // normal look for a progress thumb and keeps the alignment honest everywhere else.
+            val thumbOffset = totalWidth * playedRatio - halfThumb
             Surface(
                 shape = CircleShape,
                 color = Color.White,

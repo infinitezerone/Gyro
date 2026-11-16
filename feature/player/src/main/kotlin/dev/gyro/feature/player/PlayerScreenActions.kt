@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.feature.player.component.PlayerOverlayActions
@@ -35,6 +36,17 @@ fun rememberPlayerScreenActions(
     seekStepSeconds: Int = 10,
     onEnterPiP: () -> Unit = {},
 ): PlayerOverlayActions {
+    // These providers close over per-composition values (durationMs, timePos, current title...).
+    // The actions object is remembered across recompositions, so capturing the first lambda here
+    // would freeze those values at their initial state (typically 0/empty on cold start) and every
+    // seek would target 0. rememberUpdatedState keeps the remembered actions reading the latest.
+    val durationMsProviderState = rememberUpdatedState(durationMsProvider)
+    val timePosMsProviderState = rememberUpdatedState(timePosMsProvider)
+    val surfaceViewProviderState = rememberUpdatedState(surfaceViewProvider)
+    val mediaTitleProviderState = rememberUpdatedState(mediaTitleProvider)
+    val onBackState = rememberUpdatedState(onBack)
+    val onEnterPiPState = rememberUpdatedState(onEnterPiP)
+
     return remember(
         engine,
         viewModel,
@@ -53,15 +65,15 @@ fun rememberPlayerScreenActions(
             screenshotController = screenshotController,
             activity = activity,
             configuration = configuration,
-            onBack = onBack,
-            durationMsProvider = durationMsProvider,
-            timePosMsProvider = timePosMsProvider,
-            surfaceViewProvider = surfaceViewProvider,
-            mediaTitleProvider = mediaTitleProvider,
+            onBack = { onBackState.value() },
+            durationMsProvider = { durationMsProviderState.value() },
+            timePosMsProvider = { timePosMsProviderState.value() },
+            surfaceViewProvider = { surfaceViewProviderState.value() },
+            mediaTitleProvider = { mediaTitleProviderState.value() },
             subtitleEnabled = subtitleEnabled,
             lastSubTrackId = lastSubTrackId,
             seekStepSeconds = seekStepSeconds,
-            onEnterPiP = onEnterPiP,
+            onEnterPiP = { onEnterPiPState.value() },
         )
     }
 }
@@ -170,10 +182,6 @@ fun createPlayerOverlayActions(
                 mediaTitle = mediaTitleProvider(),
                 positionMs = timePosMsProvider(),
             )
-        },
-        onCycleHwdec = {
-            onResetControlsTimeout()
-            engine.cycleHwdec()
         },
     )
 }

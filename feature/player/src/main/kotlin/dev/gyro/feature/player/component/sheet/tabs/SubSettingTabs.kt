@@ -566,7 +566,7 @@ internal fun SpeedSubTabContent(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks
 ) {
-    val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
+    val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f)
 
     Column(
         modifier = Modifier

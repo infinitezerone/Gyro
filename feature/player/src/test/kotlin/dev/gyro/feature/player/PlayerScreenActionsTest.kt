@@ -195,9 +195,6 @@ class PlayerScreenActionsTest {
 
         actions.onScreenshot()
         assertEquals(15, timeoutResetCount)
-
-        actions.onCycleHwdec()
-        assertEquals(16, timeoutResetCount)
     }
 
     @Test

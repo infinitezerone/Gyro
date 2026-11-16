@@ -252,7 +252,12 @@ open class PlaybackLifecycleController(
     }
 
     fun setSpeed(speed: Float) {
-        bridge.setPropertyDouble("speed", speed.toDouble().coerceIn(0.25, 4.0))
+        val clamped = speed.toDouble().coerceIn(0.25, 4.0)
+        // Setting speed makes mpv rebuild its time-stretch filter, which briefly stalls A/V sync.
+        // Ignore repeats so tapping the same preset (or a drag that quantizes to the current value)
+        // does not trigger a needless rebuild.
+        if (store.current.speed.toDouble() == clamped) return
+        bridge.setPropertyDouble("speed", clamped)
     }
 
     fun toggleHwdec() {

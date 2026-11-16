@@ -25,6 +25,11 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,6 +60,11 @@ internal fun SpeedTabContent(
     callbacks: PlayerSheetCallbacks
 ) {
     val currentSpeed = state.currentSpeed
+    // Dragging the slider fires onValueChange for every quantization step. Sending each one to mpv
+    // rebuilds its time-stretch filter and produces the audible/video stutter. Keep a local value
+    // for the thumb, and commit to the engine once, on release.
+    var previewSpeed by remember { mutableFloatStateOf(currentSpeed) }
+    LaunchedEffect(currentSpeed) { previewSpeed = currentSpeed }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -130,7 +140,7 @@ internal fun SpeedTabContent(
                 }
             }
 
-            val row2 = listOf(1.5f, 1.75f, 2.0f, 3.0f)
+            val row2 = listOf(1.5f, 1.75f, 2.0f, 3.0f, 4.0f)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -182,9 +192,10 @@ internal fun SpeedTabContent(
                     }
 
                     Slider(
-                        value = currentSpeed.coerceIn(0.25f, 3.0f),
-                        onValueChange = { callbacks.onSelectSpeed(Math.round(it * 20f) / 20f) },
-                        valueRange = 0.25f..3.0f,
+                        value = previewSpeed.coerceIn(0.25f, 4.0f),
+                        onValueChange = { previewSpeed = Math.round(it * 20f) / 20f },
+                        onValueChangeFinished = { callbacks.onSelectSpeed(previewSpeed) },
+                        valueRange = 0.25f..4.0f,
                         modifier = Modifier.weight(1f),
                         colors = SliderDefaults.colors(
                             thumbColor = SheetAccentBlue,
@@ -195,7 +206,7 @@ internal fun SpeedTabContent(
 
                     FilledTonalButton(
                         onClick = {
-                            callbacks.onSelectSpeed(Math.min(3.0f, (Math.round((currentSpeed + 0.05f) * 100f) / 100f)))
+                            callbacks.onSelectSpeed(Math.min(4.0f, (Math.round((currentSpeed + 0.05f) * 100f) / 100f)))
                         },
                         modifier = Modifier.height(36.dp),
                         shape = RoundedCornerShape(8.dp),

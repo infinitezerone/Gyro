@@ -225,6 +225,10 @@ class MpvOptionConfigurator {
         if (!userOptions.containsKey("video-sync")) {
             bridge.setOptionString("video-sync", "audio")
         }
+        // Changing speed shifts the audio clock; mpv's default tolerance then declares an A/V
+        // desync and resets the filter chain, which shows as a visible+audible hiccup on every
+        // speed tap. An unlimited tolerance lets it glide through the transition instead.
+        bridge.setOptionString("video-sync-max-audio-change", "inf")
         if (!userOptions.containsKey("demuxer-max-bytes")) {
             bridge.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
         }
