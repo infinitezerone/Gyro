@@ -186,18 +186,23 @@ Notes for later:
 - If judder returns, log `frame-drop-count` while playing: a growing count means mpv is dropping, a
   static count with visible judder means the compositor is discarding frames we still submit.
 
-### gpu-next, Dolby Vision and HDR output
+### HDR output (gpu-next is unreachable)
 
-Status: HDR10/HLG lighting is wired end to end; gpu-next (and therefore Dolby Vision) is not
-reachable with the current dependency.
+Status: HDR10/HLG lighting is wired end to end. gpu-next — and therefore Dolby Vision — cannot be
+enabled with the shipped dependency at all, so the code carries no switch for it.
 
 - `dev.jdtech.mpv:libmpv:1.0.0` bundles **mpv v0.41.0**, whose render API only exposes
   `libmpv_gpu` (`video/out/gpu/libmpv_gpu.c`). `MPV_RENDER_PARAM_BACKEND` does not exist in
   `render.h` (the enum ends at `SW_POINTER = 20`), and unknown render params are skipped silently,
-  so asking for `vo-backend=gpu-next` returns success while the session keeps running `vo_gpu`.
-  Upstream support is still an open draft (mpv-player/mpv#16818), absent from v0.42.0 as well.
-  `GPU_NEXT_RENDER_API_SUPPORTED` (`:core:model`) encodes this; the UI offers the switch only when
-  it is true, and `MpvOptionConfigurator` refuses to apply libplacebo-only options when it is not.
+  so `vo-backend=gpu-next` returns success while the session keeps running `vo_gpu`. Upstream
+  support is still an open draft (mpv-player/mpv#16818), absent from v0.42.0 as well.
+- Because the render path pins `vo=libmpv` with `gpu-api=opengl`, `vo` is a protected mpv.conf key
+  and the engine never reads a renderer choice from settings. There is no `voRenderer` field, no
+  `gpu-next` preset and no `GPU_NEXT_RENDER_API_SUPPORTED` flag to keep in sync — adding the
+  backend later means changing the render path itself, not flipping a constant.
+- Dolby Vision sources are still detected: `VideoGeometryCoordinator` skips PQ hardware lighting
+  for Profile 5 (ICtCp), which vo_gpu would otherwise render with a strong purple/green tint. They
+  play as tone-mapped SDR, not as DV.
 - HDR path: `hdr-capable` (a fake option intercepted in `jni.rs`) tells the EGL layer to pick a
   10-bit config before the first surface exists; `hdr-output` still drives the per-file decision.
   `EGL_GL_COLORSPACE_BT2020_PQ` is requested in `SurfaceSlot::create_window_surface` for every

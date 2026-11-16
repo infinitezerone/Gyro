@@ -62,7 +62,7 @@ fun MpvConfigEditorPreviewModified() {
             .background(GyroColors.Background)
     ) {
         val state = MpvConfigEditorUiState(
-            content = "vo=gpu-next\nhwdec=mediacodec\ndeband=yes\n",
+            content = "hwdec=mediacodec\ndeband=yes\nscale=lanczos\n",
             originalContent = MpvConfig.DEFAULT_TEMPLATE,
             isModified = true
         )

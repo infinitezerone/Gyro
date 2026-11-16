@@ -1,12 +1,8 @@
 package dev.gyro.engine.config
 
-import dev.gyro.core.model.GPU_NEXT_RENDER_API_SUPPORTED
 import dev.gyro.core.model.HDR_OUTPUT_SDR
 import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.UserSettings
-import dev.gyro.core.model.VO_GPU
-import dev.gyro.core.model.VO_GPU_NEXT
-import dev.gyro.core.model.VO_LIBMPV
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.trace.EngineLog
 import java.util.concurrent.atomic.AtomicReference

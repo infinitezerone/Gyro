@@ -122,7 +122,7 @@
     <string name="settings_hwdec_active_sw">CPU software decoding active</string>
     <string name="settings_hdr_output">HDR Display Mode</string>
     <string name="settings_hdr_output_auto">Physical HDR (10-bit · Recommended)</string>
-    <string name="settings_hdr_output_auto_desc">Triggers panel peak brightness and native 10-bit color for HDR and Dolby Vision</string>
+    <string name="settings_hdr_output_auto_desc">Triggers panel peak brightness and native 10-bit color for HDR10 and HLG</string>
     <string name="settings_hdr_output_sdr">Tone-mapping (SDR · Eye-friendly)</string>
     <string name="settings_hdr_output_sdr_desc">Compresses highlights to SDR range without bright glare, saving battery in dim rooms</string>
     <string name="settings_hdr_active_auto">Physical HDR (Peak brightness &amp; 10-bit)</string>

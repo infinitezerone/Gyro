@@ -33,7 +33,6 @@ data class MpvPresetOption(
 )
 
 val MPV_QUICK_PRESETS = listOf(
-    MpvPresetOption("vo=gpu-next", "vo=gpu-next", "libplacebo GPU renderer"),
     MpvPresetOption("hwdec=auto", "hwdec=auto", "Auto hardware decoding"),
     MpvPresetOption("deband=yes", "deband=yes", "Debanding filter"),
     MpvPresetOption("demuxer-cache", "demuxer-max-bytes=150MiB", "150MB network buffer"),

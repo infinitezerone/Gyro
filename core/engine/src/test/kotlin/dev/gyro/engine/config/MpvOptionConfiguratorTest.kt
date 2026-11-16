@@ -115,7 +115,7 @@ class MpvOptionConfiguratorTest {
     }
 
     @Test
-    fun gpuNextRequestFallsBackToGpuBecauseRenderApiHasNoSuchBackend() {
+    fun defaultConfigPinsTheLibmpvRenderPath() {
         val configurator = MpvOptionConfigurator()
         val bridge = FakeMpvNativeBridge()
 
