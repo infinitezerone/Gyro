@@ -52,16 +52,16 @@
     <string name="track_none_audio">No Additional Audio Tracks</string>
     <string name="track_add_external_sub">Add External Subtitle</string>
     <string name="sub_pos_title">Vertical Position</string>
-    <string name="sub_pos_bottom">Bottom (100%)</string>
-    <string name="sub_pos_raised">Raised (95%)</string>
-    <string name="sub_pos_middle">Center (90%)</string>
+    <string name="sub_pos_bottom">Bottom</string>
+    <string name="sub_pos_raised">Raised</string>
+    <string name="sub_pos_middle">Middle</string>
     <string name="sync_audio_delay">Audio Delay</string>
     <string name="sync_sub_delay">Subtitle Delay</string>
     <string name="speed_title">Playback Speed</string>
     <string name="aspect_title">Aspect Ratio</string>
     <string name="stats_hwdec_title">Hardware Decoding</string>
-    <string name="stats_hwdec_active">Hardware Accelerated (HW)</string>
-    <string name="stats_hwdec_software">Software Decoding (SW)</string>
+    <string name="stats_hwdec_active">HW decode</string>
+    <string name="stats_hwdec_software">SW decode</string>
     <string name="stats_decoder">Decoder Mode</string>
     <string name="stats_switch_to_sw">Switch to SW</string>
     <string name="stats_switch_to_hw">Switch to HW</string>
@@ -111,22 +111,22 @@
     <string name="stats_tone_mapping">Tone Mapping</string>
     <string name="stats_texture_scaler">Texture Scaler</string>
     <string name="settings_default_hwdec">Hardware Decoding</string>
-    <string name="settings_hwdec_mediacodec">Hardware Decoding (MediaCodec · Recommended)</string>
+    <string name="settings_hwdec_mediacodec">Hardware decoding</string>
     <string name="settings_hwdec_mediacodec_desc">Dedicated hardware chip, minimal battery consumption</string>
-    <string name="settings_hwdec_copy">Hardware Copy-back (mediacodec-copy)</string>
-    <string name="settings_hwdec_copy_desc">Hardware decoding with post-processing filter support</string>
-    <string name="settings_hwdec_sw">Software Decoding (CPU)</string>
-    <string name="settings_hwdec_sw_desc">CPU decoding fallback when hardware decoding fails or glitches</string>
-    <string name="settings_hwdec_active_mediacodec">Hardware chip decoding active</string>
-    <string name="settings_hwdec_active_copy">Hardware copy-back active</string>
-    <string name="settings_hwdec_active_sw">CPU software decoding active</string>
+    <string name="settings_hwdec_copy">HW + copy-back</string>
+    <string name="settings_hwdec_copy_desc">HW decode with filters</string>
+    <string name="settings_hwdec_sw">Software decoding</string>
+    <string name="settings_hwdec_sw_desc">CPU decode, compatible</string>
+    <string name="settings_hwdec_active_mediacodec">HW decode</string>
+    <string name="settings_hwdec_active_copy">HW + copy-back</string>
+    <string name="settings_hwdec_active_sw">CPU decode</string>
     <string name="settings_hdr_output">HDR Display Mode</string>
-    <string name="settings_hdr_output_auto">Physical HDR (10-bit · Recommended)</string>
-    <string name="settings_hdr_output_auto_desc">Triggers panel peak brightness and native 10-bit color for HDR10 and HLG</string>
-    <string name="settings_hdr_output_sdr">Tone-mapping (SDR · Eye-friendly)</string>
-    <string name="settings_hdr_output_sdr_desc">Compresses highlights to SDR range without bright glare, saving battery in dim rooms</string>
-    <string name="settings_hdr_active_auto">Physical HDR (Peak brightness &amp; 10-bit)</string>
-    <string name="settings_hdr_active_sdr">Tone-mapping (SDR · Eye-friendly)</string>
+    <string name="settings_hdr_output_auto">Auto</string>
+    <string name="settings_hdr_output_auto_desc">Enable HDR when supported</string>
+    <string name="settings_hdr_output_sdr">Tone map</string>
+    <string name="settings_hdr_output_sdr_desc">Map to standard SDR</string>
+    <string name="settings_hdr_active_auto">HDR on</string>
+    <string name="settings_hdr_active_sdr">Tone map</string>
     <!-- Settings: Audio & Subtitles -->
     <string name="settings_group_subtitles">Subtitles &amp; Audio</string>
     <string name="settings_sub_autoload">Auto-load Subtitles</string>
@@ -190,17 +190,17 @@
     <!-- R4: Audiovisual Enhancements & Overdrive -->
     <string name="sheet_tab_audiovisual">Audiovisual</string>
     <string name="sheet_tab_video">Video</string>
-    <string name="hud_volume_overdrive">Volume %d%% (Overdrive)</string>
-    <string name="hud_volume_overdrive_hint">(supports 200% overdrive)</string>
+    <string name="hud_volume_overdrive">Volume %d%%</string>
+    <string name="hud_volume_overdrive_hint">Up to 200%</string>
     <string name="effects_color_reset">Reset Colors</string>
 
     <!-- R7: MX Player Style Custom Gestures -->
     <string name="settings_group_gestures_detail">Gestures &amp; Controls</string>
-    <string name="settings_group_gestures_detail_desc">Configure swipe gestures, double-tap seek, long-press speed, and sensitivity</string>
+    <string name="settings_group_gestures_detail_desc">Swipe, double-tap, long-press speed</string>
     <string name="gesture_settings_title">Gesture Settings</string>
     <string name="settings_gesture_vertical_mode">Vertical Swipe Action</string>
-    <string name="settings_gesture_vertical_mode_vol_bright">Volume &amp; Brightness (Left/Right)</string>
-    <string name="settings_gesture_vertical_mode_switch_video">Switch Video (TikTok-style Vertical Swipe)</string>
+    <string name="settings_gesture_vertical_mode_vol_bright">Volume &amp; brightness</string>
+    <string name="settings_gesture_vertical_mode_switch_video">Switch video</string>
     <string name="settings_gesture_volume">Vertical Swipe Volume</string>
     <string name="settings_gesture_volume_desc">Swipe vertically on right side to adjust volume (supports 200%% overdrive)</string>
     <string name="settings_gesture_brightness">Vertical Swipe Brightness</string>
@@ -216,7 +216,7 @@
     <string name="settings_gesture_zoom">Pinch to Zoom &amp; Pan</string>
     <string name="settings_gesture_zoom_desc">Pinch to zoom video frame and pan freely when zoomed</string>
     <string name="settings_gesture_swap_sides">Swap Volume &amp; Brightness Sides</string>
-    <string name="settings_gesture_swap_sides_desc">Use left side for volume and right side for brightness</string>
+    <string name="settings_gesture_swap_sides_desc">Swap left/right controls</string>
     <string name="settings_gesture_seek_seconds">Double Tap Seek Step</string>
     <string name="settings_gesture_seek_seconds_val">%d seconds</string>
     <string name="settings_gesture_speed_multiplier">Long Press Speed Multiplier</string>
@@ -246,35 +246,45 @@
     <string name="screenshot_saved">Screenshot saved</string>
     <string name="screenshot_failed">Screenshot failed</string>
     <string name="stats_overlay_toggle">Persistent stats overlay</string>
-    <string name="secondary_sub_section">Secondary subtitles (bilingual)</string>
+    <string name="secondary_sub_section">Secondary subtitles</string>
     <string name="cd_enter_fullscreen">Fullscreen</string>
     <string name="secondary_sub_disable">Disable secondary subtitle</string>
 
     <!-- Player settings hub -->
+    <string name="sheet_tab_audio_effects">Audio processing</string>
+    <string name="video_quality">Picture quality</string>
+    <string name="audio_loudness_leveling">Loudness levelling</string>
+    <string name="audio_loudness_leveling_desc">Evens out volume</string>
+    <string name="audio_equalizer">Equaliser</string>
+    <string name="audio_equalizer_flat">Flat</string>
+    <string name="eq_preset_vocal">Vocal</string>
+    <string name="eq_preset_bass">Bass</string>
+    <string name="eq_preset_treble">Treble</string>
+    <string name="hub_group_playback">Playback</string>
     <string name="hub_group_video">Video</string>
     <string name="hub_group_audio">Audio</string>
     <string name="hub_group_subtitles">Subtitles</string>
-    <string name="hub_group_advanced_diag">Advanced and diagnostics</string>
+    <string name="hub_group_advanced_diag">Info and diagnostics</string>
 
     <!-- Decoder modes -->
     <string name="hwdec_copy">HW+ hardware copy</string>
-    <string name="hwdec_copy_recommended">HW+ hardware copy (recommended)</string>
-    <string name="hwdec_copy_desc">Hardware decoding with GPU copy-back; supports Anime4K / CAS shaders</string>
+    <string name="hwdec_copy_recommended">HW+ copy</string>
+    <string name="hwdec_copy_desc">HW decode with GPU copy-back</string>
     <string name="hwdec_direct">HW direct output</string>
-    <string name="hwdec_direct_desc">Zero-copy Surface straight to the display; low power, no complex shaders</string>
+    <string name="hwdec_direct_desc">Zero-copy HW decode, lower power</string>
     <string name="hwdec_sw">SW software decoding</string>
-    <string name="hwdec_sw_desc">Pure CPU decoding; plays every format</string>
-    <string name="video_mode_desc_copy">HW+ mode: hardware decoding with GPU copy-back, drives Anime4K / CAS shaders</string>
-    <string name="video_mode_desc_hw">HW mode: zero-copy Surface passthrough, very power efficient, but cannot run multi-pass shaders</string>
-    <string name="video_mode_desc_sw">SW mode: pure CPU decoding, plays every format, but heavy on high bitrate files</string>
+    <string name="hwdec_sw_desc">CPU decode, all formats</string>
+    <string name="video_mode_desc_copy">HW decode + copy-back, shaders on</string>
+    <string name="video_mode_desc_hw">Zero-copy HW decode, no shaders</string>
+    <string name="video_mode_desc_sw">CPU decode, all formats</string>
 
     <!-- Shaders and upscaling -->
-    <string name="shader_none">Original (no filter)</string>
-    <string name="shader_none_desc">Post-processing disabled; untouched picture</string>
+    <string name="shader_none">None</string>
+    <string name="shader_none_desc">No post-processing</string>
     <string name="shader_anime4k_upscale">Anime4K upscaling</string>
-    <string name="shader_anime4k_upscale_desc">Tuned for anime: edge enhancement plus adaptive contrast reconstruction</string>
+    <string name="shader_anime4k_upscale_desc">Sharper anime lines</string>
     <string name="shader_cas_sharpen">AMD CAS sharpening</string>
-    <string name="shader_cas_sharpen_desc">Best for live action: adaptive upscaling that sharpens texture without halos</string>
+    <string name="shader_cas_sharpen_desc">General sharpening</string>
     <string name="shader_anime4k_short">Anime4K</string>
     <string name="shader_cas_short">AMD CAS</string>
     <string name="shader_none_short">Original</string>
@@ -289,16 +299,16 @@
     <string name="shader_import_glsl">Import local .glsl filter</string>
 
     <!-- Aspect modes -->
-    <string name="aspect_mode_fit_full">Fit window (original ratio)</string>
-    <string name="aspect_mode_crop_full">Fill screen (crop bars)</string>
-    <string name="aspect_mode_stretch_full">Stretch to fill (ignore ratio)</string>
-    <string name="aspect_mode_16_9_full">16:9 widescreen</string>
-    <string name="aspect_mode_21_9_full">21:9 cinema</string>
+    <string name="aspect_mode_fit_full">Fit</string>
+    <string name="aspect_mode_crop_full">Crop</string>
+    <string name="aspect_mode_stretch_full">Stretch</string>
+    <string name="aspect_mode_16_9_full">16:9</string>
+    <string name="aspect_mode_21_9_full">21:9</string>
     <string name="video_aspect_section">Aspect ratio and fill</string>
     <string name="aspect_hwdec_section">Hardware decoding</string>
     <string name="aspect_hdr_section">High dynamic range</string>
-    <string name="hw_decoder_mediacodec">Hardware decoding (MediaCodec)</string>
-    <string name="sw_decoder_cpu">Software decoding (CPU)</string>
+    <string name="hw_decoder_mediacodec">Hardware</string>
+    <string name="sw_decoder_cpu">Software</string>
     <string name="hw_low_power_benefit">Low power · smooth</string>
     <string name="hw_sw_compat">Compatibility mode</string>
     <string name="action_switch_sw">Switch to software</string>
@@ -317,14 +327,14 @@
     <string name="color_label_contrast">Contrast</string>
     <string name="color_label_saturation">Saturation</string>
     <string name="settings_color_calibration">Colour calibration</string>
-    <string name="settings_video_color_calibration">Picture colour calibration</string>
+    <string name="settings_video_color_calibration">Colour calibration</string>
     <string name="color_state_tuned">Tuned</string>
     <string name="color_state_standard">Standard</string>
 
     <!-- Deband and motion interpolation -->
     <string name="settings_deband">Deband</string>
     <string name="video_deband_title">Deband</string>
-    <string name="video_deband_desc">Removes stair-stepping colour bands from smooth gradients</string>
+    <string name="video_deband_desc">Remove colour banding</string>
     <string name="settings_motion_interpolation">Motion smoothing (interpolation)</string>
 
     <!-- Video scaling -->
@@ -333,49 +343,49 @@
     <string name="scale_summary_lanczos">Lanczos</string>
     <string name="scale_summary_spline36">Spline36 sharp</string>
     <string name="video_scale_spline36">Spline36 (spline · sharpest)</string>
-    <string name="video_scale_spline36_desc">Cubic spline interpolation that matches gallery-grade sharpness with firm edges</string>
+    <string name="video_scale_spline36_desc">Sharp</string>
     <string name="video_scale_bilinear">Bilinear (basic sampling)</string>
-    <string name="video_scale_bilinear_desc">Native hardware sampling; sharpening and resampling off, softer lines</string>
+    <string name="video_scale_bilinear_desc">Soft</string>
     <string name="video_scale_lanczos">Lanczos (cinema resampling)</string>
-    <string name="video_scale_lanczos_desc">Sinc-window filter with rich high-frequency detail for high bitrate sources</string>
+    <string name="video_scale_lanczos_desc">Detailed, for high bitrate</string>
 
     <!-- HDR and tone mapping -->
     <string name="hdr_auto_detected_fmt">Auto detected (%1$s)</string>
     <string name="hdr_auto_sdr_notice">Auto detected (SDR / not triggered)</string>
     <string name="hdr_active_lit">HDR active</string>
-    <string name="hdr_auto_desc">Matches source metadata and the panel 10-bit capability automatically (recommended)</string>
+    <string name="hdr_auto_desc">Auto by source and display (recommended)</string>
     <string name="hdr_force_pq">Force BT.2100 PQ</string>
-    <string name="hdr_force_pq_desc">HDR10 / Dolby Vision absolute luminance curve (0-10000 nits)</string>
+    <string name="hdr_force_pq_desc">HDR10 / Dolby Vision curve</string>
     <string name="hdr_force_hlg">Force BT.2100 HLG</string>
-    <string name="hdr_force_hlg_desc">Broadcast hybrid log-gamma curve (broadcast 4K / camera footage)</string>
-    <string name="hdr_tone_map_sdr">Tone mapping (to SDR)</string>
-    <string name="hdr_tone_map_sdr_desc">Compresses high dynamic range to SDR levels; easier on the eyes in a dark room</string>
+    <string name="hdr_force_hlg_desc">Broadcast HLG curve</string>
+    <string name="hdr_tone_map_sdr">Tone map</string>
+    <string name="hdr_tone_map_sdr_desc">Map to SDR, easier on eyes</string>
     <string name="hdr_summary_sdr">SDR tone mapping</string>
-    <string name="hdr_summary_auto_fmt">Auto (%1$s)</string>
-    <string name="hdr_summary_auto_sdr">Auto (SDR)</string>
-    <string name="settings_hdr_tone_mapping">HDR and tone mapping</string>
-    <string name="tone_map_auto">Tone mapping: auto (default)</string>
-    <string name="tone_map_auto_desc">Adaptive tone mapping with clean contrast and accurate colour</string>
-    <string name="tone_map_hable">Tone mapping: Hable</string>
-    <string name="tone_map_hable_desc">Punchy contrast that keeps highlight detail from clipping</string>
-    <string name="tone_map_bt2446a">Tone mapping: BT.2446a</string>
-    <string name="tone_map_bt2446a_desc">ITU broadcast recommendation; the most faithful colour reproduction</string>
-    <string name="tone_map_spline">Tone mapping: Spline</string>
-    <string name="tone_map_spline_desc">Smooth midtone rolloff; suits bright scenes and feature films</string>
-    <string name="tone_map_reinhard">Tone mapping: Reinhard</string>
-    <string name="tone_map_reinhard_desc">Suppresses shadow noise; gentle on dim or ageing panels</string>
+    <string name="hdr_summary_auto_fmt">Auto %1$s</string>
+    <string name="hdr_summary_auto_sdr">Auto SDR</string>
+    <string name="settings_hdr_tone_mapping">HDR mapping</string>
+    <string name="tone_map_auto">Auto</string>
+    <string name="tone_map_auto_desc">Adaptive tone mapping</string>
+    <string name="tone_map_hable">Hable</string>
+    <string name="tone_map_hable_desc">High contrast, tames highlights</string>
+    <string name="tone_map_bt2446a">BT.2446a</string>
+    <string name="tone_map_bt2446a_desc">Broadcast standard, accurate</string>
+    <string name="tone_map_spline">Spline</string>
+    <string name="tone_map_spline_desc">Smooth, for bright scenes</string>
+    <string name="tone_map_reinhard">Reinhard</string>
+    <string name="tone_map_reinhard_desc">Gentle, suppresses dark noise</string>
 
     <!-- Audio -->
     <string name="settings_audio_track">Audio track</string>
     <string name="track_no_internal_audio">No internal audio</string>
-    <string name="hub_audio_boost">Software volume boost</string>
+    <string name="hub_audio_boost">Volume boost</string>
     <string name="settings_audio_boost">Software volume boost</string>
     <string name="audio_boost_levels">Boost level</string>
     <string name="hub_audio_delay_sync">Audio delay</string>
-    <string name="delay_synced_label">0.0s (synced)</string>
+    <string name="delay_synced_label">Synced</string>
     <string name="hub_stereo_downmix">Stereo downmix</string>
-    <string name="hub_audio_passthrough">Audio passthrough (S/PDIF)</string>
-    <string name="downmix_desc">Downmixes 5.1 / 7.1 and other multichannel audio to stereo</string>
+    <string name="hub_audio_passthrough">Passthrough</string>
+    <string name="downmix_desc">Downmix to stereo</string>
 
     <!-- Subtitles -->
     <string name="settings_subtitle_track">Subtitle track</string>
@@ -401,7 +411,7 @@
 
     <!-- Stats and diagnostics -->
     <string name="hub_stats_overlay">Stats overlay</string>
-    <string name="hub_media_details">Media details and charts</string>
+    <string name="hub_media_details">Media info</string>
     <string name="action_view_details">View details</string>
     <string name="stats_realtime_section">Live render metrics</string>
     <string name="stats_fps_placeholder">Live FPS</string>
@@ -411,8 +421,8 @@
     <string name="stats_live_bitrate_fmt">Live bitrate: %1$s</string>
     <string name="stats_sampling_bitrate">Sampling bitrate waveform...</string>
     <string name="stats_overlay_screen_title">On-screen stats overlay</string>
-    <string name="stats_overlay_screen_desc">Persistent frame rate and performance HUD in the top-left corner</string>
-    <string name="stats_overlay_desc">Shows live frame rate and bitrate in the corner</string>
+    <string name="stats_overlay_screen_desc">Stats in top-left corner</string>
+    <string name="stats_overlay_desc">Show frame rate and bitrate</string>
     <string name="stats_decode_config">Decoder configuration</string>
     <string name="stats_hdr_peak_brightness">HDR peak brightness</string>
     <string name="common_enabled">On</string>
@@ -448,6 +458,8 @@
     <string name="page_playlist">Playlist</string>
 
     <!-- Dynamic track and chapter labels -->
+    <string name="ab_loop_clear">Clear A-B loop</string>
+    <string name="settings_more">More settings</string>
     <string name="ab_loop_title">A-B Loop</string>
     <string name="ab_loop_running">Looping</string>
     <string name="ab_loop_set_b_short">A set / set B</string>

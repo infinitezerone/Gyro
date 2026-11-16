@@ -57,16 +57,16 @@
     <string name="track_none_audio">无多音轨</string>
     <string name="track_add_external_sub">添加外挂字幕</string>
     <string name="sub_pos_title">垂直位置</string>
-    <string name="sub_pos_bottom">底端 (100%)</string>
-    <string name="sub_pos_raised">微升 (95%)</string>
-    <string name="sub_pos_middle">偏中 (90%)</string>
+    <string name="sub_pos_bottom">底端</string>
+    <string name="sub_pos_raised">微升</string>
+    <string name="sub_pos_middle">偏中</string>
     <string name="sync_audio_delay">音频延迟</string>
     <string name="sync_sub_delay">字幕延迟</string>
     <string name="speed_title">播放速度</string>
     <string name="aspect_title">画面比例</string>
     <string name="stats_hwdec_title">硬件解码</string>
-    <string name="stats_hwdec_active">硬件加速 (HW)</string>
-    <string name="stats_hwdec_software">软件解码 (SW)</string>
+    <string name="stats_hwdec_active">硬解</string>
+    <string name="stats_hwdec_software">软解</string>
     <string name="stats_decoder">解码模式</string>
     <string name="stats_switch_to_sw">切为软解</string>
     <string name="stats_switch_to_hw">切为硬解</string>
@@ -120,22 +120,22 @@
     <string name="stats_tone_mapping">色调映射</string>
     <string name="stats_texture_scaler">纹理重采样</string>
     <string name="settings_default_hwdec">硬件加速解码</string>
-    <string name="settings_hwdec_mediacodec">硬件解码 (MediaCodec · 推荐)</string>
+    <string name="settings_hwdec_mediacodec">硬件解码</string>
     <string name="settings_hwdec_mediacodec_desc">专用硬件解码，功耗低</string>
-    <string name="settings_hwdec_copy">硬件解码回写模式 (mediacodec-copy)</string>
-    <string name="settings_hwdec_copy_desc">硬件解码并支持滤镜后处理</string>
-    <string name="settings_hwdec_sw">软件解码 (CPU 软解)</string>
-    <string name="settings_hwdec_sw_desc">CPU 软件解码，兼容性好</string>
-    <string name="settings_hwdec_active_mediacodec">已启用芯片硬解 (最省电)</string>
-    <string name="settings_hwdec_active_copy">已启用硬解回写 (支持后处理)</string>
-    <string name="settings_hwdec_active_sw">已启用 CPU 软解 (高负载)</string>
+    <string name="settings_hwdec_copy">硬解回写</string>
+    <string name="settings_hwdec_copy_desc">硬解并支持滤镜</string>
+    <string name="settings_hwdec_sw">软件解码</string>
+    <string name="settings_hwdec_sw_desc">CPU 软解，兼容性好</string>
+    <string name="settings_hwdec_active_mediacodec">芯片硬解</string>
+    <string name="settings_hwdec_active_copy">硬解回写</string>
+    <string name="settings_hwdec_active_sw">CPU 软解</string>
     <string name="settings_hdr_output">HDR 显示模式</string>
-    <string name="settings_hdr_output_auto">自适应点亮 (真 10-bit HDR · 推荐)</string>
-    <string name="settings_hdr_output_auto_desc">屏幕支持时启用高动态范围输出</string>
-    <string name="settings_hdr_output_sdr">色调映射 (SDR 映射 · 省电护眼)</string>
-    <string name="settings_hdr_output_sdr_desc">色调映射为标准动态范围 (SDR)</string>
-    <string name="settings_hdr_active_auto">物理点亮 (真 10-bit HDR 峰值高光)</string>
-    <string name="settings_hdr_active_sdr">色调映射 (SDR 映射 · 省电护眼)</string>
+    <string name="settings_hdr_output_auto">自适应</string>
+    <string name="settings_hdr_output_auto_desc">屏幕支持时启用 HDR</string>
+    <string name="settings_hdr_output_sdr">色调映射</string>
+    <string name="settings_hdr_output_sdr_desc">映射为标准 SDR</string>
+    <string name="settings_hdr_active_auto">HDR 点亮</string>
+    <string name="settings_hdr_active_sdr">色调映射</string>
 
     <!-- Settings: Audio & Subtitles -->
     <string name="settings_group_subtitles">字幕与音频</string>
@@ -203,17 +203,17 @@
     <!-- R4: Audiovisual Enhancements & Overdrive -->
     <string name="sheet_tab_audiovisual">视听调节</string>
     <string name="sheet_tab_video">画面</string>
-    <string name="hud_volume_overdrive">音量 %d%% (超频)</string>
-    <string name="hud_volume_overdrive_hint">(支持 200% 超频)</string>
+    <string name="hud_volume_overdrive">音量 %d%%</string>
+    <string name="hud_volume_overdrive_hint">最高 200%</string>
     <string name="effects_color_reset">重置色彩</string>
 
     <!-- R7: MX Player Style Custom Gestures -->
     <string name="settings_group_gestures_detail">手势与操控设置</string>
-    <string name="settings_group_gestures_detail_desc">配置滑动手势、双击与长按倍速</string>
+    <string name="settings_group_gestures_detail_desc">滑动、双击与长按倍速</string>
     <string name="gesture_settings_title">手势与操控设置</string>
     <string name="settings_gesture_vertical_mode">垂直滑动功能</string>
-    <string name="settings_gesture_vertical_mode_vol_bright">调节音量与亮度 (左右分栏)</string>
-    <string name="settings_gesture_vertical_mode_switch_video">切换视频 (抖音式上下滑动)</string>
+    <string name="settings_gesture_vertical_mode_vol_bright">音量与亮度</string>
+    <string name="settings_gesture_vertical_mode_switch_video">切换视频</string>
     <string name="settings_gesture_volume">垂直滑动调节音量</string>
     <string name="settings_gesture_volume_desc">右侧上下滑动调节音量</string>
     <string name="settings_gesture_brightness">垂直滑动调节亮度</string>
@@ -229,7 +229,7 @@
     <string name="settings_gesture_zoom">双指缩放与自由拖拽</string>
     <string name="settings_gesture_zoom_desc">双指缩放与拖动平移画面</string>
     <string name="settings_gesture_swap_sides">左右手习惯对调</string>
-    <string name="settings_gesture_swap_sides_desc">交换左右侧音量与亮度调节</string>
+    <string name="settings_gesture_swap_sides_desc">交换左右侧调节功能</string>
     <string name="settings_gesture_seek_seconds">双击快进步长</string>
     <string name="settings_gesture_seek_seconds_val">%d 秒</string>
     <string name="settings_gesture_speed_multiplier">长按倍速档位</string>
@@ -259,50 +259,60 @@
     <string name="screenshot_saved">截图已保存</string>
     <string name="screenshot_failed">截图失败</string>
     <string name="stats_overlay_toggle">常驻诊断浮层</string>
-    <string name="secondary_sub_section">次字幕（双语同屏）</string>
+    <string name="secondary_sub_section">次字幕</string>
     <string name="cd_enter_fullscreen">横屏</string>
     <string name="secondary_sub_disable">关闭次字幕</string>
 
     <!-- R8: Player Sheet Sub Tabs & Hub - Groups -->
+    <string name="sheet_tab_audio_effects">音频处理</string>
+    <string name="video_quality">画质</string>
+    <string name="audio_loudness_leveling">响度均衡</string>
+    <string name="audio_loudness_leveling_desc">平衡音量高低差</string>
+    <string name="audio_equalizer">均衡器</string>
+    <string name="audio_equalizer_flat">平直</string>
+    <string name="eq_preset_vocal">人声</string>
+    <string name="eq_preset_bass">低音</string>
+    <string name="eq_preset_treble">高音</string>
+    <string name="hub_group_playback">播放</string>
     <string name="hub_group_video">画面</string>
     <string name="hub_group_audio">声音</string>
     <string name="hub_group_subtitles">字幕</string>
-    <string name="hub_group_advanced_diag">高级与诊断</string>
+    <string name="hub_group_advanced_diag">信息与诊断</string>
 
     <!-- R8: Decoder modes -->
     <string name="hwdec_copy">HW+ 硬件复制</string>
-    <string name="hwdec_copy_recommended">HW+ 硬件复制 (推荐)</string>
-    <string name="hwdec_copy_desc">芯片硬解 + GPU 回写，支持 Anime4K / CAS 画面着色器</string>
+    <string name="hwdec_copy_recommended">HW+ 回写</string>
+    <string name="hwdec_copy_desc">硬解 + GPU 回写，支持着色器</string>
     <string name="hwdec_direct">HW 硬解直出</string>
-    <string name="hwdec_direct_desc">Surface 零拷贝直接送屏，低功耗省电，不支持复杂着色器</string>
+    <string name="hwdec_direct_desc">硬解直出，省电但不支持着色器</string>
     <string name="hwdec_sw">SW 纯软解</string>
-    <string name="hwdec_sw_desc">CPU 软件解码，格式全兼容</string>
-    <string name="video_mode_desc_copy">HW+ 模式：硬件解码并回写显存，完美驱动 Anime4K / CAS 等画质着色器</string>
-    <string name="video_mode_desc_hw">HW 模式：Surface 零拷贝直通，超省电，但无法执行多通道复杂着色器</string>
-    <string name="video_mode_desc_sw">SW 模式：CPU 纯软解，格式全兼容，但高码率功耗较大</string>
+    <string name="hwdec_sw_desc">CPU 软解，兼容所有格式</string>
+    <string name="video_mode_desc_copy">硬解回写，支持着色器</string>
+    <string name="video_mode_desc_hw">硬解直出，省电，无着色器</string>
+    <string name="video_mode_desc_sw">CPU 软解，兼容所有格式</string>
 
     <!-- R8: Shaders & Upscaling -->
-    <string name="shader_none">原画 (无滤镜)</string>
-    <string name="shader_none_desc">关闭后处理滤镜，纯净原画直出</string>
+    <string name="shader_none">原画</string>
+    <string name="shader_none_desc">原画直出</string>
     <string name="shader_anime4k_upscale">Anime4K 动漫超分</string>
-    <string name="shader_anime4k_upscale_desc">二次元动漫特化：边缘轮廓加深 + 自适应对比度重建</string>
+    <string name="shader_anime4k_upscale_desc">动漫线条增强</string>
     <string name="shader_cas_sharpen">AMD CAS 超清锐化</string>
-    <string name="shader_cas_sharpen_desc">真人影视与美剧首选：自适应超分辨率，强化纹理且无白边</string>
+    <string name="shader_cas_sharpen_desc">通用画面锐化</string>
     <string name="shader_anime4k_short">Anime4K 动漫</string>
     <string name="shader_cas_short">AMD CAS 锐化</string>
     <string name="shader_none_short">原画无滤镜</string>
     <string name="video_shader_desc_anime4k">Anime4K：动漫特化超分，强化线条轮廓并自适应抑制纹理伪影</string>
     <string name="video_shader_desc_cas">AMD CAS：工业级对比度自适应超分（AMD FidelityFX），通用影视增强且无白边</string>
     <string name="video_shader_desc_off">未启用着色器。启用时会自动联动为 HW+ 模式以驱动 GPU 离屏管线</string>
-    <string name="settings_upscale_title">超分辨率渲染</string>
+    <string name="settings_upscale_title">超分辨率</string>
     <string name="page_shaders">超分辨率 / 着色器</string>
 
     <!-- R8: Aspect modes -->
-    <string name="aspect_mode_fit_full">适应窗口 (原比例)</string>
-    <string name="aspect_mode_crop_full">填充屏幕 (裁剪黑边)</string>
-    <string name="aspect_mode_stretch_full">拉伸全屏 (忽略比例)</string>
-    <string name="aspect_mode_16_9_full">16:9 宽屏比例</string>
-    <string name="aspect_mode_21_9_full">21:9 影院超宽比例</string>
+    <string name="aspect_mode_fit_full">适应</string>
+    <string name="aspect_mode_crop_full">填充</string>
+    <string name="aspect_mode_stretch_full">拉伸</string>
+    <string name="aspect_mode_16_9_full">16:9</string>
+    <string name="aspect_mode_21_9_full">21:9</string>
     <string name="video_aspect_section">画面比例与填充</string>
 
     <!-- R8: Color calibration -->
@@ -316,14 +326,14 @@
     <string name="color_label_contrast">对比度</string>
     <string name="color_label_saturation">饱和度</string>
     <string name="settings_color_calibration">色彩校准</string>
-    <string name="settings_video_color_calibration">画面色彩校准</string>
+    <string name="settings_video_color_calibration">色彩校准</string>
     <string name="color_state_tuned">已微调</string>
     <string name="color_state_standard">标准原画</string>
 
     <!-- R8: Deband & motion interpolation -->
     <string name="settings_deband">去色带 (Deband)</string>
     <string name="video_deband_title">Deband 去色带</string>
-    <string name="video_deband_desc">消除画面平滑渐变处的阶梯色块纹理</string>
+    <string name="video_deband_desc">消除渐变色带</string>
     <string name="settings_motion_interpolation">运动平滑插值 (去抖动)</string>
 
     <!-- R8: Video scaling -->
@@ -332,49 +342,49 @@
     <string name="scale_summary_lanczos">Lanczos 电影</string>
     <string name="scale_summary_spline36">Spline36 锐利清晰</string>
     <string name="video_scale_spline36">Spline36 (样条插值 · 推荐清晰)</string>
-    <string name="video_scale_spline36_desc">三次样条插值算法，对齐系统相册清晰锐度，线条紧实扎实</string>
+    <string name="video_scale_spline36_desc">锐利清晰</string>
     <string name="video_scale_bilinear">Bilinear (双线性 · 基础采样)</string>
-    <string name="video_scale_bilinear_desc">原生硬件平滑采样，关闭锐化与重采样算法，线条偏软</string>
+    <string name="video_scale_bilinear_desc">柔和平滑</string>
     <string name="video_scale_lanczos">Lanczos (电影级重采样)</string>
-    <string name="video_scale_lanczos_desc">Sinc 窗口滤波算法，高频细节丰富，适合高码率原盘</string>
+    <string name="video_scale_lanczos_desc">细节丰富，适合高码率</string>
 
     <!-- R8: HDR & tone mapping -->
     <string name="hdr_auto_detected_fmt">自动识别 (%1$s)</string>
     <string name="hdr_auto_sdr_notice">自动识别 (当前 SDR / 未触发)</string>
     <string name="hdr_active_lit">已点亮 HDR</string>
-    <string name="hdr_auto_desc">根据片源动态元数据与屏幕 10-bit 能力全自动智能匹配 (推荐)</string>
+    <string name="hdr_auto_desc">按片源与屏幕自动选择 (推荐)</string>
     <string name="hdr_force_pq">强制 BT.2100 PQ</string>
-    <string name="hdr_force_pq_desc">HDR10 / Dolby Vision 标准绝对亮度曲线 (0~10000 nits)</string>
+    <string name="hdr_force_pq_desc">HDR10 / Dolby Vision 标准曲线</string>
     <string name="hdr_force_hlg">强制 BT.2100 HLG</string>
-    <string name="hdr_force_hlg_desc">广播级混合对数伽马曲线 (广电 4K / 相机原片)</string>
-    <string name="hdr_tone_map_sdr">色调映射 (SDR 映射)</string>
-    <string name="hdr_tone_map_sdr_desc">将高动态压缩到标准 SDR 亮度，暗室观影护眼省电</string>
+    <string name="hdr_force_hlg_desc">广播级 HLG 曲线</string>
+    <string name="hdr_tone_map_sdr">色调映射</string>
+    <string name="hdr_tone_map_sdr_desc">映射为 SDR，护眼省电</string>
     <string name="hdr_summary_sdr">SDR 色调映射</string>
-    <string name="hdr_summary_auto_fmt">自动 (%1$s)</string>
-    <string name="hdr_summary_auto_sdr">自动 (SDR)</string>
-    <string name="settings_hdr_tone_mapping">HDR 与色调映射</string>
-    <string name="tone_map_auto">色调映射: 自动匹配 (Auto · 默认推荐)</string>
-    <string name="tone_map_auto_desc">自适应最佳色调映射，高对比度通透质感，色彩纯正</string>
-    <string name="tone_map_hable">色调映射: Hable (经典游戏级曲线)</string>
-    <string name="tone_map_hable_desc">高对比度通透质感，有效抑制高光过曝细节损失</string>
-    <string name="tone_map_bt2446a">色调映射: BT.2446a (广电色彩精准)</string>
-    <string name="tone_map_bt2446a_desc">国际电信联盟 ITU 广播推荐算法，色彩还原最写实</string>
-    <string name="tone_map_spline">色调映射: Spline (样条曲线保细节)</string>
-    <string name="tone_map_spline_desc">中间调过渡平滑细腻，适合明亮场景与大片</string>
-    <string name="tone_map_reinhard">色调映射: Reinhard (线性平滑压缩)</string>
-    <string name="tone_map_reinhard_desc">暗部噪点压制强，老旧低亮屏幕表现温和</string>
+    <string name="hdr_summary_auto_fmt">自动 %1$s</string>
+    <string name="hdr_summary_auto_sdr">自动 SDR</string>
+    <string name="settings_hdr_tone_mapping">HDR 映射</string>
+    <string name="tone_map_auto">自动</string>
+    <string name="tone_map_auto_desc">自适应色调映射</string>
+    <string name="tone_map_hable">Hable</string>
+    <string name="tone_map_hable_desc">高对比，抑制过曝</string>
+    <string name="tone_map_bt2446a">BT.2446a</string>
+    <string name="tone_map_bt2446a_desc">广播标准，色彩写实</string>
+    <string name="tone_map_spline">Spline</string>
+    <string name="tone_map_spline_desc">过渡平滑，适合明亮场景</string>
+    <string name="tone_map_reinhard">Reinhard</string>
+    <string name="tone_map_reinhard_desc">压制暗部噪点，温和</string>
 
     <!-- R8: Audio settings rows -->
     <string name="settings_audio_track">音频轨道</string>
     <string name="track_no_internal_audio">无内置音频</string>
-    <string name="hub_audio_boost">音量软增益 (Audio Boost)</string>
+    <string name="hub_audio_boost">音量增益</string>
     <string name="settings_audio_boost">音量软增益</string>
     <string name="audio_boost_levels">软增益档位</string>
     <string name="hub_audio_delay_sync">音频延迟同步</string>
     <string name="hub_sub_delay_sync">字幕延迟同步</string>
-    <string name="delay_synced_label">0.0s (已同步)</string>
+    <string name="delay_synced_label">已同步</string>
     <string name="hub_stereo_downmix">立体声下混</string>
-    <string name="hub_audio_passthrough">音频源码透传 (S/PDIF)</string>
+    <string name="hub_audio_passthrough">源码透传</string>
 
     <!-- R8: Subtitle settings rows -->
     <string name="settings_subtitle_track">字幕轨道</string>
@@ -388,8 +398,8 @@
 
     <!-- R8: Advanced & diagnostics rows -->
     <string name="settings_playback_speed">播放倍速</string>
-    <string name="hub_stats_overlay">悬浮性能监视窗</string>
-    <string name="hub_media_details">媒体规格详情与图表</string>
+    <string name="hub_stats_overlay">性能浮层</string>
+    <string name="hub_media_details">媒体信息</string>
     <string name="action_view_details">查看详情</string>
 
     <!-- R8: Real-time stats & media info -->
@@ -400,9 +410,9 @@
     <string name="stats_decode_pipeline">解码管线</string>
     <string name="stats_live_bitrate_fmt">实时码率：%1$s</string>
     <string name="stats_sampling_bitrate">正在采样码率波形...</string>
-    <string name="stats_overlay_screen_title">屏幕悬浮性能监视窗</string>
-    <string name="stats_overlay_screen_desc">在画面左上角实时常驻帧率与性能 HUD</string>
-    <string name="stats_overlay_desc">在画面角落显示实时帧率与码率</string>
+    <string name="stats_overlay_screen_title">性能浮层</string>
+    <string name="stats_overlay_screen_desc">左上角显示性能数据</string>
+    <string name="stats_overlay_desc">显示帧率与码率</string>
     <string name="stats_decode_config">解码配置</string>
     <string name="stats_hdr_peak_brightness">HDR 峰值亮度</string>
     <string name="common_enabled">已开启</string>
@@ -438,8 +448,8 @@
     <!-- Player sheet: dynamic labels and secondary copy -->
     <string name="aspect_hwdec_section">解码加速</string>
     <string name="aspect_hdr_section">高动态范围</string>
-    <string name="hw_decoder_mediacodec">硬件解码 (MediaCodec)</string>
-    <string name="sw_decoder_cpu">软件解码 (CPU)</string>
+    <string name="hw_decoder_mediacodec">硬件解码</string>
+    <string name="sw_decoder_cpu">软件解码</string>
     <string name="hw_low_power_benefit">低功耗 · 高流畅</string>
     <string name="hw_sw_compat">兼容模式</string>
     <string name="action_switch_sw">切换软解</string>
@@ -458,7 +468,9 @@
     <string name="subtitle_style_layout">字幕样式排版</string>
     <string name="subtitle_off_desc">纯净原片</string>
     <string name="action_add_external_sub">添加外挂</string>
-    <string name="downmix_desc">将 5.1 / 7.1 等多声道智能下混为双声道立体声</string>
+    <string name="downmix_desc">多声道转为立体声</string>
+    <string name="ab_loop_clear">清除 AB 循环</string>
+    <string name="settings_more">更多设置</string>
     <string name="ab_loop_title">AB 循环播放</string>
     <string name="ab_loop_running">循环中</string>
     <string name="ab_loop_set_b_short">A✓ 设B</string>
