@@ -99,13 +99,13 @@ fun PreciseSeekingPanel(
     ) {
         val coroutineScope = rememberCoroutineScope()
 
-        // 精细温和动态分档：短视频 1s，中视频 2s，长视频 3s
+        // 关键帧自适应分档：契合常规视频 3~5s 关键帧间隔，大幅减少相同重复帧并实现极速渲染
         val stepMs = remember(durationMs) {
             when {
-                durationMs <= 10_000L -> 500L
-                durationMs <= 300_000L -> 1_000L      // <= 5 min: 1s 一张
-                durationMs <= 1_800_000L -> 2_000L    // 5 ~ 30 min: 2s 一张
-                else -> 3_000L                        // > 30 min: 3s 一张
+                durationMs <= 15_000L -> 1_000L       // <= 15s 短片: 1s 一张
+                durationMs <= 300_000L -> 3_000L      // <= 5 min: 3s 一张
+                durationMs <= 1_800_000L -> 5_000L    // 5 ~ 30 min: 5s 一张
+                else -> 10_000L                       // > 30 min: 10s 一张
             }
         }
         val totalSteps = remember(durationMs, stepMs) {
