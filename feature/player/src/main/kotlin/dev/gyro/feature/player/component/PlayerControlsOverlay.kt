@@ -95,6 +95,8 @@ fun BoxScope.PlayerControlsOverlay(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isScrubbing = scrubState.isActive
+    val isPreciseSeeking = scrubState.isPreciseSeeking
+    val showOtherControls = isVisible && !isScrubbing && !isPreciseSeeking
     val showBottomBar = isVisible || isScrubbing
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -103,7 +105,7 @@ fun BoxScope.PlayerControlsOverlay(
             val topScrimHeight = if (isLandscape) 100.dp else 70.dp
             val bottomScrimHeight = if (isLandscape) 120.dp else 80.dp
 
-            if (isVisible && !isScrubbing) {
+            if (showOtherControls) {
                 // 顶部向下淡出暗角
                 Box(
                     modifier = Modifier
@@ -122,7 +124,7 @@ fun BoxScope.PlayerControlsOverlay(
                 )
             }
 
-            if (showBottomBar) {
+            if (showBottomBar && !isPreciseSeeking) {
                 // 底部向上淡出暗角
                 Box(
                     modifier = Modifier
@@ -142,8 +144,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 2. 锁屏浮动悬浮按键（零动画，瞬时响应；拖动进度时隐藏）
-        if (isVisible && !isScrubbing) {
+        // 2. 锁屏浮动悬浮按键（零动画，瞬时响应；拖动进度或精准微调时隐藏）
+        if (showOtherControls) {
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -163,8 +165,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 2.5. 截图浮动悬浮按键（零动画，瞬时响应；拖动进度时隐藏）
-        if (isVisible && !isLocked && !isScrubbing) {
+        // 2.5. 截图浮动悬浮按键（零动画，瞬时响应；拖动进度或精准微调时隐藏）
+        if (showOtherControls && !isLocked) {
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -187,8 +189,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏胶囊按键（零动画，瞬时响应；拖动进度时隐藏）
-        if (!isLandscape && isVisible && !isScrubbing) {
+        // 2. 竖屏模式下的全屏胶囊按键（零动画，瞬时响应；拖动进度或精准微调时隐藏）
+        if (!isLandscape && showOtherControls) {
             val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
                 Modifier
                     .align(Alignment.TopCenter)
@@ -212,8 +214,8 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 3. 顶部操作栏（零动画，瞬时响应；拖动进度时隐藏）
-        if (isVisible && !isScrubbing) {
+        // 3. 顶部操作栏（零动画，瞬时响应；拖动进度或精准微调时隐藏）
+        if (showOtherControls) {
             Box(modifier = Modifier.align(Alignment.TopCenter)) {
                 PlayerTopBar(
                     title = title,
@@ -283,6 +285,12 @@ fun BoxScope.PlayerControlsOverlay(
                 val originFrac = if (durationMs() > 0L) (originMs.toFloat() / durationMs().toFloat()).coerceIn(0f, 1f) else 0f
                 scrubState.update(originFrac)
                 actions.onSeekToFraction(originFrac)
+                scrubState.exitPreciseSeeking()
+                if (scrubState.wasPlayingBeforePreciseSeek) {
+                    onResumePlayback()
+                }
+            },
+            onDismiss = {
                 scrubState.exitPreciseSeeking()
                 if (scrubState.wasPlayingBeforePreciseSeek) {
                     onResumePlayback()

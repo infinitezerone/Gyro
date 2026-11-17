@@ -12,6 +12,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -87,6 +90,7 @@ fun PreciseSeekingPanel(
     onPreciseSeek: (targetMs: Long, isScrubbing: Boolean) -> Unit,
     loadThumbnail: (suspend (timeMs: Long) -> Bitmap?)? = null,
     onCancelRevert: () -> Unit = {},
+    onDismiss: () -> Unit = {},
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
     modifier: Modifier = Modifier
@@ -98,6 +102,8 @@ fun PreciseSeekingPanel(
         modifier = modifier
     ) {
         val coroutineScope = rememberCoroutineScope()
+        val currentOnDismiss by rememberUpdatedState(onDismiss)
+        val pullDownThresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
 
         // 关键帧自适应分档：契合常规视频 3~5s 关键帧间隔，大幅减少相同重复帧并实现极速渲染
         val stepMs = remember(durationMs) {
@@ -191,6 +197,20 @@ fun PreciseSeekingPanel(
                         )
                     )
                 )
+                .pointerInput(Unit) {
+                    var totalDragY = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { totalDragY = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            totalDragY += dragAmount
+                            if (totalDragY >= pullDownThresholdPx) {
+                                change.consume()
+                                totalDragY = 0f
+                                currentOnDismiss()
+                            }
+                        }
+                    )
+                }
                 .displayCutoutPadding()
                 .navigationBarsPadding()
                 .padding(bottom = 32.dp)
@@ -271,6 +291,7 @@ fun PreciseSeekingPanel(
                     chapters = chapters,
                     abLoopASeconds = abLoopASeconds,
                     abLoopBSeconds = abLoopBSeconds,
+                    onDismiss = currentOnDismiss,
                     modifier = Modifier.fillMaxWidth()
                 )
             }

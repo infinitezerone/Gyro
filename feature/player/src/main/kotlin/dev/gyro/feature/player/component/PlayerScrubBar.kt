@@ -56,6 +56,7 @@ fun PlayerScrubBar(
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
     onEnterPreciseSeeking: (Long) -> Unit = {},
+    onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isHoveredOrScrubbing = scrubState.isActive
@@ -100,11 +101,13 @@ fun PlayerScrubBar(
 
     val density = LocalDensity.current
     val pullUpThresholdPx = with(density) { 48.dp.toPx() } // 调高上滑阈值（从 28dp 提升至 48dp），防止横向拖拽时因手指自然微弧弧度导致误触发
+    val pullDownThresholdPx = with(density) { 36.dp.toPx() } // 精准面板内下滑收起阈值
     val touchSlopPx = LocalViewConfiguration.current.touchSlop
     val haptics = rememberChapterHaptics()
 
     val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
     val currentOnEnterPreciseSeeking by rememberUpdatedState(onEnterPreciseSeeking)
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentHaptics by rememberUpdatedState(haptics)
 
     BoxWithConstraints(
@@ -136,6 +139,14 @@ fun PlayerScrubBar(
                             val curY = change.position.y
                             val deltaX = curX - startX
                             val deltaY = curY - startY
+
+                            // 处于精准微调面板中时，在进度条上向下滑动直接收起面板
+                            if (scrubState.isPreciseSeeking && deltaY >= pullDownThresholdPx && deltaY > abs(deltaX)) {
+                                change.consume()
+                                currentHaptics.tick()
+                                currentOnDismiss()
+                                break
+                            }
 
                             // 仅当手指产生明确位移时才激活：
                             // 1. 向上轻推：激活精准选帧胶卷，以当前播放进度为基准展开，绝不瞬移跳转到碰触的 X 坐标
