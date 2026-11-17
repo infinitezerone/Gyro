@@ -207,15 +207,12 @@ class PlayerViewModel @Inject constructor(
     }
 
     public override fun onCleared() {
-        // Nothing here may drive playback state. `onCleared` is a destructor for this instance, not
-        // a "user left the screen" signal: it is never called when the process is killed, its timing
-        // is not part of the contract, and reacting to it would turn a lifecycle callback into a
-        // business command. Leaving the player is signalled by the navigation layer
-        // (MainActivity watches the back stack) and by the explicit exit callbacks.
-        // Only clean up what this ViewModel owns: persist the playhead and cancel this screen's
-        // transient load work. The session's collectors intentionally outlive the ViewModel for
-        // background playback, so they are not cancelled here.
-        saveCurrentProgress()
+        // Nothing here may drive playback state or business commands. `onCleared` is a destructor
+        // for this instance, not a "user left the screen" signal. Leaving the player and persisting
+        // playback state is authoritatively driven by the navigation layer (Navigation 3 back stack
+        // watching) and explicit user exit callbacks (session.leavePlayer() -> endSession()).
+        // Only clean up what this ViewModel strictly owns in memory: cancel transient load work and
+        // release native thumbnail cache resources.
         session.cancelPendingLoad()
         filmstripThumbnailProvider.release()
     }
