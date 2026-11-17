@@ -10,7 +10,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.core.playback.PlaybackSessionController
+import dev.gyro.core.domain.session.PlaybackSessionCoordinator
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.media.Playlist
 import dev.gyro.feature.player.domain.PlaybackTriggerSource
@@ -38,7 +38,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    val session: PlaybackSessionController,
+    val session: PlaybackSessionCoordinator,
     private val settingsRepository: SettingsRepository,
     val filmstripThumbnailProvider: FilmstripThumbnailProvider
 ) : ViewModel() {

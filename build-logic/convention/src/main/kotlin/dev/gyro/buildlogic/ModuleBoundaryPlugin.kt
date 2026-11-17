@@ -95,7 +95,7 @@ class ModuleBoundaryPlugin : Plugin<Project> {
         ":core:model" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.common", "dev.gyro.core.data", "dev.gyro.core.database",
-                "dev.gyro.core.datastore", "dev.gyro.core.playback", "dev.gyro.engine",
+                "dev.gyro.core.datastore", "dev.gyro.core.domain", "dev.gyro.engine",
                 "dev.gyro.feature", "dev.gyro.player",
             )
         ),
@@ -103,53 +103,53 @@ class ModuleBoundaryPlugin : Plugin<Project> {
             forbidden = listOf(
                 "dev.gyro.core.designsystem", "dev.gyro.core.model", "dev.gyro.core.data",
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.core.navigation",
-                "dev.gyro.core.playback", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
+                "dev.gyro.core.domain", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:designsystem" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.datastore",
-                "dev.gyro.core.playback", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
+                "dev.gyro.core.domain", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:navigation" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.datastore",
-                "dev.gyro.core.playback", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
+                "dev.gyro.core.domain", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:database" to Boundary(
             forbidden = listOf(
-                "dev.gyro.core.data", "dev.gyro.core.datastore", "dev.gyro.core.playback",
+                "dev.gyro.core.data", "dev.gyro.core.datastore", "dev.gyro.core.domain",
                 "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:datastore" to Boundary(
             forbidden = listOf(
-                "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.playback",
+                "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.domain",
                 "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:data" to Boundary(
             forbidden = listOf(
-                "dev.gyro.core.playback", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
+                "dev.gyro.core.domain", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:engine-api" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.datastore",
-                "dev.gyro.core.playback", "dev.gyro.feature", "dev.gyro.player",
+                "dev.gyro.core.domain", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
         ":core:engine" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.datastore",
-                "dev.gyro.core.playback", "dev.gyro.feature", "dev.gyro.player",
+                "dev.gyro.core.domain", "dev.gyro.feature", "dev.gyro.player",
             )
         ),
-        // Session logic sits above the engine contract but below every screen: it may see the
-        // api/model packages and nothing else from the concrete mpv implementation.
-        ":core:playback" to Boundary(
+        // Domain logic sits above the engine contract and data repositories, but below every screen:
+        // it may see the api/model packages and nothing else from the concrete mpv implementation.
+        ":core:domain" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.feature",
                 "dev.gyro.player",

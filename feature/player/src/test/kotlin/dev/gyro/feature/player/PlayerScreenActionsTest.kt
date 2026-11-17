@@ -15,7 +15,7 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.core.playback.PlaybackSessionController
+import dev.gyro.core.domain.session.PlaybackSessionCoordinator
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
@@ -94,7 +94,7 @@ class PlayerScreenActionsTest {
         }
 
         viewModel = PlayerViewModel(
-            session = PlaybackSessionController(
+            session = PlaybackSessionCoordinator(
                 engine = engine,
                 settingsRepository = settingsRepo,
                 historyRepository = historyRepo,

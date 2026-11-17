@@ -8,7 +8,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.core.playback.PlaybackSessionController
+import dev.gyro.core.domain.session.PlaybackSessionCoordinator
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -27,7 +27,7 @@ sealed interface MainActivityUiState {
 class MainActivityViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val engine: PlayerEngine,
-    private val session: PlaybackSessionController
+    private val session: PlaybackSessionCoordinator
 ) : ViewModel() {
 
     val uiState: StateFlow<MainActivityUiState> = settingsRepository.settings

@@ -36,7 +36,7 @@ class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: PlayerEngine
     @Inject lateinit var mediaSessionManager: MediaSessionManager
-    @Inject lateinit var sessionController: dev.gyro.core.playback.PlaybackSessionController
+    @Inject lateinit var sessionCoordinator: dev.gyro.core.domain.session.PlaybackSessionCoordinator
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -90,7 +90,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         mediaSessionManager.onStopRequested = {
-            sessionController.onNotificationStop()
+            sessionCoordinator.onNotificationStop()
             stopForegroundAndSelf()
         }
     }
@@ -117,7 +117,7 @@ class PlaybackService : MediaSessionService() {
             action = action,
             keyEvent = keyEvent,
             controls = mediaSessionManager,
-            onNotificationStop = { sessionController.onNotificationStop() },
+            onNotificationStop = { sessionCoordinator.onNotificationStop() },
             stopAndReset = { stopForegroundAndSelf() }
         )
 
@@ -211,9 +211,9 @@ class PlaybackService : MediaSessionService() {
         Log.i(TAG, "PlaybackService destroyed")
         // Clear stop listener to break references from singleton MediaSessionManager
         mediaSessionManager.onStopRequested = null
-        // The host is the last thing holding a foreground session together: sessionController
+        // The host is the last thing holding a foreground session together: sessionCoordinator
         // teardown guarantees progress persistence, pausing, focus release, and flag reset.
-        sessionController.onServiceDestroyed()
+        sessionCoordinator.onServiceDestroyed()
         // Unregister before the process-facing cleanup: until release() returns, the system still
         // routes media buttons and shows the media card for this session.
         mediaSession?.let { session ->

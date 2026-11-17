@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.gyro.core.playback"
+    namespace = "dev.gyro.core.domain"
 
     defaultConfig {
         consumerProguardFiles("consumer-rules.pro")
