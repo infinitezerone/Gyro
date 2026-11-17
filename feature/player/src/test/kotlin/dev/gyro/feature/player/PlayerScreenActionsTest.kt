@@ -15,7 +15,12 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.core.domain.session.PlaybackSessionCoordinator
+import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.LoadMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
@@ -93,18 +98,32 @@ class PlayerScreenActionsTest {
             override suspend fun getDisplayName(uri: Uri): String? = null
         }
 
+        val sessionStateHolder = PlaybackSessionStateHolder()
+        val saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val serviceLauncher = PlaybackServiceLauncher.NoOp
+        val loadMediaUseCase = LoadMediaUseCase(
+            engine = engine,
+            mediaRepository = fakeMediaRepo,
+            historyRepository = historyRepo,
+            settingsRepository = settingsRepo,
+            serviceLauncher = serviceLauncher,
+            sessionStateHolder = sessionStateHolder,
+            saveProgressUseCase = saveProgressUseCase,
+        )
+        val uriParser = UriParser { Uri.parse(it) }
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, uriParser, loadMediaUseCase, testScope)
+        val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(engine, saveProgressUseCase, serviceLauncher, sessionStateHolder)
+
         viewModel = PlayerViewModel(
-            session = PlaybackSessionCoordinator(
-                engine = engine,
-                settingsRepository = settingsRepo,
-                historyRepository = historyRepo,
-                subtitleRepository = fakeSubtitleRepo,
-                mediaRepository = fakeMediaRepo,
-                uriParser = UriParser { Uri.parse(it) },
-                scope = testScope,
-            ),
+            engine = engine,
+            historyRepository = historyRepo,
             settingsRepository = settingsRepo,
             filmstripThumbnailProvider = FilmstripThumbnailProvider(testContext),
+            uriParser = uriParser,
+            loadMediaUseCase = loadMediaUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
+            saveProgressUseCase = saveProgressUseCase,
         )
 
         playerState = PlayerState(

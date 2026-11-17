@@ -9,8 +9,10 @@ import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
@@ -52,6 +54,7 @@ class DomainUseCasesTest {
     private lateinit var settingsRepo: SettingsRepository
     private lateinit var historyRepo: PlaybackHistoryRepository
     private lateinit var mediaRepo: FakeMediaRepo
+    private lateinit var sessionStateHolder: PlaybackSessionStateHolder
     private lateinit var testScope: CoroutineScope
 
     private var serviceStartCalls = 0
@@ -94,6 +97,7 @@ class DomainUseCasesTest {
         val fakeHistoryDao = FakePlaybackHistoryDao()
         historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
         mediaRepo = FakeMediaRepo()
+        sessionStateHolder = PlaybackSessionStateHolder()
     }
 
     @After
@@ -135,8 +139,9 @@ class DomainUseCasesTest {
     @Test
     fun testEndPlaybackSessionUseCase() = runCaseTest {
         val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
-        val endUseCase = EndPlaybackSessionUseCase(engine, saveUseCase, fakeServiceLauncher)
+        val endUseCase = EndPlaybackSessionUseCase(engine, saveUseCase, fakeServiceLauncher, sessionStateHolder)
 
+        sessionStateHolder.setSessionActive(true)
         val uri = TestUri("file:///test/end.mp4")
         engine.load(uri, startPositionMs = 0L, displayTitle = "End Test")
         runCurrent()
@@ -158,19 +163,32 @@ class DomainUseCasesTest {
 
     @Test
     fun testNavigatePlaylistUseCase() = runCaseTest {
-        val navigateUseCase = NavigatePlaylistUseCase(engine)
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val loadUseCase = LoadMediaUseCase(
+            engine = engine,
+            mediaRepository = mediaRepo,
+            historyRepository = historyRepo,
+            settingsRepository = settingsRepo,
+            serviceLauncher = fakeServiceLauncher,
+            sessionStateHolder = sessionStateHolder,
+            saveProgressUseCase = saveUseCase,
+        )
+        val navigateUseCase = NavigatePlaylistUseCase(engine, UriParser { TestUri(it) }, loadUseCase, testScope)
         val item1 = VideoMediaItem(1L, "file:///1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
 
-        navigateUseCase.setPlaylist(listOf(item1, item2), item1)
+        navigateUseCase.setPlaylistAndPlay(listOf(item1, item2), item1)
+        runCurrent()
         assertEquals(0, engine.playlist.currentIndex.value)
 
-        val next = navigateUseCase.playNext()
-        assertEquals(item2, next)
+        val nextSuccess = navigateUseCase.playNext()
+        runCurrent()
+        assertTrue(nextSuccess)
         assertEquals(1, engine.playlist.currentIndex.value)
 
-        val prev = navigateUseCase.playPrevious()
-        assertEquals(item1, prev)
+        val prevSuccess = navigateUseCase.playPrevious()
+        runCurrent()
+        assertTrue(prevSuccess)
         assertEquals(0, engine.playlist.currentIndex.value)
     }
 
@@ -180,12 +198,15 @@ class DomainUseCasesTest {
         historyRepo.saveProgress(uri, positionMs = 15000L, durationMs = 60000L)
         runCurrent()
 
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val loadUseCase = LoadMediaUseCase(
             engine = engine,
             mediaRepository = mediaRepo,
             historyRepository = historyRepo,
             settingsRepository = settingsRepo,
             serviceLauncher = fakeServiceLauncher,
+            sessionStateHolder = sessionStateHolder,
+            saveProgressUseCase = saveUseCase,
         )
 
         loadUseCase(uri, displayTitle = "Resume Video")

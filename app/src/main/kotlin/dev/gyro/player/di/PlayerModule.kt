@@ -13,7 +13,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.session.MediaSessionManager
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
-import dev.gyro.core.domain.session.PlaybackSessionCoordinator
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.player.MainActivity
 import dev.gyro.player.service.PlaybackService
 import dev.gyro.player.service.PlaybackServiceLauncherImpl
@@ -63,7 +63,7 @@ object PlayerModule {
     fun provideMediaSessionManager(
         @ApplicationContext context: Context,
         engine: dev.gyro.engine.api.PlayerEngine,
-        sessionCoordinator: PlaybackSessionCoordinator
+        navigatePlaylistUseCase: NavigatePlaylistUseCase
     ): MediaSessionManager {
         val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(context, PlaybackService::class.java)
         val buttonPendingIntent = PendingIntent.getService(
@@ -88,11 +88,12 @@ object PlayerModule {
             onStopRequested = {
                 PlaybackService.stop(context)
             }
-            // The only implementation of "next/previous" lives in the session coordinator: it saves
-            // the outgoing item's progress and resolves the incoming one's resume point. The
-            // session manager and the Media3 adapter must not move the queue cursor themselves.
-            onSkipToNext = { sessionCoordinator.playNext() }
-            onSkipToPrevious = { sessionCoordinator.playPrevious() }
+            onSkipToNext = {
+                navigatePlaylistUseCase.playNext()
+            }
+            onSkipToPrevious = {
+                navigatePlaylistUseCase.playPrevious()
+            }
         }
     }
 

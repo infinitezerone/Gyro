@@ -5,6 +5,7 @@ import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
 import kotlinx.coroutines.Dispatchers
@@ -16,10 +17,12 @@ import javax.inject.Inject
 
 /**
  * UseCase to load a media resource into the playback engine:
- * 1. Starts the foreground playback service
- * 2. Resolves media title and dimensions
- * 3. Checks auto-resume settings and retrieves previous playback progress
- * 4. Invokes the engine load routine on the Main dispatcher
+ * 1. Activates the session in [PlaybackSessionStateHolder]
+ * 2. Starts the foreground playback service
+ * 3. Persists previous video progress if URI changed
+ * 4. Resolves media title and dimensions
+ * 5. Checks auto-resume settings and retrieves previous playback progress
+ * 6. Invokes the engine load routine on the Main dispatcher
  */
 class LoadMediaUseCase @Inject constructor(
     private val engine: PlayerEngine,
@@ -27,6 +30,8 @@ class LoadMediaUseCase @Inject constructor(
     private val historyRepository: PlaybackHistoryRepository,
     private val settingsRepository: SettingsRepository,
     private val serviceLauncher: PlaybackServiceLauncher,
+    private val sessionStateHolder: PlaybackSessionStateHolder,
+    private val saveProgressUseCase: SavePlaybackProgressUseCase,
 ) {
     suspend operator fun invoke(
         uri: Uri,
@@ -34,7 +39,13 @@ class LoadMediaUseCase @Inject constructor(
         initialWidth: Int = 0,
         initialHeight: Int = 0,
     ) {
+        sessionStateHolder.setSessionActive(true)
         serviceLauncher.start()
+
+        val oldUri = engine.currentUri.value
+        if (oldUri != null && oldUri != uri) {
+            saveProgressUseCase(oldUri)
+        }
 
         val playlistItem = engine.playlist.items.value.firstOrNull { it.uriString == uri.toString() }
         val knownTitle = displayTitle?.takeIf { it.isNotBlank() }

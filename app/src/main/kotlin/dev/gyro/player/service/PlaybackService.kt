@@ -36,7 +36,7 @@ class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: PlayerEngine
     @Inject lateinit var mediaSessionManager: MediaSessionManager
-    @Inject lateinit var sessionCoordinator: dev.gyro.core.domain.session.PlaybackSessionCoordinator
+    @Inject lateinit var endPlaybackSessionUseCase: dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -90,7 +90,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         mediaSessionManager.onStopRequested = {
-            sessionCoordinator.onNotificationStop()
+            endPlaybackSessionUseCase(requestServiceStop = false)
             stopForegroundAndSelf()
         }
     }
@@ -117,7 +117,7 @@ class PlaybackService : MediaSessionService() {
             action = action,
             keyEvent = keyEvent,
             controls = mediaSessionManager,
-            onNotificationStop = { sessionCoordinator.onNotificationStop() },
+            onNotificationStop = { endPlaybackSessionUseCase(requestServiceStop = false) },
             stopAndReset = { stopForegroundAndSelf() }
         )
 
@@ -211,9 +211,9 @@ class PlaybackService : MediaSessionService() {
         Log.i(TAG, "PlaybackService destroyed")
         // Clear stop listener to break references from singleton MediaSessionManager
         mediaSessionManager.onStopRequested = null
-        // The host is the last thing holding a foreground session together: sessionCoordinator
+        // The host is the last thing holding a foreground session together: endPlaybackSessionUseCase
         // teardown guarantees progress persistence, pausing, focus release, and flag reset.
-        sessionCoordinator.onServiceDestroyed()
+        endPlaybackSessionUseCase(requestServiceStop = false)
         // Unregister before the process-facing cleanup: until release() returns, the system still
         // routes media buttons and shows the media card for this session.
         mediaSession?.let { session ->

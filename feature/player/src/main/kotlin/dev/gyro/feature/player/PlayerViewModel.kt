@@ -7,10 +7,14 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.data.repository.UriParser
+import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.LoadMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.core.domain.session.PlaybackSessionCoordinator
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.media.Playlist
 import dev.gyro.feature.player.domain.PlaybackTriggerSource
@@ -31,21 +35,22 @@ import javax.inject.Inject
 
 /**
  * UI state container and user event adapter for the Player screen.
- *
- * Session business logic (playlist traversal, subtitles, progress persistence, loading) lives in
- * the app-scoped [PlaybackSessionController] so it survives the screen for background playback;
- * this ViewModel owns only screen-scoped state and forwards playback intents to the controller.
+ * Directly invokes focused domain UseCases.
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    val session: PlaybackSessionCoordinator,
+    val engine: PlayerEngine,
+    val historyRepository: PlaybackHistoryRepository,
     private val settingsRepository: SettingsRepository,
-    val filmstripThumbnailProvider: FilmstripThumbnailProvider
+    val filmstripThumbnailProvider: FilmstripThumbnailProvider,
+    val uriParser: UriParser,
+    val loadMediaUseCase: LoadMediaUseCase,
+    val navigatePlaylistUseCase: NavigatePlaylistUseCase,
+    val endPlaybackSessionUseCase: EndPlaybackSessionUseCase,
+    val saveProgressUseCase: SavePlaybackProgressUseCase,
 ) : ViewModel() {
 
-    val engine: PlayerEngine get() = session.engine
-    val historyRepository: PlaybackHistoryRepository get() = session.historyRepository
-    val playlistManager: Playlist get() = session.playlist
+    val playlistManager: Playlist get() = engine.playlist
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
@@ -58,7 +63,7 @@ class PlayerViewModel @Inject constructor(
             initialValue = PlayerGestureConfig()
         )
 
-    val activeUri: StateFlow<Uri?> get() = session.activeUri
+    val activeUri: StateFlow<Uri?> get() = engine.currentUri
 
     private val _domainEvents = MutableSharedFlow<PlayerDomainEvent>(extraBufferCapacity = 64)
     val domainEvents: SharedFlow<PlayerDomainEvent> = _domainEvents.asSharedFlow()
@@ -94,15 +99,18 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private var loadJob: Job? = null
+
     /**
      * Handles explicit user-driven exit from the player screen back to home/library.
      * When returning to the home screen, playback is always stopped and audio focus released.
-     * (Background audio is reserved for when the application itself is sent to the background / screen locked).
      */
     fun onUserExit() {
         initializedUri = null
+        loadJob?.cancel()
+        loadJob = null
         filmstripThumbnailProvider.release()
-        session.leavePlayer()
+        endPlaybackSessionUseCase(requestServiceStop = true)
     }
 
     fun openUri(
@@ -111,25 +119,33 @@ class PlayerViewModel @Inject constructor(
         displayTitle: String? = null,
         initialWidth: Int = 0,
         initialHeight: Int = 0
-    ) {
-        session.openUri(uri, forceReload, displayTitle, initialWidth, initialHeight)
+    ): Job {
+        loadJob?.cancel()
+        val job = viewModelScope.launch {
+            loadMediaUseCase(
+                uri = uri,
+                displayTitle = displayTitle,
+                initialWidth = initialWidth,
+                initialHeight = initialHeight
+            )
+        }
+        loadJob = job
+        return job
     }
 
-    fun playMediaItem(item: VideoMediaItem) {
-        session.playMediaItem(item)
-    }
+    fun playMediaItem(item: VideoMediaItem): Job = navigatePlaylistUseCase.playMediaItem(item)
 
     fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
-        session.setPlaylistAndPlay(items, item)
+        navigatePlaylistUseCase.setPlaylistAndPlay(items, item)
     }
 
-    fun setSingleAndPlay(uri: Uri, displayName: String = uri.lastPathSegment ?: "Video") {
-        session.setSingleAndPlay(uri, displayName)
+    fun setSingleAndPlay(uri: Uri, displayName: String = uri.lastPathSegment ?: "Video"): Job {
+        return navigatePlaylistUseCase.setSingleAndPlay(uri, displayName)
     }
 
-    fun playNext(): Boolean = session.playNext()
+    fun playNext(): Boolean = navigatePlaylistUseCase.playNext()
 
-    fun playPrevious(): Boolean = session.playPrevious()
+    fun playPrevious(): Boolean = navigatePlaylistUseCase.playPrevious()
 
     fun playAtIndex(
         index: Int,
@@ -143,12 +159,12 @@ class PlayerViewModel @Inject constructor(
                 source = source
             )
         )
-        val success = session.playAtIndex(index)
+        val success = navigatePlaylistUseCase.playAtIndex(index)
         if (success) {
             val item = playlistManager.items.value.getOrNull(index)
-            val uri = item?.let { session.uriParser.parse(it.uriString) }
-                ?: session.activeUri.value
-                ?: session.uriParser.parse("")
+            val uri = item?.let { uriParser.parse(it.uriString) }
+                ?: activeUri.value
+                ?: uriParser.parse("")
             _domainEvents.tryEmit(
                 PlayerDomainEvent.SwitchCompleted(
                     index = index,
@@ -160,7 +176,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun saveCurrentProgress() {
-        session.saveCurrentProgress()
+        saveProgressUseCase()
     }
 
     fun addSubtitle(target: String) {

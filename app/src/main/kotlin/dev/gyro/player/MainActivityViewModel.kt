@@ -8,7 +8,8 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.core.domain.session.PlaybackSessionCoordinator
+import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -27,7 +28,8 @@ sealed interface MainActivityUiState {
 class MainActivityViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val engine: PlayerEngine,
-    private val session: PlaybackSessionCoordinator
+    private val sessionStateHolder: PlaybackSessionStateHolder,
+    private val endPlaybackSessionUseCase: EndPlaybackSessionUseCase,
 ) : ViewModel() {
 
     val uiState: StateFlow<MainActivityUiState> = settingsRepository.settings
@@ -38,8 +40,8 @@ class MainActivityViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000)
         )
 
-    val sessionActive: StateFlow<Boolean> get() = session.sessionActive
-    val activeUri: StateFlow<Uri?> get() = session.activeUri
+    val sessionActive: StateFlow<Boolean> get() = sessionStateHolder.sessionActive
+    val activeUri: StateFlow<Uri?> get() = engine.currentUri
 
     fun onPlayVideo(item: VideoMediaItem, currentList: List<VideoMediaItem>) {
         val idx = currentList.indexOfFirst { it.uriString == item.uriString }
@@ -79,6 +81,6 @@ class MainActivityViewModel @Inject constructor(
      * playback and the foreground service via [PlaybackSessionController.leavePlayer].
      */
     fun onPlayerDestinationRemoved() {
-        session.leavePlayer()
+        endPlaybackSessionUseCase(requestServiceStop = true)
     }
 }
