@@ -9,7 +9,7 @@ import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
-import dev.gyro.core.data.repository.UriParser
+import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
@@ -18,6 +18,7 @@ import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
+import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,9 @@ class DomainUseCasesTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
 
+    @get:Rule
+    val mockUriRule = MockUriRule()
+
     private var testDispatcher = StandardTestDispatcher()
 
     private lateinit var testContext: Context
@@ -53,6 +57,7 @@ class DomainUseCasesTest {
     private lateinit var engine: GyroPlayerEngine
     private lateinit var settingsRepo: SettingsRepository
     private lateinit var historyRepo: PlaybackHistoryRepository
+    private lateinit var subtitleRepo: SubtitleRepository
     private lateinit var mediaRepo: FakeMediaRepo
     private lateinit var sessionStateHolder: PlaybackSessionStateHolder
     private lateinit var testScope: CoroutineScope
@@ -96,6 +101,9 @@ class DomainUseCasesTest {
 
         val fakeHistoryDao = FakePlaybackHistoryDao()
         historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
+        subtitleRepo = object : SubtitleRepository {
+            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<String> = emptyList()
+        }
         mediaRepo = FakeMediaRepo()
         sessionStateHolder = PlaybackSessionStateHolder()
     }
@@ -162,31 +170,35 @@ class DomainUseCasesTest {
     }
 
     @Test
-    fun testNavigatePlaylistUseCase() = runCaseTest {
+    fun testPlaylistNavigationUseCases() = runCaseTest {
         val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val loadUseCase = LoadMediaUseCase(
             engine = engine,
             mediaRepository = mediaRepo,
             historyRepository = historyRepo,
             settingsRepository = settingsRepo,
+            subtitleRepository = subtitleRepo,
             serviceLauncher = fakeServiceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveUseCase,
         )
-        val navigateUseCase = NavigatePlaylistUseCase(engine, UriParser { TestUri(it) }, loadUseCase, testScope)
+        val playNextUseCase = PlayNextMediaUseCase(engine, loadUseCase, testScope)
+        val playPreviousUseCase = PlayPreviousMediaUseCase(engine, loadUseCase, testScope)
+        val setPlaylistAndPlayUseCase = SetPlaylistAndPlayUseCase(engine, loadUseCase, testScope)
+
         val item1 = VideoMediaItem(1L, "file:///1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
 
-        navigateUseCase.setPlaylistAndPlay(listOf(item1, item2), item1)
+        setPlaylistAndPlayUseCase(listOf(item1, item2), item1)
         runCurrent()
         assertEquals(0, engine.playlist.currentIndex.value)
 
-        val nextSuccess = navigateUseCase.playNext()
+        val nextSuccess = playNextUseCase()
         runCurrent()
         assertTrue(nextSuccess)
         assertEquals(1, engine.playlist.currentIndex.value)
 
-        val prevSuccess = navigateUseCase.playPrevious()
+        val prevSuccess = playPreviousUseCase()
         runCurrent()
         assertTrue(prevSuccess)
         assertEquals(0, engine.playlist.currentIndex.value)
@@ -204,6 +216,7 @@ class DomainUseCasesTest {
             mediaRepository = mediaRepo,
             historyRepository = historyRepo,
             settingsRepository = settingsRepo,
+            subtitleRepository = subtitleRepo,
             serviceLauncher = fakeServiceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveUseCase,

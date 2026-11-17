@@ -1,4 +1,4 @@
-package dev.gyro.feature.player
+package dev.gyro.core.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -18,25 +18,19 @@ import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
 /**
- * Thread-safe provider and cache for video filmstrip thumbnails.
- *
- * Encapsulates:
- * 1. Single-instance [MediaMetadataRetriever] reuse across frames to avoid repeated setDataSource()
- * 2. 256-entry in-memory LRU cache
- * 3. High-throughput OPTION_CLOSEST_SYNC fast-path with graceful fallback
- * 4. Proper native resource disposal on player tear-down
+ * Thread-safe implementation of [ThumbnailRepository] using MediaMetadataRetriever and LRU cache.
  */
 @Singleton
-class FilmstripThumbnailProvider @Inject constructor(
+class DefaultThumbnailRepository @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : ThumbnailRepository {
     private val mutex = Mutex()
     private var currentUri: Uri? = null
     private var retriever: MediaMetadataRetriever? = null
 
     private val cache = LruCache<String, Bitmap>(256)
 
-    suspend fun getThumbnail(uri: Uri?, timeMs: Long): Bitmap? {
+    override suspend fun getThumbnail(uri: Uri?, timeMs: Long): Bitmap? {
         if (uri == null) return null
         val key = "${uri}_$timeMs"
         val cached = cache.get(key)
@@ -68,8 +62,6 @@ class FilmstripThumbnailProvider @Inject constructor(
                     val mmr = retriever ?: return@withLock null
                     coroutineContext.ensureActive()
                     val timeUs = (timeMs * 1000L).coerceAtLeast(0L)
-                    // 1. 采用 16/8 字节对齐偶数尺寸 (240x136)，防止 YUV420 色度半采样因奇数高度 (135) 导致步幅跨行错位花屏
-                    // 2. 优先采用 OPTION_PREVIOUS_SYNC，避免跳入 Open-GOP (CRA) 导致缺失前置参考帧解码出撕裂绿块花屏 (RASL 脏帧)
                     val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                         mmr.getScaledFrameAtTime(
                             timeUs,
@@ -95,7 +87,7 @@ class FilmstripThumbnailProvider @Inject constructor(
         }
     }
 
-    fun release() {
+    override fun release() {
         mutex.tryLock().let { locked ->
             if (locked) {
                 try {

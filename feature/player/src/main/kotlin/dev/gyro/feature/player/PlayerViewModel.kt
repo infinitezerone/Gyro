@@ -5,13 +5,18 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.gyro.core.domain.model.contentUri
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
-import dev.gyro.core.data.repository.UriParser
+import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.PlayMediaAtIndexUseCase
+import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
+import dev.gyro.core.domain.usecase.PlayPreviousMediaUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
+import dev.gyro.core.domain.usecase.SetPlaylistAndPlayUseCase
+import dev.gyro.core.domain.usecase.SetSingleMediaAndPlayUseCase
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
@@ -21,7 +26,6 @@ import dev.gyro.feature.player.domain.PlaybackTriggerSource
 import dev.gyro.feature.player.domain.PlayerDomainEvent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -31,21 +35,25 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
  * UI state container and user event adapter for the Player screen.
- * Directly invokes focused domain UseCases.
+ * Directly invokes focused domain UseCases and encapsulates playback controls.
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     val engine: PlayerEngine,
     val historyRepository: PlaybackHistoryRepository,
     private val settingsRepository: SettingsRepository,
-    val filmstripThumbnailProvider: FilmstripThumbnailProvider,
-    val uriParser: UriParser,
+    val thumbnailRepository: ThumbnailRepository,
     val loadMediaUseCase: LoadMediaUseCase,
-    val navigatePlaylistUseCase: NavigatePlaylistUseCase,
+    val playNextMediaUseCase: PlayNextMediaUseCase,
+    val playPreviousMediaUseCase: PlayPreviousMediaUseCase,
+    val playMediaAtIndexUseCase: PlayMediaAtIndexUseCase,
+    val setPlaylistAndPlayUseCase: SetPlaylistAndPlayUseCase,
+    val setSingleMediaAndPlayUseCase: SetSingleMediaAndPlayUseCase,
     val endPlaybackSessionUseCase: EndPlaybackSessionUseCase,
     val saveProgressUseCase: SavePlaybackProgressUseCase,
 ) : ViewModel() {
@@ -68,9 +76,6 @@ class PlayerViewModel @Inject constructor(
     private val _domainEvents = MutableSharedFlow<PlayerDomainEvent>(extraBufferCapacity = 64)
     val domainEvents: SharedFlow<PlayerDomainEvent> = _domainEvents.asSharedFlow()
 
-    /**
-     * Bumped on every playback request to key UI resets (e.g. controls visibility).
-     */
     private val _screenEntryEpoch = MutableStateFlow(0)
     val screenEntryEpoch: StateFlow<Int> = _screenEntryEpoch.asStateFlow()
 
@@ -80,10 +85,6 @@ class PlayerViewModel @Inject constructor(
 
     private var initializedUri: Uri? = null
 
-    /**
-     * Initializes playback for the requested [uri].
-     * Idempotent: repeated calls with the same URI do not reload unless forced.
-     */
     fun initialize(uri: Uri?) {
         if (uri == null || initializedUri == uri) return
         initializedUri = uri
@@ -101,15 +102,11 @@ class PlayerViewModel @Inject constructor(
 
     private var loadJob: Job? = null
 
-    /**
-     * Handles explicit user-driven exit from the player screen back to home/library.
-     * When returning to the home screen, playback is always stopped and audio focus released.
-     */
     fun onUserExit() {
         initializedUri = null
         loadJob?.cancel()
         loadJob = null
-        filmstripThumbnailProvider.release()
+        thumbnailRepository.release()
         endPlaybackSessionUseCase(requestServiceStop = true)
     }
 
@@ -133,19 +130,26 @@ class PlayerViewModel @Inject constructor(
         return job
     }
 
-    fun playMediaItem(item: VideoMediaItem): Job = navigatePlaylistUseCase.playMediaItem(item)
+    fun playMediaItem(item: VideoMediaItem): Job {
+        return openUri(
+            uri = item.contentUri,
+            displayTitle = item.displayName,
+            initialWidth = item.width,
+            initialHeight = item.height
+        )
+    }
 
     fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
-        navigatePlaylistUseCase.setPlaylistAndPlay(items, item)
+        setPlaylistAndPlayUseCase(items, item)
     }
 
     fun setSingleAndPlay(uri: Uri, displayName: String = uri.lastPathSegment ?: "Video"): Job {
-        return navigatePlaylistUseCase.setSingleAndPlay(uri, displayName)
+        return setSingleMediaAndPlayUseCase(uri, displayName)
     }
 
-    fun playNext(): Boolean = navigatePlaylistUseCase.playNext()
+    fun playNext(): Boolean = playNextMediaUseCase()
 
-    fun playPrevious(): Boolean = navigatePlaylistUseCase.playPrevious()
+    fun playPrevious(): Boolean = playPreviousMediaUseCase()
 
     fun playAtIndex(
         index: Int,
@@ -159,12 +163,10 @@ class PlayerViewModel @Inject constructor(
                 source = source
             )
         )
-        val success = navigatePlaylistUseCase.playAtIndex(index)
+        val success = playMediaAtIndexUseCase(index)
         if (success) {
             val item = playlistManager.items.value.getOrNull(index)
-            val uri = item?.let { uriParser.parse(it.uriString) }
-                ?: activeUri.value
-                ?: uriParser.parse("")
+            val uri = item?.contentUri ?: activeUri.value ?: Uri.EMPTY
             _domainEvents.tryEmit(
                 PlayerDomainEvent.SwitchCompleted(
                     index = index,
@@ -177,6 +179,38 @@ class PlayerViewModel @Inject constructor(
 
     fun saveCurrentProgress() {
         saveProgressUseCase()
+    }
+
+    fun togglePlayPause() {
+        engine.togglePlayPause()
+    }
+
+    fun play() {
+        engine.play()
+    }
+
+    fun pause() {
+        engine.pause()
+    }
+
+    fun seekTo(positionMs: Long) {
+        engine.seekTo(positionMs)
+    }
+
+    fun seekRelative(deltaMs: Long) {
+        engine.seekRelative(deltaMs)
+    }
+
+    fun selectSubtitleTrack(trackId: Int) {
+        engine.trackManager.selectTrack("sub", trackId)
+    }
+
+    fun frameStep() {
+        engine.frameStep()
+    }
+
+    fun frameBackStep() {
+        engine.frameBackStep()
     }
 
     fun addSubtitle(target: String) {
@@ -223,8 +257,6 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-
-
     private var pendingPreciseSeekJob: Job? = null
     private var lastPreciseSeekTimestamp = 0L
     private var lastPreciseSeekPosMs = 0L
@@ -234,14 +266,6 @@ class PlayerViewModel @Inject constructor(
         private const val FAST_SCROLL_VELOCITY_THRESHOLD = 5.0
     }
 
-    /**
-     * Dispatches seek requests during precise seeking outside of Compose UI.
-     * When [isScrubbing] is true:
-     * - Fast scroll/fling (> 5.0x rate): suppresses real-time engine seeks to avoid pipeline
-     *   choking; sets an 80ms resting debounce so it seeks once motion pauses.
-     * - Slow micro-scrubbing (<= 5.0x rate): seeks smoothly at ~30fps (~32ms throttling).
-     * When [isScrubbing] is false (stopped/released): immediately seeks to final exact position.
-     */
     fun onPreciseSeek(positionMs: Long, isScrubbing: Boolean) {
         val now = System.currentTimeMillis()
         if (isScrubbing) {
@@ -254,14 +278,12 @@ class PlayerViewModel @Inject constructor(
             lastPreciseSeekPosMs = positionMs
 
             if (velocity > FAST_SCROLL_VELOCITY_THRESHOLD) {
-                // 滑动太快时抑制高频连续 seek，仅在停顿 80ms 后补发
                 pendingPreciseSeekJob?.cancel()
                 pendingPreciseSeekJob = viewModelScope.launch {
                     delay(80L)
                     engine.seekTo(positionMs)
                 }
             } else {
-                // 慢速微调时：平滑以 ~30fps (~32ms) 节流向 MPV 派发 seek
                 if (now - lastPreciseSeekTimestamp >= 32L) {
                     lastPreciseSeekTimestamp = now
                     pendingPreciseSeekJob?.cancel()
@@ -275,7 +297,6 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         } else {
-            // 滑动停定或松手：立即终止防抖并执行终态毫秒级精准 Seek
             pendingPreciseSeekJob?.cancel()
             lastPreciseSeekTimestamp = now
             lastPreciseSeekEventUptime = 0L
@@ -285,6 +306,6 @@ class PlayerViewModel @Inject constructor(
     }
 
     suspend fun getFilmstripThumbnail(timeMs: Long): Bitmap? {
-        return filmstripThumbnailProvider.getThumbnail(activeUri.value, timeMs)
+        return thumbnailRepository.getThumbnail(activeUri.value, timeMs)
     }
 }

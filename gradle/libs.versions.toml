@@ -17,6 +17,7 @@ datastore = "1.2.1"
 media3 = "1.11.1"
 coil = "3.1.0"
 palette = "1.0.0"
+mockk = "1.13.16"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
@@ -48,6 +49,7 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-video = { group = "io.coil-kt.coil3", name = "coil-video", version.ref = "coil" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 
 # Build-logic plugin classpath: convention plugins compile against these, never bundle them.

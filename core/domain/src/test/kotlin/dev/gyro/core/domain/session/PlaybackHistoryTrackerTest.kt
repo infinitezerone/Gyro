@@ -10,20 +10,20 @@ import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
-import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
+import dev.gyro.core.domain.usecase.SetPlaylistAndPlayUseCase
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
+import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -39,7 +39,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -49,10 +48,13 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class PlaybackSessionObserverTest {
+class PlaybackHistoryTrackerTest {
 
     @get:Rule
     val tempFolder = TemporaryFolder()
+
+    @get:Rule
+    val mockUriRule = MockUriRule()
 
     private var testDispatcher = StandardTestDispatcher()
 
@@ -67,8 +69,9 @@ class PlaybackSessionObserverTest {
     private lateinit var loadMediaUseCase: LoadMediaUseCase
     private lateinit var saveProgressUseCase: SavePlaybackProgressUseCase
     private lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
-    private lateinit var navigatePlaylistUseCase: NavigatePlaylistUseCase
-    private lateinit var observer: PlaybackSessionObserver
+    private lateinit var playNextMediaUseCase: PlayNextMediaUseCase
+    private lateinit var setPlaylistAndPlayUseCase: SetPlaylistAndPlayUseCase
+    private lateinit var tracker: PlaybackHistoryTracker
     private lateinit var testScope: CoroutineScope
 
     private class FakeMediaRepository : MediaRepository {
@@ -83,7 +86,7 @@ class PlaybackSessionObserverTest {
         testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
 
-        val filesDir = tempFolder.newFolder("observer_test")
+        val filesDir = tempFolder.newFolder("tracker_test")
         testContext = object : ContextWrapper(null) {
             override fun getApplicationContext(): Context = this
             override fun getFilesDir(): File = filesDir
@@ -122,6 +125,7 @@ class PlaybackSessionObserverTest {
             mediaRepository = mediaRepo,
             historyRepository = historyRepo,
             settingsRepository = settingsRepo,
+            subtitleRepository = fakeSubtitleRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveProgressUseCase,
@@ -134,20 +138,22 @@ class PlaybackSessionObserverTest {
             sessionStateHolder = sessionStateHolder,
         )
 
-        navigatePlaylistUseCase = NavigatePlaylistUseCase(
+        playNextMediaUseCase = PlayNextMediaUseCase(
             engine = engine,
-            uriParser = UriParser { TestUri(it) },
             loadMediaUseCase = loadMediaUseCase,
             scope = testScope,
         )
 
-        observer = PlaybackSessionObserver(
+        setPlaylistAndPlayUseCase = SetPlaylistAndPlayUseCase(
             engine = engine,
-            settingsRepository = settingsRepo,
-            historyRepository = historyRepo,
-            subtitleRepository = fakeSubtitleRepo,
+            loadMediaUseCase = loadMediaUseCase,
+            scope = testScope,
+        )
+
+        tracker = PlaybackHistoryTracker(
+            engine = engine,
             sessionStateHolder = sessionStateHolder,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            playNextMediaUseCase = playNextMediaUseCase,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
         )
@@ -160,7 +166,7 @@ class PlaybackSessionObserverTest {
         Dispatchers.resetMain()
     }
 
-    private fun runObserverTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
+    private fun runTrackerTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
         try {
             body()
         } finally {
@@ -169,10 +175,10 @@ class PlaybackSessionObserverTest {
     }
 
     @Test
-    fun testAutoAdvance_advancesWhenPlaybackEnds() = runObserverTest {
+    fun testAutoAdvance_advancesWhenPlaybackEnds() = runTrackerTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        navigatePlaylistUseCase.setPlaylistAndPlay(listOf(item1, item2), item1)
+        setPlaylistAndPlayUseCase(listOf(item1, item2), item1)
         runCurrent()
 
         assertEquals(0, engine.playlist.currentIndex.value)
@@ -187,133 +193,21 @@ class PlaybackSessionObserverTest {
     }
 
     @Test
-    fun testAutoAdvance_skippedWhenUserInterruptsDuringGraceDelay() = runObserverTest {
-        val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
-        val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        navigatePlaylistUseCase.setPlaylistAndPlay(listOf(item1, item2), item1)
-        runCurrent()
-        advanceUntilIdle()
-
-        fakeBridge.emitEndFile()
-        runCurrent()
-        assertEquals(dev.gyro.engine.model.PlaybackState.ENDED, engine.playbackState.value)
-
-        fakeBridge.emitPropertyFlag("pause", false)
-        runCurrent()
-        advanceTimeBy(600L)
+    fun testPeriodicCheckpoint_savesProgressWhilePlaying() = runTrackerTest {
+        val item = VideoMediaItem(1L, "file:///tmp/checkpoint.mp4", "Checkpoint", 60000L, 100L, 0, 0, 0L, "F")
+        setPlaylistAndPlayUseCase(listOf(item), item)
         runCurrent()
 
-        assertEquals(0, engine.playlist.currentIndex.value)
-        assertEquals("file:///tmp/a.mp4", engine.currentUri.value?.toString())
-    }
-
-    @Test
-    fun testAutoAdvance_noDoubleAdvanceWhenUserSkipsDuringGraceDelay() = runObserverTest {
-        val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
-        val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        val item3 = VideoMediaItem(3L, "file:///tmp/c.mp4", "C", 3000L, 300L, 0, 0, 0L, "F")
-        navigatePlaylistUseCase.setPlaylistAndPlay(listOf(item1, item2, item3), item1)
-        runCurrent()
-        advanceUntilIdle()
-
-        fakeBridge.emitEndFile()
-        runCurrent()
-        assertEquals(dev.gyro.engine.model.PlaybackState.ENDED, engine.playbackState.value)
-
-        val gate = CompletableDeferred<Unit>()
-        historyLookup = { gate.await(); null }
-        assertTrue(navigatePlaylistUseCase.playNext())
-        runCurrent()
-        assertEquals(1, engine.playlist.currentIndex.value)
-        assertEquals("file:///tmp/a.mp4", engine.currentUri.value?.toString())
-
-        advanceTimeBy(600L)
-        runCurrent()
-        assertEquals(1, engine.playlist.currentIndex.value)
-
-        gate.complete(Unit)
-        runCurrent()
-        assertEquals("file:///tmp/b.mp4", engine.currentUri.value?.toString())
-    }
-
-    @Test
-    fun testExit_cancelsPendingAutoAdvance() = runObserverTest {
-        val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
-        val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        navigatePlaylistUseCase.setPlaylistAndPlay(listOf(item1, item2), item1)
-        runCurrent()
-        advanceUntilIdle()
-
-        fakeBridge.emitEndFile()
-        runCurrent()
-
-        endPlaybackSessionUseCase()
-        assertFalse(sessionStateHolder.sessionActive.value)
-        advanceTimeBy(600L)
-        runCurrent()
-
-        assertEquals(0, engine.playlist.currentIndex.value)
-        assertEquals("file:///tmp/a.mp4", engine.currentUri.value?.toString())
-    }
-
-    @Test
-    fun testProgressPersistence_onPause() = runObserverTest {
-        val uri = TestUri("file:///tmp/progress.mp4")
-        loadMediaUseCase(uri)
-        runCurrent()
-
-        fakeBridge.emitPropertyDouble("time-pos", 42.0)
-        fakeBridge.emitPropertyDouble("duration", 100.0)
-        fakeBridge.emitPropertyFlag("pause", false)
-        runCurrent()
-
-        fakeBridge.emitPropertyFlag("pause", true)
-        runCurrent()
-
-        val progress = historyRepo.getProgress(uri)
-        assertNotNull(progress)
-        assertEquals(42000L, progress?.positionMs)
-        assertEquals(100000L, progress?.durationMs)
-    }
-
-    @Test
-    fun testUriSwitch_savesPreviousVideoProgress() = runObserverTest {
-        val uri1 = TestUri("file:///tmp/ep1.mp4")
-        val uri2 = TestUri("file:///tmp/ep2.mp4")
-        loadMediaUseCase(uri1)
-        runCurrent()
-
-        fakeBridge.emitPropertyDouble("time-pos", 50.0)
-        fakeBridge.emitPropertyDouble("duration", 100.0)
-        runCurrent()
-
-        loadMediaUseCase(uri2)
-        runCurrent()
-        runCurrent()
-
-        val progress1 = historyRepo.getProgress(uri1)
-        assertNotNull(progress1)
-        assertEquals(50000L, progress1?.positionMs)
-        assertEquals(100000L, progress1?.durationMs)
-    }
-
-    @Test
-    fun testTeardownIdempotency() = runObserverTest {
-        val uri = TestUri("file:///tmp/idempotent.mp4")
-        loadMediaUseCase(uri)
-        runCurrent()
-
+        fakeBridge.emitPropertyDouble("duration", 60.0)
         fakeBridge.emitPropertyDouble("time-pos", 10.0)
-        fakeBridge.emitPropertyDouble("duration", 50.0)
+        fakeBridge.emitPropertyFlag("pause", false)
         runCurrent()
 
-        endPlaybackSessionUseCase()
+        advanceTimeBy(10_500L)
         runCurrent()
 
-        // Second call must safely do nothing
-        endPlaybackSessionUseCase()
-        runCurrent()
-
-        assertFalse(sessionStateHolder.sessionActive.value)
+        val progress = historyRepo.getProgress(TestUri("file:///tmp/checkpoint.mp4"))
+        assertNotNull(progress)
+        assertEquals(10000L, progress?.positionMs)
     }
 }

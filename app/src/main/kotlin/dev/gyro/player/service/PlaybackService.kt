@@ -1,5 +1,6 @@
 package dev.gyro.player.service
 
+import android.app.PendingIntent
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -16,9 +17,14 @@ import androidx.core.content.IntentCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
+import dev.gyro.core.domain.session.PlaybackHistoryTracker
+import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
+import dev.gyro.core.domain.usecase.PlayPreviousMediaUseCase
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.session.MediaSessionControls
-import dev.gyro.engine.session.MediaSessionManager
+import dev.gyro.engine.session.MpvPlayerAdapter
+import dev.gyro.player.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,8 +41,10 @@ import javax.inject.Inject
 class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: PlayerEngine
-    @Inject lateinit var mediaSessionManager: MediaSessionManager
-    @Inject lateinit var endPlaybackSessionUseCase: dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+    @Inject lateinit var playNextMediaUseCase: PlayNextMediaUseCase
+    @Inject lateinit var playPreviousMediaUseCase: PlayPreviousMediaUseCase
+    @Inject lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
+    @Inject lateinit var historyTracker: PlaybackHistoryTracker
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -56,12 +64,6 @@ class PlaybackService : MediaSessionService() {
             context.startService(intent)
         }
 
-        /**
-         * Tears the service down. Deliberately a bare `stopService`: pushing an ACTION_STOP start
-         * request first would re-enter the session exit path (ACTION_STOP -> exit -> stop) while the
-         * service instance is still alive, so every teardown would ask for another start.
-         * Progress persistence and session teardown live in [onDestroy], which this still triggers.
-         */
         fun stop(context: Context) {
             context.stopService(Intent(context, PlaybackService::class.java))
         }
@@ -71,27 +73,37 @@ class PlaybackService : MediaSessionService() {
     private var currentThumbnailBitmap: Bitmap? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    /**
-     * Sole owner of the system-facing media session. Built in [onCreate], released in [onDestroy],
-     * so its registered lifetime is exactly this service instance's lifetime.
-     */
     private var mediaSession: MediaSession? = null
+    private var playerAdapter: MpvPlayerAdapter? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackService created (Media3)")
 
-        mediaSession = mediaSessionManager.createSession()
+        val adapter = MpvPlayerAdapter(
+            engine = engine,
+            onSkipToNext = { playNextMediaUseCase() },
+            onSkipToPrevious = { playPreviousMediaUseCase() }
+        )
+        playerAdapter = adapter
+
+        val sessionActivityPendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        mediaSession = MediaSession.Builder(this, adapter)
+            .setSessionActivity(sessionActivityPendingIntent)
+            .build()
 
         serviceScope.launch {
             engine.currentUri.collect { uri ->
                 loadThumbnailIfNeeded(uri)
             }
-        }
-
-        mediaSessionManager.onStopRequested = {
-            endPlaybackSessionUseCase(requestServiceStop = false)
-            stopForegroundAndSelf()
         }
     }
 
@@ -116,7 +128,6 @@ class PlaybackService : MediaSessionService() {
         val sticky = handleCommand(
             action = action,
             keyEvent = keyEvent,
-            controls = mediaSessionManager,
             onNotificationStop = { endPlaybackSessionUseCase(requestServiceStop = false) },
             stopAndReset = { stopForegroundAndSelf() }
         )
@@ -125,13 +136,10 @@ class PlaybackService : MediaSessionService() {
         return if (action == ACTION_STOP || action == ACTION_DISMISS) sticky else superSticky
     }
 
-    /**
-     * Command dispatch for actions and headset keys.
-     */
     internal fun handleCommand(
         action: String?,
         keyEvent: KeyEvent?,
-        controls: MediaSessionControls?,
+        controls: MediaSessionControls? = null,
         onNotificationStop: () -> Unit,
         stopAndReset: () -> Unit
     ): Int {
@@ -139,11 +147,11 @@ class PlaybackService : MediaSessionService() {
             engine.isHeadlessMode = true
         }
         when (action) {
-            ACTION_PLAY -> controls?.play()
-            ACTION_PAUSE -> controls?.pause()
-            ACTION_PLAY_PAUSE -> controls?.togglePlayPause()
-            ACTION_PREV -> controls?.skipToPrevious()
-            ACTION_NEXT -> controls?.skipToNext()
+            ACTION_PLAY -> controls?.play() ?: engine.play()
+            ACTION_PAUSE -> controls?.pause() ?: engine.pause()
+            ACTION_PLAY_PAUSE -> controls?.togglePlayPause() ?: engine.togglePlayPause()
+            ACTION_PREV -> controls?.skipToPrevious() ?: playPreviousMediaUseCase()
+            ACTION_NEXT -> controls?.skipToNext() ?: playNextMediaUseCase()
             ACTION_REWIND -> engine.seekRelative(-10_000L)
             ACTION_FAST_FORWARD -> engine.seekRelative(10_000L)
             ACTION_STOP, ACTION_DISMISS -> {
@@ -153,7 +161,16 @@ class PlaybackService : MediaSessionService() {
             }
             Intent.ACTION_MEDIA_BUTTON -> {
                 if (keyEvent != null) {
-                    controls?.handleKeyEvent(keyEvent)
+                    val handled = controls?.handleKeyEvent(keyEvent) ?: false
+                    if (!handled && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                        when (keyEvent.keyCode) {
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> engine.togglePlayPause()
+                            KeyEvent.KEYCODE_MEDIA_PLAY -> engine.play()
+                            KeyEvent.KEYCODE_MEDIA_PAUSE -> engine.pause()
+                            KeyEvent.KEYCODE_MEDIA_NEXT -> playNextMediaUseCase()
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> playPreviousMediaUseCase()
+                        }
+                    }
                 }
             }
         }
@@ -164,7 +181,7 @@ class PlaybackService : MediaSessionService() {
         if (uri == null) {
             currentThumbnailUri = null
             currentThumbnailBitmap = null
-            mediaSessionManager.updateMetadata(null)
+            playerAdapter?.setArtworkBitmap(null)
             return
         }
         if (uri == currentThumbnailUri) return
@@ -175,7 +192,7 @@ class PlaybackService : MediaSessionService() {
             }
             if (currentThumbnailUri == uri) {
                 currentThumbnailBitmap = bitmap
-                mediaSessionManager.updateMetadata(bitmap)
+                playerAdapter?.setArtworkBitmap(bitmap)
             }
         }
     }
@@ -209,18 +226,14 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
-        // Clear stop listener to break references from singleton MediaSessionManager
-        mediaSessionManager.onStopRequested = null
-        // The host is the last thing holding a foreground session together: endPlaybackSessionUseCase
-        // teardown guarantees progress persistence, pausing, focus release, and flag reset.
         endPlaybackSessionUseCase(requestServiceStop = false)
-        // Unregister before the process-facing cleanup: until release() returns, the system still
-        // routes media buttons and shows the media card for this session.
         mediaSession?.let { session ->
             runCatching { session.release() }
                 .onFailure { Log.w(TAG, "release MediaSession failed", it) }
         }
         mediaSession = null
+        playerAdapter?.release()
+        playerAdapter = null
         engine.isHeadlessMode = false
         serviceScope.cancel()
         currentThumbnailBitmap = null

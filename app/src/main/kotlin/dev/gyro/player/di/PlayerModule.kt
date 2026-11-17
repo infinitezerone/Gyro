@@ -1,8 +1,6 @@
 package dev.gyro.player.di
 
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -10,12 +8,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.SettingsRepository
-import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.session.MediaSessionManager
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
-import dev.gyro.player.MainActivity
-import dev.gyro.player.service.PlaybackService
+import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.player.service.PlaybackServiceLauncherImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,45 +50,6 @@ object PlayerModule {
     @Singleton
     fun providePlayerEngine(engine: GyroPlayerEngine): dev.gyro.engine.api.PlayerEngine {
         return engine
-    }
-
-    @Provides
-    @Singleton
-    fun provideMediaSessionManager(
-        @ApplicationContext context: Context,
-        engine: dev.gyro.engine.api.PlayerEngine,
-        navigatePlaylistUseCase: NavigatePlaylistUseCase
-    ): MediaSessionManager {
-        val buttonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(context, PlaybackService::class.java)
-        val buttonPendingIntent = PendingIntent.getService(
-            context,
-            0,
-            buttonIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return MediaSessionManager(
-            context = context,
-            engine = engine,
-            mediaButtonReceiver = buttonPendingIntent,
-            sessionActivityPendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        ).apply {
-            onStopRequested = {
-                PlaybackService.stop(context)
-            }
-            onSkipToNext = {
-                navigatePlaylistUseCase.playNext()
-            }
-            onSkipToPrevious = {
-                navigatePlaylistUseCase.playPrevious()
-            }
-        }
     }
 
     @Provides

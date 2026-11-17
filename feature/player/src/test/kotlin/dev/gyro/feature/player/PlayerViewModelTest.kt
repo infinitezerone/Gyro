@@ -9,26 +9,31 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import dev.gyro.core.model.PlaybackProgress
-import dev.gyro.core.data.repository.UriParser
 import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
+import dev.gyro.core.data.repository.DefaultSettingsRepository
+import dev.gyro.core.data.repository.DefaultThumbnailRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
-import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
-import dev.gyro.core.domain.session.PlaybackSessionObserver
+import dev.gyro.core.domain.session.PlaybackHistoryTracker
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.PlayMediaAtIndexUseCase
+import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
+import dev.gyro.core.domain.usecase.PlayPreviousMediaUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
+import dev.gyro.core.domain.usecase.SetPlaylistAndPlayUseCase
+import dev.gyro.core.domain.usecase.SetSingleMediaAndPlayUseCase
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.fakes.FakeSharedPreferences
+import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +66,9 @@ class PlayerViewModelTest {
 
     @get:Rule
     val tempFolder = TemporaryFolder()
+
+    @get:Rule
+    val mockUriRule = MockUriRule()
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -117,22 +125,22 @@ class PlayerViewModelTest {
             mediaRepository = mediaRepo,
             historyRepository = historyRepo,
             settingsRepository = settingsRepo,
+            subtitleRepository = fakeSubtitleRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveProgressUseCase,
         )
-        val uriParser = UriParser { TestUri(it) }
-        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, uriParser, loadMediaUseCase, testScope)
+        val playNextMediaUseCase = PlayNextMediaUseCase(engine, loadMediaUseCase, testScope)
+        val playPreviousMediaUseCase = PlayPreviousMediaUseCase(engine, loadMediaUseCase, testScope)
+        val playMediaAtIndexUseCase = PlayMediaAtIndexUseCase(engine, loadMediaUseCase, testScope)
+        val setPlaylistAndPlayUseCase = SetPlaylistAndPlayUseCase(engine, loadMediaUseCase, testScope)
+        val setSingleMediaAndPlayUseCase = SetSingleMediaAndPlayUseCase(engine, loadMediaUseCase, testScope)
         val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(engine, saveProgressUseCase, serviceLauncher, sessionStateHolder)
 
-        // Also instantiate the background observer so auto-advance tests work!
-        PlaybackSessionObserver(
+        PlaybackHistoryTracker(
             engine = engine,
-            settingsRepository = settingsRepo,
-            historyRepository = historyRepo,
-            subtitleRepository = fakeSubtitleRepo,
             sessionStateHolder = sessionStateHolder,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            playNextMediaUseCase = playNextMediaUseCase,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
         )
@@ -141,10 +149,13 @@ class PlayerViewModelTest {
             engine = engine,
             historyRepository = historyRepo,
             settingsRepository = settingsRepo,
-            filmstripThumbnailProvider = FilmstripThumbnailProvider(testContext),
-            uriParser = uriParser,
+            thumbnailRepository = DefaultThumbnailRepository(testContext),
             loadMediaUseCase = loadMediaUseCase,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            playNextMediaUseCase = playNextMediaUseCase,
+            playPreviousMediaUseCase = playPreviousMediaUseCase,
+            playMediaAtIndexUseCase = playMediaAtIndexUseCase,
+            setPlaylistAndPlayUseCase = setPlaylistAndPlayUseCase,
+            setSingleMediaAndPlayUseCase = setSingleMediaAndPlayUseCase,
             endPlaybackSessionUseCase = endPlaybackSessionUseCase,
             saveProgressUseCase = saveProgressUseCase,
         )

@@ -4,6 +4,7 @@ import android.net.Uri
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.model.VideoMediaItem
@@ -23,12 +24,14 @@ import javax.inject.Inject
  * 4. Resolves media title and dimensions
  * 5. Checks auto-resume settings and retrieves previous playback progress
  * 6. Invokes the engine load routine on the Main dispatcher
+ * 7. Automatically finds and attaches companion subtitles if enabled
  */
 class LoadMediaUseCase @Inject constructor(
     private val engine: PlayerEngine,
     private val mediaRepository: MediaRepository,
     private val historyRepository: PlaybackHistoryRepository,
     private val settingsRepository: SettingsRepository,
+    private val subtitleRepository: SubtitleRepository,
     private val serviceLauncher: PlaybackServiceLauncher,
     private val sessionStateHolder: PlaybackSessionStateHolder,
     private val saveProgressUseCase: SavePlaybackProgressUseCase,
@@ -56,7 +59,8 @@ class LoadMediaUseCase @Inject constructor(
         val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(uri)
         currentCoroutineContext().ensureActive()
 
-        val autoResume = settingsRepository.settings.first().autoResume
+        val settings = settingsRepository.settings.first()
+        val autoResume = settings.autoResume
         val progress = if (autoResume) historyRepository.getProgress(uri) else null
         val startPos = if (progress != null && !progress.isCompleted && progress.positionMs > 2000L) progress.positionMs else 0L
         val initialDuration = progress?.durationMs ?: 0L
@@ -71,6 +75,11 @@ class LoadMediaUseCase @Inject constructor(
                 initialWidth = resolvedWidth,
                 initialHeight = resolvedHeight
             )
+        }
+
+        if (settings.subAutoLoad) {
+            val subs = subtitleRepository.findCompanionSubtitles(uri, resolvedTitle)
+            subs.forEach { path -> engine.trackManager.addSubtitle(path) }
         }
     }
 }
