@@ -218,7 +218,7 @@ fun PreciseSeekingPanel(
                 }
                 .displayCutoutPadding()
                 .navigationBarsPadding()
-                .padding(bottom = 16.dp)
+                .padding(bottom = 44.dp)
         ) {
             // 1. 顶行：章节提示（若有） + 精准时间码 + 取消/关闭按钮
             Row(
