@@ -124,6 +124,10 @@ fun PlayerScrubBar(
                     var isDragging = false
                     var hasTriggeredPreciseSeek = false
 
+                    val currentPlaybackFraction = if (durationMs > 0L) {
+                        (timePosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
+
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
@@ -133,9 +137,18 @@ fun PlayerScrubBar(
                             val deltaX = curX - startX
                             val deltaY = curY - startY
 
-                            // 仅当手指产生明确位移（水平拖拽超过 TouchSlop 或向上拉起进入精准面板）时才开始响应，防止单纯按住/误触导致意外跳转
+                            // 仅当手指产生明确位移时才激活：
+                            // 1. 向上轻推：激活精准选帧胶卷，以当前播放进度为基准展开，绝不瞬移跳转到碰触的 X 坐标
+                            // 2. 水平拖动超过 TouchSlop：用户意图拖拽快进/快退
                             if (!isDragging) {
-                                if (abs(deltaX) >= touchSlopPx || deltaY <= -pullUpThresholdPx) {
+                                if (deltaY <= -pullUpThresholdPx) {
+                                    isDragging = true
+                                    hasTriggeredPreciseSeek = true
+                                    change.consume()
+                                    scrubState.begin(currentPlaybackFraction)
+                                    currentHaptics.tick()
+                                    currentOnEnterPreciseSeeking(timePosMs)
+                                } else if (abs(deltaX) >= touchSlopPx) {
                                     isDragging = true
                                     change.consume()
                                     val fraction = (curX / width).coerceIn(0f, 1f)
@@ -146,22 +159,28 @@ fun PlayerScrubBar(
                             if (isDragging) {
                                 change.consume()
 
-                                // 向上滑动超过阈值进入 YouTube 精确微调模式（单向触发保持，绝不反复跳动）
+                                // 拖拽过程中向上滑动进入精准选帧面板（以当前拖拽到的时间为起点展开）
                                 if (!hasTriggeredPreciseSeek && deltaY <= -pullUpThresholdPx) {
                                     hasTriggeredPreciseSeek = true
                                     currentHaptics.tick()
-                                    currentOnEnterPreciseSeeking(timePosMs)
+                                    val targetMs = if (durationMs > 0L) (scrubState.fraction * durationMs).toLong() else timePosMs
+                                    currentOnEnterPreciseSeeking(targetMs)
                                 }
 
-                                val rawFraction = (curX / width).coerceIn(0f, 1f)
-                                scrubState.update(rawFraction)
+                                if (!hasTriggeredPreciseSeek) {
+                                    val rawFraction = (curX / width).coerceIn(0f, 1f)
+                                    scrubState.update(rawFraction)
+                                }
                             }
                         } else {
                             if (isDragging) {
                                 change.consume()
                                 val finalFraction = scrubState.fraction
                                 scrubState.end(finalFraction)
-                                currentOnSeekToFraction(finalFraction)
+                                // 呼出精准选帧面板的手势结束时仅停留保持面板，不触发盲目跳转
+                                if (!hasTriggeredPreciseSeek) {
+                                    currentOnSeekToFraction(finalFraction)
+                                }
                             }
                             break
                         }
