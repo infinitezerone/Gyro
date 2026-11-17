@@ -92,6 +92,7 @@ fun PreciseSeekingPanel(
     loadThumbnail: (suspend (timeMs: Long) -> Bitmap?)? = null,
     onCancelRevert: () -> Unit = {},
     onDismiss: () -> Unit = {},
+    videoAspectRatio: Float = 16f / 9f,
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
     modifier: Modifier = Modifier
@@ -119,8 +120,9 @@ fun PreciseSeekingPanel(
             if (durationMs <= 0L) 1 else (durationMs / stepMs).toInt() + 1
         }
 
-        val itemWidthDp = 124.dp
         val itemHeightDp = 70.dp
+        val effectiveAspect = if (videoAspectRatio > 0f) videoAspectRatio.coerceIn(0.5f, 2.5f) else (16f / 9f)
+        val itemWidthDp = (itemHeightDp.value * effectiveAspect).dp
         val slotWidthPx = with(LocalDensity.current) { itemWidthDp.toPx() }
         val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
         val contentPaddingHorizontal = (screenWidthDp / 2 - itemWidthDp / 2).coerceAtLeast(0.dp)
@@ -205,6 +207,7 @@ fun PreciseSeekingPanel(
                         onDragStart = { totalDragY = 0f },
                         onVerticalDrag = { change, dragAmount ->
                             totalDragY += dragAmount
+                            // 在胶卷面板上向下滑动超过阈值时收起微调面板
                             if (totalDragY >= pullDownThresholdPx) {
                                 change.consume()
                                 totalDragY = 0f
@@ -382,6 +385,7 @@ private fun FilmstripThumbnailCard(
     Box(
         modifier = Modifier
             .size(width = cardWidth, height = cardHeight)
+            .background(Color.Black)
             .clickable(onClick = onClick)
     ) {
         val bitmap = frameBitmap
@@ -389,7 +393,7 @@ private fun FilmstripThumbnailCard(
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit, // 严格按照视频原本宽高比完整呈现，绝不裁剪失真
                 modifier = Modifier.fillMaxSize()
             )
         } else {

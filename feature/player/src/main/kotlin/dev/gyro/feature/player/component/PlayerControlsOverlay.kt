@@ -72,7 +72,8 @@ fun BoxScope.PlayerControlsOverlay(
     hdrFormat: String = "",
     activeUri: android.net.Uri? = null,
     posterBitmap: android.graphics.Bitmap? = null,
-    loadFilmstripThumbnail: (suspend (Long) -> android.graphics.Bitmap?)? = null
+    loadFilmstripThumbnail: (suspend (Long) -> android.graphics.Bitmap?)? = null,
+    videoAspectRatio: Float = 16f / 9f
 ) {
     // Local aliases keep the forwarding bodies below unchanged while the lambda dump moves
     // into [PlayerOverlayActions].
@@ -296,6 +297,7 @@ fun BoxScope.PlayerControlsOverlay(
                     onResumePlayback()
                 }
             },
+            videoAspectRatio = videoAspectRatio,
             abLoopASeconds = abLoopASeconds,
             abLoopBSeconds = abLoopBSeconds,
             modifier = Modifier.align(Alignment.BottomCenter)

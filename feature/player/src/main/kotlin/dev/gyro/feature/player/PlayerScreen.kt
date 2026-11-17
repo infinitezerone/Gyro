@@ -342,7 +342,11 @@ fun PlayerScreen(
     LaunchedEffect(pagerState.isScrollInProgress) {
         if (pagerState.isScrollInProgress) {
             playerState.showControls = false
+            scrubState.exitPreciseSeeking()
         }
+    }
+    LaunchedEffect(currentPlaylistIndex, activeUri) {
+        scrubState.exitPreciseSeeking()
     }
 
     // 2. Delegate System & Window Effects
@@ -504,7 +508,8 @@ fun PlayerScreen(
                 hdrFormat = hdrFormat,
                 activeUri = activeUri,
                 posterBitmap = currentPosterBitmap,
-                loadFilmstripThumbnail = { timeMs -> viewModel.getFilmstripThumbnail(timeMs) }
+                loadFilmstripThumbnail = { timeMs -> viewModel.getFilmstripThumbnail(timeMs) },
+                videoAspectRatio = if (videoDimensions.height > 0) videoDimensions.width.toFloat() / videoDimensions.height.toFloat() else 16f / 9f
             )
         }
 
