@@ -207,7 +207,6 @@ class PlayerViewModel @Inject constructor(
     }
 
     public override fun onCleared() {
-        super.onCleared()
         // Nothing here may drive playback state. `onCleared` is a destructor for this instance, not
         // a "user left the screen" signal: it is never called when the process is killed, its timing
         // is not part of the contract, and reacting to it would turn a lifecycle callback into a

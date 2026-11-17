@@ -1,5 +1,6 @@
 package dev.gyro.feature.player.component
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
@@ -24,6 +25,7 @@ internal class ChapterHaptics(private val vibrate: (Long) -> Unit) {
     }
 }
 
+@SuppressLint("MissingPermission")
 @Composable
 internal fun rememberChapterHaptics(): ChapterHaptics {
     val context = LocalContext.current

@@ -1,6 +1,7 @@
 package dev.gyro.feature.player.component
 
 import android.app.Activity
+import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.os.Build
 import android.view.WindowManager
@@ -53,6 +54,7 @@ internal fun PlayerSystemEffects(
     }
 
     // 2. Dynamic color space: Enable Display P3 Wide Color Gamut while playing video, restore sRGB on exit
+    @SuppressLint("WrongConstant")
     DisposableEffect(componentActivity) {
         val window = componentActivity?.window ?: return@DisposableEffect onDispose {}
         val previousColorMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
