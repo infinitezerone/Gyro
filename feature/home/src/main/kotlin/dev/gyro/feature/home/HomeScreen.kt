@@ -84,6 +84,7 @@ import dev.gyro.core.model.VideoMediaItem
 fun HomeScreen(
     viewModel: HomeViewModel,
     onPlayVideo: (VideoMediaItem, List<VideoMediaItem>) -> Unit,
+    onOpenSingleUri: (Uri) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -94,40 +95,14 @@ fun HomeScreen(
     val pickVisualMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        uri?.let {
-            val singleItem = VideoMediaItem(
-                id = System.currentTimeMillis(),
-                uriString = it.toString(),
-                displayName = it.lastPathSegment ?: "Video",
-                durationMs = 0L,
-                sizeBytes = 0L,
-                width = 0,
-                height = 0,
-                dateModified = 0L,
-                folderName = ""
-            )
-            onPlayVideo(singleItem, listOf(singleItem))
-        }
+        uri?.let(onOpenSingleUri)
     }
 
     // SAF File Picker
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let {
-            val singleItem = VideoMediaItem(
-                id = System.currentTimeMillis(),
-                uriString = it.toString(),
-                displayName = it.lastPathSegment ?: "Video",
-                durationMs = 0L,
-                sizeBytes = 0L,
-                width = 0,
-                height = 0,
-                dateModified = 0L,
-                folderName = ""
-            )
-            onPlayVideo(singleItem, listOf(singleItem))
-        }
+        uri?.let(onOpenSingleUri)
     }
 
     // SAF Directory Picker (OpenDocumentTree)

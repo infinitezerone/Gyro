@@ -24,4 +24,8 @@ object DispatchersModule {
     @Provides
     @Dispatcher(GyroDispatchers.Main)
     fun providesMainDispatcher(): CoroutineDispatcher = Dispatchers.Main
+
+    @Provides
+    @Dispatcher(GyroDispatchers.MainImmediate)
+    fun providesMainImmediateDispatcher(): CoroutineDispatcher = Dispatchers.Main.immediate
 }

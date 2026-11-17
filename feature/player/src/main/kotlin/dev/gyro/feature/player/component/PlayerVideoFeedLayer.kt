@@ -26,6 +26,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +37,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -51,10 +51,10 @@ import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.ui.GyroPlayerSurface
 import dev.gyro.engine.ui.GyroSurfaceView
+import dev.gyro.feature.player.MAX_POSTER_CACHE_SIZE
 import dev.gyro.feature.player.PlayerState
 import dev.gyro.feature.player.PlayerViewportState
 import dev.gyro.feature.player.gesture.PlayerZoomState
-import dev.gyro.feature.player.loadVideoThumbnail
 import dev.gyro.feature.player.sheetFitTransform
 import dev.gyro.feature.player.videoSurfacePageOffset
 import kotlin.math.roundToInt
@@ -84,6 +84,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     isLandscape: Boolean,
     pipTransitionActive: Boolean,
     freezeViewportFullscreen: Boolean = false,
+    onLoadPoster: suspend (String) -> Bitmap?,
     onSurfaceViewAvailable: (GyroSurfaceView?) -> Unit,
     onRetryPlayback: () -> Unit,
 ) {
@@ -271,6 +272,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
                 VideoPagePoster(
                     item = item,
                     thumbnailCache = thumbnailCache,
+                    onLoadPoster = onLoadPoster,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -294,9 +296,10 @@ internal fun BoxScope.PlayerVideoFeedLayer(
 private fun VideoPagePoster(
     item: VideoMediaItem?,
     thumbnailCache: Map<String, Bitmap> = emptyMap(),
+    onLoadPoster: suspend (String) -> Bitmap?,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
+    val onLoadPosterState = rememberUpdatedState(onLoadPoster)
     val uriStr = item?.uriString
     val cachedBitmap = uriStr?.let { thumbnailCache[it] }
     var bitmap by remember(uriStr) { mutableStateOf(cachedBitmap) }
@@ -306,9 +309,14 @@ private fun VideoPagePoster(
             bitmap = cachedBitmap
             return@LaunchedEffect
         }
-        val loaded = uriStr?.let { loadVideoThumbnail(context, it) } ?: return@LaunchedEffect
+        val loaded = uriStr?.let { onLoadPosterState.value(it) } ?: return@LaunchedEffect
         bitmap = loaded
-        (thumbnailCache as? MutableMap<String, Bitmap>)?.put(uriStr, loaded)
+        (thumbnailCache as? MutableMap<String, Bitmap>)?.let { cache ->
+            if (cache.size >= MAX_POSTER_CACHE_SIZE) {
+                cache.keys.firstOrNull()?.let { cache.remove(it) }
+            }
+            cache[uriStr] = loaded
+        }
     }
 
     Box(

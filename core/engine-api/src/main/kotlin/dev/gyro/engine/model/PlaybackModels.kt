@@ -31,11 +31,3 @@ enum class ResizeMode {
     ASPECT_16_9,
     ASPECT_21_9
 }
-
-data class PerformanceStats(
-    val fps: Double = 0.0,
-    val droppedFrames: Long = 0L,
-    val powerWatts: Double = 0.0,
-    val currentMa: Int = 0,
-    val hwdec: String = ""
-)

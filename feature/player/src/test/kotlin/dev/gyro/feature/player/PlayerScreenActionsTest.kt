@@ -12,20 +12,19 @@ import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.DefaultThumbnailRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
+import dev.gyro.core.data.repository.PowerRepository
+import dev.gyro.core.data.repository.ScreenshotRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
-import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.PlayMediaAtIndexUseCase
-import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
-import dev.gyro.core.domain.usecase.PlayPreviousMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
-import dev.gyro.core.domain.usecase.SetPlaylistAndPlayUseCase
-import dev.gyro.core.domain.usecase.SetSingleMediaAndPlayUseCase
+import dev.gyro.core.model.PowerMetrics
+import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
@@ -33,7 +32,6 @@ import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.controller.TrackController
-import dev.gyro.feature.player.component.PlayerOverlayActions
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import kotlinx.coroutines.CoroutineScope
@@ -68,6 +66,15 @@ class PlayerScreenActionsTest {
     private lateinit var testContext: Context
     private lateinit var fakeBridge: FakeMpvNativeBridge
     private lateinit var engine: GyroPlayerEngine
+    private lateinit var settingsRepo: SettingsRepository
+    private lateinit var historyRepo: PlaybackHistoryRepository
+    private lateinit var thumbnailRepo: DefaultThumbnailRepository
+    private lateinit var fakeSubtitleRepo: SubtitleRepository
+    private lateinit var fakeScreenshotRepo: ScreenshotRepository
+    private lateinit var fakePowerRepo: PowerRepository
+    private lateinit var loadMediaUseCase: LoadMediaUseCase
+    private lateinit var navigatePlaylistUseCase: NavigatePlaylistUseCase
+    private lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
     private lateinit var viewModel: PlayerViewModel
     private lateinit var playerState: PlayerState
     private lateinit var screenshotController: PlayerScreenshotController
@@ -93,14 +100,20 @@ class PlayerScreenActionsTest {
 
         val settingsFile = File(filesDir, "user_settings.json")
         val dataStore = UserSettingsDataStoreFactory.createForFile(settingsFile, testScope)
-        val settingsRepo = DefaultSettingsRepository(dataStore)
+        settingsRepo = DefaultSettingsRepository(dataStore)
         val fakeHistoryDao = FakePlaybackHistoryDao()
-        val historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
-        val fakeSubtitleRepo = object : SubtitleRepository {
+        historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
+        fakeSubtitleRepo = object : SubtitleRepository {
             override suspend fun findCompanionSubtitles(
                 videoUri: Uri,
                 videoDisplayName: String?,
-            ): List<String> = emptyList()
+            ): List<Uri> = emptyList()
+        }
+        fakeScreenshotRepo = object : ScreenshotRepository {
+            override suspend fun saveScreenshot(bitmap: android.graphics.Bitmap, mediaTitle: String, positionMs: Long): Boolean = true
+        }
+        fakePowerRepo = object : PowerRepository {
+            override suspend fun readPowerMetrics(): PowerMetrics = PowerMetrics()
         }
         val fakeMediaRepo = object : MediaRepository {
             override suspend fun getVideos(): List<VideoMediaItem> = emptyList()
@@ -110,7 +123,8 @@ class PlayerScreenActionsTest {
         val sessionStateHolder = PlaybackSessionStateHolder()
         val saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val serviceLauncher = PlaybackServiceLauncher.NoOp
-        val loadMediaUseCase = LoadMediaUseCase(
+        thumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
+        loadMediaUseCase = LoadMediaUseCase(
             engine = engine,
             mediaRepository = fakeMediaRepo,
             historyRepository = historyRepo,
@@ -119,28 +133,18 @@ class PlayerScreenActionsTest {
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveProgressUseCase,
+            scope = testScope,
         )
-        val playNextMediaUseCase = PlayNextMediaUseCase(engine, loadMediaUseCase, testScope)
-        val playPreviousMediaUseCase = PlayPreviousMediaUseCase(engine, loadMediaUseCase, testScope)
-        val playMediaAtIndexUseCase = PlayMediaAtIndexUseCase(engine, loadMediaUseCase, testScope)
-        val setPlaylistAndPlayUseCase = SetPlaylistAndPlayUseCase(engine, loadMediaUseCase, testScope)
-        val setSingleMediaAndPlayUseCase = SetSingleMediaAndPlayUseCase(engine, loadMediaUseCase, testScope)
-        val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(engine, saveProgressUseCase, serviceLauncher, sessionStateHolder)
-
-        viewModel = PlayerViewModel(
+        navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, loadMediaUseCase)
+        endPlaybackSessionUseCase = EndPlaybackSessionUseCase(
             engine = engine,
-            historyRepository = historyRepo,
-            settingsRepository = settingsRepo,
-            thumbnailRepository = DefaultThumbnailRepository(testContext),
-            loadMediaUseCase = loadMediaUseCase,
-            playNextMediaUseCase = playNextMediaUseCase,
-            playPreviousMediaUseCase = playPreviousMediaUseCase,
-            playMediaAtIndexUseCase = playMediaAtIndexUseCase,
-            setPlaylistAndPlayUseCase = setPlaylistAndPlayUseCase,
-            setSingleMediaAndPlayUseCase = setSingleMediaAndPlayUseCase,
-            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
             saveProgressUseCase = saveProgressUseCase,
+            thumbnailRepository = thumbnailRepo,
+            serviceLauncher = serviceLauncher,
+            sessionStateHolder = sessionStateHolder,
         )
+
+        viewModel = buildViewModel(engine)
 
         playerState = PlayerState(
             scope = testScope,
@@ -150,8 +154,25 @@ class PlayerScreenActionsTest {
         )
 
         val view = View(testContext)
-        screenshotController = PlayerScreenshotController(testContext, testScope, view)
+        screenshotController = PlayerScreenshotController(
+            context = testContext,
+            scope = testScope,
+            view = view,
+            onSaveScreenshot = fakeScreenshotRepo::saveScreenshot,
+        )
     }
+
+    private fun buildViewModel(targetEngine: PlayerEngine): PlayerViewModel = PlayerViewModel(
+        engine = targetEngine,
+        settingsRepository = settingsRepo,
+        thumbnailRepository = thumbnailRepo,
+        subtitleRepository = fakeSubtitleRepo,
+        screenshotRepository = fakeScreenshotRepo,
+        powerRepository = fakePowerRepo,
+        loadMediaUseCase = loadMediaUseCase,
+        navigatePlaylistUseCase = navigatePlaylistUseCase,
+        endPlaybackSessionUseCase = endPlaybackSessionUseCase,
+    )
 
     @After
     fun tearDown() {
@@ -165,7 +186,6 @@ class PlayerScreenActionsTest {
     fun all16ActionsCallResetControlsTimeoutInvariant() {
         var timeoutResetCount = 0
         val actions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -193,7 +213,6 @@ class PlayerScreenActionsTest {
         assertEquals(3, timeoutResetCount)
 
         actions.onEnterPiP()
-        // onEnterPiP hides controls and begins transition, so it does not reset controls timeout
         assertEquals(3, timeoutResetCount)
 
         actions.onOpenSheetTab(PlayerSheetTab.AUDIO)
@@ -235,9 +254,7 @@ class PlayerScreenActionsTest {
 
     @Test
     fun defaultOnResetControlsTimeoutInvokesPlayerState() {
-        // Verify default parameter delegates to playerState.resetControlsTimeout()
         val actions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -253,8 +270,6 @@ class PlayerScreenActionsTest {
         )
 
         actions.onTogglePlayPause()
-        // lastInteractionTrigger is updated by resetControlsTimeout()
-        // Default SystemClock.uptimeMillis returns 0L or higher
         assertTrue(playerState.lastInteractionTrigger >= 0L)
     }
 
@@ -268,8 +283,7 @@ class PlayerScreenActionsTest {
         }
 
         val actions = createPlayerOverlayActions(
-            engine = fakeSeekingEngine,
-            viewModel = viewModel,
+            viewModel = buildViewModel(fakeSeekingEngine),
             playerState = playerState,
             screenshotController = screenshotController,
             activity = null,
@@ -297,8 +311,7 @@ class PlayerScreenActionsTest {
         }
 
         val actions = createPlayerOverlayActions(
-            engine = fakeSeekingEngine,
-            viewModel = viewModel,
+            viewModel = buildViewModel(fakeSeekingEngine),
             playerState = playerState,
             screenshotController = screenshotController,
             activity = null,
@@ -336,8 +349,7 @@ class PlayerScreenActionsTest {
         }
 
         val actions = createPlayerOverlayActions(
-            engine = fakeEngine,
-            viewModel = viewModel,
+            viewModel = buildViewModel(fakeEngine),
             playerState = playerState,
             screenshotController = screenshotController,
             activity = null,
@@ -372,8 +384,7 @@ class PlayerScreenActionsTest {
         }
 
         val actions = createPlayerOverlayActions(
-            engine = fakeEngine,
-            viewModel = viewModel,
+            viewModel = buildViewModel(fakeEngine),
             playerState = playerState,
             screenshotController = screenshotController,
             activity = null,
@@ -398,7 +409,6 @@ class PlayerScreenActionsTest {
         playerState.showControls = true
 
         val actions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -428,7 +438,6 @@ class PlayerScreenActionsTest {
         playerState.activeSheetTab = null
 
         val actions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -452,7 +461,6 @@ class PlayerScreenActionsTest {
     fun onBackTriggersViewModelExitAndCallback() {
         var onBackCalled = false
         val actions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -485,7 +493,6 @@ class PlayerScreenActionsTest {
         }
 
         val landscapeActions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -508,7 +515,6 @@ class PlayerScreenActionsTest {
         }
 
         val portraitActions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -531,7 +537,6 @@ class PlayerScreenActionsTest {
     fun enterPiPInvokesOnEnterPiPCallback() {
         var enteredPiP = false
         val actions = createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,

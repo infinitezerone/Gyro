@@ -1,7 +1,5 @@
 package dev.gyro.engine.ui
 
-import android.content.pm.ActivityInfo
-import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -9,7 +7,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -58,31 +55,8 @@ fun GyroPlayerSurface(
 
     val isHdr by (engine?.geometry?.isHdr ?: remember { MutableStateFlow(false) }).collectAsState()
     LaunchedEffect(isHdr) {
-        val activity = context.findActivity()
         val canHdr = isHdr && context.displaySupportsHdr()
         surfaceView.setHdrOutput(canHdr)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            activity?.window?.colorMode = if (canHdr) {
-                ActivityInfo.COLOR_MODE_HDR
-            } else if (context.displaySupportsWideColorGamut()) {
-                ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-            } else {
-                ActivityInfo.COLOR_MODE_DEFAULT
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val activity = context.findActivity()
-                activity?.window?.colorMode = if (context.displaySupportsWideColorGamut()) {
-                    ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-                } else {
-                    ActivityInfo.COLOR_MODE_DEFAULT
-                }
-            }
-        }
     }
 
     DisposableEffect(engine) {

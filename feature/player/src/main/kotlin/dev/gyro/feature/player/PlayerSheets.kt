@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import android.net.Uri
 import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackSnapshot

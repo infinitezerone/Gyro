@@ -29,6 +29,7 @@ import dev.gyro.engine.video.ShaderManager
 import dev.gyro.engine.video.VideoEffectsController
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -45,10 +46,13 @@ typealias MpvLoadException = dev.gyro.engine.session.MpvLoadException
 class GyroPlayerEngine(
     private val context: Context? = null,
     private val bridge: MpvNativeBridge = RealMpvNativeBridge,
-    private val resolver: MediaResourceResolver = if (context != null) DefaultMediaResourceResolver(context) else MediaResourceResolver.Direct,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val defaultDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    private val resolver: MediaResourceResolver = if (context != null) DefaultMediaResourceResolver(context, ioDispatcher) else MediaResourceResolver.Direct,
     private val configurator: MpvOptionConfigurator = MpvOptionConfigurator(),
     internal val store: PlaybackStore = PlaybackStore(),
-    override val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store),
+    override val shaders: ShaderController = ShaderController(bridge, ShaderManager(context), store, ioDispatcher),
     override val geometry: VideoGeometryCoordinator = VideoGeometryCoordinator(bridge, store),
     override val audio: AudioEffectsController = AudioEffectsController(bridge, store),
     override val video: VideoEffectsController = VideoEffectsController(bridge, store),
@@ -73,7 +77,7 @@ class GyroPlayerEngine(
 
     private val isInitialized = AtomicBoolean(false)
     private var engineJob = SupervisorJob()
-    private var engineScope = CoroutineScope(engineJob + Dispatchers.Default)
+    private var engineScope = CoroutineScope(engineJob + defaultDispatcher)
 
     internal val playback: PlaybackLifecycleController = PlaybackLifecycleController(
         bridge = bridge,
@@ -112,7 +116,8 @@ class GyroPlayerEngine(
         tuning = tuning,
         playbackController = playback,
         coroutineScope = { engineScope },
-        ensureInitialized = { ensureNativeInitialized() }
+        ensureInitialized = { ensureNativeInitialized() },
+        mainDispatcher = mainDispatcher,
     )
 
     /**
@@ -216,7 +221,7 @@ class GyroPlayerEngine(
         if (isInitialized.compareAndSet(false, true)) {
             if (!engineJob.isActive) {
                 engineJob = SupervisorJob()
-                engineScope = CoroutineScope(engineJob + Dispatchers.Default)
+                engineScope = CoroutineScope(engineJob + defaultDispatcher)
             }
             try {
                 // A prior release() sticks requestPlay() off until the audio focus manager is

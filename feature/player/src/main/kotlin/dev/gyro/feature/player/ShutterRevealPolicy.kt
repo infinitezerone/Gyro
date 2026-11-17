@@ -57,10 +57,9 @@ object ShutterRevealPolicy {
         if (isFlexibleMode) return Decision.Reveal
 
         val targetAspect = when (resizeMode) {
-            ResizeMode.FIT -> videoAspect
+            ResizeMode.FIT, ResizeMode.CROP, ResizeMode.STRETCH -> videoAspect
             ResizeMode.ASPECT_16_9 -> 16f / 9f
             ResizeMode.ASPECT_21_9 -> 21f / 9f
-            else -> videoAspect
         }
         val containerAspect = if (containerHeight > 0) {
             containerWidth.toFloat() / containerHeight

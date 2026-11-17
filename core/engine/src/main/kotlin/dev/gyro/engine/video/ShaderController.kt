@@ -7,8 +7,11 @@ import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -17,7 +20,8 @@ import java.io.File
 class ShaderController(
     private val bridge: MpvNativeBridge,
     private val shaderManager: ShaderManager = ShaderManager(),
-    private val store: PlaybackStore = PlaybackStore()
+    private val store: PlaybackStore = PlaybackStore(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : EngineSubsystem, dev.gyro.engine.api.extension.ShaderExtension {
     companion object {
         private const val TAG = "ShaderController"
@@ -101,8 +105,11 @@ class ShaderController(
         EngineLog.i(TAG, "Cleared glsl-shaders")
     }
 
-    override fun importAndSetCustomShader(uri: Uri): Result<String> {
-        return shaderManager.importCustomShader(uri).map { file ->
+    override suspend fun importAndSetCustomShader(uri: Uri): Result<String> {
+        val imported = withContext(ioDispatcher) {
+            shaderManager.importCustomShader(uri)
+        }
+        return imported.map { file ->
             val name = file.nameWithoutExtension
             setShader(GlslShader.CUSTOM, customPath = file.absolutePath, customName = name)
             file.absolutePath

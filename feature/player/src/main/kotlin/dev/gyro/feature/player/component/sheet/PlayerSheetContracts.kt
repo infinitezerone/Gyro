@@ -5,10 +5,10 @@ import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.MediaInfo
+import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
-import dev.gyro.feature.player.PowerMetrics
 import java.io.File
 
 /**

@@ -1,36 +1,35 @@
 package dev.gyro.player.service
 
 import android.app.PendingIntent
-import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import android.util.Size
 import android.view.KeyEvent
 import androidx.core.app.ServiceCompat
 import androidx.core.content.IntentCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
+import dev.gyro.core.common.dispatcher.Dispatcher
+import dev.gyro.core.common.dispatcher.GyroDispatchers
+import dev.gyro.core.data.repository.ThumbnailRepository
+import dev.gyro.core.domain.model.PlaylistStep
+import dev.gyro.core.domain.model.SessionEndReason
 import dev.gyro.core.domain.session.PlaybackHistoryTracker
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
-import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
-import dev.gyro.core.domain.usecase.PlayPreviousMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.session.MediaSessionControls
 import dev.gyro.engine.session.MpvPlayerAdapter
 import dev.gyro.player.MainActivity
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -41,13 +40,18 @@ import javax.inject.Inject
 class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var engine: PlayerEngine
-    @Inject lateinit var playNextMediaUseCase: PlayNextMediaUseCase
-    @Inject lateinit var playPreviousMediaUseCase: PlayPreviousMediaUseCase
+    @Inject lateinit var navigatePlaylistUseCase: NavigatePlaylistUseCase
     @Inject lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
     @Inject lateinit var historyTracker: PlaybackHistoryTracker
+    @Inject lateinit var thumbnailRepository: ThumbnailRepository
+
+    @Inject
+    @Dispatcher(GyroDispatchers.MainImmediate)
+    lateinit var mainDispatcher: CoroutineDispatcher
 
     companion object {
         private const val TAG = "PlaybackService"
+        private const val ARTWORK_SIZE_PX = 512
 
         const val ACTION_PLAY = "dev.gyro.player.ACTION_PLAY"
         const val ACTION_PAUSE = "dev.gyro.player.ACTION_PAUSE"
@@ -71,7 +75,7 @@ class PlaybackService : MediaSessionService() {
 
     private var currentThumbnailUri: Uri? = null
     private var currentThumbnailBitmap: Bitmap? = null
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var serviceScope: CoroutineScope? = null
 
     private var mediaSession: MediaSession? = null
     private var playerAdapter: MpvPlayerAdapter? = null
@@ -79,11 +83,14 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackService created (Media3)")
+        val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
+        serviceScope = scope
+        historyTracker.startObserving()
 
         val adapter = MpvPlayerAdapter(
             engine = engine,
-            onSkipToNext = { playNextMediaUseCase() },
-            onSkipToPrevious = { playPreviousMediaUseCase() }
+            onSkipToNext = { navigatePlaylistUseCase(PlaylistStep.Next) },
+            onSkipToPrevious = { navigatePlaylistUseCase(PlaylistStep.Previous) }
         )
         playerAdapter = adapter
 
@@ -100,7 +107,7 @@ class PlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivityPendingIntent)
             .build()
 
-        serviceScope.launch {
+        scope.launch {
             engine.currentUri.collect { uri ->
                 loadThumbnailIfNeeded(uri)
             }
@@ -128,7 +135,7 @@ class PlaybackService : MediaSessionService() {
         val sticky = handleCommand(
             action = action,
             keyEvent = keyEvent,
-            onNotificationStop = { endPlaybackSessionUseCase(requestServiceStop = false) },
+            onNotificationStop = { endPlaybackSessionUseCase(SessionEndReason.SERVICE_STOPPED) },
             stopAndReset = { stopForegroundAndSelf() }
         )
 
@@ -150,8 +157,8 @@ class PlaybackService : MediaSessionService() {
             ACTION_PLAY -> controls?.play() ?: engine.play()
             ACTION_PAUSE -> controls?.pause() ?: engine.pause()
             ACTION_PLAY_PAUSE -> controls?.togglePlayPause() ?: engine.togglePlayPause()
-            ACTION_PREV -> controls?.skipToPrevious() ?: playPreviousMediaUseCase()
-            ACTION_NEXT -> controls?.skipToNext() ?: playNextMediaUseCase()
+            ACTION_PREV -> controls?.skipToPrevious() ?: navigatePlaylistUseCase(PlaylistStep.Previous)
+            ACTION_NEXT -> controls?.skipToNext() ?: navigatePlaylistUseCase(PlaylistStep.Next)
             ACTION_REWIND -> engine.seekRelative(-10_000L)
             ACTION_FAST_FORWARD -> engine.seekRelative(10_000L)
             ACTION_STOP, ACTION_DISMISS -> {
@@ -167,8 +174,8 @@ class PlaybackService : MediaSessionService() {
                             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> engine.togglePlayPause()
                             KeyEvent.KEYCODE_MEDIA_PLAY -> engine.play()
                             KeyEvent.KEYCODE_MEDIA_PAUSE -> engine.pause()
-                            KeyEvent.KEYCODE_MEDIA_NEXT -> playNextMediaUseCase()
-                            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> playPreviousMediaUseCase()
+                            KeyEvent.KEYCODE_MEDIA_NEXT -> navigatePlaylistUseCase(PlaylistStep.Next)
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> navigatePlaylistUseCase(PlaylistStep.Previous)
                         }
                     }
                 }
@@ -186,34 +193,12 @@ class PlaybackService : MediaSessionService() {
         }
         if (uri == currentThumbnailUri) return
         currentThumbnailUri = uri
-        serviceScope.launch {
-            val bitmap = withContext(Dispatchers.IO) {
-                loadThumbnail(this@PlaybackService, uri)
-            }
+        serviceScope?.launch {
+            val bitmap = thumbnailRepository.getArtwork(uri, ARTWORK_SIZE_PX, ARTWORK_SIZE_PX)
             if (currentThumbnailUri == uri) {
                 currentThumbnailBitmap = bitmap
                 playerAdapter?.setArtworkBitmap(bitmap)
             }
-        }
-    }
-
-    private fun loadThumbnail(context: Context, uri: Uri): Bitmap? {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == ContentResolver.SCHEME_CONTENT) {
-                context.contentResolver.loadThumbnail(uri, Size(512, 512), null)
-            } else {
-                val retriever = MediaMetadataRetriever()
-                if (uri.scheme == ContentResolver.SCHEME_FILE || uri.scheme == null) {
-                    retriever.setDataSource(uri.path)
-                } else {
-                    retriever.setDataSource(context, uri)
-                }
-                val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                retriever.release()
-                frame
-            }
-        } catch (_: Throwable) {
-            null
         }
     }
 
@@ -226,7 +211,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "PlaybackService destroyed")
-        endPlaybackSessionUseCase(requestServiceStop = false)
+        endPlaybackSessionUseCase(SessionEndReason.SERVICE_STOPPED)
         mediaSession?.let { session ->
             runCatching { session.release() }
                 .onFailure { Log.w(TAG, "release MediaSession failed", it) }
@@ -235,7 +220,8 @@ class PlaybackService : MediaSessionService() {
         playerAdapter?.release()
         playerAdapter = null
         engine.isHeadlessMode = false
-        serviceScope.cancel()
+        serviceScope?.cancel()
+        serviceScope = null
         currentThumbnailBitmap = null
         currentThumbnailUri = null
     }

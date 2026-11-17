@@ -17,20 +17,20 @@ class GestureSettingsViewModel @Inject constructor(
     private val repository: SettingsRepository
 ) : ViewModel() {
 
-    val uiState: StateFlow<GestureSettingsUiState> = repository.settings
-        .map { GestureSettingsUiState(config = it.gestureConfig) }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = GestureSettingsUiState()
-        )
-
     val gestureConfig: StateFlow<PlayerGestureConfig> = repository.settings
         .map { it.gestureConfig }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
-            initialValue = PlayerGestureConfig()
+            initialValue = PlayerGestureConfig(),
+        )
+
+    val uiState: StateFlow<GestureSettingsUiState> = gestureConfig
+        .map { GestureSettingsUiState(config = it) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = GestureSettingsUiState(config = gestureConfig.value),
         )
 
     // --- Vertical Gestures ---

@@ -5,6 +5,7 @@ import android.content.Context
 import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -43,14 +44,15 @@ interface MediaResourceResolver {
  * instead of leaking it. Every other scheme is handed over as a path: mpv opens those itself.
  */
 class DefaultMediaResourceResolver(
-    private val context: Context? = null
+    private val context: Context? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : MediaResourceResolver {
 
     companion object {
         private const val TAG = "MediaResourceResolver"
     }
 
-    override suspend fun resolve(item: MediaItem): ResolvedMediaSource = withContext(Dispatchers.IO) {
+    override suspend fun resolve(item: MediaItem): ResolvedMediaSource = withContext(ioDispatcher) {
         val uri = item.uri
         val rawTarget = item.target.ifBlank { uri?.toString().orEmpty() }
         val isContent = uri?.scheme == ContentResolver.SCHEME_CONTENT || rawTarget.startsWith("content://")

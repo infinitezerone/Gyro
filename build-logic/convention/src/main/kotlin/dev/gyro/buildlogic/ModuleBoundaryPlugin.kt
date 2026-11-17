@@ -128,17 +128,20 @@ class ModuleBoundaryPlugin : Plugin<Project> {
             forbidden = listOf(
                 "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.domain",
                 "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
+                "kotlinx.coroutines.Dispatchers",
             )
         ),
         ":core:data" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.domain", "dev.gyro.engine", "dev.gyro.feature", "dev.gyro.player",
+                "kotlinx.coroutines.Dispatchers",
             )
         ),
         ":core:engine-api" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.data", "dev.gyro.core.database", "dev.gyro.core.datastore",
                 "dev.gyro.core.domain", "dev.gyro.feature", "dev.gyro.player",
+                "kotlinx.coroutines.Dispatchers",
             )
         ),
         ":core:engine" to Boundary(
@@ -148,31 +151,39 @@ class ModuleBoundaryPlugin : Plugin<Project> {
             )
         ),
         // Domain logic sits above the engine contract and data repositories, but below every screen:
-        // it may see the api/model packages and nothing else from the concrete mpv implementation.
+        // it may see the api/model packages and nothing else from the concrete mpv implementation,
+        // and must never switch coroutine dispatchers directly (main-safety belongs in :core:data/:core:engine).
         ":core:domain" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.feature",
-                "dev.gyro.player",
+                "dev.gyro.player", "kotlinx.coroutines.Dispatchers",
             ),
             engineAllowlist = listOf("dev.gyro.engine.api.", "dev.gyro.engine.model."),
         ),
         ":feature:home" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.engine",
-                "dev.gyro.player",
+                "dev.gyro.player", "kotlinx.coroutines.Dispatchers",
             )
         ),
         ":feature:settings" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.engine",
-                "dev.gyro.player",
+                "dev.gyro.player", "kotlinx.coroutines.Dispatchers",
             )
         ),
         // :feature:player still owns the Compose surface wrapper (dev.gyro.engine.ui), so the
-        // engine is not forbidden here yet. Persistence internals are.
+        // engine is not forbidden here yet. Persistence internals and direct Dispatchers are.
         ":feature:player" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.player",
+                "kotlinx.coroutines.Dispatchers",
+            )
+        ),
+        ":app" to Boundary(
+            forbidden = listOf(
+                "dev.gyro.core.database", "dev.gyro.core.datastore",
+                "kotlinx.coroutines.Dispatchers",
             )
         ),
     )

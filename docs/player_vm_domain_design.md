@@ -31,7 +31,7 @@ sequenceDiagram
     autonumber
     actor User as 用户 / Pager
     participant VM as PlayerViewModel
-    participant Session as PlaybackSessionController
+    participant Domain as NavigatePlaylistUseCase
     participant Engine as GyroPlayerEngine
     participant Native as Rust (gyro-engine)
     participant UI as PlayerScreen (Compose)
@@ -39,11 +39,11 @@ sequenceDiagram
     User->>VM: switchItem(index, triggerSource)
     activate VM
     VM->>VM: emit DomainEvent: SwitchInitiated(triggerSource)
-    VM->>Session: playAtIndex(index)
-    activate Session
-    Session->>Session: saveCurrentProgress()
-    Session->>Engine: load(MediaItem)
-    deactivate Session
+    VM->>Domain: playAtIndex(index)
+    activate Domain
+    Domain->>Domain: selectItemAt(index)
+    Domain->>Engine: load(MediaItem)
+    deactivate Domain
     
     activate Engine
     Engine->>Native: native_load_uri(uri, ...)

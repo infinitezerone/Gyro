@@ -13,8 +13,8 @@ android {
 }
 
 dependencies {
-    // Repository interfaces and PlayerEngine both appear in the controller's public constructor,
-    // so consumers (feature screens, tests) need them on their compile classpath.
+    // Repository interfaces and PlayerEngine appear in domain UseCase constructors,
+    // so consumers (feature screens, app, tests) need them on their compile classpath.
     api(project(":core:data"))
     api(project(":core:engine-api"))
 

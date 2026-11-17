@@ -60,12 +60,11 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val sessionActive by viewModel.sessionActive.collectAsStateWithLifecycle()
-            val activeUri by viewModel.activeUri.collectAsStateWithLifecycle()
+            val sessionInfo by viewModel.sessionInfo.collectAsStateWithLifecycle()
 
             val appState = rememberGyroAppState(
-                initialSessionActive = sessionActive,
-                initialActiveUri = activeUri,
+                initialSessionActive = sessionInfo.isActive,
+                initialActiveUri = sessionInfo.activeUri,
             )
             val intentUri by incomingIntentUri.collectAsState()
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -89,7 +88,9 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(intentUri) {
                 intentUri?.let { uri ->
+                    viewModel.onOpenExternalUri(uri)
                     appState.handleIncomingUri(uri)
+                    incomingIntentUri.value = null
                 }
             }
 
@@ -98,7 +99,7 @@ class MainActivity : ComponentActivity() {
             // Initializing playerOnStack with (sessionActive || isPlayerOnStack) ensures that if Activity
             // was restored while a background session was running, any absence of Player safely ends the session.
             LaunchedEffect(appState) {
-                var playerOnStack = viewModel.sessionActive.value || appState.isPlayerOnStack
+                var playerOnStack = viewModel.sessionInfo.value.isActive || appState.isPlayerOnStack
                 snapshotFlow { appState.isPlayerOnStack }
                     .distinctUntilChanged()
                     .collect { present ->

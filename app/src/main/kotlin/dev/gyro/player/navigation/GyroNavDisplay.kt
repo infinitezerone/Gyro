@@ -121,6 +121,10 @@ fun GyroNavDisplay(
                         viewModel.onPlayVideo(item, currentList)
                         appState.navigateToPlayer(item.uriString.toUri())
                     },
+                    onOpenSingleUri = { uri ->
+                        viewModel.onPlaySingleUri(uri)
+                        appState.navigateToPlayer(uri)
+                    },
                     onOpenSettings = {
                         appState.navigateToSettings()
                     },

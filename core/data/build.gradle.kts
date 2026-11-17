@@ -22,6 +22,7 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.palette)
 
     testImplementation(project(":core:testing"))
 }

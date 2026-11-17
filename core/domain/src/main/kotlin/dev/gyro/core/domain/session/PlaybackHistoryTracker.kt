@@ -2,7 +2,8 @@ package dev.gyro.core.domain.session
 
 import android.net.Uri
 import dev.gyro.core.common.dispatcher.ApplicationScope
-import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
+import dev.gyro.core.domain.model.PlaylistStep
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackState
@@ -14,12 +15,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 private const val CHECKPOINT_INTERVAL_MS = 10_000L
 private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
 
 /**
- * Scoped domain service that manages playback history checkpoints and playlist advancement.
+ * App-scoped domain service that manages playback history checkpoints and playlist auto-advancement.
  * Strictly bounded by [PlaybackSessionStateHolder.sessionActive]: all tracking jobs are started
  * upon session activation and cancelled immediately upon session deactivation.
  */
@@ -27,20 +29,28 @@ private const val CHECKPOINT_MIN_DELTA_MS = 5_000L
 class PlaybackHistoryTracker @Inject constructor(
     private val engine: PlayerEngine,
     private val sessionStateHolder: PlaybackSessionStateHolder,
-    private val playNextMediaUseCase: PlayNextMediaUseCase,
+    private val navigatePlaylistUseCase: NavigatePlaylistUseCase,
     private val saveProgressUseCase: SavePlaybackProgressUseCase,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
+    private val lock = Any()
+    private var observerJob: Job? = null
     private var trackingJob: Job? = null
     private var advanceJob: Job? = null
 
-    init {
-        scope.launch {
-            sessionStateHolder.sessionActive.collect { active ->
-                if (active) {
-                    startTracking()
-                } else {
-                    stopTracking()
+    /**
+     * Ensures the session lifecycle observer is active. Idempotent and safe to call multiple times.
+     */
+    fun startObserving() {
+        synchronized(lock) {
+            if (observerJob?.isActive == true) return
+            observerJob = scope.launch {
+                sessionStateHolder.sessionActive.collect { active ->
+                    if (active) {
+                        startTracking()
+                    } else {
+                        stopTracking()
+                    }
                 }
             }
         }
@@ -64,22 +74,24 @@ class PlaybackHistoryTracker @Inject constructor(
                             ) {
                                 return@launch
                             }
-                            playNextMediaUseCase()
+                            navigatePlaylistUseCase(PlaylistStep.Next)
                         }
                     }
                 }
             }
 
-            // 2. Persist progress on pause
+            // 2. Persist progress immediately when playback transitions from playing to paused
             launch {
+                var wasPlaying = engine.isPlaying.value
                 engine.isPlaying.collect { playing ->
-                    if (!playing) {
+                    if (wasPlaying && !playing) {
                         saveProgressUseCase()
                     }
+                    wasPlaying = playing
                 }
             }
 
-            // 3. Periodic 10s checkpoint while playing
+            // 3. Periodic 10s checkpoint while playing (handles both forward playback and backward seeks)
             launch {
                 engine.isPlaying.collectLatest { playing ->
                     if (!playing) return@collectLatest
@@ -87,9 +99,11 @@ class PlaybackHistoryTracker @Inject constructor(
                     var lastCheckpointPosMs = 0L
                     while (isActive) {
                         delay(CHECKPOINT_INTERVAL_MS)
-                        val uri = engine.currentUri.value ?: continue
+                        val snapshot = engine.state.value
+                        val uri = snapshot.currentUri ?: continue
+                        val dur = snapshot.durationMs
                         val pos = engine.timePosMs.value
-                        if (uri != lastCheckpointUri || (pos - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS) {
+                        if (dur > 0L && (uri != lastCheckpointUri || abs(pos - lastCheckpointPosMs) >= CHECKPOINT_MIN_DELTA_MS)) {
                             saveProgressUseCase()
                             lastCheckpointUri = uri
                             lastCheckpointPosMs = pos

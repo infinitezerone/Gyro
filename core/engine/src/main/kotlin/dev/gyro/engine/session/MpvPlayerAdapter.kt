@@ -11,7 +11,7 @@ import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.Util
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.media.Playlist
 import dev.gyro.engine.model.PlaybackState as EnginePlaybackState
 import kotlinx.coroutines.CoroutineScope
@@ -37,14 +37,14 @@ private data class AdapterSessionState(
 )
 
 /**
- * Adapter that exposes [GyroPlayerEngine] and its [Playlist] as a Media3 [Player] via [SimpleBasePlayer].
+ * Adapter that exposes [PlayerEngine] and its [Playlist] as a Media3 [Player] via [SimpleBasePlayer].
  */
 class MpvPlayerAdapter(
-    val engine: dev.gyro.engine.api.PlayerEngine,
-    val playlist: Playlist = engine.playlist,
+    private val engine: PlayerEngine,
+    private val playlist: Playlist = engine.playlist,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()),
-    var onSkipToNext: (() -> Boolean)? = null,
-    var onSkipToPrevious: (() -> Boolean)? = null,
+    private val onSkipToNext: (() -> Boolean)? = null,
+    private val onSkipToPrevious: (() -> Boolean)? = null,
     looper: Looper = Looper.getMainLooper()
 ) : SimpleBasePlayer(looper) {
 

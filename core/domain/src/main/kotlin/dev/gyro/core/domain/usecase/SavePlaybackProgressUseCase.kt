@@ -6,20 +6,25 @@ import dev.gyro.engine.api.PlayerEngine
 import javax.inject.Inject
 
 /**
- * UseCase to take a snapshot of the current engine playback position and persist it
- * into [PlaybackHistoryRepository].
+ * Reusable single-method domain UseCase to snapshot and persist the active media's playback
+ * position into [PlaybackHistoryRepository].
+ *
+ * When [expectedUri] is supplied, validates that the engine has not already transitioned to a
+ * different URI before reading position/duration, preventing cross-video progress corruption.
  */
 class SavePlaybackProgressUseCase @Inject constructor(
     private val engine: PlayerEngine,
     private val historyRepository: PlaybackHistoryRepository,
 ) {
-    operator fun invoke(targetUri: Uri? = null) {
+    operator fun invoke(expectedUri: Uri? = null) {
         val snapshot = engine.state.value
-        val uri = targetUri ?: snapshot.currentUri ?: return
+        val activeUri = snapshot.currentUri ?: return
+        if (expectedUri != null && activeUri != expectedUri) return
+
         val curPos = engine.timePosMs.value
         val curDur = snapshot.durationMs
         if (curDur > 0L) {
-            historyRepository.saveProgress(uri, curPos, curDur)
+            historyRepository.saveProgress(activeUri, curPos, curDur)
         }
     }
 }

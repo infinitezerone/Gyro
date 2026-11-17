@@ -5,11 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.domain.model.PlaybackSessionInfo
+import dev.gyro.core.domain.model.PlaybackSource
+import dev.gyro.core.domain.model.SessionEndReason
+import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.HandleAppBackgroundUseCase
+import dev.gyro.core.domain.usecase.LoadMediaUseCase
+import dev.gyro.core.domain.usecase.ObservePlaybackSessionUseCase
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.core.domain.session.PlaybackSessionStateHolder
-import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -18,6 +22,8 @@ import javax.inject.Inject
 
 /**
  * UI state for [MainActivity], following the Now in Android architecture pattern.
+ * Completely decoupled from [dev.gyro.engine.api.PlayerEngine]; all session operations go through
+ * single-method UseCases in `:core:domain`.
  */
 sealed interface MainActivityUiState {
     data object Loading : MainActivityUiState
@@ -26,9 +32,10 @@ sealed interface MainActivityUiState {
 
 @HiltViewModel
 class MainActivityViewModel @Inject constructor(
-    private val settingsRepository: SettingsRepository,
-    private val engine: PlayerEngine,
-    private val sessionStateHolder: PlaybackSessionStateHolder,
+    settingsRepository: SettingsRepository,
+    observePlaybackSessionUseCase: ObservePlaybackSessionUseCase,
+    private val loadMediaUseCase: LoadMediaUseCase,
+    private val handleAppBackgroundUseCase: HandleAppBackgroundUseCase,
     private val endPlaybackSessionUseCase: EndPlaybackSessionUseCase,
 ) : ViewModel() {
 
@@ -40,47 +47,25 @@ class MainActivityViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000)
         )
 
-    val sessionActive: StateFlow<Boolean> get() = sessionStateHolder.sessionActive
-    val activeUri: StateFlow<Uri?> get() = engine.currentUri
+    val sessionInfo: StateFlow<PlaybackSessionInfo> = observePlaybackSessionUseCase()
 
     fun onPlayVideo(item: VideoMediaItem, currentList: List<VideoMediaItem>) {
-        val idx = currentList.indexOfFirst { it.uriString == item.uriString }
-        engine.setPlaylist(currentList, if (idx >= 0) idx else 0)
+        loadMediaUseCase(PlaybackSource.FromPlaylist(playlist = currentList, targetItem = item))
     }
 
-    /**
-     * Handles app-level backgrounding ([Activity.onStop]).
-     *
-     * Contract:
-     * - [UserSettings.backgroundAudio] governs whether playback continues when the entire application
-     *   is backgrounded (user presses Home, switches to another app, or screen is turned off).
-     * - If background audio is disabled, playback pauses; if enabled, audio continues via [PlaybackService].
-     *
-     * Contrast with [onPlayerDestinationRemoved]: leaving the player screen within the app terminates
-     * the session because there is currently no in-app mini-player host.
-     */
+    fun onPlaySingleUri(uri: Uri) {
+        loadMediaUseCase(PlaybackSource.Single(uri = uri))
+    }
+
+    fun onOpenExternalUri(uri: Uri) {
+        loadMediaUseCase(PlaybackSource.Single(uri = uri, skipIfAlreadyActive = true))
+    }
+
     fun handleAppStop(isPip: Boolean) {
-        if (isPip) return
-        if (engine.isPlaying.value) {
-            engine.detachSurface()
-            val bgAudio = (uiState.value as? MainActivityUiState.Success)?.settings?.backgroundAudio == true
-            if (!bgAudio) {
-                engine.pause()
-            }
-        }
+        handleAppBackgroundUseCase(isPip)
     }
 
-    /**
-     * The player destination left the back stack, i.e. the user is done with it (top-bar back,
-     * predictive back, system back, programmatic pop). Navigation state is the authoritative signal;
-     * a ViewModel/composable destructor is not, since it also fires for destinations that are merely
-     * covered by another screen and never fires at all on process death.
-     *
-     * Contract:
-     * In the absence of an in-app MiniPlayer component, exiting the player screen cleanly terminates
-     * playback and the foreground service via [PlaybackSessionController.leavePlayer].
-     */
     fun onPlayerDestinationRemoved() {
-        endPlaybackSessionUseCase(requestServiceStop = true)
+        endPlaybackSessionUseCase(SessionEndReason.USER_EXIT)
     }
 }

@@ -4,7 +4,7 @@ import android.view.KeyEvent
 
 /**
  * Command surface the system media pipeline drives: notification actions, service intents,
- * and headset/media-button keys. A narrow interface so hosts of [MediaSessionManager] (and
+ * and headset/media-button keys. A narrow interface so hosts of media session routing (and
  * their JVM unit tests) depend on the routing contract, not the MediaSession implementation.
  */
 interface MediaSessionControls {

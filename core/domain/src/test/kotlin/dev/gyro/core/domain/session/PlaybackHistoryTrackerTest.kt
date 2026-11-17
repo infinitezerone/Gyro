@@ -10,13 +10,14 @@ import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
+import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
+import dev.gyro.core.domain.model.PlaybackSource
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
-import dev.gyro.core.domain.usecase.SetPlaylistAndPlayUseCase
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
@@ -69,8 +70,7 @@ class PlaybackHistoryTrackerTest {
     private lateinit var loadMediaUseCase: LoadMediaUseCase
     private lateinit var saveProgressUseCase: SavePlaybackProgressUseCase
     private lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
-    private lateinit var playNextMediaUseCase: PlayNextMediaUseCase
-    private lateinit var setPlaylistAndPlayUseCase: SetPlaylistAndPlayUseCase
+    private lateinit var navigatePlaylistUseCase: NavigatePlaylistUseCase
     private lateinit var tracker: PlaybackHistoryTracker
     private lateinit var testScope: CoroutineScope
 
@@ -113,12 +113,17 @@ class PlaybackHistoryTrackerTest {
         }
         mediaRepo = FakeMediaRepository()
         val fakeSubtitleRepo = object : SubtitleRepository {
-            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<String> = emptyList()
+            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> = emptyList()
         }
 
         sessionStateHolder = PlaybackSessionStateHolder()
         saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val serviceLauncher = PlaybackServiceLauncher.NoOp
+
+        val fakeThumbnailRepo = object : ThumbnailRepository {
+            override suspend fun getThumbnail(uri: Uri?, timeMs: Long) = null
+            override fun release() {}
+        }
 
         loadMediaUseCase = LoadMediaUseCase(
             engine = engine,
@@ -129,34 +134,30 @@ class PlaybackHistoryTrackerTest {
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveProgressUseCase,
+            scope = testScope,
         )
 
         endPlaybackSessionUseCase = EndPlaybackSessionUseCase(
             engine = engine,
             saveProgressUseCase = saveProgressUseCase,
+            thumbnailRepository = fakeThumbnailRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
         )
 
-        playNextMediaUseCase = PlayNextMediaUseCase(
+        navigatePlaylistUseCase = NavigatePlaylistUseCase(
             engine = engine,
             loadMediaUseCase = loadMediaUseCase,
-            scope = testScope,
-        )
-
-        setPlaylistAndPlayUseCase = SetPlaylistAndPlayUseCase(
-            engine = engine,
-            loadMediaUseCase = loadMediaUseCase,
-            scope = testScope,
         )
 
         tracker = PlaybackHistoryTracker(
             engine = engine,
             sessionStateHolder = sessionStateHolder,
-            playNextMediaUseCase = playNextMediaUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
         )
+        tracker.startObserving()
     }
 
     @After
@@ -178,7 +179,7 @@ class PlaybackHistoryTrackerTest {
     fun testAutoAdvance_advancesWhenPlaybackEnds() = runTrackerTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        setPlaylistAndPlayUseCase(listOf(item1, item2), item1)
+        loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
         runCurrent()
 
         assertEquals(0, engine.playlist.currentIndex.value)
@@ -195,7 +196,7 @@ class PlaybackHistoryTrackerTest {
     @Test
     fun testPeriodicCheckpoint_savesProgressWhilePlaying() = runTrackerTest {
         val item = VideoMediaItem(1L, "file:///tmp/checkpoint.mp4", "Checkpoint", 60000L, 100L, 0, 0, 0L, "F")
-        setPlaylistAndPlayUseCase(listOf(item), item)
+        loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item), item))
         runCurrent()
 
         fakeBridge.emitPropertyDouble("duration", 60.0)
@@ -209,5 +210,30 @@ class PlaybackHistoryTrackerTest {
         val progress = historyRepo.getProgress(TestUri("file:///tmp/checkpoint.mp4"))
         assertNotNull(progress)
         assertEquals(10000L, progress?.positionMs)
+    }
+
+    @Test
+    fun testPeriodicCheckpoint_savesProgressAfterBackwardSeek() = runTrackerTest {
+        val uri = TestUri("file:///tmp/rewind_checkpoint.mp4")
+        val item = VideoMediaItem(1L, uri.toString(), "Rewind", 120_000L, 100L, 0, 0, 0L, "F")
+        loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item), item))
+        runCurrent()
+
+        fakeBridge.emitPropertyDouble("duration", 120.0)
+        fakeBridge.emitPropertyDouble("time-pos", 50.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        advanceTimeBy(10_500L)
+        runCurrent()
+        assertEquals(50_000L, historyRepo.getProgress(uri)?.positionMs)
+
+        // Rewind backward from 50s to 12s; next checkpoint must still persist 12s
+        fakeBridge.emitPropertyDouble("time-pos", 12.0)
+        runCurrent()
+
+        advanceTimeBy(10_500L)
+        runCurrent()
+        assertEquals(12_000L, historyRepo.getProgress(uri)?.positionMs)
     }
 }

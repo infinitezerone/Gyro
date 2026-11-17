@@ -7,7 +7,6 @@ import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.CoroutineScope

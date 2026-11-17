@@ -10,7 +10,6 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import dev.gyro.engine.model.PlaybackState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

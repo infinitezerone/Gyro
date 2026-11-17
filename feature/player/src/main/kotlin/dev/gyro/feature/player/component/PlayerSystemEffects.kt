@@ -1,9 +1,10 @@
 package dev.gyro.feature.player.component
 
-import android.app.Activity
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.os.Build
+import android.view.Display
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.PredictiveBackHandler
@@ -12,17 +13,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.PlayerState
-import dev.gyro.feature.player.PowerMonitor
 
 /**
  * Handles window, display, and OS-level side effects for [dev.gyro.feature.player.PlayerScreen]:
  * - Predictive back gesture handling
- * - Display P3 Wide Color Gamut switching
+ * - Authoritative Window Color Mode switching (HDR / Display P3 Wide Color Gamut / sRGB restore)
  * - Screen-on flag maintenance during playback
  * - Immersive sticky system bars lifecycle
  * - Controls auto-hide timer
  * - HDR format badge reveal/hide triggers
- * - Hardware thermal/power monitor startup
  * - Software audio gain cleanup on exit
  */
 @Composable
@@ -33,9 +32,9 @@ internal fun PlayerSystemEffects(
     isPlaying: Boolean,
     isPipLayout: Boolean,
     isLandscape: Boolean,
+    isHdr: Boolean,
     hdrFormat: String,
     scrubState: PlayerScrubState,
-    powerMonitor: PowerMonitor,
     onBack: () -> Unit,
     onUserExit: () -> Unit,
     onResetAudioGain: () -> Unit,
@@ -53,23 +52,40 @@ internal fun PlayerSystemEffects(
         }
     }
 
-    // 2. Dynamic color space: Enable Display P3 Wide Color Gamut while playing video, restore sRGB on exit
+    // 2. Authoritative window color space management (restores original colorMode on exit)
     @SuppressLint("WrongConstant")
     DisposableEffect(componentActivity) {
         val window = componentActivity?.window ?: return@DisposableEffect onDispose {}
         val previousColorMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             window.colorMode
         } else 0
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            @Suppress("DEPRECATION")
-            val isWide = componentActivity.windowManager.defaultDisplay?.isWideColorGamut == true
-            if (isWide) {
-                window.colorMode = ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
-            }
-        }
         onDispose {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 window.colorMode = previousColorMode
+            }
+        }
+    }
+
+    LaunchedEffect(componentActivity, isHdr) {
+        val act = componentActivity ?: return@LaunchedEffect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            @Suppress("DEPRECATION")
+            val display: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                act.display
+            } else {
+                act.windowManager.defaultDisplay
+            }
+            val supportsHdr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display?.isHdr == true
+            } else {
+                @Suppress("DEPRECATION")
+                display?.hdrCapabilities?.supportedHdrTypes?.isNotEmpty() == true
+            }
+            val supportsWideGamut = display?.isWideColorGamut == true
+            act.window.colorMode = when {
+                isHdr && supportsHdr -> ActivityInfo.COLOR_MODE_HDR
+                supportsWideGamut -> ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT
+                else -> ActivityInfo.COLOR_MODE_DEFAULT
             }
         }
     }
@@ -127,12 +143,7 @@ internal fun PlayerSystemEffects(
         }
     }
 
-    // 7. Power and thermal monitor
-    LaunchedEffect(Unit) {
-        powerMonitor.startMonitoring(this)
-    }
-
-    // 8. Clean up software gain on exit
+    // 7. Clean up software gain on exit
     DisposableEffect(Unit) {
         onDispose {
             onResetAudioGain()

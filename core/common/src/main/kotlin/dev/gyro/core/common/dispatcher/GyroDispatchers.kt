@@ -13,4 +13,5 @@ enum class GyroDispatchers {
     Default,
     IO,
     Main,
+    MainImmediate,
 }

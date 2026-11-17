@@ -18,7 +18,6 @@ dependencies {
     implementation(project(":core:engine"))
     // Session business logic is app-scoped and lives outside the feature layer.
     implementation(project(":core:domain"))
-    implementation(libs.androidx.palette)
 
     testImplementation(project(":core:datastore"))
 }

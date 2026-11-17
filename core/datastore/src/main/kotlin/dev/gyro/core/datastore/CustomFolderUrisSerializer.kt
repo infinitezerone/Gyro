@@ -2,8 +2,6 @@ package dev.gyro.core.datastore
 
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.Serializer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -33,8 +31,6 @@ object CustomFolderUrisSerializer : Serializer<List<String>> {
     }
 
     override suspend fun writeTo(t: List<String>, output: OutputStream) {
-        withContext(Dispatchers.IO) {
-            output.write(json.encodeToString(serializer, t).encodeToByteArray())
-        }
+        output.write(json.encodeToString(serializer, t).encodeToByteArray())
     }
 }

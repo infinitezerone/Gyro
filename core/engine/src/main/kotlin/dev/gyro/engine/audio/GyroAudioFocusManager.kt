@@ -7,6 +7,8 @@ import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import dev.gyro.engine.trace.EngineLog
 
@@ -87,7 +89,7 @@ class GyroAudioFocusManager(
     private val focusRequest: AudioFocusRequest? by lazy { buildFocusRequest() }
 
     private fun buildFocusRequest(): AudioFocusRequest? = runCatching {
-        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        val builder = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -96,8 +98,13 @@ class GyroAudioFocusManager(
             )
             .setAcceptsDelayedFocusGain(true)
             .setWillPauseWhenDucked(false)
-            .setOnAudioFocusChangeListener(::handleFocusChange)
-            .build()
+        val mainLooper = runCatching { Looper.getMainLooper() }.getOrNull()
+        if (mainLooper != null) {
+            builder.setOnAudioFocusChangeListener(::handleFocusChange, Handler(mainLooper))
+        } else {
+            builder.setOnAudioFocusChangeListener(::handleFocusChange)
+        }
+        builder.build()
     }.getOrNull()
 
     /**
@@ -107,6 +114,7 @@ class GyroAudioFocusManager(
      * denied; in the deferred case [Listener.onPlayRequested] fires once the grant arrives, so the
      * caller must not start playback on its own.
      */
+    @Synchronized
     override fun requestPlay(): Boolean {
         if (released) return false
         val manager = audioManager
@@ -149,6 +157,7 @@ class GyroAudioFocusManager(
      * Focus is retained so resuming stays instant, but any pending auto-resume is cancelled and a
      * duck in progress is lifted: the user paused, so the volume they set should come back.
      */
+    @Synchronized
     override fun notifyUserPaused() {
         pendingPlay = false
         pausedBy = PAUSED_BY_NONE
@@ -156,6 +165,7 @@ class GyroAudioFocusManager(
     }
 
     /** Releases focus, unregisters the receiver and restores a ducked volume. Safe to call repeatedly. */
+    @Synchronized
     override fun abandon() {
         pendingPlay = false
         pausedBy = PAUSED_BY_NONE
@@ -171,12 +181,14 @@ class GyroAudioFocusManager(
     }
 
     /** Releases focus and permanently shuts down the manager until [reset] is called. */
+    @Synchronized
     override fun release() {
         abandon()
         released = true
     }
 
     /** Resets the abandoned state so the manager can accept requests upon engine re-initialization. */
+    @Synchronized
     override fun reset() {
         released = false
         hasFocus = false
@@ -185,6 +197,7 @@ class GyroAudioFocusManager(
         focusUnavailableLogged = false
     }
 
+    @Synchronized
     internal fun handleFocusChange(change: Int) {
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {

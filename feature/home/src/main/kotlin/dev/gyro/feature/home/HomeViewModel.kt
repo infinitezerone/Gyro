@@ -1,11 +1,12 @@
 package dev.gyro.feature.home
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.CustomFolderRepository
-import dev.gyro.core.data.repository.MediaRepository
-import dev.gyro.core.data.repository.PlaybackHistoryRepository
+import dev.gyro.core.domain.model.MediaFeedQuery
+import dev.gyro.core.domain.usecase.ObserveMediaFeedUseCase
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,101 +27,66 @@ data class HomeUiState(
     val selectedFolder: String? = null,
     val searchQuery: String = "",
     val isSearching: Boolean = false,
-    val playbackMap: Map<String, PlaybackProgress> = emptyMap()
-)
-
-private data class FilterState(
-    val selectedFolder: String? = null,
-    val searchQuery: String = "",
-    val isSearching: Boolean = false
+    val playbackMap: Map<String, PlaybackProgress> = emptyMap(),
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val repository: MediaRepository,
+    observeMediaFeedUseCase: ObserveMediaFeedUseCase,
     private val customFolderRepository: CustomFolderRepository,
-    val historyRepository: PlaybackHistoryRepository
 ) : ViewModel() {
 
-    private val _isLoading = MutableStateFlow(false)
-    private val _hasPermission = MutableStateFlow(false)
-    private val _rawVideos = MutableStateFlow<List<VideoMediaItem>>(emptyList())
-    private val _filters = MutableStateFlow(FilterState())
+    private val _query = MutableStateFlow(MediaFeedQuery())
+    private val _isSearching = MutableStateFlow(false)
 
     val uiState: StateFlow<HomeUiState> = combine(
-        _isLoading,
-        _hasPermission,
-        _rawVideos,
-        _filters,
-        historyRepository.progressMap
-    ) { isLoading, hasPermission, rawVideos, filters, progressMap ->
-        val folders = rawVideos.map { it.folderName }.distinct().sorted()
-
-        val filtered = rawVideos.filter { video ->
-            val matchesFolder = filters.selectedFolder == null || video.folderName == filters.selectedFolder
-            val matchesQuery = filters.searchQuery.isBlank() || video.displayName.contains(filters.searchQuery, ignoreCase = true)
-            matchesFolder && matchesQuery
-        }
-
+        observeMediaFeedUseCase(_query),
+        _query,
+        _isSearching,
+    ) { feed, query, isSearching ->
         HomeUiState(
-            isLoading = isLoading,
-            hasPermission = hasPermission,
-            rawVideos = rawVideos,
-            filteredVideos = filtered,
-            folders = folders,
-            selectedFolder = filters.selectedFolder,
-            searchQuery = filters.searchQuery,
-            isSearching = filters.isSearching,
-            playbackMap = progressMap
+            isLoading = feed.isLoading,
+            hasPermission = query.hasPermission,
+            rawVideos = feed.rawVideos,
+            filteredVideos = feed.filteredVideos,
+            folders = feed.folders,
+            selectedFolder = feed.effectiveSelectedFolder,
+            searchQuery = query.searchQuery,
+            isSearching = isSearching,
+            playbackMap = feed.playbackMap,
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = HomeUiState(isLoading = true)
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = HomeUiState(isLoading = true),
     )
 
     fun onPermissionResult(granted: Boolean) {
-        val wasGranted = _hasPermission.value
-        _hasPermission.value = granted
-        if (granted && !wasGranted) {
-            refreshVideos()
-        }
+        _query.update { it.copy(hasPermission = granted) }
     }
 
     fun refreshVideos() {
-        viewModelScope.launch {
-            _isLoading.value = true
-            try {
-                val list = repository.getVideos()
-                _rawVideos.value = list
-            } finally {
-                _isLoading.value = false
-            }
-        }
+        _query.update { it.copy(refreshVersion = it.refreshVersion + 1) }
     }
 
     fun selectFolder(folder: String?) {
-        _filters.update { it.copy(selectedFolder = folder) }
+        _query.update { it.copy(selectedFolder = folder) }
     }
 
     fun onSearchQueryChange(query: String) {
-        _filters.update { it.copy(searchQuery = query) }
+        _query.update { it.copy(searchQuery = query) }
     }
 
     fun toggleSearch(active: Boolean) {
-        _filters.update {
-            it.copy(
-                isSearching = active,
-                searchQuery = if (!active) "" else it.searchQuery
-            )
+        _isSearching.value = active
+        if (!active) {
+            _query.update { it.copy(searchQuery = "") }
         }
     }
 
-    fun addCustomFolder(treeUri: android.net.Uri) {
+    fun addCustomFolder(treeUri: Uri) {
         viewModelScope.launch {
-            if (customFolderRepository.addFolder(treeUri)) {
-                refreshVideos()
-            }
+            customFolderRepository.addFolder(treeUri)
         }
     }
 }

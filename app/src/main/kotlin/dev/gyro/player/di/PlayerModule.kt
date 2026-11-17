@@ -6,14 +6,17 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.gyro.core.common.dispatcher.ApplicationScope
+import dev.gyro.core.common.dispatcher.Dispatcher
+import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.player.service.PlaybackServiceLauncherImpl
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Singleton
@@ -27,19 +30,28 @@ object PlayerModule {
     fun provideGyroPlayerEngine(
         @ApplicationContext context: Context,
         settingsRepository: SettingsRepository,
-        mpvConfigRepository: MpvConfigRepository
+        mpvConfigRepository: MpvConfigRepository,
+        @ApplicationScope appScope: CoroutineScope,
+        @Dispatcher(GyroDispatchers.IO) ioDispatcher: CoroutineDispatcher,
+        @Dispatcher(GyroDispatchers.Default) defaultDispatcher: CoroutineDispatcher,
+        @Dispatcher(GyroDispatchers.Main) mainDispatcher: CoroutineDispatcher,
     ): GyroPlayerEngine {
-        val engine = GyroPlayerEngine(context)
-        CoroutineScope(Dispatchers.Default + SupervisorJob()).launch {
+        val engine = GyroPlayerEngine(
+            context = context,
+            ioDispatcher = ioDispatcher,
+            defaultDispatcher = defaultDispatcher,
+            mainDispatcher = mainDispatcher,
+        )
+        appScope.launch {
             val initialSettings = settingsRepository.settings.first()
             engine.configure(
                 userOptions = mpvConfigRepository.getParsedOptions(),
-                settings = initialSettings
+                settings = initialSettings,
             )
             settingsRepository.settings.collect { updatedSettings ->
                 engine.updateSettings(
                     settings = updatedSettings,
-                    userOptions = mpvConfigRepository.getParsedOptions()
+                    userOptions = mpvConfigRepository.getParsedOptions(),
                 )
             }
         }
@@ -48,7 +60,7 @@ object PlayerModule {
 
     @Provides
     @Singleton
-    fun providePlayerEngine(engine: GyroPlayerEngine): dev.gyro.engine.api.PlayerEngine {
+    fun providePlayerEngine(engine: GyroPlayerEngine): PlayerEngine {
         return engine
     }
 

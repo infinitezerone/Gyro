@@ -14,25 +14,23 @@ import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.DefaultThumbnailRepository
 import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
+import dev.gyro.core.data.repository.PowerRepository
+import dev.gyro.core.data.repository.ScreenshotRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
+import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.session.PlaybackHistoryTracker
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.PlayMediaAtIndexUseCase
-import dev.gyro.core.domain.usecase.PlayNextMediaUseCase
-import dev.gyro.core.domain.usecase.PlayPreviousMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
-import dev.gyro.core.domain.usecase.SetPlaylistAndPlayUseCase
-import dev.gyro.core.domain.usecase.SetSingleMediaAndPlayUseCase
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
-import dev.gyro.core.testing.fakes.FakeSharedPreferences
 import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import kotlinx.coroutines.CompletableDeferred
@@ -114,12 +112,21 @@ class PlayerViewModelTest {
         }
         mediaRepo = FakeMediaRepository()
         val fakeSubtitleRepo = object : SubtitleRepository {
-            override suspend fun findCompanionSubtitles(videoUri: android.net.Uri, videoDisplayName: String?): List<String> = emptyList()
+            override suspend fun findCompanionSubtitles(videoUri: android.net.Uri, videoDisplayName: String?): List<Uri> = emptyList()
+            override suspend fun openSubtitle(subtitleUri: Uri, consume: suspend (String) -> Boolean): Boolean =
+                consume(subtitleUri.toString())
+        }
+        val fakeScreenshotRepo = object : ScreenshotRepository {
+            override suspend fun saveScreenshot(bitmap: android.graphics.Bitmap, mediaTitle: String, positionMs: Long): Boolean = true
+        }
+        val fakePowerRepo = object : PowerRepository {
+            override suspend fun readPowerMetrics(): PowerMetrics = PowerMetrics()
         }
 
         val sessionStateHolder = PlaybackSessionStateHolder()
         val saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val serviceLauncher = PlaybackServiceLauncher.NoOp
+        val thumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
         val loadMediaUseCase = LoadMediaUseCase(
             engine = engine,
             mediaRepository = mediaRepo,
@@ -129,35 +136,35 @@ class PlayerViewModelTest {
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
             saveProgressUseCase = saveProgressUseCase,
+            scope = testScope,
         )
-        val playNextMediaUseCase = PlayNextMediaUseCase(engine, loadMediaUseCase, testScope)
-        val playPreviousMediaUseCase = PlayPreviousMediaUseCase(engine, loadMediaUseCase, testScope)
-        val playMediaAtIndexUseCase = PlayMediaAtIndexUseCase(engine, loadMediaUseCase, testScope)
-        val setPlaylistAndPlayUseCase = SetPlaylistAndPlayUseCase(engine, loadMediaUseCase, testScope)
-        val setSingleMediaAndPlayUseCase = SetSingleMediaAndPlayUseCase(engine, loadMediaUseCase, testScope)
-        val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(engine, saveProgressUseCase, serviceLauncher, sessionStateHolder)
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, loadMediaUseCase)
+        val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(
+            engine = engine,
+            saveProgressUseCase = saveProgressUseCase,
+            thumbnailRepository = thumbnailRepo,
+            serviceLauncher = serviceLauncher,
+            sessionStateHolder = sessionStateHolder,
+        )
 
         PlaybackHistoryTracker(
             engine = engine,
             sessionStateHolder = sessionStateHolder,
-            playNextMediaUseCase = playNextMediaUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
-        )
+        ).startObserving()
 
         viewModel = PlayerViewModel(
             engine = engine,
-            historyRepository = historyRepo,
             settingsRepository = settingsRepo,
-            thumbnailRepository = DefaultThumbnailRepository(testContext),
+            thumbnailRepository = thumbnailRepo,
+            subtitleRepository = fakeSubtitleRepo,
+            screenshotRepository = fakeScreenshotRepo,
+            powerRepository = fakePowerRepo,
             loadMediaUseCase = loadMediaUseCase,
-            playNextMediaUseCase = playNextMediaUseCase,
-            playPreviousMediaUseCase = playPreviousMediaUseCase,
-            playMediaAtIndexUseCase = playMediaAtIndexUseCase,
-            setPlaylistAndPlayUseCase = setPlaylistAndPlayUseCase,
-            setSingleMediaAndPlayUseCase = setSingleMediaAndPlayUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
             endPlaybackSessionUseCase = endPlaybackSessionUseCase,
-            saveProgressUseCase = saveProgressUseCase,
         )
     }
 
@@ -212,7 +219,7 @@ class PlayerViewModelTest {
         val uri = TestUri("content://videos/explicit")
         engine.setSingleItem(uri, "Playlist title")
 
-        viewModel.openUri(uri, forceReload = true, displayTitle = "Explicit title")
+        viewModel.openUri(uri, displayTitle = "Explicit title")
         runCurrent()
 
         assertEquals(uri, engine.currentUri.value)
@@ -333,7 +340,7 @@ class PlayerViewModelTest {
             assertEquals(listOf(uri), mediaRepo.queriedUris)
             assertNull(engine.currentUri.value)
 
-            viewModel.openUri(uri, forceReload = true, displayTitle = "Latest title")
+            viewModel.openUri(uri, displayTitle = "Latest title")
             runCurrent()
             assertEquals("Latest title", engine.mediaTitle.value)
 
@@ -490,7 +497,7 @@ class PlayerViewModelTest {
         fakeBridge.emitPropertyDouble("time-pos", 45.0)
         testScheduler.runCurrent()
 
-        viewModel.saveCurrentProgress()
+        viewModel.onUserExit()
 
         // Writes go to Room on the repository scope and come back through the DAO flow, so the
         // value is observable one scheduler pass later, not synchronously.
@@ -586,6 +593,27 @@ class PlayerViewModelTest {
 
         // Should have called load on engine and started loading
         assertEquals(uri.toString(), engine.currentUri.value?.toString())
+    }
+
+    @Test
+    fun testInitialize_preservesPausedActiveSessionWithoutReloading() = runPlayerTest {
+        val uri = TestUri("file:///paused_active.mp4")
+        viewModel.openUri(uri, displayTitle = "Original Title")
+        testScheduler.runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        fakeBridge.emitPropertyFlag("pause", true)
+        testScheduler.runCurrent()
+
+        val loadCommandCountBefore = fakeBridge.commands.count { it.firstOrNull() == "loadfile" }
+
+        // Simulate ViewModel / screen re-entry while session is active and PAUSED
+        viewModel.initialize(uri)
+        testScheduler.runCurrent()
+
+        val loadCommandCountAfter = fakeBridge.commands.count { it.firstOrNull() == "loadfile" }
+        assertEquals(loadCommandCountBefore, loadCommandCountAfter)
+        assertEquals("Original Title", engine.mediaTitle.value)
     }
 
     private class FakeMediaRepository : MediaRepository {

@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import dev.gyro.core.common.toUri
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.ui.GyroSurfaceView
@@ -50,6 +51,7 @@ import dev.gyro.feature.player.component.PlayerPipLifecycleEffects
 import dev.gyro.feature.player.component.PlayerStatsOverlay
 import dev.gyro.feature.player.component.PlayerSystemEffects
 import dev.gyro.feature.player.component.PlayerVideoFeedLayer
+import dev.gyro.feature.player.event.PlaybackTriggerSource
 import dev.gyro.feature.player.util.rememberPlayerPalette
 
 /**
@@ -102,17 +104,23 @@ fun PlayerScreen(
         tracks.firstOrNull { it.type == "sub" && it.isSelected }?.let { lastSubTrackId = it.id }
     }
 
-    // Telemetry sampling state
-    val isStatsActive = playerState.statsOverlayEnabled ||
-        playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.STATS ||
+    // Telemetry & power sampling states (active strictly when stats UI is open)
+    val isPowerSheetActive = playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.STATS ||
         playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.SETTINGS_HUB
+    val isStatsActive = playerState.statsOverlayEnabled || isPowerSheetActive
     val telemetryState = rememberPlayerTelemetryState(
         engine = engine,
         isActive = isPlaying && isStatsActive,
     )
+    val powerState = rememberPlayerPowerState(
+        isActive = isPowerSheetActive,
+        samplePower = viewModel::samplePowerMetrics,
+    )
 
     var surfaceViewRef by remember { mutableStateOf<GyroSurfaceView?>(null) }
-    val screenshotController = rememberPlayerScreenshotController()
+    val screenshotController = rememberPlayerScreenshotController(
+        onSaveScreenshot = viewModel::saveScreenshot,
+    )
 
     val vmActiveUri by viewModel.activeUri.collectAsState()
     val engineCurrentUri = snapshot.currentUri
@@ -124,18 +132,47 @@ fun PlayerScreen(
     val hasPrevious = playlistMgr.hasPrevious
     val hasNext = playlistMgr.hasNext
 
-    // Thumbnail cache & dynamic palette
+    val loadPosterForUriString: suspend (String) -> android.graphics.Bitmap? = remember(viewModel) {
+        { uriStr ->
+            val parsed = runCatching { uriStr.toUri() }.getOrNull()
+            if (parsed != null) viewModel.loadPosterBitmap(parsed) else null
+        }
+    }
+
+    // Thumbnail cache & dynamic palette (bounded sliding-window preloader around active item)
     val thumbnailCache = rememberThumbnailCache()
-    LaunchedEffect(playlist) {
-        playlist.forEach { item ->
-            val uriStr = item.uriString
+    LaunchedEffect(playlist, currentPlaylistIndex, activeUri) {
+        val activeStr = activeUri?.toString()
+        val candidateUris = buildList {
+            if (activeStr != null) add(activeStr)
+            val center = currentPlaylistIndex.coerceIn(0, (playlist.size - 1).coerceAtLeast(0))
+            for (offset in listOf(0, 1, -1, 2, -2)) {
+                val idx = center + offset
+                if (idx in playlist.indices) {
+                    add(playlist[idx].uriString)
+                }
+            }
+        }.distinct()
+
+        for (uriStr in candidateUris) {
             if (!thumbnailCache.containsKey(uriStr)) {
-                loadVideoThumbnail(context, uriStr)?.let { thumbnailCache[uriStr] = it }
+                loadPosterForUriString(uriStr)?.let { bitmap ->
+                    if (thumbnailCache.size >= MAX_POSTER_CACHE_SIZE) {
+                        val evictKey = thumbnailCache.keys.firstOrNull { it !in candidateUris }
+                        if (evictKey != null) {
+                            thumbnailCache.remove(evictKey)
+                        }
+                    }
+                    thumbnailCache[uriStr] = bitmap
+                }
             }
         }
     }
     val currentPosterBitmap = activeUri?.let { thumbnailCache[it.toString()] }
-    val dynamicPalette = rememberPlayerPalette(currentPosterBitmap)
+    val dynamicPalette = rememberPlayerPalette(
+        bitmap = currentPosterBitmap,
+        extractPalette = viewModel::extractPalette,
+    )
 
     fun openUri(uri: Uri) {
         val item = playlist.firstOrNull { it.uriString == uri.toString() }
@@ -199,7 +236,6 @@ fun PlayerScreen(
 
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val overlayActions = rememberPlayerScreenActions(
-        engine = engine,
         viewModel = viewModel,
         playerState = playerState,
         screenshotController = screenshotController,
@@ -223,29 +259,18 @@ fun PlayerScreen(
 
     val scrubState = playerState.scrubState
     val zoomState = playerState.zoomState
-    val powerMonitor = remember { PowerMonitor(context) }
 
     // File pickers
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { pickedUri ->
-            val target = if (pickedUri.scheme == "content") {
-                val fd = runCatching {
-                    context.contentResolver.openFileDescriptor(pickedUri, "r")?.detachFd()
-                }.getOrNull() ?: -1
-                if (fd >= 0) "fdclose://$fd" else (pickedUri.path ?: pickedUri.toString())
-            } else {
-                pickedUri.path ?: pickedUri.toString()
-            }
-            viewModel.addSubtitle(target)
-        }
+        uri?.let(viewModel::addExternalSubtitle)
     }
 
     val videoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { openUri(it) }
+        uri?.let { viewModel.setSingleAndPlay(it) }
     }
 
     val shaderPicker = rememberLauncherForActivityResult(
@@ -335,7 +360,7 @@ fun PlayerScreen(
         snapshotFlow { pagerState.settledPage }
             .collect { settledPage ->
                 if (settledPage in playlist.indices && settledPage != currentPlaylistIndex) {
-                    viewModel.playAtIndex(settledPage)
+                    viewModel.playAtIndex(settledPage, source = PlaybackTriggerSource.SHORT_VIDEO_SWIPE)
                 }
             }
     }
@@ -357,9 +382,9 @@ fun PlayerScreen(
         isPlaying = isPlaying,
         isPipLayout = isPipLayout,
         isLandscape = isLandscape,
+        isHdr = snapshot.isHdr,
         hdrFormat = hdrFormat,
         scrubState = scrubState,
-        powerMonitor = powerMonitor,
         onBack = onBack,
         onUserExit = { viewModel.onUserExit() },
         onResetAudioGain = { viewModel.resetAudioSoftwareGain() }
@@ -407,8 +432,6 @@ fun PlayerScreen(
             .clipToBounds()
             .onSizeChanged { viewport.onContainerSized(it, freezeViewportFullscreen) }
     ) {
-        val powerMetrics by powerMonitor.powerMetrics.collectAsState()
-
         // 1. Video Canvas & Vertical Pager Feed
         PlayerVideoFeedLayer(
             engine = engine,
@@ -427,8 +450,9 @@ fun PlayerScreen(
             isLandscape = isLandscape,
             pipTransitionActive = pipState.isTransitionActive,
             freezeViewportFullscreen = freezeViewportFullscreen,
+            onLoadPoster = loadPosterForUriString,
             onSurfaceViewAvailable = { surfaceViewRef = it },
-            onRetryPlayback = { activeUri?.let { viewModel.openUri(it, forceReload = true) } },
+            onRetryPlayback = { activeUri?.let { openUri(it) } },
         )
 
         // 2. Buffering Spinner
@@ -541,7 +565,7 @@ fun PlayerScreen(
                         mediaTitle = mediaTitle,
                         activeUri = activeUri,
                         telemetryState = telemetryState,
-                        powerMetrics = powerMetrics,
+                        powerMetrics = powerState.metrics,
                         onImportCustomShader = { shaderPicker.launch(arrayOf("*/*")) },
                         onAddExternalSubtitle = {
                             subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))

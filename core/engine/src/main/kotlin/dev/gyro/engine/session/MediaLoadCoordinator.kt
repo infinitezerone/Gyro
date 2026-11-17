@@ -15,6 +15,7 @@ import dev.gyro.engine.trace.SwitchTrace
 import dev.gyro.engine.tuning.SyncTuningController
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,12 +43,15 @@ class MediaLoadCoordinator(
     private val tuning: SyncTuningController,
     private val playbackController: PlaybackLifecycleController,
     private val coroutineScope: () -> CoroutineScope,
-    private val ensureInitialized: () -> Unit
+    private val ensureInitialized: () -> Unit,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
 
     companion object {
         private const val TAG = "MediaLoadCoordinator"
     }
+
+    private val surfaceLock = Any()
 
     @Volatile
     var isSurfaceAttached: Boolean = false
@@ -75,10 +79,12 @@ class MediaLoadCoordinator(
     private var currentLoadJob: Job? = null
 
     private fun discardPending() {
-        pendingSource?.close()
-        pendingSource = null
-        pendingLabel = ""
-        pendingEpoch = 0L
+        synchronized(surfaceLock) {
+            pendingSource?.close()
+            pendingSource = null
+            pendingLabel = ""
+            pendingEpoch = 0L
+        }
     }
 
     fun load(item: MediaItem) {
@@ -113,7 +119,7 @@ class MediaLoadCoordinator(
                     val resolved = resolver.resolve(item)
                     owned = resolved
                     SwitchTrace.log("RESOLVE_PATH_DONE", "target=${resolved.targetDescription}, epoch=$jobEpoch")
-                    withContext(Dispatchers.Main) {
+                    withContext(mainDispatcher) {
                         if (jobEpoch == bridge.currentEpoch()) {
                             submitOrQueue(resolved, item.startPositionMs, target, epoch = jobEpoch)
                         } else {
@@ -199,29 +205,31 @@ class MediaLoadCoordinator(
         label: String,
         epoch: Long = bridge.currentEpoch()
     ) {
-        if (epoch != bridge.currentEpoch()) {
-            EngineLog.i(TAG, "submitOrQueue: dropping obsolete load for epoch $epoch (current=${bridge.currentEpoch()})")
-            source.close()
-            return
-        }
-        if (!isSurfaceAttached && !isHeadlessMode) {
-            EngineLog.i(TAG, "load: surface not attached yet, queueing $label (epoch=$epoch)")
-            discardPending()
-            pendingSource = source
-            pendingStartMs = startPositionMs
-            pendingLabel = label
-            pendingEpoch = epoch
-            store.batch {
-                store.update {
-                    it.copy(
-                        playbackState = PlaybackState.BUFFERING,
-                        session = SessionPhase.AwaitingSurface(label, startPositionMs)
-                    )
-                }
+        synchronized(surfaceLock) {
+            if (epoch != bridge.currentEpoch()) {
+                EngineLog.i(TAG, "submitOrQueue: dropping obsolete load for epoch $epoch (current=${bridge.currentEpoch()})")
+                source.close()
+                return
             }
-            return
+            if (!isSurfaceAttached && !isHeadlessMode) {
+                EngineLog.i(TAG, "load: surface not attached yet, queueing $label (epoch=$epoch)")
+                discardPending()
+                pendingSource = source
+                pendingStartMs = startPositionMs
+                pendingLabel = label
+                pendingEpoch = epoch
+                store.batch {
+                    store.update {
+                        it.copy(
+                            playbackState = PlaybackState.BUFFERING,
+                            session = SessionPhase.AwaitingSurface(label, startPositionMs)
+                        )
+                    }
+                }
+                return
+            }
+            submit(source, startPositionMs, label, epoch = epoch)
         }
-        submit(source, startPositionMs, label, epoch = epoch)
     }
 
     private fun submit(
@@ -258,51 +266,59 @@ class MediaLoadCoordinator(
     }
 
     fun attachSurface(surface: Surface) {
-        attachedSurfaceRef = surface
-        isSurfaceAttached = true
-        isHeadlessMode = false
-        bridge.attachSurface(surface)
-        flushPendingSourceOnSurfaceReady()
+        synchronized(surfaceLock) {
+            attachedSurfaceRef = surface
+            isSurfaceAttached = true
+            isHeadlessMode = false
+            bridge.attachSurface(surface)
+            flushPendingSourceOnSurfaceReady()
+        }
     }
 
     fun attachSurface(surfaceToken: Any) {
-        if (surfaceToken is Surface) {
-            attachSurface(surfaceToken)
-            return
+        synchronized(surfaceLock) {
+            if (surfaceToken is Surface) {
+                attachSurface(surfaceToken)
+                return
+            }
+            attachedSurfaceRef = surfaceToken
+            isSurfaceAttached = true
+            isHeadlessMode = false
+            flushPendingSourceOnSurfaceReady()
         }
-        attachedSurfaceRef = surfaceToken
-        isSurfaceAttached = true
-        isHeadlessMode = false
-        flushPendingSourceOnSurfaceReady()
     }
 
     private fun flushPendingSourceOnSurfaceReady() {
-        pendingSource?.let { source ->
-            val startMs = pendingStartMs
-            val label = pendingLabel
-            val epoch = pendingEpoch
-            pendingSource = null
-            pendingLabel = ""
-            pendingEpoch = 0L
-            if (epoch == bridge.currentEpoch()) {
-                EngineLog.i(TAG, "attachSurface: surface ready, flushing queued $label (epoch=$epoch)")
-                submit(source, startMs, label, epoch = epoch)
-            } else {
-                EngineLog.i(TAG, "attachSurface: discarding stale queued source for epoch $epoch (current=${bridge.currentEpoch()})")
-                source.close()
+        synchronized(surfaceLock) {
+            pendingSource?.let { source ->
+                val startMs = pendingStartMs
+                val label = pendingLabel
+                val epoch = pendingEpoch
+                pendingSource = null
+                pendingLabel = ""
+                pendingEpoch = 0L
+                if (epoch == bridge.currentEpoch()) {
+                    EngineLog.i(TAG, "attachSurface: surface ready, flushing queued $label (epoch=$epoch)")
+                    submit(source, startMs, label, epoch = epoch)
+                } else {
+                    EngineLog.i(TAG, "attachSurface: discarding stale queued source for epoch $epoch (current=${bridge.currentEpoch()})")
+                    source.close()
+                }
             }
         }
     }
 
     fun detachSurface(surface: Any?) {
-        if (!isSurfaceAttached) return
-        if (surface != null && attachedSurfaceRef !== surface) {
-            EngineLog.i(TAG, "detachSurface ignored: engine holds a different surface")
-            return
+        synchronized(surfaceLock) {
+            if (!isSurfaceAttached) return
+            if (surface != null && attachedSurfaceRef !== surface) {
+                EngineLog.i(TAG, "detachSurface ignored: engine holds a different surface")
+                return
+            }
+            isSurfaceAttached = false
+            attachedSurfaceRef = null
+            bridge.detachSurface()
         }
-        isSurfaceAttached = false
-        attachedSurfaceRef = null
-        bridge.detachSurface()
     }
 
     fun redraw() {

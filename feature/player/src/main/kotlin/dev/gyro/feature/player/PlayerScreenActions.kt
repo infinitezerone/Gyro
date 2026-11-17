@@ -6,21 +6,19 @@ import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.feature.player.component.PlayerOverlayActions
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 
 /**
  * Hoisted factory for [PlayerOverlayActions], wiring every UI control interaction callback
- * to the underlying engine, viewModel, and playerState according to the domain contract.
+ * to [PlayerViewModel] and [PlayerState].
  *
  * Enforces the core invariant: every user interaction callback calls [PlayerState.resetControlsTimeout]
  * to maintain visibility and prevent premature auto-hiding during active interaction.
  */
 @Composable
 fun rememberPlayerScreenActions(
-    engine: PlayerEngine,
     viewModel: PlayerViewModel,
     playerState: PlayerState,
     screenshotController: PlayerScreenshotController,
@@ -36,10 +34,6 @@ fun rememberPlayerScreenActions(
     seekStepSeconds: Int = 10,
     onEnterPiP: () -> Unit = {},
 ): PlayerOverlayActions {
-    // These providers close over per-composition values (durationMs, timePos, current title...).
-    // The actions object is remembered across recompositions, so capturing the first lambda here
-    // would freeze those values at their initial state (typically 0/empty on cold start) and every
-    // seek would target 0. rememberUpdatedState keeps the remembered actions reading the latest.
     val durationMsProviderState = rememberUpdatedState(durationMsProvider)
     val timePosMsProviderState = rememberUpdatedState(timePosMsProvider)
     val surfaceViewProviderState = rememberUpdatedState(surfaceViewProvider)
@@ -48,7 +42,6 @@ fun rememberPlayerScreenActions(
     val onEnterPiPState = rememberUpdatedState(onEnterPiP)
 
     return remember(
-        engine,
         viewModel,
         playerState,
         screenshotController,
@@ -59,7 +52,6 @@ fun rememberPlayerScreenActions(
         seekStepSeconds,
     ) {
         createPlayerOverlayActions(
-            engine = engine,
             viewModel = viewModel,
             playerState = playerState,
             screenshotController = screenshotController,
@@ -80,10 +72,9 @@ fun rememberPlayerScreenActions(
 
 /**
  * Pure factory creating [PlayerOverlayActions] without Compose runtime dependency,
- * enabling direct JVM unit testing of all interaction callbacks and timeout reset invariants.
+ * routing all playback commands through [PlayerViewModel].
  */
 fun createPlayerOverlayActions(
-    engine: PlayerEngine,
     viewModel: PlayerViewModel,
     playerState: PlayerState,
     screenshotController: PlayerScreenshotController,
@@ -103,7 +94,7 @@ fun createPlayerOverlayActions(
     return PlayerOverlayActions(
         onTogglePlayPause = {
             onResetControlsTimeout()
-            engine.togglePlayPause()
+            viewModel.togglePlayPause()
         },
         onToggleLock = {
             onResetControlsTimeout()
@@ -113,7 +104,7 @@ fun createPlayerOverlayActions(
         onSeekToFraction = { fraction ->
             onResetControlsTimeout()
             val target = (fraction * durationMsProvider()).toLong()
-            engine.seekTo(target)
+            viewModel.seekTo(target)
         },
         onEnterPiP = {
             onEnterPiP()
@@ -153,18 +144,18 @@ fun createPlayerOverlayActions(
         },
         onRewind10 = {
             onResetControlsTimeout()
-            engine.seekRelative(-seekStepSeconds * 1000L)
+            viewModel.seekRelative(-seekStepSeconds * 1000L)
         },
         onForward10 = {
             onResetControlsTimeout()
-            engine.seekRelative(seekStepSeconds * 1000L)
+            viewModel.seekRelative(seekStepSeconds * 1000L)
         },
         onToggleSubtitle = {
             onResetControlsTimeout()
             if (subtitleEnabled) {
-                engine.trackManager.selectTrack("sub", 0)
+                viewModel.selectSubtitleTrack(0)
             } else {
-                engine.trackManager.selectTrack("sub", lastSubTrackId.coerceAtLeast(1))
+                viewModel.selectSubtitleTrack(lastSubTrackId.coerceAtLeast(1))
             }
         },
         onCycleAbLoop = {
@@ -185,19 +176,19 @@ fun createPlayerOverlayActions(
         },
         onPausePlayback = {
             onResetControlsTimeout()
-            engine.pause()
+            viewModel.pause()
         },
         onResumePlayback = {
             onResetControlsTimeout()
-            engine.play()
+            viewModel.play()
         },
         onFrameStep = {
             onResetControlsTimeout()
-            engine.frameStep()
+            viewModel.frameStep()
         },
         onFrameBackStep = {
             onResetControlsTimeout()
-            engine.frameBackStep()
+            viewModel.frameBackStep()
         },
         onPreciseSeek = { targetMs, isScrubbing ->
             onResetControlsTimeout()

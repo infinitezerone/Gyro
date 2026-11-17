@@ -3,8 +3,6 @@ package dev.gyro.core.datastore
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.Serializer
 import dev.gyro.core.model.UserSettings
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.InputStream
 import java.io.OutputStream
@@ -30,8 +28,6 @@ object UserSettingsSerializer : Serializer<UserSettings> {
     }
 
     override suspend fun writeTo(t: UserSettings, output: OutputStream) {
-        withContext(Dispatchers.IO) {
-            output.write(json.encodeToString(UserSettings.serializer(), t).encodeToByteArray())
-        }
+        output.write(json.encodeToString(UserSettings.serializer(), t).encodeToByteArray())
     }
 }

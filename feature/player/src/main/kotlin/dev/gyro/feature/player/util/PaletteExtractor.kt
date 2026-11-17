@@ -6,26 +6,26 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.palette.graphics.Palette
-import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-private const val TAG = "PaletteExtractor"
+import dev.gyro.core.model.MediaPalette
 
 /**
- * Extracted dynamic palette colors from media poster/frame using Jetpack Palette.
+ * Extracted dynamic palette colors from media poster/frame.
  */
 data class PlayerPaletteColors(
     val dominantColor: Color = Color.Transparent,
-    val accentColor: Color = Color(0xFF6750A4),
-    val darkMutedColor: Color = Color(0xFF14171F)
+    val accentColor: Color = Color(MediaPalette.DEFAULT_ACCENT_ARGB),
+    val darkMutedColor: Color = Color(MediaPalette.DEFAULT_DARK_MUTED_ARGB),
 )
 
 @Composable
-fun rememberPlayerPalette(bitmap: Bitmap?): PlayerPaletteColors {
+fun rememberPlayerPalette(
+    bitmap: Bitmap?,
+    extractPalette: suspend (Bitmap?) -> MediaPalette,
+): PlayerPaletteColors {
+    val extractPaletteState = rememberUpdatedState(extractPalette)
     var paletteColors by remember(bitmap) {
         mutableStateOf(PlayerPaletteColors())
     }
@@ -35,30 +35,12 @@ fun rememberPlayerPalette(bitmap: Bitmap?): PlayerPaletteColors {
             paletteColors = PlayerPaletteColors()
             return@LaunchedEffect
         }
-
-        withContext(Dispatchers.Default) {
-            try {
-                val palette = Palette.from(bitmap)
-                    .maximumColorCount(16)
-                    .generate()
-
-                val dominant = palette.dominantSwatch?.rgb?.let { Color(it) } ?: Color.Transparent
-                val vibrant = palette.vibrantSwatch?.rgb?.let { Color(it) }
-                    ?: palette.lightVibrantSwatch?.rgb?.let { Color(it) }
-                    ?: Color(0xFF6750A4)
-                val darkMuted = palette.darkMutedSwatch?.rgb?.let { Color(it) }
-                    ?: palette.mutedSwatch?.rgb?.let { Color(it) }
-                    ?: Color(0xFF14171F)
-
-                paletteColors = PlayerPaletteColors(
-                    dominantColor = dominant,
-                    accentColor = vibrant,
-                    darkMutedColor = darkMuted
-                )
-            } catch (e: Throwable) {
-                Log.w(TAG, "Palette extraction failed, falling back to defaults", e)
-            }
-        }
+        val mediaPalette = extractPaletteState.value(bitmap)
+        paletteColors = PlayerPaletteColors(
+            dominantColor = mediaPalette.dominantArgb?.let(::Color) ?: Color.Transparent,
+            accentColor = Color(mediaPalette.accentArgb),
+            darkMutedColor = Color(mediaPalette.darkMutedArgb),
+        )
     }
 
     return paletteColors
