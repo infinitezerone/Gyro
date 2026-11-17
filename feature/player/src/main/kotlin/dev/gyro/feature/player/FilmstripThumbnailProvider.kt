@@ -8,12 +8,14 @@ import android.os.Build
 import android.util.LruCache
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 /**
  * Thread-safe provider and cache for video filmstrip thumbnails.
@@ -42,6 +44,7 @@ class FilmstripThumbnailProvider @Inject constructor(
 
         return withContext(Dispatchers.IO) {
             mutex.withLock {
+                coroutineContext.ensureActive()
                 val cachedLocked = cache.get(key)
                 if (cachedLocked != null) return@withLock cachedLocked
 
@@ -63,22 +66,24 @@ class FilmstripThumbnailProvider @Inject constructor(
                         currentUri = uri
                     }
                     val mmr = retriever ?: return@withLock null
+                    coroutineContext.ensureActive()
                     val timeUs = (timeMs * 1000L).coerceAtLeast(0L)
                     val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        // 优先提取时间点真实帧（包含 P/B 帧），避免整段 GOP 关键帧区间返回完全相同的图片
                         mmr.getScaledFrameAtTime(
-                            timeUs,
-                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                            240,
-                            135
-                        ) ?: mmr.getScaledFrameAtTime(
                             timeUs,
                             MediaMetadataRetriever.OPTION_CLOSEST,
                             240,
                             135
+                        ) ?: mmr.getScaledFrameAtTime(
+                            timeUs,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            240,
+                            135
                         )
                     } else {
-                        mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                            ?: mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                        mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                            ?: mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                     }
                     if (bitmap != null) {
                         cache.put(key, bitmap)
