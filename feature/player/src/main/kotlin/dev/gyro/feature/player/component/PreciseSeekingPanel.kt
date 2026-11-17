@@ -287,7 +287,17 @@ fun PreciseSeekingPanel(
                     durationMs = durationMs,
                     bufferedPosMs = bufferedPosMs,
                     scrubState = scrubState,
-                    onSeekToFraction = onSeekToFraction,
+                    onSeekToFraction = { frac ->
+                        onSeekToFraction(frac)
+                        if (durationMs > 0L) {
+                            val targetMs = (frac * durationMs).toLong()
+                            val targetIndex = (targetMs / stepMs).toInt().coerceIn(0, totalSteps - 1)
+                            val offsetInsideStep = ((targetMs % stepMs).toFloat() / stepMs * slotWidthPx).toInt()
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(targetIndex, offsetInsideStep)
+                            }
+                        }
+                    },
                     chapters = chapters,
                     abLoopASeconds = abLoopASeconds,
                     abLoopBSeconds = abLoopBSeconds,
