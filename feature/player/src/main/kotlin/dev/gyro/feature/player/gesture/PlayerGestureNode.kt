@@ -395,6 +395,38 @@ class PlayerGestureNode(
             val timeDelta = now - lastTapTimestamp
             val tapDist = hypot(downPosition.x - lastTapPosition.x, downPosition.y - lastTapPosition.y)
             val isDoubleTapAccumulating = doubleTapJob?.isActive == true && doubleTapSide != null
+            val thirdW = size.width / 3f
+            val isLeftSide = downPosition.x < thirdW
+            val isRightSide = downPosition.x > size.width - thirdW
+            val isSameAccumulatingSide = (isLeftSide && doubleTapSide == DoubleTapSide.LEFT) ||
+                (isRightSide && doubleTapSide == DoubleTapSide.RIGHT)
+
+            if (isDoubleTapAccumulating && isSameAccumulatingSide && !isOutsidePortraitActiveZone && config.isDoubleTapSeekEnabled) {
+                // Subsequent single taps within active accumulation window: increment/decrement directly!
+                singleTapJob?.cancel()
+                singleTapJob = null
+                lastTapTimestamp = 0L
+
+                accumulatedSeconds += config.doubleTapSeekSeconds
+                val currentSide = doubleTapSide ?: (if (isLeftSide) DoubleTapSide.LEFT else DoubleTapSide.RIGHT)
+                callbacks.onHudStateChange(GestureHudState.DoubleTap(currentSide, accumulatedSeconds))
+
+                doubleTapJob?.cancel()
+                doubleTapJob = coroutineScope.launch {
+                    delay(650L)
+                    val seekDelta = if (currentSide == DoubleTapSide.LEFT) {
+                        -accumulatedSeconds * 1000L
+                    } else {
+                        accumulatedSeconds * 1000L
+                    }
+                    callbacks.onDoubleTapSeek(seekDelta)
+                    accumulatedSeconds = 0
+                    doubleTapSide = null
+                    delay(400L)
+                    callbacks.onHudStateChange(GestureHudState.Idle)
+                }
+                return@awaitEachGesture
+            }
 
             if (timeDelta in 40L..config.doubleTapTimeoutMs && tapDist < touchSlop * 3.5f) {
                 // Detected Double-Tap!
@@ -413,16 +445,11 @@ class PlayerGestureNode(
                     return@awaitEachGesture
                 }
 
-                val thirdW = size.width / 3f
-                if (downPosition.x < thirdW && config.isDoubleTapSeekEnabled) {
+                if (isLeftSide && config.isDoubleTapSeekEnabled) {
                     // Left double-tap (Seek Backward)
                     val stepSeconds = config.doubleTapSeekSeconds
-                    if (isDoubleTapAccumulating && doubleTapSide == DoubleTapSide.LEFT) {
-                        accumulatedSeconds += stepSeconds
-                    } else {
-                        accumulatedSeconds = stepSeconds
-                        doubleTapSide = DoubleTapSide.LEFT
-                    }
+                    accumulatedSeconds = stepSeconds
+                    doubleTapSide = DoubleTapSide.LEFT
                     callbacks.onHudStateChange(GestureHudState.DoubleTap(DoubleTapSide.LEFT, accumulatedSeconds))
 
                     doubleTapJob?.cancel()
@@ -434,15 +461,11 @@ class PlayerGestureNode(
                         delay(400L)
                         callbacks.onHudStateChange(GestureHudState.Idle)
                     }
-                } else if (downPosition.x > size.width - thirdW && config.isDoubleTapSeekEnabled) {
+                } else if (isRightSide && config.isDoubleTapSeekEnabled) {
                     // Right double-tap (Seek Forward)
                     val stepSeconds = config.doubleTapSeekSeconds
-                    if (isDoubleTapAccumulating && doubleTapSide == DoubleTapSide.RIGHT) {
-                        accumulatedSeconds += stepSeconds
-                    } else {
-                        accumulatedSeconds = stepSeconds
-                        doubleTapSide = DoubleTapSide.RIGHT
-                    }
+                    accumulatedSeconds = stepSeconds
+                    doubleTapSide = DoubleTapSide.RIGHT
                     callbacks.onHudStateChange(GestureHudState.DoubleTap(DoubleTapSide.RIGHT, accumulatedSeconds))
 
                     doubleTapJob?.cancel()
@@ -460,6 +483,24 @@ class PlayerGestureNode(
                 }
             } else {
                 // First tap
+                if (isDoubleTapAccumulating) {
+                    // Tap occurred outside current accumulation side; commit pending seek immediately
+                    doubleTapJob?.cancel()
+                    doubleTapJob = null
+                    val currentSide = doubleTapSide
+                    if (currentSide != null && accumulatedSeconds > 0) {
+                        val seekDelta = if (currentSide == DoubleTapSide.LEFT) {
+                            -accumulatedSeconds * 1000L
+                        } else {
+                            accumulatedSeconds * 1000L
+                        }
+                        callbacks.onDoubleTapSeek(seekDelta)
+                    }
+                    accumulatedSeconds = 0
+                    doubleTapSide = null
+                    callbacks.onHudStateChange(GestureHudState.Idle)
+                }
+
                 lastTapTimestamp = now
                 lastTapPosition = downPosition
                 singleTapJob?.cancel()
