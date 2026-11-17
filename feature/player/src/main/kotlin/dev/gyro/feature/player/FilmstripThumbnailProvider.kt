@@ -68,16 +68,23 @@ class FilmstripThumbnailProvider @Inject constructor(
                     val mmr = retriever ?: return@withLock null
                     coroutineContext.ensureActive()
                     val timeUs = (timeMs * 1000L).coerceAtLeast(0L)
+                    // 1. 采用 16/8 字节对齐偶数尺寸 (240x136)，防止 YUV420 色度半采样因奇数高度 (135) 导致步幅跨行错位花屏
+                    // 2. 优先采用 OPTION_PREVIOUS_SYNC，避免跳入 Open-GOP (CRA) 导致缺失前置参考帧解码出撕裂绿块花屏 (RASL 脏帧)
                     val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                        // 极速关键帧通道：直接由解复用器走索引表抓取，耗时 1~2ms，CPU/GPU 零负担
                         mmr.getScaledFrameAtTime(
+                            timeUs,
+                            MediaMetadataRetriever.OPTION_PREVIOUS_SYNC,
+                            240,
+                            136
+                        ) ?: mmr.getScaledFrameAtTime(
                             timeUs,
                             MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                             240,
-                            135
+                            136
                         )
                     } else {
-                        mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC)
+                            ?: mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                     }
                     if (bitmap != null) {
                         cache.put(key, bitmap)
