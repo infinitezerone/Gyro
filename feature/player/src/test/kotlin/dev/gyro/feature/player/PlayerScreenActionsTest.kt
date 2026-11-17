@@ -104,6 +104,7 @@ class PlayerScreenActionsTest {
                 scope = testScope,
             ),
             settingsRepository = settingsRepo,
+            filmstripThumbnailProvider = FilmstripThumbnailProvider(testContext),
         )
 
         playerState = PlayerState(

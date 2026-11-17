@@ -10,7 +10,10 @@ import androidx.compose.runtime.setValue
  */
 data class PlayerScrubSnapshot(
     val active: Boolean = false,
-    val fraction: Float = 0f
+    val fraction: Float = 0f,
+    val isPreciseSeeking: Boolean = false,
+    val originTimeMs: Long = 0L,
+    val wasPlayingBeforePreciseSeek: Boolean = false
 )
 
 /**
@@ -18,9 +21,10 @@ data class PlayerScrubSnapshot(
  * Both horizontal on-screen gestures and the bottom scrub bar read and write via this holder.
  * Leaf composables read from this state to avoid recomposing the entire controls overlay.
  *
- * Display-only by contract: this holder describes where the playhead *would* land. It must not be
- * used to decide whether the control layer is visible (that is [PlayerState.showControls] alone),
- * otherwise a swipe anywhere on the video surface starts waking the top/bottom bars.
+ * In YouTube-style Precise Seeking mode:
+ * - Entering precise seek pauses video and remembers origin position & playing status.
+ * - When finger releases, precise seeking mode REMAINS OPEN, keeping the video paused and
+ *   holding the filmstrip visible until user confirms (Resume) or cancels.
  */
 @Stable
 class PlayerScrubState {
@@ -33,20 +37,46 @@ class PlayerScrubState {
     val fraction: Float
         get() = state.fraction
 
+    val isPreciseSeeking: Boolean
+        get() = state.isPreciseSeeking
+
+    val originTimeMs: Long
+        get() = state.originTimeMs
+
+    val wasPlayingBeforePreciseSeek: Boolean
+        get() = state.wasPlayingBeforePreciseSeek
+
     fun begin(fraction: Float) {
-        state = PlayerScrubSnapshot(active = true, fraction = fraction.coerceIn(0f, 1f))
+        val clamped = fraction.coerceIn(0f, 1f)
+        state = state.copy(
+            active = true,
+            fraction = clamped
+        )
     }
 
     fun update(fraction: Float) {
-        if (!state.active) return
+        if (!state.active && !state.isPreciseSeeking) return
         state = state.copy(fraction = fraction.coerceIn(0f, 1f))
     }
 
+    fun enterPreciseSeeking(originMs: Long, wasPlaying: Boolean) {
+        state = state.copy(
+            isPreciseSeeking = true,
+            originTimeMs = originMs,
+            wasPlayingBeforePreciseSeek = wasPlaying
+        )
+    }
+
+    fun exitPreciseSeeking() {
+        state = state.copy(isPreciseSeeking = false)
+    }
+
     fun end(fraction: Float) {
-        state = PlayerScrubSnapshot(active = false, fraction = fraction.coerceIn(0f, 1f))
+        // Preserves isPreciseSeeking so the panel stays open after finger release!
+        state = state.copy(active = false, fraction = fraction.coerceIn(0f, 1f))
     }
 
     fun cancel() {
-        state = PlayerScrubSnapshot(active = false, fraction = 0f)
+        state = PlayerScrubSnapshot(active = false, fraction = 0f, isPreciseSeeking = false)
     }
 }

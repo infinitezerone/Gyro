@@ -24,5 +24,10 @@ data class PlayerOverlayActions(
     val onToggleSubtitle: () -> Unit = {},
     val onCycleAbLoop: () -> Unit = {},
     val onClearAbLoop: () -> Unit = {},
-    val onScreenshot: () -> Unit = {}
+    val onScreenshot: () -> Unit = {},
+    val onPausePlayback: () -> Unit = {},
+    val onResumePlayback: () -> Unit = {},
+    val onFrameStep: () -> Unit = {},
+    val onFrameBackStep: () -> Unit = {},
+    val onPreciseSeek: (Long, Boolean) -> Unit = { _, _ -> }
 )

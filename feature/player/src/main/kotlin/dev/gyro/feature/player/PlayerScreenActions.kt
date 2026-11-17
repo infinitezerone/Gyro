@@ -183,5 +183,25 @@ fun createPlayerOverlayActions(
                 positionMs = timePosMsProvider(),
             )
         },
+        onPausePlayback = {
+            onResetControlsTimeout()
+            engine.pause()
+        },
+        onResumePlayback = {
+            onResetControlsTimeout()
+            engine.play()
+        },
+        onFrameStep = {
+            onResetControlsTimeout()
+            engine.frameStep()
+        },
+        onFrameBackStep = {
+            onResetControlsTimeout()
+            engine.frameBackStep()
+        },
+        onPreciseSeek = { targetMs, isScrubbing ->
+            onResetControlsTimeout()
+            viewModel.onPreciseSeek(targetMs, isScrubbing)
+        },
     )
 }

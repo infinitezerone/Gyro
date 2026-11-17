@@ -19,6 +19,7 @@ import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.feature.player.FilmstripThumbnailProvider
 import dev.gyro.feature.player.PlayerViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +106,7 @@ class PlayerDomainEventTest {
                 scope = testScope,
             ),
             settingsRepository = settingsRepo,
+            filmstripThumbnailProvider = FilmstripThumbnailProvider(testContext),
         )
     }
 

@@ -95,7 +95,7 @@ fun BoxScope.PlayerHudOverlay(
     Box(modifier = modifier.fillMaxSize()) {
         // 0. Top-Center Scrub & Gesture Seek Time Preview（拖拽进度条或屏幕水平滑动快进/快退，屏幕正上方显示目标时间与偏差）
         var lastValidTargetMs by remember { mutableLongStateOf(0L) }
-        val isSeeking = scrubState.isActive || hudState is GestureHudState.Seek
+        val isSeeking = (scrubState.isActive && !scrubState.isPreciseSeeking) || hudState is GestureHudState.Seek
         val total = durationMs()
         if (isSeeking && total > 0L) {
             val liveMs = when {

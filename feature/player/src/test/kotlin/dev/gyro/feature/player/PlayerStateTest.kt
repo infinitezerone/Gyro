@@ -41,6 +41,7 @@ class PlayerStateTest {
         subject.showControls()
 
         assertFalse("scrubbing", subject.canAutoHide(isScrubbing = true, isPipLayout = false))
+        assertFalse("precise seeking", subject.canAutoHide(isScrubbing = false, isPipLayout = false, isPreciseSeeking = true))
         assertFalse("PiP", subject.canAutoHide(isScrubbing = false, isPipLayout = true))
 
         subject.isLocked = true
@@ -98,5 +99,34 @@ class PlayerStateTest {
         runCurrent()
 
         assertFalse(subject.formatBadgeVisible)
+    }
+
+    @Test
+    fun scrubStateTracksPreciseSeekingLifecycle() {
+        val scrub = PlayerScrubState()
+        assertFalse(scrub.isActive)
+        assertFalse(scrub.isPreciseSeeking)
+
+        scrub.begin(0.35f)
+        assertTrue(scrub.isActive)
+        org.junit.Assert.assertEquals(0.35f, scrub.fraction, 0.0001f)
+        assertFalse(scrub.isPreciseSeeking)
+
+        scrub.enterPreciseSeeking(originMs = 35_000L, wasPlaying = true)
+        assertTrue(scrub.isPreciseSeeking)
+        org.junit.Assert.assertEquals(35_000L, scrub.originTimeMs)
+        assertTrue(scrub.wasPlayingBeforePreciseSeek)
+
+        scrub.update(0.42f)
+        org.junit.Assert.assertEquals(0.42f, scrub.fraction, 0.0001f)
+        assertTrue(scrub.isPreciseSeeking)
+
+        // On finger release, active becomes false but isPreciseSeeking remains TRUE (holding open!)
+        scrub.end(0.42f)
+        assertFalse(scrub.isActive)
+        assertTrue("Precise seeking panel must remain held open on finger lift", scrub.isPreciseSeeking)
+
+        scrub.exitPreciseSeeking()
+        assertFalse(scrub.isPreciseSeeking)
     }
 }

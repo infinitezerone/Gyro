@@ -1,5 +1,6 @@
 package dev.gyro.feature.player
 
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -38,7 +39,8 @@ import javax.inject.Inject
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     val session: PlaybackSessionController,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    val filmstripThumbnailProvider: FilmstripThumbnailProvider
 ) : ViewModel() {
 
     val engine: PlayerEngine get() = session.engine
@@ -216,5 +218,69 @@ class PlayerViewModel @Inject constructor(
         // background playback, so they are not cancelled here.
         saveCurrentProgress()
         session.cancelPendingLoad()
+        filmstripThumbnailProvider.release()
+    }
+
+    private var pendingPreciseSeekJob: Job? = null
+    private var lastPreciseSeekTimestamp = 0L
+    private var lastPreciseSeekPosMs = 0L
+    private var lastPreciseSeekEventUptime = 0L
+
+    companion object {
+        private const val FAST_SCROLL_VELOCITY_THRESHOLD = 5.0
+    }
+
+    /**
+     * Dispatches seek requests during precise seeking outside of Compose UI.
+     * When [isScrubbing] is true:
+     * - Fast scroll/fling (> 5.0x rate): suppresses real-time engine seeks to avoid pipeline
+     *   choking; sets an 80ms resting debounce so it seeks once motion pauses.
+     * - Slow micro-scrubbing (<= 5.0x rate): seeks smoothly at ~30fps (~32ms throttling).
+     * When [isScrubbing] is false (stopped/released): immediately seeks to final exact position.
+     */
+    fun onPreciseSeek(positionMs: Long, isScrubbing: Boolean) {
+        val now = System.currentTimeMillis()
+        if (isScrubbing) {
+            val timeDelta = (now - lastPreciseSeekEventUptime).coerceAtLeast(1L)
+            val posDelta = kotlin.math.abs(positionMs - lastPreciseSeekPosMs)
+            val isFirstEvent = (now - lastPreciseSeekEventUptime) > 250L || lastPreciseSeekEventUptime == 0L
+            val velocity = if (isFirstEvent) 0.0 else (posDelta.toDouble() / timeDelta.toDouble())
+
+            lastPreciseSeekEventUptime = now
+            lastPreciseSeekPosMs = positionMs
+
+            if (velocity > FAST_SCROLL_VELOCITY_THRESHOLD) {
+                // 滑动太快时抑制高频连续 seek，仅在停顿 80ms 后补发
+                pendingPreciseSeekJob?.cancel()
+                pendingPreciseSeekJob = viewModelScope.launch {
+                    delay(80L)
+                    engine.seekTo(positionMs)
+                }
+            } else {
+                // 慢速微调时：平滑以 ~30fps (~32ms) 节流向 MPV 派发 seek
+                if (now - lastPreciseSeekTimestamp >= 32L) {
+                    lastPreciseSeekTimestamp = now
+                    pendingPreciseSeekJob?.cancel()
+                    engine.seekTo(positionMs)
+                } else {
+                    pendingPreciseSeekJob?.cancel()
+                    pendingPreciseSeekJob = viewModelScope.launch {
+                        delay(32L - (now - lastPreciseSeekTimestamp))
+                        engine.seekTo(positionMs)
+                    }
+                }
+            }
+        } else {
+            // 滑动停定或松手：立即终止防抖并执行终态毫秒级精准 Seek
+            pendingPreciseSeekJob?.cancel()
+            lastPreciseSeekTimestamp = now
+            lastPreciseSeekEventUptime = 0L
+            lastPreciseSeekPosMs = positionMs
+            engine.seekTo(positionMs)
+        }
+    }
+
+    suspend fun getFilmstripThumbnail(timeMs: Long): Bitmap? {
+        return filmstripThumbnailProvider.getThumbnail(activeUri.value, timeMs)
     }
 }

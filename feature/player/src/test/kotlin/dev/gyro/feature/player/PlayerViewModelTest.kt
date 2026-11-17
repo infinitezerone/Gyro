@@ -114,6 +114,7 @@ class PlayerViewModelTest {
                 scope = testScope,
             ),
             settingsRepository = settingsRepo,
+            filmstripThumbnailProvider = FilmstripThumbnailProvider(testContext),
         )
     }
 

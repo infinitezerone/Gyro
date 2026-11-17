@@ -100,6 +100,7 @@ internal fun PlayerSystemEffects(
         playerState.showControls,
         isPlaying,
         scrubState.isActive,
+        scrubState.isPreciseSeeking,
         playerState.isLocked,
         isPipLayout,
         playerState.activeSheetTab,
@@ -108,6 +109,7 @@ internal fun PlayerSystemEffects(
         if (playerState.canAutoHide(
                 isScrubbing = scrubState.isActive,
                 isPipLayout = isPipLayout,
+                isPreciseSeeking = scrubState.isPreciseSeeking
             )
         ) {
             playerState.autoHideAfter()

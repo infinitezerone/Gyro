@@ -1,6 +1,7 @@
 package dev.gyro.feature.player.component
 
-import dev.gyro.feature.player.PlayerScrubState
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -47,6 +48,7 @@ import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.time.formatDuration
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 
 /**
@@ -54,14 +56,15 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetTab
  *
  * 经典两行平铺架构（无生硬外层胶囊，通透沉浸）：
  * 1. 行 1：通栏自适应长进度条（大触控热区、浅白网络缓冲与微光章节刻度）；
+ *    - 支持按住进度条向上滑动进入 YouTube 风格精准选帧胶片微调模式；
  * 2. 行 2：核心操作行（高度 44dp）：
- *    - 左侧：[播放/暂停/重播] + [上一集/下一集] + [当前时间 / 总时长]；
+ *    - 左侧：[播放/暂停/重播] + [当前时间 / 总时长]；
  *    - 右侧：[AB循环] + [字幕切换] + [选集] + [倍速] + [画面比例] + 【全屏/退出全屏】。
  */
 @Composable
 fun PlayerBottomBar(
     isVisible: Boolean,
-    isLandscape: Boolean,
+    isLandscape: Boolean = false,
     isPlaying: Boolean,
     timePosMs: () -> Long,
     durationMs: () -> Long,
@@ -85,6 +88,7 @@ fun PlayerBottomBar(
     onToggleOrientation: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
     ambientColor: Color = Color.Transparent,
+    onEnterPreciseSeeking: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -130,6 +134,7 @@ fun PlayerBottomBar(
                 chapters = chapters,
                 abLoopASeconds = abLoopASeconds,
                 abLoopBSeconds = abLoopBSeconds,
+                onEnterPreciseSeeking = onEnterPreciseSeeking,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -175,8 +180,8 @@ fun PlayerBottomBar(
         }
 
         // 行 2：操作控制行
-        // 拖动屏幕改变进度时：除了底部的时间hub，只显示进度条（彻底隐藏播放/暂停、倍速、选集、全屏等按钮）；
-        // 平时控制层可见时：展示完整的核心操作行；
+        // 拖拽进度条时：仅显示进度条与左侧时间；
+        // 控制层可见时：展示完整的核心操作行；
         // 其余情况（不可见且非拖动）：44dp 占位保证尺寸稳定不发生下坠位移。
         if (scrubState.isActive) {
             Row(
@@ -220,24 +225,24 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 3. AB 循环按钮（横屏常驻；激活状态下横竖屏均展示，长按可直接清除）
-                if (isLandscape || abLoopASeconds >= 0) {
-                    val abStateLabel = when {
-                        abLoopASeconds >= 0 && abLoopBSeconds >= 0 -> stringResource(R.string.ab_loop_running)
-                        abLoopASeconds >= 0 -> stringResource(R.string.ab_loop_set_b_short)
-                        else -> "AB"
-                    }
-                    val abColor = if (abLoopASeconds >= 0) GyroColors.AccentOrange else Color.White.copy(alpha = 0.85f)
+                // 3. A-B 循环指示与快速循环 (A-B Loop)
+                val abLoopLabel = when {
+                    abLoopASeconds >= 0.0 && abLoopBSeconds >= 0.0 -> "A-B"
+                    abLoopASeconds >= 0.0 -> "A-"
+                    else -> null
+                }
+                if (abLoopLabel != null) {
                     PlayerTextActionButton(
-                        text = abStateLabel,
+                        text = abLoopLabel,
                         onClick = onCycleAbLoop,
-                        onLongClick = if (abLoopASeconds >= 0) onClearAbLoop else null,
-                        color = abColor
+                        onLongClick = onClearAbLoop,
+                        color = Color(0xFFFFB74D),
+                        fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
 
-                // 4. 字幕快开钮（横屏时展示；竖屏收纳于顶部菜单或面板）
+                // 4. 字幕快开钮（横屏展示；长按打开字幕设置面板）
                 if (isLandscape) {
                     GyroCircleActionButton(
                         onClick = onToggleSubtitle,
@@ -253,7 +258,7 @@ fun PlayerBottomBar(
                     Spacer(modifier = Modifier.width(4.dp))
                 }
 
-                // 5. 画面比例（横屏展示；竖屏收纳于设置面板，避免挤占）
+                // 5. 画面比例（横屏展示）
                 if (isLandscape) {
                     val aspectLabel = when (resizeMode) {
                         ResizeMode.FIT -> stringResource(R.string.resize_fit_short)
@@ -269,7 +274,7 @@ fun PlayerBottomBar(
                     Spacer(modifier = Modifier.width(6.dp))
                 }
 
-                // 6. 播放列表 / 选集 (始终常驻，支持查看分集与章节)
+                // 6. 选集快捷入口 (Playlist)
                 PlayerTextActionButton(
                     text = stringResource(R.string.cd_playlist),
                     onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) }
@@ -277,14 +282,15 @@ fun PlayerBottomBar(
                 Spacer(modifier = Modifier.width(6.dp))
 
                 // 7. 倍速（竖屏横屏均保留）
+                val speedLabel = if (speed == 1.0f) "1.0x" else "${speed}x"
                 PlayerTextActionButton(
-                    text = "${speed}x",
+                    text = speedLabel,
                     onClick = { onOpenSheetTab(PlayerSheetTab.SPEED) }
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // 8. 【全屏 / 退出全屏】（主流播放器标准右下角入口）
+                // 8. 全屏 / 退出全屏（方向切换）
                 GyroCircleActionButton(
                     onClick = onToggleOrientation,
                     icon = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
@@ -297,8 +303,7 @@ fun PlayerBottomBar(
                 )
             }
         } else {
-            // 拖动屏幕 Seek 时仅显示进度条，不显示任何其他底部控件；
-            // 44dp 占位保持底部栏整体高度不变，使进度条垂直位置与控制层进度条 100% 严丝合缝一致
+            // 44dp 占位保持底部栏整体高度不变，使进度条垂直位置与控制层进度条严丝合缝一致
             Spacer(modifier = Modifier.height(44.dp))
         }
     }

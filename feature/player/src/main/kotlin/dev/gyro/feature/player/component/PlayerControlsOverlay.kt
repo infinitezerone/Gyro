@@ -69,7 +69,10 @@ fun BoxScope.PlayerControlsOverlay(
     chapters: List<ChapterInfo> = emptyList(),
     ambientColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Transparent,
     videoBottomDp: Dp? = null,
-    hdrFormat: String = ""
+    hdrFormat: String = "",
+    activeUri: android.net.Uri? = null,
+    posterBitmap: android.graphics.Bitmap? = null,
+    loadFilmstripThumbnail: (suspend (Long) -> android.graphics.Bitmap?)? = null
 ) {
     // Local aliases keep the forwarding bodies below unchanged while the lambda dump moves
     // into [PlayerOverlayActions].
@@ -86,6 +89,8 @@ fun BoxScope.PlayerControlsOverlay(
     val onToggleSubtitle = actions.onToggleSubtitle
     val onCycleAbLoop = actions.onCycleAbLoop
     val onClearAbLoop = actions.onClearAbLoop
+    val onPausePlayback = actions.onPausePlayback
+    val onResumePlayback = actions.onResumePlayback
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -222,7 +227,7 @@ fun BoxScope.PlayerControlsOverlay(
         }
 
         // 4. 底部控制栏（支持拖拽进度或屏幕水平滑动快进，仅显进度条与底部时间；平时显全套控制行）
-        if (showBottomBar) {
+        if (showBottomBar && !scrubState.isPreciseSeeking) {
             Box(modifier = Modifier.align(Alignment.BottomCenter)) {
                 PlayerBottomBar(
                     isVisible = isVisible,
@@ -249,9 +254,43 @@ fun BoxScope.PlayerControlsOverlay(
                     onOpenSheetTab = onOpenSheetTab,
                     onToggleOrientation = onToggleOrientation,
                     chapters = chapters,
-                    ambientColor = ambientColor
+                    ambientColor = ambientColor,
+                    onEnterPreciseSeeking = { originMs ->
+                        scrubState.enterPreciseSeeking(originMs, isPlaying)
+                        onPausePlayback()
+                    }
                 )
             }
         }
+
+        // 5. YouTube 风格精准选帧胶片微调面板（一整排连续可横向滚动的缩略图胶卷，上滑后常驻保持）
+        PreciseSeekingPanel(
+            scrubState = scrubState,
+            currentTimeMs = if (scrubState.isActive && durationMs() > 0L) {
+                (scrubState.fraction * durationMs()).toLong()
+            } else {
+                timePosMs()
+            },
+            durationMs = durationMs(),
+            bufferedPosMs = bufferedPosMs(),
+            chapters = chapters,
+            fallbackBitmap = posterBitmap,
+            onSeekToFraction = actions.onSeekToFraction,
+            onPreciseSeek = actions.onPreciseSeek,
+            loadThumbnail = loadFilmstripThumbnail,
+            onCancelRevert = {
+                val originMs = scrubState.originTimeMs
+                val originFrac = if (durationMs() > 0L) (originMs.toFloat() / durationMs().toFloat()).coerceIn(0f, 1f) else 0f
+                scrubState.update(originFrac)
+                actions.onSeekToFraction(originFrac)
+                scrubState.exitPreciseSeeking()
+                if (scrubState.wasPlayingBeforePreciseSeek) {
+                    onResumePlayback()
+                }
+            },
+            abLoopASeconds = abLoopASeconds,
+            abLoopBSeconds = abLoopBSeconds,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }

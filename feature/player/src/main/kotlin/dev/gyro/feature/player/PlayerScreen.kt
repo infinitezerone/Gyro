@@ -501,7 +501,10 @@ fun PlayerScreen(
                 chapters = chapters,
                 videoBottomDp = videoBottomDp,
                 ambientColor = dynamicPalette.darkMutedColor,
-                hdrFormat = hdrFormat
+                hdrFormat = hdrFormat,
+                activeUri = activeUri,
+                posterBitmap = currentPosterBitmap,
+                loadFilmstripThumbnail = { timeMs -> viewModel.getFilmstripThumbnail(timeMs) }
             )
         }
 

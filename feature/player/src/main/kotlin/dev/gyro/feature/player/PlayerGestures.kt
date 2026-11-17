@@ -104,9 +104,16 @@ internal fun rememberPlayerGestureModifier(
             }
         },
         onSingleTap = {
-            playerState.showControls = !playerState.showControls
-            if (playerState.showControls) {
-                playerState.resetControlsTimeout()
+            if (scrubState.isPreciseSeeking) {
+                scrubState.exitPreciseSeeking()
+                if (scrubState.wasPlayingBeforePreciseSeek) {
+                    engine.play()
+                }
+            } else {
+                playerState.showControls = !playerState.showControls
+                if (playerState.showControls) {
+                    playerState.resetControlsTimeout()
+                }
             }
         },
         onDoubleTapSeek = { deltaMs ->

@@ -1,8 +1,6 @@
 package dev.gyro.feature.player
 
 import dev.gyro.core.model.ChapterInfo
-import dev.gyro.feature.player.component.snapToChapter
-import dev.gyro.feature.player.component.snapToChapterResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -106,63 +104,5 @@ class PlayerChapterTest {
         assertEquals("00:00", ChapterInfo(0, "T", 0L).formattedTime)
         assertEquals("01:05", ChapterInfo(1, "T", 65_000L).formattedTime)
         assertEquals("1:02:03", ChapterInfo(2, "T", 3_723_000L).formattedTime)
-    }
-
-    @Test
-    fun testSnapToChapter_withinRadius_returnsChapter() {
-        val width = 1000f
-        val radius = 20f
-        val chapters = listOf(0.25f, 0.5f, 0.75f)
-        // 8px from the 0.5 chapter -> snaps to it
-        assertEquals(0.5f, snapToChapter(508f, width, chapters, radius), 0.0001f)
-        // exactly on the 0.75 chapter
-        assertEquals(0.75f, snapToChapter(750f, width, chapters, radius), 0.0001f)
-    }
-
-    @Test
-    fun testSnapToChapter_outsideRadius_returnsRaw() {
-        val width = 1000f
-        val radius = 20f
-        val chapters = listOf(0.25f, 0.5f, 0.75f)
-        // 40px away from 0.5 -> no snap
-        assertEquals(0.54f, snapToChapter(540f, width, chapters, radius), 0.0001f)
-        assertEquals(0.1f, snapToChapter(100f, width, chapters, radius), 0.0001f)
-    }
-
-    @Test
-    fun testSnapToChapter_picksClosest() {
-        val width = 1000f
-        val radius = 60f
-        // two chapters 30px apart, finger between -> picks the nearer one
-        val chapters = listOf(0.30f, 0.33f)
-        assertEquals(0.33f, snapToChapter(321f, width, chapters, radius), 0.0001f)
-        assertEquals(0.30f, snapToChapter(309f, width, chapters, radius), 0.0001f)
-    }
-
-    @Test
-    fun testSnapToChapter_emptyAndBounds() {
-        val width = 1000f
-        // no chapters -> raw position
-        assertEquals(0.42f, snapToChapter(420f, width, emptyList(), 20f), 0.0001f)
-        // extremes clamp
-        val chapters = listOf(0.02f, 0.98f)
-        assertEquals(0.02f, snapToChapter(5f, width, chapters, 20f), 0.0001f)
-        assertEquals(0.98f, snapToChapter(995f, width, chapters, 20f), 0.0001f)
-    }
-
-    @Test
-    fun testSnapChapterIndex_forHapticsOnlyOnCrossing() {
-        val width = 1000f
-        val radius = 20f
-        val chapters = listOf(0.25f, 0.5f, 0.75f)
-
-        // sitting on chapter 1 -> index 1
-        assertEquals(1, snapToChapterResult(500f, width, chapters, radius).chapterIndex)
-        // still within chapter 1's radius -> same index (no repeated buzz)
-        assertEquals(1, snapToChapterResult(510f, width, chapters, radius).chapterIndex)
-        // moved onto chapter 2 -> index changes
-        assertEquals(2, snapToChapterResult(750f, width, chapters, radius).chapterIndex)
-        // outside all radii -> -1
-        assertEquals(-1, snapToChapterResult(620f, width, chapters, radius).chapterIndex)
     }
 }

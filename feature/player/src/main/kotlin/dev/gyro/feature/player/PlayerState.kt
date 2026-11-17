@@ -122,8 +122,12 @@ class PlayerState(
      * anything: controls must be visible, no scrub in flight, not locked,
      * not in PiP, and no sheet covering the screen. Runs on both playing and paused states (Plan A).
      */
-    fun canAutoHide(isScrubbing: Boolean, isPipLayout: Boolean): Boolean =
-        showControls && !isScrubbing && !isLocked && !isPipLayout && activeSheetTab == null
+    fun canAutoHide(
+        isScrubbing: Boolean,
+        isPipLayout: Boolean,
+        isPreciseSeeking: Boolean = false
+    ): Boolean =
+        showControls && !isScrubbing && !isPreciseSeeking && !isLocked && !isPipLayout && activeSheetTab == null
 
     /** Sleeps out the idle window, then hides the controls. Call only when [canAutoHide] holds. */
     suspend fun autoHideAfter(delayMs: Long = AUTO_HIDE_DELAY_MS) {

@@ -1,17 +1,10 @@
 package dev.gyro.feature.player.component
 
-
-
-
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.component.rememberChapterHaptics
-import dev.gyro.feature.player.component.snapToChapterResult
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -44,8 +37,9 @@ import dev.gyro.core.model.ChapterInfo
 
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
- * - 静止态 (3dp) 到拖拽态 (6dp) 平滑物理膨胀动画；
- * - 拖拽时间预览统一显示在屏幕正上方（PlayerHudOverlay 的 ScrubTimePreview），本组件不再自绘气泡；
+ * - 支持常规线性拖拽（无任何强制磁吸），保持线性丝滑手感；
+ * - 支持 YouTube 风格按住进度条向上滑动触发精准微调模式；
+ * - 尺寸恒定（20dp），避免手势过程中高度形变导致坐标突变与反复横跳；
  * - 浅白网络缓冲条与微光章节刻度；
  * - 进度读取与拖拽状态封装于叶子内，拖拽时仅自身局部重组。
  */
@@ -59,16 +53,19 @@ fun PlayerScrubBar(
     chapters: List<ChapterInfo> = emptyList(),
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
+    onEnterPreciseSeeking: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isHoveredOrScrubbing = scrubState.isActive
+    val isPreciseSeeking = scrubState.isPreciseSeeking
+
     val barHeight by animateDpAsState(
-        targetValue = if (isHoveredOrScrubbing) 6.dp else 3.dp,
+        targetValue = if (isPreciseSeeking) 6.dp else if (isHoveredOrScrubbing) 6.dp else 3.dp,
         animationSpec = tween(150),
         label = "barHeight"
     )
     val thumbSize by animateDpAsState(
-        targetValue = if (isHoveredOrScrubbing) 16.dp else 10.dp,
+        targetValue = if (isPreciseSeeking) 16.dp else if (isHoveredOrScrubbing) 16.dp else 10.dp,
         animationSpec = tween(150),
         label = "thumbSize"
     )
@@ -99,51 +96,51 @@ fun PlayerScrubBar(
         0f
     }
 
-    // Snap within 8dp of a chapter marker. Wide enough to hit a tick with a thumb, narrow enough
-    // that dragging past a chapter still feels continuous - the marker grabs, then releases.
-    val snapRadiusPx = with(LocalDensity.current) { 8.dp.toPx() }
+    val density = LocalDensity.current
+    val pullUpThresholdPx = with(density) { 28.dp.toPx() }
     val haptics = rememberChapterHaptics()
 
     val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
-    val currentChapterFractions by rememberUpdatedState(chapterFractions)
-    val currentSnapRadiusPx by rememberUpdatedState(snapRadiusPx)
+    val currentOnEnterPreciseSeeking by rememberUpdatedState(onEnterPreciseSeeking)
     val currentHaptics by rememberUpdatedState(haptics)
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(20.dp)
-            // chapterFractions is a fresh List on many recompositions (it derives from snapshot).
-            // Using it as a key restarts the gesture on every position tick and breaks the drag.
-            // A stable scalar is enough: chapters only change when the file changes.
-            // rememberUpdatedState ensures gestures always read the latest callbacks & markers.
-            .pointerInput(durationMs, chapters.size) {
+            .height(20.dp) // 保持恒定触控高度，根除布局抖动反馈环
+            .pointerInput(durationMs) {
                 if (durationMs <= 0L) return@pointerInput
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val width = size.width.toFloat()
-                    var lastChapter = -1
-                    if (width > 0f) {
-                        val snap = snapToChapterResult(down.position.x, width, currentChapterFractions, currentSnapRadiusPx)
-                        lastChapter = snap.chapterIndex
-                        if (snap.chapterIndex >= 0) currentHaptics.tick()
-                        scrubState.begin(snap.fraction)
-                    }
+                    if (width <= 0f) return@awaitEachGesture
+
+                    val startX = down.position.x
+                    val startY = down.position.y
+                    val initialFraction = (startX / width).coerceIn(0f, 1f)
+                    scrubState.begin(initialFraction)
+
+                    var hasTriggeredPreciseSeek = false
 
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
                         if (change.pressed) {
                             change.consume()
-                            val snap = snapToChapterResult(change.position.x, width, currentChapterFractions, currentSnapRadiusPx)
-                            // Fire only when the finger crosses onto a different marker. Staying
-                            // within one marker's radius must not buzz on every drag event.
-                            if (snap.chapterIndex >= 0 && snap.chapterIndex != lastChapter) {
+                            val curX = change.position.x
+                            val curY = change.position.y
+                            val deltaY = curY - startY
+
+                            // 向上滑动超过阈值进入 YouTube 精确微调模式（单向触发保持，绝不反复跳动）
+                            if (!hasTriggeredPreciseSeek && deltaY <= -pullUpThresholdPx) {
+                                hasTriggeredPreciseSeek = true
                                 currentHaptics.tick()
+                                currentOnEnterPreciseSeeking(timePosMs)
                             }
-                            lastChapter = snap.chapterIndex
-                            scrubState.update(snap.fraction)
+
+                            val rawFraction = (curX / width).coerceIn(0f, 1f)
+                            scrubState.update(rawFraction)
                         } else {
                             change.consume()
                             val finalFraction = scrubState.fraction
@@ -189,7 +186,7 @@ fun PlayerScrubBar(
             )
         }
 
-        // 4. 微光章节刻度标线 (Chapter Demarcation Micro-Ticks)
+        // 4. 微光章节刻度标线 (仅视觉区分章节，绝不进行物理磁吸)
         if (chapterFractions.isNotEmpty()) {
             Canvas(
                 modifier = Modifier
@@ -224,14 +221,7 @@ fun PlayerScrubBar(
 
         // 5. 动态滑块 (Thumb)
         if (thumbSize > 0.dp && totalWidth > thumbSize) {
-            // Centre the thumb on playedRatio, matching how chapter ticks, A-B marks and the
-            // played track are positioned (all use fraction * full width). The old formula
-            // ((width - thumb) * ratio) put the thumb's *left edge* on a shrunken track, so its
-            // centre drifted away from chapter markers towards either end.
             val halfThumb = thumbSize / 2
-            // No clamping: the thumb centre must sit exactly on the fraction so it lines up with
-            // chapter/A-B marks. At 0% and 100% half of it extends past the track, which is the
-            // normal look for a progress thumb and keeps the alignment honest everywhere else.
             val thumbOffset = totalWidth * playedRatio - halfThumb
             Surface(
                 shape = CircleShape,
@@ -244,9 +234,7 @@ fun PlayerScrubBar(
             ) {}
         }
 
-        // 6. 拖拽时间预览已上移至屏幕正上方（PlayerHudOverlay 的 ScrubTimePreview）
-
-        // 7. A-B 循环标记与循环区间高亮（琥珀色，与章节刻度区分）
+        // 6. A-B 循环标记与循环区间高亮（琥珀色，与章节刻度区分）
         if (durationMs > 0L && (abLoopASeconds >= 0.0 || abLoopBSeconds >= 0.0)) {
             val aFraction = if (abLoopASeconds >= 0.0) {
                 (abLoopASeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f)
@@ -259,7 +247,6 @@ fun PlayerScrubBar(
                 null
             }
             if (aFraction != null && bFraction != null) {
-                // 循环区间微光高亮
                 Box(
                     modifier = Modifier
                         .offset(x = totalWidth * minOf(aFraction, bFraction))
