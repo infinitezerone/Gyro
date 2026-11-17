@@ -32,8 +32,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.model.ChapterInfo
+import kotlin.math.abs
 
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
@@ -98,6 +100,7 @@ fun PlayerScrubBar(
 
     val density = LocalDensity.current
     val pullUpThresholdPx = with(density) { 28.dp.toPx() }
+    val touchSlopPx = LocalViewConfiguration.current.touchSlop
     val haptics = rememberChapterHaptics()
 
     val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
@@ -118,34 +121,48 @@ fun PlayerScrubBar(
 
                     val startX = down.position.x
                     val startY = down.position.y
-                    val initialFraction = (startX / width).coerceIn(0f, 1f)
-                    scrubState.begin(initialFraction)
-
+                    var isDragging = false
                     var hasTriggeredPreciseSeek = false
 
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
                         if (change.pressed) {
-                            change.consume()
                             val curX = change.position.x
                             val curY = change.position.y
+                            val deltaX = curX - startX
                             val deltaY = curY - startY
 
-                            // 向上滑动超过阈值进入 YouTube 精确微调模式（单向触发保持，绝不反复跳动）
-                            if (!hasTriggeredPreciseSeek && deltaY <= -pullUpThresholdPx) {
-                                hasTriggeredPreciseSeek = true
-                                currentHaptics.tick()
-                                currentOnEnterPreciseSeeking(timePosMs)
+                            // 仅当手指产生明确位移（水平拖拽超过 TouchSlop 或向上拉起进入精准面板）时才开始响应，防止单纯按住/误触导致意外跳转
+                            if (!isDragging) {
+                                if (abs(deltaX) >= touchSlopPx || deltaY <= -pullUpThresholdPx) {
+                                    isDragging = true
+                                    change.consume()
+                                    val fraction = (curX / width).coerceIn(0f, 1f)
+                                    scrubState.begin(fraction)
+                                }
                             }
 
-                            val rawFraction = (curX / width).coerceIn(0f, 1f)
-                            scrubState.update(rawFraction)
+                            if (isDragging) {
+                                change.consume()
+
+                                // 向上滑动超过阈值进入 YouTube 精确微调模式（单向触发保持，绝不反复跳动）
+                                if (!hasTriggeredPreciseSeek && deltaY <= -pullUpThresholdPx) {
+                                    hasTriggeredPreciseSeek = true
+                                    currentHaptics.tick()
+                                    currentOnEnterPreciseSeeking(timePosMs)
+                                }
+
+                                val rawFraction = (curX / width).coerceIn(0f, 1f)
+                                scrubState.update(rawFraction)
+                            }
                         } else {
-                            change.consume()
-                            val finalFraction = scrubState.fraction
-                            scrubState.end(finalFraction)
-                            currentOnSeekToFraction(finalFraction)
+                            if (isDragging) {
+                                change.consume()
+                                val finalFraction = scrubState.fraction
+                                scrubState.end(finalFraction)
+                                currentOnSeekToFraction(finalFraction)
+                            }
                             break
                         }
                     }
