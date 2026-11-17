@@ -401,6 +401,15 @@ class PlayerGestureNode(
             val isSameAccumulatingSide = (isLeftSide && doubleTapSide == DoubleTapSide.LEFT) ||
                 (isRightSide && doubleTapSide == DoubleTapSide.RIGHT)
 
+            if (callbacks.isPreciseSeeking()) {
+                // When filmstrip precise seeking is open, tapping blank area immediately dismisses it without double-tap delay!
+                singleTapJob?.cancel()
+                singleTapJob = null
+                lastTapTimestamp = 0L
+                callbacks.onSingleTap()
+                return@awaitEachGesture
+            }
+
             if (isDoubleTapAccumulating && isSameAccumulatingSide && !isOutsidePortraitActiveZone && config.isDoubleTapSeekEnabled) {
                 // Subsequent single taps within active accumulation window: increment/decrement directly!
                 singleTapJob?.cancel()

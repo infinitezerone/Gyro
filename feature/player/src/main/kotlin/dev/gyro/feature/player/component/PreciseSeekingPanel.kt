@@ -2,6 +2,7 @@ package dev.gyro.feature.player.component
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -100,7 +101,8 @@ fun PreciseSeekingPanel(
     AnimatedVisibility(
         visible = scrubState.isPreciseSeeking,
         enter = fadeIn(animationSpec = tween(180)) + slideInVertically(animationSpec = tween(220)) { it },
-        exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(animationSpec = tween(180)) { it },
+        exit = fadeOut(animationSpec = tween(120, easing = FastOutLinearInEasing)) +
+            slideOutVertically(animationSpec = tween(140, easing = FastOutLinearInEasing)) { it },
         modifier = modifier
     ) {
         val coroutineScope = rememberCoroutineScope()

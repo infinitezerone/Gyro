@@ -41,6 +41,7 @@ interface PlayerGestureCallbacks {
     fun getDurationMs(): Long = 0L
     fun getZoomScale(): Float = 1.0f
     fun getVideoBounds(): androidx.compose.ui.geometry.Rect? = null
+    fun isPreciseSeeking(): Boolean = false
 }
 
 /**
@@ -94,6 +95,7 @@ class DefaultPlayerGestureCallbacks(
     override fun getCurrentPositionMs(): Long = currentPosMs()
     override fun getDurationMs(): Long = durationMs()
     override fun getZoomScale(): Float = zoomScale()
+    override fun isPreciseSeeking(): Boolean = scrubState?.isPreciseSeeking == true
 
     override fun onSingleTap() = onSingleTap.invoke()
     override fun onDoubleTapSeek(deltaMs: Long) {
