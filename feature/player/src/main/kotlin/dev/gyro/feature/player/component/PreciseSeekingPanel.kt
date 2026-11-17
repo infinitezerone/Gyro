@@ -294,7 +294,7 @@ fun PreciseSeekingPanel(
                             val targetIndex = (targetMs / stepMs).toInt().coerceIn(0, totalSteps - 1)
                             val offsetInsideStep = ((targetMs % stepMs).toFloat() / stepMs * slotWidthPx).toInt()
                             coroutineScope.launch {
-                                listState.animateScrollToItem(targetIndex, offsetInsideStep)
+                                listState.scrollToItem(targetIndex, offsetInsideStep)
                             }
                         }
                     },
@@ -332,7 +332,7 @@ fun PreciseSeekingPanel(
                             loadThumbnail = loadThumbnail,
                             onClick = {
                                 coroutineScope.launch {
-                                    listState.animateScrollToItem(idx, 0)
+                                    listState.scrollToItem(idx, 0)
                                 }
                                 onPreciseSeek(itemTimeMs, false)
                             }

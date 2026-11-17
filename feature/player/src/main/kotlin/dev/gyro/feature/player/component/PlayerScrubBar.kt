@@ -196,7 +196,6 @@ fun PlayerScrubBar(
                                 // 原地轻点/点击进度条（未发生拖拽且未呼出精准微调），在抬手时触发跳转
                                 change.consume()
                                 val tapFraction = (startX / width).coerceIn(0f, 1f)
-                                currentHaptics.tick()
                                 scrubState.begin(tapFraction)
                                 scrubState.end(tapFraction)
                                 currentOnSeekToFraction(tapFraction)
