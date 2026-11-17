@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -118,7 +119,8 @@ fun PreciseSeekingPanel(
             if (durationMs <= 0L) 1 else (durationMs / stepMs).toInt() + 1
         }
 
-        val itemWidthDp = 96.dp
+        val itemWidthDp = 124.dp
+        val itemHeightDp = 70.dp
         val slotWidthPx = with(LocalDensity.current) { itemWidthDp.toPx() }
         val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
         val contentPaddingHorizontal = (screenWidthDp / 2 - itemWidthDp / 2).coerceAtLeast(0.dp)
@@ -213,7 +215,7 @@ fun PreciseSeekingPanel(
                 }
                 .displayCutoutPadding()
                 .navigationBarsPadding()
-                .padding(bottom = 32.dp)
+                .padding(bottom = 16.dp)
         ) {
             // 1. 顶行：章节提示（若有） + 精准时间码 + 取消/关闭按钮
             Row(
@@ -276,11 +278,12 @@ fun PreciseSeekingPanel(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // 2. 进度条直接位于缩略图胶卷的正上方
+            // 2. 进度条直接位于缩略图胶卷的正上方（0 间距紧贴胶卷）
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp)
+                    .offset(y = 2.dp)
             ) {
                 PlayerScrubBar(
                     timePosMs = effectiveTimeMs,
@@ -306,13 +309,11 @@ fun PreciseSeekingPanel(
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
             // 3. 一排连续可横向滚动的无缝缩略图胶卷带 (Filmstrip，0 间距连续无缝拼接)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp),
+                    .height(itemHeightDp),
                 contentAlignment = Alignment.Center
             ) {
                 LazyRow(
@@ -329,6 +330,7 @@ fun PreciseSeekingPanel(
                             timeMs = itemTimeMs,
                             fallbackBitmap = fallbackBitmap,
                             cardWidth = itemWidthDp,
+                            cardHeight = itemHeightDp,
                             loadThumbnail = loadThumbnail,
                             onClick = {
                                 coroutineScope.launch {
@@ -344,7 +346,7 @@ fun PreciseSeekingPanel(
                 Canvas(
                     modifier = Modifier
                         .width(3.dp)
-                        .height(56.dp)
+                        .height(itemHeightDp + 6.dp)
                 ) {
                     drawLine(
                         color = Color(0xFF64B5F6),
@@ -367,6 +369,7 @@ private fun FilmstripThumbnailCard(
     timeMs: Long,
     fallbackBitmap: Bitmap?,
     cardWidth: Dp,
+    cardHeight: Dp = 70.dp,
     loadThumbnail: (suspend (timeMs: Long) -> Bitmap?)?,
     onClick: () -> Unit
 ) {
@@ -378,7 +381,7 @@ private fun FilmstripThumbnailCard(
 
     Box(
         modifier = Modifier
-            .size(width = cardWidth, height = 54.dp)
+            .size(width = cardWidth, height = cardHeight)
             .clickable(onClick = onClick)
     ) {
         val bitmap = frameBitmap

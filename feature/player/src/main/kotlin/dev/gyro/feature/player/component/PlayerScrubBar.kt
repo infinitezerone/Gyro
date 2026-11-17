@@ -170,12 +170,12 @@ fun PlayerScrubBar(
                             if (isDragging) {
                                 change.consume()
 
-                                // 拖拽过程中向上滑动进入精准选帧面板（以当前拖拽到的时间为起点展开）
+                                // 无论上滑前是否不小心横向滑动了进度条，只要判定为上滑激活微调，一律恢复至原始播放进度
                                 if (!hasTriggeredPreciseSeek && deltaY <= -pullUpThresholdPx) {
                                     hasTriggeredPreciseSeek = true
                                     currentHaptics.tick()
-                                    val targetMs = if (durationMs > 0L) (scrubState.fraction * durationMs).toLong() else timePosMs
-                                    currentOnEnterPreciseSeeking(targetMs)
+                                    scrubState.update(currentPlaybackFraction)
+                                    currentOnEnterPreciseSeeking(timePosMs)
                                 }
 
                                 if (!hasTriggeredPreciseSeek) {
