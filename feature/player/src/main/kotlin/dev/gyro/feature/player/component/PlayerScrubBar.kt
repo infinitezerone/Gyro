@@ -99,7 +99,7 @@ fun PlayerScrubBar(
     }
 
     val density = LocalDensity.current
-    val pullUpThresholdPx = with(density) { 28.dp.toPx() }
+    val pullUpThresholdPx = with(density) { 48.dp.toPx() } // 调高上滑阈值（从 28dp 提升至 48dp），防止横向拖拽时因手指自然微弧弧度导致误触发
     val touchSlopPx = LocalViewConfiguration.current.touchSlop
     val haptics = rememberChapterHaptics()
 
