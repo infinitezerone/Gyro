@@ -230,13 +230,13 @@ class MpvOptionConfigurator {
         // speed tap. An unlimited tolerance lets it glide through the transition instead.
         bridge.setOptionString("video-sync-max-audio-change", "inf")
         if (!userOptions.containsKey("demuxer-max-bytes")) {
-            bridge.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
+            bridge.setOptionString("demuxer-max-bytes", "${32 * 1024 * 1024}")
         }
         if (!userOptions.containsKey("demuxer-max-back-bytes")) {
-            bridge.setOptionString("demuxer-max-back-bytes", "${64 * 1024 * 1024}")
+            bridge.setOptionString("demuxer-max-back-bytes", "${16 * 1024 * 1024}")
         }
         if (!userOptions.containsKey("demuxer-readahead-secs")) {
-            bridge.setOptionString("demuxer-readahead-secs", "64")
+            bridge.setOptionString("demuxer-readahead-secs", "15")
         }
         if (!userOptions.containsKey("demuxer-seekable-cache")) {
             bridge.setOptionString("demuxer-seekable-cache", "yes")
