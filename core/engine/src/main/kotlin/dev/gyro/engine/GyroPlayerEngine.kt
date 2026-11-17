@@ -260,6 +260,11 @@ class GyroPlayerEngine(
 
     override fun play() = playback.play()
     override fun pause() = playback.pause()
+    override fun stop() {
+        playback.pause()
+        playback.abandonAudioFocus()
+        detachSurface()
+    }
     override fun togglePlayPause() = playback.togglePlayPause()
     override fun setSpeed(speed: Float) = playback.setSpeed(speed)
     override fun toggleHwdec() = playback.toggleHwdec()

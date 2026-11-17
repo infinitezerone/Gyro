@@ -120,7 +120,7 @@ class PlayerViewModelTest {
 
     @After
     fun tearDown() {
-        viewModel.onCleared()
+        viewModel.onUserExit()
         // The engine owns its own scope and audio-focus callbacks; leaving them alive makes the
         // next test inherit their dispatches after Main has been reset.
         engine.release()
@@ -360,7 +360,7 @@ class PlayerViewModelTest {
         viewModel.openUri(TestUri("content://videos/pending"))
         runCurrent()
 
-        viewModel.onCleared()
+        viewModel.onUserExit()
         runCurrent()
 
         assertTrue(lookupCancelled)

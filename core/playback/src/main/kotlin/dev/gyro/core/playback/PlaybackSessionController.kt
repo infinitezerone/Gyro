@@ -212,10 +212,9 @@ class PlaybackSessionController @Inject constructor(
     fun endSession(requestServiceStop: Boolean = true) {
         if (!_sessionActive.compareAndSet(expect = true, update = false)) return
         advanceJob?.cancel()
+        loadJob?.cancel()
         saveCurrentProgress()
-        engine.pause()
-        engine.abandonAudioFocus()
-        engine.detachSurface()
+        engine.stop()
         if (requestServiceStop) {
             serviceLauncher.stop()
         }

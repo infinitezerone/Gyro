@@ -120,7 +120,7 @@ class PlayerScreenActionsTest {
 
     @After
     fun tearDown() {
-        viewModel.onCleared()
+        viewModel.onUserExit()
         engine.release()
         testScope.cancel()
         Dispatchers.resetMain()

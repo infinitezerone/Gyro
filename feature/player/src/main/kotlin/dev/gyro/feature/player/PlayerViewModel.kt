@@ -101,6 +101,7 @@ class PlayerViewModel @Inject constructor(
      */
     fun onUserExit() {
         initializedUri = null
+        filmstripThumbnailProvider.release()
         session.leavePlayer()
     }
 
@@ -206,16 +207,7 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    public override fun onCleared() {
-        // Nothing here may drive playback state or business commands. `onCleared` is a destructor
-        // for this instance, not a "user left the screen" signal. Leaving the player and persisting
-        // playback state is authoritatively driven by the navigation layer (Navigation 3 back stack
-        // watching) and explicit user exit callbacks (session.leavePlayer() -> endSession()).
-        // Only clean up what this ViewModel strictly owns in memory: cancel transient load work and
-        // release native thumbnail cache resources.
-        session.cancelPendingLoad()
-        filmstripThumbnailProvider.release()
-    }
+
 
     private var pendingPreciseSeekJob: Job? = null
     private var lastPreciseSeekTimestamp = 0L

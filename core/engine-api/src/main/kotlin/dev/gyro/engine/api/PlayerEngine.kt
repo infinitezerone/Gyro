@@ -52,6 +52,15 @@ interface PlayerEngine {
 
     fun play()
     fun pause()
+    /**
+     * Authoritative engine stop.
+     * Atomically pauses playback, abandons system audio focus, and detaches the video surface.
+     */
+    fun stop() {
+        pause()
+        abandonAudioFocus()
+        detachSurface()
+    }
     fun togglePlayPause()
     fun seekTo(positionMs: Long)
     fun seekRelative(offsetMs: Long)
