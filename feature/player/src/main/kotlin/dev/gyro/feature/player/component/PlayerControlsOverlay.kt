@@ -190,19 +190,13 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏胶囊按键（零动画，瞬时响应；拖动进度或精准微调时隐藏）
+        // 2. 竖屏模式下的全屏胶囊按键（以屏幕为基准固定，绝不随视频比例或尺寸忽上忽下跳动）
         if (!isLandscape && showOtherControls) {
-            val bottomModifier = if (videoBottomDp != null && videoBottomDp > 0.dp) {
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = videoBottomDp + 60.dp)
-            } else {
-                Modifier
+            Box(
+                modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(y = 180.dp)
-            }
-
-            Box(modifier = bottomModifier) {
+                    .offset(y = 140.dp)
+            ) {
                 GyroPillButton(
                     text = stringResource(R.string.cd_enter_fullscreen),
                     icon = Icons.Default.Fullscreen,
