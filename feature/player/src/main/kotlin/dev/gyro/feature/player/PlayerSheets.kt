@@ -3,12 +3,13 @@ package dev.gyro.feature.player
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.feature.player.component.sheet.PlayerPlaylistSheet
 import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
@@ -27,7 +28,6 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 internal fun PlayerSheetsHost(
     tab: PlayerSheetTab,
     isLandscape: Boolean,
-    engine: PlayerEngine,
     viewModel: PlayerViewModel,
     playerState: PlayerState,
     snapshot: PlaybackSnapshot,
@@ -43,19 +43,30 @@ internal fun PlayerSheetsHost(
     onEnterPip: () -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
-    val timePosMs by engine.timePosMs.collectAsStateWithLifecycle()
-    val telemetry by engine.diagnostics.collectAsStateWithLifecycle()
-    val eqGainsDb by engine.audio.equalizerGains.collectAsStateWithLifecycle()
-    val subAssOverride by engine.tuning.subAssOverride.collectAsStateWithLifecycle()
+    val timePosMs by viewModel.timePosMs.collectAsStateWithLifecycle()
+    val telemetry by viewModel.diagnostics.collectAsStateWithLifecycle()
     val sleepTimerSec by viewModel.sleepTimerSecondsRemaining.collectAsStateWithLifecycle()
-    val fps = telemetry.fps
-    val droppedFrames = telemetry.droppedFrames
-    val currentMediaInfo = remember(tab, activeUri) {
-        engine.queryMediaInfo(
+    val mediaInfo by viewModel.mediaInfo.collectAsStateWithLifecycle()
+    val customShaders by viewModel.customShaders.collectAsStateWithLifecycle()
+
+    LaunchedEffect(activeUri, mediaTitle) {
+        viewModel.refreshMediaInfo(
             fallbackTitle = mediaTitle,
-            fallbackUri = activeUri?.toString() ?: ""
+            fallbackUri = activeUri?.toString() ?: "",
         )
     }
+    LaunchedEffect(snapshot.shaderState) {
+        viewModel.refreshCustomShaders()
+    }
+
+    val fps = telemetry.fps
+    val droppedFrames = telemetry.droppedFrames
+    val currentMediaInfo = mediaInfo ?: MediaInfo(
+        title = mediaTitle,
+        pathOrUri = activeUri?.toString() ?: "",
+        durationMs = snapshot.durationMs,
+        hwdecCurrent = snapshot.hwdecCurrent,
+    )
     val sheetUiState = PlayerSheetUiState(
         playlist = playlist,
         currentPlaylistIndex = currentPlaylistIndex,
@@ -83,7 +94,7 @@ internal fun PlayerSheetsHost(
         powerMetrics = powerMetrics,
         mediaInfo = currentMediaInfo,
         shaderState = snapshot.shaderState,
-        customShaders = remember(snapshot.shaderState) { engine.shaders.getCustomShaders() },
+        customShaders = customShaders,
         deband = snapshot.deband,
         brightness = snapshot.brightness,
         contrast = snapshot.contrast,
@@ -91,7 +102,7 @@ internal fun PlayerSheetsHost(
         softwareVolume = snapshot.softwareVolume,
         nightMode = snapshot.nightMode,
         stereoDownmix = snapshot.stereoDownmix,
-        eqGainsDb = eqGainsDb,
+        eqGainsDb = snapshot.equalizerGains,
         isHdr = snapshot.isHdr,
         hdrFormat = snapshot.hdrFormat,
         hdrOutputMode = snapshot.hdrOutputMode,
@@ -102,7 +113,7 @@ internal fun PlayerSheetsHost(
         abLoopASeconds = snapshot.abLoopASeconds,
         abLoopBSeconds = snapshot.abLoopBSeconds,
         sleepTimerSecondsRemaining = sleepTimerSec,
-        subAssOverride = subAssOverride
+        subAssOverride = snapshot.subAssOverride
     )
 
     val sheetCallbacks = remember(

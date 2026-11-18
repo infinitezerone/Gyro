@@ -26,7 +26,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
-import dev.gyro.engine.api.controller.AudioController
+import dev.gyro.core.model.EQUALIZER_BANDS
+import dev.gyro.core.model.EQUALIZER_GAIN_LIMIT_DB
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -43,7 +44,7 @@ import java.util.Locale
 private val EqBandLabels = listOf("60", "230", "910", "3.6k", "14k")
 
 /**
- * Equaliser presets in dB, aligned with [AudioController.EQUALIZER_BANDS].
+ * Equaliser presets in dB, aligned with [EQUALIZER_BANDS].
  *
  * Starting points rather than modes: moving any slider drops the row out of the preset and the
  * chips stop highlighting, which is why there is no explicit "custom" entry.
@@ -147,7 +148,7 @@ internal fun AudioEffectsTabContent(
 
         // One row per band instead of a fader bank: horizontal sliders stay thumb-reachable and the
         // numeric readout says what the drag actually did.
-        AudioController.EQUALIZER_BANDS.forEachIndexed { index, band ->
+        EQUALIZER_BANDS.forEachIndexed { index, band ->
             val gain = state.eqGainsDb.getOrElse(index) { 0.0 }
             Row(
                 modifier = Modifier
@@ -169,8 +170,8 @@ internal fun AudioEffectsTabContent(
                         updated[index] = value.toDouble()
                         callbacks.onSetEqualizerGains(updated)
                     },
-                    valueRange = -AudioController.EQUALIZER_GAIN_LIMIT_DB.toFloat()..
-                        AudioController.EQUALIZER_GAIN_LIMIT_DB.toFloat(),
+                    valueRange = -EQUALIZER_GAIN_LIMIT_DB.toFloat()..
+                        EQUALIZER_GAIN_LIMIT_DB.toFloat(),
                     colors = SliderDefaults.colors(
                         thumbColor = SheetAccentBlue,
                         activeTrackColor = SheetAccentBlue,

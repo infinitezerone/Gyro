@@ -8,21 +8,20 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.engine.model.PlaybackDiagnostics
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * UI state holder for the live bitrate readout.
  *
- * The sampling loop used to live in `PlayerScreen` as a bare `LaunchedEffect` over three
- * `remember`s. Hoisting it here keeps the screen free of timer bookkeeping and makes the cache
- * policy (50 samples, 500ms cadence) a property of the thing that owns it.
- *
  * Sampling only runs while someone is looking: the caller passes [isActive] (stats overlay open or
  * the stats/settings sheet showing), and the loop is cancelled the moment it goes false.
+ * Bitrate updates arrive reactively from [diagnosticsFlow] (property-observed inside the engine
+ * without polling on UI frames).
  */
 @Stable
-class PlayerTelemetryState(private val engine: PlayerEngine) {
+class PlayerTelemetryState(private val diagnosticsFlow: StateFlow<PlaybackDiagnostics>) {
 
     var liveVideoBitrate by mutableLongStateOf(0L)
         private set
@@ -33,11 +32,10 @@ class PlayerTelemetryState(private val engine: PlayerEngine) {
     /** Newest sample last, bounded so a long session cannot grow it. */
     val bitrateHistory = mutableStateListOf<Long>()
 
-    /** One sampling pass. Never blocks the caller: it only reads properties and updates state. */
-    suspend fun sample() {
-        val (video, audio) = engine.queryLiveBitrate()
-        val reported = engine.diagnostics.value
-        val videoSample = if (video > 0L) video else reported.videoBitrate
+    /** One sampling pass reading the engine-reported diagnostics snapshot. */
+    fun sample() {
+        val reported = diagnosticsFlow.value
+        val videoSample = reported.videoBitrate
         if (videoSample > 0L) {
             liveVideoBitrate = videoSample
             bitrateHistory.add(videoSample)
@@ -45,7 +43,7 @@ class PlayerTelemetryState(private val engine: PlayerEngine) {
                 bitrateHistory.removeAt(0)
             }
         }
-        liveAudioBitrate = if (audio > 0L) audio else reported.audioBitrate
+        liveAudioBitrate = reported.audioBitrate
     }
 
     private companion object {
@@ -55,11 +53,11 @@ class PlayerTelemetryState(private val engine: PlayerEngine) {
 
 @Composable
 fun rememberPlayerTelemetryState(
-    engine: PlayerEngine,
+    diagnosticsFlow: StateFlow<PlaybackDiagnostics>,
     isActive: Boolean,
 ): PlayerTelemetryState {
-    val state = remember(engine) { PlayerTelemetryState(engine) }
-    LaunchedEffect(isActive) {
+    val state = remember(diagnosticsFlow) { PlayerTelemetryState(diagnosticsFlow) }
+    LaunchedEffect(diagnosticsFlow, isActive) {
         if (!isActive) return@LaunchedEffect
         while (true) {
             state.sample()
@@ -69,4 +67,4 @@ fun rememberPlayerTelemetryState(
     return state
 }
 
-private const val SAMPLE_INTERVAL_MS = 500L
+private const val SAMPLE_INTERVAL_MS = 1_000L

@@ -13,7 +13,7 @@ import android.view.SurfaceView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.engine.api.controller.RenderController
 import dev.gyro.engine.trace.SwitchTrace
 import kotlin.math.abs
 
@@ -24,8 +24,8 @@ private const val ASPECT_EPSILON = 0.01
  * High-performance, zero-overhead SurfaceView for Gyro playback engines.
  *
  * All rendering loops, EGL context lifecycles, and frame swaps execute inside the engine backend;
- * this SurfaceView acts strictly as the Android window handle provider communicating via
- * [PlayerEngine.render] (`RenderController`) and [PlayerEngine.geometry].
+ * this SurfaceView acts strictly as the Android window handle provider communicating solely via
+ * [RenderController].
  */
 class GyroSurfaceView @JvmOverloads constructor(
     context: Context,
@@ -36,7 +36,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         private const val TAG = "GyroSurfaceView"
     }
 
-    var engine: PlayerEngine? = null
+    var renderController: RenderController? = null
 
     /** Buffer size currently fixed on the holder; 0 until the first lock. */
     private var lockedWidth = 0
@@ -83,7 +83,7 @@ class GyroSurfaceView @JvmOverloads constructor(
             if (displayId == myDisplay.displayId) {
                 val refreshRate = myDisplay.refreshRate
                 SurfaceLog.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
-                engine?.geometry?.updateDisplayRefreshRate(refreshRate)
+                renderController?.updateDisplayRefreshRate(refreshRate)
             }
         }
     }
@@ -125,7 +125,10 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        SurfaceLog.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
+        SurfaceLog.i(
+            TAG,
+            "surfaceCreated -> attachSurface (renderController=$renderController, buffer=${lockedWidth}x$lockedHeight)"
+        )
         attach(holder.surface)
     }
 
@@ -140,19 +143,19 @@ class GyroSurfaceView @JvmOverloads constructor(
             lockBufferSize(holder, width, height)
         }
 
-        val target = engine ?: return
-        if (!target.render.isSurfaceAttached && holder.surface?.isValid == true) {
+        val target = renderController ?: return
+        if (!target.isSurfaceAttached && holder.surface?.isValid == true) {
             SurfaceLog.i(TAG, "surfaceChanged -> re-attach unbound surface")
             attach(holder.surface)
             return
         }
         if (formatChanged) {
             SurfaceLog.i(TAG, "surfaceChanged -> buffer format changed to $format, rebuilding render surface")
-            target.render.requestSurfaceRebuild()
+            target.requestSurfaceRebuild()
             return
         }
-        if (!pipTransitionActive && target.geometry.firstFrameRendered.value) {
-            target.render.redraw()
+        if (!pipTransitionActive && target.isFirstFrameRendered) {
+            target.redraw()
         }
     }
 
@@ -184,21 +187,21 @@ class GyroSurfaceView @JvmOverloads constructor(
         attachedSurface = surface
         val rate = display?.refreshRate
         if (rate != null) {
-            engine?.geometry?.updateDisplayRefreshRate(rate)
+            renderController?.updateDisplayRefreshRate(rate)
         }
         frameRateController.reapplyCurrent()
-        engine?.render?.attachSurface(surface)
+        renderController?.attachSurface(surface)
     }
 
     /**
-     * Releases surface ownership if this view's surface is currently attached to [targetEngine],
+     * Releases surface ownership if this view's surface is currently attached to [targetRender],
      * without unconditionally detaching a newer surface owned by another [GyroSurfaceView].
      */
-    fun releaseSurfaceOwnership(targetEngine: PlayerEngine? = engine) {
+    fun releaseSurfaceOwnership(targetRender: RenderController? = renderController) {
         val surfaceToDetach = attachedSurface ?: holder.surface
         attachedSurface = null
         if (surfaceToDetach != null) {
-            targetEngine?.render?.detachSurface(surfaceToDetach)
+            targetRender?.detachSurface(surfaceToDetach)
         }
     }
 
@@ -208,7 +211,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         dm?.registerDisplayListener(displayListener, handler)
         val rate = display?.refreshRate ?: dm?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
         if (rate != null) {
-            engine?.geometry?.updateDisplayRefreshRate(rate)
+            renderController?.updateDisplayRefreshRate(rate)
         }
         val surface = holder.surface
         if (surface != null && surface.isValid && attachedSurface !== surface) {
@@ -235,7 +238,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         lockedHeight = 0
         SurfaceLog.i(TAG, "surfaceDestroyed -> detachSurface")
         if (surfaceToDetach != null) {
-            engine?.render?.detachSurface(surfaceToDetach)
+            renderController?.detachSurface(surfaceToDetach)
         }
     }
 }

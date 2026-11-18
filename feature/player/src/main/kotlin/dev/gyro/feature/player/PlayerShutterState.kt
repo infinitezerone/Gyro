@@ -10,7 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.unit.IntSize
-import dev.gyro.engine.api.session.PlaybackSessionState
+import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.delay
@@ -40,13 +40,13 @@ class PlayerShutterState {
     /** Whether the surface should be hidden right now. */
     fun covers(
         activeUri: Uri?,
-        playbackState: dev.gyro.engine.model.PlaybackState,
+        playbackState: PlaybackState,
         isPipLayout: Boolean,
         firstFrameRendered: Boolean,
         isSwitching: Boolean,
     ): Boolean = !isPipLayout &&
         activeUri != null &&
-        playbackState != dev.gyro.engine.model.PlaybackState.ERROR &&
+        playbackState != PlaybackState.ERROR &&
         (!firstFrameRendered || !isReady || isSwitching) &&
         !timedOut
 
@@ -114,7 +114,7 @@ class PlayerShutterState {
 @Composable
 fun rememberPlayerShutterState(
     activeUri: Uri?,
-    sessionState: PlaybackSessionState,
+    isSwitching: Boolean,
     firstFrameRendered: Boolean,
     geometryReady: Boolean,
     videoAspect: Float,
@@ -124,10 +124,10 @@ fun rememberPlayerShutterState(
     containerSize: IntSize,
     bufferSize: IntSize,
 ): PlayerShutterState {
-    val state = remember(activeUri, sessionState) { PlayerShutterState() }
+    val state = remember(activeUri, isSwitching) { PlayerShutterState() }
     LaunchedEffect(
         activeUri,
-        sessionState,
+        isSwitching,
         firstFrameRendered,
         geometryReady,
         containerSize,
@@ -135,7 +135,7 @@ fun rememberPlayerShutterState(
         bufferSize,
     ) {
         state.evaluate(
-            isSwitching = sessionState is PlaybackSessionState.Switching,
+            isSwitching = isSwitching,
             firstFrameRendered = firstFrameRendered,
             geometryReady = geometryReady,
             videoAspect = videoAspect,

@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.common.toUri
-import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.surface.GyroSurfaceView
@@ -73,7 +72,6 @@ import dev.gyro.feature.player.util.rememberPlayerPalette
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
-    engine: PlayerEngine = viewModel.engine,
     currentUri: Uri? = null,
     onBack: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -86,13 +84,13 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val playerState = rememberPlayerState(activity = activity, scope = scope)
 
-    // 1. Engine & Playback States
-    val snapshot by engine.state.collectAsStateWithLifecycle()
+    // 1. Session & Playback States
+    val snapshot by viewModel.state.collectAsStateWithLifecycle()
     val playbackState = snapshot.playbackState
     val isPlaying = snapshot.isPlaying
     val durationMs = snapshot.durationMs
-    val timePosState = engine.timePosMs.collectAsStateWithLifecycle()
-    val bufferedPosState = engine.bufferedPosMs.collectAsStateWithLifecycle()
+    val timePosState = viewModel.timePosMs.collectAsStateWithLifecycle()
+    val bufferedPosState = viewModel.bufferedPosMs.collectAsStateWithLifecycle()
     val hwdecMode = snapshot.hwdecMode
     val speed = snapshot.speed
     val tracks = snapshot.tracks
@@ -132,7 +130,7 @@ fun PlayerScreen(
     val isPowerSheetActive = isLifecycleStarted && playerState.activeSheetTab == PlayerSheetTab.STATS
     val isStatsActive = isLifecycleStarted && (playerState.statsOverlayEnabled || isPowerSheetActive)
     val telemetryState = rememberPlayerTelemetryState(
-        engine = engine,
+        diagnosticsFlow = viewModel.diagnostics,
         isActive = isPlaying && isStatsActive,
     )
     val powerState = rememberPlayerPowerState(
@@ -471,7 +469,7 @@ fun PlayerScreen(
     ) {
         // 1. Video Canvas & Vertical Pager Feed
         PlayerVideoFeedLayer(
-            engine = engine,
+            renderController = viewModel.renderController,
             snapshot = snapshot,
             playlist = playlist,
             currentPlaylistIndex = currentPlaylistIndex,
@@ -534,7 +532,9 @@ fun PlayerScreen(
         // 6. Diagnostics Telemetry Stats (when controls are hidden)
         if (!isPipLayout && !hideChrome && playerState.statsOverlayEnabled && !playerState.showControls) {
             PlayerStatsOverlay(
-                engine = engine,
+                diagnosticsFlow = viewModel.diagnostics,
+                videoDimensions = videoDimensions,
+                videoFrameRate = snapshot.videoFrameRate,
                 hwdecMode = hwdecMode,
                 bitrate = telemetryState.liveVideoBitrate,
                 hdrLabel = if (snapshot.isHdr) hdrFormat else null,
@@ -595,7 +595,6 @@ fun PlayerScreen(
                     PlayerSheetsHost(
                         tab = tab,
                         isLandscape = isLandscape,
-                        engine = engine,
                         viewModel = viewModel,
                         playerState = playerState,
                         snapshot = snapshot,

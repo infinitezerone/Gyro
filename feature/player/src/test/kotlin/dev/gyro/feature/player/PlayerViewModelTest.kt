@@ -13,6 +13,7 @@ import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
 import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.DefaultThumbnailRepository
 import dev.gyro.core.data.repository.MediaRepository
+import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PowerRepository
 import dev.gyro.core.data.repository.ScreenshotRepository
@@ -22,10 +23,14 @@ import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.DefaultPlaybackSession
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.session.PlaylistStateHolder
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.HandleAppBackgroundUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
 import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.ObservePlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
@@ -124,6 +129,7 @@ class PlayerViewModelTest {
         }
 
         val sessionStateHolder = PlaybackSessionStateHolder()
+        val playlistStateHolder = PlaylistStateHolder()
         val saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val serviceLauncher = PlaybackServiceLauncher.NoOp
         val thumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
@@ -135,28 +141,48 @@ class PlayerViewModelTest {
             subtitleRepository = fakeSubtitleRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
         )
-        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, loadMediaUseCase)
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadMediaUseCase)
+        val handleAppBackgroundUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveProgressUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
         val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(
             engine = engine,
             saveProgressUseCase = saveProgressUseCase,
             thumbnailRepository = thumbnailRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+        )
+        val observePlaybackSessionUseCase = ObservePlaybackSessionUseCase(sessionStateHolder, engine, testScope)
+        val session = DefaultPlaybackSession(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            mpvConfigRepository = MpvConfigRepository.Empty,
+            subtitleRepository = fakeSubtitleRepo,
+            sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+            loadMediaUseCase = loadMediaUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            handleAppBackgroundUseCase = handleAppBackgroundUseCase,
+            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
+            observePlaybackSessionUseCase = observePlaybackSessionUseCase,
+            scope = testScope,
         )
 
         viewModel = PlayerViewModel(
-            engine = engine,
+            session = session,
             settingsRepository = settingsRepo,
             thumbnailRepository = thumbnailRepo,
-            subtitleRepository = fakeSubtitleRepo,
             screenshotRepository = fakeScreenshotRepo,
             powerRepository = fakePowerRepo,
-            loadMediaUseCase = loadMediaUseCase,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
-            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
         )
     }
 
@@ -209,7 +235,8 @@ class PlayerViewModelTest {
     @Test
     fun testExplicitTitleWinsOverPlaylistWithoutQueryingProvider() = runPlayerTest {
         val uri = TestUri("content://videos/explicit")
-        engine.setSingleItem(uri, "Playlist title")
+        viewModel.setSingleAndPlay(uri, "Playlist title")
+        runCurrent()
 
         viewModel.openUri(uri, displayTitle = "Explicit title")
         runCurrent()
@@ -223,7 +250,8 @@ class PlayerViewModelTest {
     fun testOpenUriFindsKnownTitleEvenWhenItemIsNotCurrent() = runPlayerTest {
         val current = VideoMediaItem(1L, "file:///current.mp4", "Current", 1000L, 100L, 0, 0, 0L, "F")
         val target = VideoMediaItem(2L, "file:///target.mp4", "Known target", 1000L, 100L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(current, target), 0)
+        viewModel.setPlaylistAndPlay(listOf(current, target), current)
+        runCurrent()
 
         viewModel.openUri(TestUri(target.uriString))
         runCurrent()
@@ -259,7 +287,10 @@ class PlayerViewModelTest {
     @Test
     fun testBlankExplicitAndPlaylistTitlesFallBackToQuery() = runPlayerTest {
         val uri = TestUri("content://videos/blank")
-        engine.setSingleItem(uri, " ")
+        val blankItem = VideoMediaItem(1L, uri.toString(), " ", 1000L, 100L, 0, 0, 0L, "F")
+        viewModel.setPlaylistAndPlay(listOf(blankItem), blankItem)
+        runCurrent()
+        mediaRepo.queriedUris.clear()
         mediaRepo.displayNameLookup = { "Provider title.mp4" }
 
         viewModel.openUri(uri, displayTitle = " ")
@@ -413,12 +444,9 @@ class PlayerViewModelTest {
     fun testAutoAdvanceOnPlaybackEnded() = runPlayerTest {
         val item1 = VideoMediaItem(1L, "file:///video1.mp4", "Video 1", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///video2.mp4", "Video 2", 2000L, 200L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(item1, item2), 0)
-
-        val uri1 = TestUri("file:///video1.mp4")
-        viewModel.openUri(uri1)
+        viewModel.setPlaylistAndPlay(listOf(item1, item2), item1)
         testScheduler.runCurrent()
-        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals(0, viewModel.playlistManager.currentIndex.value)
 
         // End of first video
         fakeBridge.emitEndFile()
@@ -426,8 +454,8 @@ class PlayerViewModelTest {
         testScheduler.advanceTimeBy(600L)
         testScheduler.runCurrent()
 
-        assertEquals(1, engine.playlist.currentIndex.value)
-        assertEquals("Video 2", engine.playlist.currentItem?.displayName)
+        assertEquals(1, viewModel.playlistManager.currentIndex.value)
+        assertEquals("Video 2", viewModel.playlistManager.currentItem?.displayName)
     }
 
     @Test
@@ -526,18 +554,16 @@ class PlayerViewModelTest {
     fun testPlaylistNavigationMethods() = runPlayerTest {
         val item1 = VideoMediaItem(1L, "file:///a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(item1, item2), 0)
-
-        viewModel.openUri(TestUri("file:///a.mp4"))
+        viewModel.setPlaylistAndPlay(listOf(item1, item2), item1)
         testScheduler.runCurrent()
 
         assertTrue(viewModel.playNext())
         testScheduler.runCurrent()
-        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals(1, viewModel.playlistManager.currentIndex.value)
 
         assertTrue(viewModel.playPrevious())
         testScheduler.runCurrent()
-        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals(0, viewModel.playlistManager.currentIndex.value)
     }
 
     @Test

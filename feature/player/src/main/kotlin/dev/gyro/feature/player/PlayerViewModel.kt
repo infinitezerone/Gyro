@@ -8,18 +8,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.PowerRepository
 import dev.gyro.core.data.repository.ScreenshotRepository
 import dev.gyro.core.data.repository.SettingsRepository
-import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.domain.model.PlaybackSource
 import dev.gyro.core.domain.model.PlaylistStep
 import dev.gyro.core.domain.model.SessionEndReason
 import dev.gyro.core.domain.model.contentUri
-import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
-import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.session.PlaybackSession
+import dev.gyro.core.domain.session.Playlist
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.MediaPalette
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.PowerMetrics
@@ -27,19 +26,17 @@ import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.model.VideoScale
-import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.api.media.MediaItem
-import dev.gyro.engine.api.media.Playlist
-import dev.gyro.engine.model.EnginePlaybackException
+import dev.gyro.engine.api.controller.RenderController
+import dev.gyro.engine.model.PlaybackDiagnostics
 import dev.gyro.engine.model.PlaybackSnapshot
-import dev.gyro.engine.model.PlaybackSourceOpenException
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
-import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.event.PlaybackFailureReason
 import dev.gyro.feature.player.event.PlaybackTriggerSource
 import dev.gyro.feature.player.event.PlayerEvent
+import dev.gyro.feature.player.event.toPlayerEvent
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -53,29 +50,34 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileNotFoundException
 import javax.inject.Inject
 import kotlin.math.abs
 
 /**
  * UI state container and user event adapter for the Player screen.
- * Delegates all playback session, queue, and media-loading domain logic to single-method UseCases,
- * and delegates all I/O and background work to main-safe Repositories without manual thread switching.
+ * Consumes solely the application-scoped [PlaybackSession] contract and repositories without
+ * holding direct references to the underlying engine or owning playback lifecycle state machines.
  */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    val engine: PlayerEngine,
+    val session: PlaybackSession,
     settingsRepository: SettingsRepository,
     private val thumbnailRepository: ThumbnailRepository,
-    private val subtitleRepository: SubtitleRepository,
     private val screenshotRepository: ScreenshotRepository,
     private val powerRepository: PowerRepository,
-    private val loadMediaUseCase: LoadMediaUseCase,
-    private val navigatePlaylistUseCase: NavigatePlaylistUseCase,
-    private val endPlaybackSessionUseCase: EndPlaybackSessionUseCase,
 ) : ViewModel() {
 
-    val playlistManager: Playlist get() = engine.playlist
+    val state: StateFlow<PlaybackSnapshot> get() = session.state
+    val diagnostics: StateFlow<PlaybackDiagnostics> get() = session.diagnostics
+    val isPlaying: StateFlow<Boolean> get() = session.isPlaying
+    val playbackState: StateFlow<PlaybackState> get() = session.playbackState
+    val activeUri: StateFlow<Uri?> get() = session.currentUri
+    val timePosMs: StateFlow<Long> get() = session.timePosMs
+    val bufferedPosMs: StateFlow<Long> get() = session.bufferedPosMs
+    val playlistManager: Playlist get() = session.playlist
+    val renderController: RenderController get() = session.render
+    val failureReason: StateFlow<PlaybackFailureReason?> get() = session.failureReason
+    val sleepTimerSecondsRemaining: StateFlow<Long> get() = session.sleepTimerSecondsRemaining
 
     val settings: StateFlow<UserSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
@@ -88,26 +90,22 @@ class PlayerViewModel @Inject constructor(
             initialValue = settings.value.gestureConfig,
         )
 
-    val activeUri: StateFlow<Uri?> get() = engine.currentUri
-
     private val _events = MutableSharedFlow<PlayerEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<PlayerEvent> = _events.asSharedFlow()
 
-    private val _failureReason = MutableStateFlow<PlaybackFailureReason?>(null)
-    val failureReason: StateFlow<PlaybackFailureReason?> = _failureReason.asStateFlow()
+    private val _mediaInfo = MutableStateFlow<MediaInfo?>(null)
+    val mediaInfo: StateFlow<MediaInfo?> = _mediaInfo.asStateFlow()
+
+    private val _customShaders = MutableStateFlow<List<File>>(emptyList())
+    val customShaders: StateFlow<List<File>> = _customShaders.asStateFlow()
 
     private val _screenEntryEpoch = MutableStateFlow(0)
     val screenEntryEpoch: StateFlow<Int> = _screenEntryEpoch.asStateFlow()
 
-    private var lastHandledError: Throwable? = null
-    private var hwdecFallbackAttemptedKey: String? = null
-    private var autoFallbackTargetKey: String? = null
-    private var lastRequestedHwdec: HwdecMode? = null
-
     init {
-        viewModelScope.launch {
-            engine.state.collect { snapshot ->
-                onEngineSnapshot(snapshot)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            session.events.collect { event ->
+                _events.tryEmit(event.toPlayerEvent())
             }
         }
     }
@@ -119,21 +117,19 @@ class PlayerViewModel @Inject constructor(
     private var initializedUri: Uri? = null
 
     fun initialize(uri: Uri?) {
-        if (uri == null || initializedUri == uri) return
+        if (uri == null || (initializedUri == uri && session.currentUri.value == uri)) return
         initializedUri = uri
         val source = if (playlistManager.items.value.isEmpty()) {
             PlaybackSource.Single(uri = uri, skipIfAlreadyActive = true)
         } else {
             PlaybackSource.UriItem(uri = uri, skipIfAlreadyActive = true)
         }
-        loadMediaUseCase(source)
+        session.load(source)
     }
 
     fun onUserExit() {
         initializedUri = null
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        endPlaybackSessionUseCase(SessionEndReason.USER_EXIT)
+        session.endSession(SessionEndReason.USER_EXIT)
     }
 
     fun openUri(
@@ -141,308 +137,160 @@ class PlayerViewModel @Inject constructor(
         displayTitle: String? = null,
         initialWidth: Int = 0,
         initialHeight: Int = 0,
-    ): Job? {
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        engine.geometry.resetZoomAndPan()
-        return loadMediaUseCase(
-            PlaybackSource.UriItem(
-                uri = uri,
-                displayTitle = displayTitle,
-                initialWidth = initialWidth,
-                initialHeight = initialHeight,
-            )
+    ): Job? = session.load(
+        PlaybackSource.UriItem(
+            uri = uri,
+            displayTitle = displayTitle,
+            initialWidth = initialWidth,
+            initialHeight = initialHeight,
         )
-    }
+    )
 
-    fun playMediaItem(item: VideoMediaItem): Job? {
-        return openUri(
-            uri = item.contentUri,
-            displayTitle = item.displayName,
-            initialWidth = item.width,
-            initialHeight = item.height,
-        )
-    }
+    fun playMediaItem(item: VideoMediaItem): Job? = openUri(
+        uri = item.contentUri,
+        displayTitle = item.displayName,
+        initialWidth = item.width,
+        initialHeight = item.height,
+    )
 
-    fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        engine.geometry.resetZoomAndPan()
-        loadMediaUseCase(PlaybackSource.FromPlaylist(playlist = items, targetItem = item))
-    }
+    fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem): Job? =
+        session.load(PlaybackSource.FromPlaylist(playlist = items, targetItem = item))
 
-    fun setSingleAndPlay(uri: Uri, displayName: String? = null): Job? {
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        engine.geometry.resetZoomAndPan()
-        return loadMediaUseCase(PlaybackSource.Single(uri = uri, displayTitle = displayName))
-    }
+    fun setSingleAndPlay(uri: Uri, displayName: String? = null): Job? =
+        session.load(PlaybackSource.Single(uri = uri, displayTitle = displayName))
 
-    fun playNext(): Boolean {
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        val success = navigatePlaylistUseCase(PlaylistStep.Next)
-        if (success) {
-            engine.geometry.resetZoomAndPan()
-        }
-        return success
-    }
+    fun playNext(): Boolean = session.navigate(PlaylistStep.Next)
 
-    fun playPrevious(): Boolean {
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        val success = navigatePlaylistUseCase(PlaylistStep.Previous)
-        if (success) {
-            engine.geometry.resetZoomAndPan()
-        }
-        return success
-    }
+    fun playPrevious(): Boolean = session.navigate(PlaylistStep.Previous)
 
     fun playAtIndex(
         index: Int,
         source: PlaybackTriggerSource = PlaybackTriggerSource.USER_PLAYLIST_CLICK,
-    ): Boolean {
-        val fromIndex = playlistManager.currentIndex.value
-        _events.tryEmit(
-            PlayerEvent.SwitchInitiated(
-                fromIndex = fromIndex,
-                toIndex = index,
-                source = source,
-            )
-        )
-        hwdecFallbackAttemptedKey = null
-        restoreAutoFallbackHwdecIfNeeded()
-        val success = navigatePlaylistUseCase(PlaylistStep.AtIndex(index))
-        if (success) {
-            engine.geometry.resetZoomAndPan()
-            val item = playlistManager.items.value.getOrNull(index)
-            val uri = item?.contentUri ?: activeUri.value ?: Uri.EMPTY
-            _events.tryEmit(
-                PlayerEvent.SwitchCompleted(
-                    index = index,
-                    uri = uri,
-                )
-            )
-        }
-        return success
-    }
+    ): Boolean = session.navigate(PlaylistStep.AtIndex(index), triggerSource = source)
 
-    fun togglePlayPause() {
-        engine.togglePlayPause()
-    }
+    fun togglePlayPause() = session.togglePlayPause()
 
-    fun play() {
-        engine.play()
-    }
+    fun play() = session.play()
 
-    fun pause() {
-        engine.pause()
-    }
+    fun pause() = session.pause()
 
-    fun seekTo(positionMs: Long) {
-        engine.seekTo(positionMs)
-    }
+    fun seekTo(positionMs: Long) = session.seekTo(positionMs)
 
-    fun seekRelative(deltaMs: Long) {
-        engine.seekRelative(deltaMs)
-    }
+    fun seekRelative(deltaMs: Long) = session.seekRelative(deltaMs)
 
-    fun seekToChapter(index: Int) {
-        engine.seekToChapter(index)
-    }
+    fun seekToChapter(index: Int) = session.seekToChapter(index)
 
-    fun setSpeed(speed: Float) {
-        engine.setSpeed(speed)
-    }
+    fun setSpeed(speed: Float) = session.setSpeed(speed)
 
-    fun toggleHwdec() {
-        autoFallbackTargetKey = null
-        engine.toggleHwdec()
-        lastRequestedHwdec = engine.state.value.hwdecMode
-    }
+    fun toggleHwdec() = session.toggleHwdec()
 
-    fun setHwdec(mode: HwdecMode) {
-        autoFallbackTargetKey = null
-        lastRequestedHwdec = mode
-        engine.setHwdec(mode)
-    }
+    fun setHwdec(mode: HwdecMode) = session.setHwdec(mode)
 
-    fun cycleHwdec(): HwdecMode {
-        autoFallbackTargetKey = null
-        val next = engine.cycleHwdec()
-        lastRequestedHwdec = next
-        return next
-    }
+    fun cycleHwdec(): HwdecMode = session.cycleHwdec()
 
-    fun selectTrack(type: TrackType, id: Int) {
-        engine.trackManager.selectTrack(type, id)
-    }
+    fun selectTrack(type: TrackType, id: Int) = session.selectTrack(type, id)
 
     fun selectSubtitleTrack(trackId: Int) = selectTrack(TrackType.SUBTITLE, trackId)
 
-    fun selectSecondarySubtitle(id: Int) {
-        engine.trackManager.selectSecondarySubtitle(id)
-    }
+    fun selectSecondarySubtitle(id: Int) = session.selectSecondarySubtitle(id)
 
-    fun frameStep() {
-        engine.frameStep()
-    }
+    fun frameStep() = session.frameStep()
 
-    fun frameBackStep() {
-        engine.frameBackStep()
-    }
+    fun frameBackStep() = session.frameBackStep()
 
-    fun addSubtitle(target: String) {
-        engine.addSubtitle(target)
-    }
+    fun addSubtitle(target: String) = session.addSubtitle(target)
 
     fun addExternalSubtitle(uri: Uri) {
-        val expectedMedia = activeUri.value
         viewModelScope.launch {
-            subtitleRepository.openSubtitle(uri) { target ->
-                if (activeUri.value != expectedMedia) {
-                    false
-                } else {
-                    engine.addSubtitle(target)
-                    true
-                }
-            }
+            session.addExternalSubtitle(uri)
         }
     }
 
-    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) {
-        engine.shaders.setShader(shader, customPath, customName)
+    fun refreshMediaInfo(
+        fallbackTitle: String = "",
+        fallbackUri: String = "",
+        fallbackSize: Long = 0L,
+    ) {
+        viewModelScope.launch {
+            _mediaInfo.value = session.queryMediaInfo(
+                fallbackTitle = fallbackTitle,
+                fallbackUri = fallbackUri,
+                fallbackSize = fallbackSize,
+            )
+        }
     }
 
-    fun clearShader() {
-        engine.shaders.clearShader()
+    fun refreshCustomShaders() {
+        viewModelScope.launch {
+            _customShaders.value = session.listCustomShaders()
+        }
     }
 
-    fun setCustomShaderFile(file: File) {
-        engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
-    }
+    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) =
+        session.setShader(shader, customPath, customName)
+
+    fun clearShader() = session.clearShader()
+
+    fun setCustomShaderFile(file: File) =
+        session.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
 
     fun setCustomShader(uri: Uri) {
         viewModelScope.launch {
-            engine.shaders.importAndSetCustomShader(uri)
+            session.importAndSetCustomShader(uri)
+            refreshCustomShaders()
         }
     }
 
-    fun setDeband(enabled: Boolean) {
-        engine.video.setDeband(enabled)
-    }
+    fun setDeband(enabled: Boolean) = session.setDeband(enabled)
 
-    fun setBrightness(value: Int) {
-        engine.video.setBrightness(value)
-    }
+    fun setBrightness(value: Int) = session.setBrightness(value)
 
-    fun setContrast(value: Int) {
-        engine.video.setContrast(value)
-    }
+    fun setContrast(value: Int) = session.setContrast(value)
 
-    fun setSaturation(value: Int) {
-        engine.video.setSaturation(value)
-    }
+    fun setSaturation(value: Int) = session.setSaturation(value)
 
-    fun resetColors() {
-        engine.video.resetColors()
-    }
+    fun resetColors() = session.resetColors()
 
-    fun setResizeMode(mode: ResizeMode) {
-        engine.geometry.setResizeMode(mode)
-    }
+    fun setResizeMode(mode: ResizeMode) = session.setResizeMode(mode)
 
-    fun setHdrOutputMode(mode: HdrOutputMode) {
-        engine.setHdrOutputMode(mode)
-    }
+    fun setHdrOutputMode(mode: HdrOutputMode) = session.setHdrOutputMode(mode)
 
-    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
-        engine.setToneMappingAlgorithm(algorithm)
-    }
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) =
+        session.setToneMappingAlgorithm(algorithm)
 
-    fun setVideoScale(scale: VideoScale) {
-        engine.setVideoScale(scale)
-    }
+    fun setVideoScale(scale: VideoScale) = session.setVideoScale(scale)
 
-    fun setInterpolation(enabled: Boolean) {
-        engine.setInterpolation(enabled)
-    }
+    fun setInterpolation(enabled: Boolean) = session.setInterpolation(enabled)
 
-    fun setSoftwareVolume(gain: Double) {
-        engine.audio.setSoftwareVolume(gain)
-    }
+    fun setSoftwareVolume(gain: Double) = session.setSoftwareVolume(gain)
 
-    fun setNightMode(enabled: Boolean) {
-        engine.audio.setNightMode(enabled)
-    }
+    fun setNightMode(enabled: Boolean) = session.setNightMode(enabled)
 
-    fun setEqualizerGains(gainsDb: List<Double>) {
-        engine.audio.setEqualizerGains(gainsDb)
-    }
+    fun setEqualizerGains(gainsDb: List<Double>) = session.setEqualizerGains(gainsDb)
 
-    fun setStereoDownmix(enabled: Boolean) {
-        engine.audio.setStereoDownmix(enabled)
-    }
+    fun setStereoDownmix(enabled: Boolean) = session.setStereoDownmix(enabled)
 
-    fun setAudioPassthrough(enabled: Boolean) {
-        engine.setAudioPassthrough(enabled)
-    }
+    fun setAudioPassthrough(enabled: Boolean) = session.setAudioPassthrough(enabled)
 
-    fun setSubtitleDelay(delaySec: Double) {
-        engine.tuning.setSubtitleDelay(delaySec)
-    }
+    fun setSubtitleDelay(delaySec: Double) = session.setSubtitleDelay(delaySec)
 
-    fun setAudioDelay(delaySec: Double) {
-        engine.tuning.setAudioDelay(delaySec)
-    }
+    fun setAudioDelay(delaySec: Double) = session.setAudioDelay(delaySec)
 
-    fun setSubtitleScale(scale: Double) {
-        engine.tuning.setSubtitleScale(scale)
-    }
+    fun setSubtitleScale(scale: Double) = session.setSubtitleScale(scale)
 
-    fun setSubtitlePosition(percent: Long) {
-        engine.tuning.setSubtitlePosition(percent)
-    }
+    fun setSubtitlePosition(percent: Long) = session.setSubtitlePosition(percent)
 
-    fun setSubAssOverride(force: Boolean) {
-        engine.tuning.setSubAssOverride(force)
-    }
+    fun setSubAssOverride(force: Boolean) = session.setSubAssOverride(force)
 
-    fun resetZoomAndPan() {
-        engine.geometry.resetZoomAndPan()
-    }
+    fun resetZoomAndPan() = session.resetZoomAndPan()
 
-    fun resetAudioSoftwareGain() {
-        engine.audio.resetSoftwareGain()
-    }
+    fun resetAudioSoftwareGain() = session.resetSoftwareGain()
 
-    fun cycleAbLoop() {
-        engine.cycleAbLoop()
-    }
+    fun cycleAbLoop() = session.cycleAbLoop()
 
-    fun clearAbLoop() {
-        engine.clearAbLoop()
-    }
+    fun clearAbLoop() = session.clearAbLoop()
 
-    private var sleepTimerJob: Job? = null
-    private val _sleepTimerSecondsRemaining = MutableStateFlow(0L)
-    val sleepTimerSecondsRemaining: StateFlow<Long> = _sleepTimerSecondsRemaining.asStateFlow()
-
-    fun setSleepTimer(minutes: Int) {
-        sleepTimerJob?.cancel()
-        if (minutes <= 0) {
-            _sleepTimerSecondsRemaining.value = 0L
-            return
-        }
-        _sleepTimerSecondsRemaining.value = minutes * 60L
-        sleepTimerJob = viewModelScope.launch {
-            while (_sleepTimerSecondsRemaining.value > 0) {
-                delay(1000L)
-                _sleepTimerSecondsRemaining.value -= 1
-            }
-            engine.pause()
-        }
-    }
+    fun setSleepTimer(minutes: Int) = session.setSleepTimer(minutes)
 
     private var pendingPreciseSeekJob: Job? = null
     private var lastPreciseSeekTimestamp = 0L
@@ -472,20 +320,20 @@ class PlayerViewModel @Inject constructor(
                 pendingPreciseSeekJob = viewModelScope.launch {
                     delay(80L)
                     lastPreciseSeekTimestamp = monotonicNowMs()
-                    engine.seekTo(positionMs)
+                    session.seekTo(positionMs)
                 }
             } else {
                 val elapsed = now - lastPreciseSeekTimestamp
                 if (elapsed >= 32L || lastPreciseSeekTimestamp == 0L) {
                     lastPreciseSeekTimestamp = now
                     pendingPreciseSeekJob?.cancel()
-                    engine.seekTo(positionMs)
+                    session.seekTo(positionMs)
                 } else {
                     pendingPreciseSeekJob?.cancel()
                     pendingPreciseSeekJob = viewModelScope.launch {
                         delay(32L - elapsed)
                         lastPreciseSeekTimestamp = monotonicNowMs()
-                        engine.seekTo(positionMs)
+                        session.seekTo(positionMs)
                     }
                 }
             }
@@ -494,7 +342,7 @@ class PlayerViewModel @Inject constructor(
             lastPreciseSeekTimestamp = now
             lastPreciseSeekEventUptime = 0L
             lastPreciseSeekPosMs = positionMs
-            engine.seekTo(positionMs)
+            session.seekTo(positionMs)
         }
     }
 
@@ -512,125 +360,4 @@ class PlayerViewModel @Inject constructor(
 
     suspend fun samplePowerMetrics(): PowerMetrics =
         powerRepository.readPowerMetrics()
-
-    private fun restoreAutoFallbackHwdecIfNeeded() {
-        if (autoFallbackTargetKey != null) {
-            autoFallbackTargetKey = null
-            lastRequestedHwdec = null
-            engine.setHwdec(settings.value.defaultHwdecMode)
-        }
-    }
-
-    private fun onEngineSnapshot(snapshot: PlaybackSnapshot) {
-        val failedTarget = (snapshot.session as? SessionPhase.Failed)?.target?.takeIf { it.isNotBlank() }
-        val currentKey = snapshot.currentUri?.toString()?.takeIf { it.isNotBlank() } ?: failedTarget
-
-        if (currentKey != null && autoFallbackTargetKey != null && currentKey != autoFallbackTargetKey) {
-            restoreAutoFallbackHwdecIfNeeded()
-            hwdecFallbackAttemptedKey = null
-        }
-
-        if (snapshot.playbackState != PlaybackState.ERROR || snapshot.error == null) {
-            lastHandledError = null
-            _failureReason.value = null
-            if (snapshot.playbackState == PlaybackState.READY &&
-                snapshot.hwdecCurrent.isNotBlank() &&
-                autoFallbackTargetKey == null
-            ) {
-                lastRequestedHwdec = null
-            }
-            return
-        }
-
-        val error = snapshot.error ?: return
-        if (error === lastHandledError) return
-        lastHandledError = error
-
-        val runtimeHwdecMode = HwdecMode.fromRuntimeValue(snapshot.hwdecCurrent)
-        val effectiveHwdecMode = lastRequestedHwdec
-            ?: runtimeHwdecMode
-            ?: settings.value.defaultHwdecMode
-        val effectiveHwdecLabel = snapshot.hwdecCurrent.ifBlank { effectiveHwdecMode.persistedKey }
-        val targetUri = snapshot.currentUri ?: activeUri.value
-        val reason = classifyPlaybackFailure(error, targetUri, effectiveHwdecLabel)
-
-        val isSourceOpenFailure =
-            reason is PlaybackFailureReason.FileNotFound ||
-                reason is PlaybackFailureReason.PermissionDenied
-        val isHardwareActive = effectiveHwdecMode.isHardware
-
-        if (!isSourceOpenFailure &&
-            isHardwareActive &&
-            currentKey != null &&
-            hwdecFallbackAttemptedKey != currentKey
-        ) {
-            hwdecFallbackAttemptedKey = currentKey
-            autoFallbackTargetKey = currentKey
-            lastRequestedHwdec = HwdecMode.SOFTWARE
-            _failureReason.value = null
-            engine.setHwdec(HwdecMode.SOFTWARE)
-            _events.tryEmit(
-                PlayerEvent.HwdecAutoFallback(
-                    from = effectiveHwdecMode,
-                    to = HwdecMode.SOFTWARE,
-                )
-            )
-
-            val resumePosMs = engine.timePosMs.value.coerceAtLeast(0L)
-            val title = snapshot.mediaTitle.ifBlank { null }
-            if (targetUri != null) {
-                engine.load(
-                    uri = targetUri,
-                    startPositionMs = resumePosMs,
-                    displayTitle = title,
-                    initialDurationMs = snapshot.durationMs,
-                    initialWidth = snapshot.videoDimensions.width,
-                    initialHeight = snapshot.videoDimensions.height,
-                )
-            } else if (failedTarget != null) {
-                engine.load(
-                    MediaItem(
-                        target = failedTarget,
-                        title = title,
-                        startPositionMs = resumePosMs,
-                        initialDurationMs = snapshot.durationMs,
-                        initialWidth = snapshot.videoDimensions.width,
-                        initialHeight = snapshot.videoDimensions.height,
-                    )
-                )
-            }
-        } else {
-            _failureReason.value = reason
-            _events.tryEmit(PlayerEvent.ErrorOccurred(reason))
-        }
-    }
-
-    private fun classifyPlaybackFailure(
-        error: Throwable,
-        uri: Uri?,
-        hwdec: String,
-    ): PlaybackFailureReason {
-        val chain = generateSequence(error) { it.cause }.toList()
-        if (chain.any { it is SecurityException }) {
-            return PlaybackFailureReason.PermissionDenied(uri ?: Uri.EMPTY)
-        }
-        if (chain.any { it is FileNotFoundException || it is PlaybackSourceOpenException }) {
-            return PlaybackFailureReason.FileNotFound(uri ?: Uri.EMPTY)
-        }
-        val isCodecMessage = error.message?.let { msg ->
-            msg.contains("codec", ignoreCase = true) || msg.contains("decoder", ignoreCase = true)
-        } == true
-        if (chain.any { it is EnginePlaybackException }) {
-            return if (isCodecMessage) {
-                PlaybackFailureReason.CodecCrash(hwdec.ifBlank { "unknown" })
-            } else {
-                PlaybackFailureReason.DemuxError(error.message ?: "Playback failed")
-            }
-        }
-        return if (isCodecMessage) {
-            PlaybackFailureReason.CodecCrash(hwdec.ifBlank { "unknown" })
-        } else {
-            PlaybackFailureReason.Unknown
-        }
-    }
 }

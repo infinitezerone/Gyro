@@ -4,29 +4,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
-import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.engine.api.controller.RenderController
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.model.computeDisplayFittedBufferSize
-import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Jetpack Compose wrapper for [GyroSurfaceView].
- * Communicates strictly against the `:core:engine-api` [PlayerEngine] contract.
+ * Communicates strictly against the `:core:engine-api` [RenderController] contract.
  */
 @Composable
 fun GyroPlayerSurface(
     modifier: Modifier = Modifier,
-    engine: PlayerEngine? = null,
-    videoDimensions: VideoDimensions? = null,
-    videoFrameRate: Float? = null,
+    renderController: RenderController? = null,
+    isHdr: Boolean = false,
+    videoDimensions: VideoDimensions = VideoDimensions(),
+    videoFrameRate: Float = 0f,
     pipTransitionActive: Boolean = false,
     onAppliedBufferSizeChanged: ((IntSize) -> Unit)? = null,
     onSurfaceViewAvailable: ((GyroSurfaceView) -> Unit)? = null
@@ -34,7 +32,7 @@ fun GyroPlayerSurface(
     val context = LocalContext.current
     val surfaceView = remember {
         GyroSurfaceView(context).apply {
-            this.engine = engine
+            this.renderController = renderController
             onSurfaceViewAvailable?.invoke(this)
         }
     }
@@ -46,21 +44,20 @@ fun GyroPlayerSurface(
         surfaceView.pipTransitionActive = pipTransitionActive
     }
 
-    // Tell the engine up front whether the panel can present HDR.
-    LaunchedEffect(engine) {
-        engine?.geometry?.setDisplayHdrCapable(context.displaySupportsHdr())
+    // Tell the render backend up front whether the panel can present HDR.
+    LaunchedEffect(renderController) {
+        renderController?.setDisplayHdrCapable(context.displaySupportsHdr())
     }
 
-    val isHdr by (engine?.geometry?.isHdr ?: remember { MutableStateFlow(false) }).collectAsStateWithLifecycle()
     LaunchedEffect(isHdr) {
         val canHdr = isHdr && context.displaySupportsHdr()
         surfaceView.setHdrOutput(canHdr)
     }
 
-    DisposableEffect(engine) {
-        surfaceView.engine = engine
+    DisposableEffect(renderController) {
+        surfaceView.renderController = renderController
         onDispose {
-            surfaceView.releaseSurfaceOwnership(engine)
+            surfaceView.releaseSurfaceOwnership(renderController)
         }
     }
 
@@ -69,21 +66,20 @@ fun GyroPlayerSurface(
             .collect { onAppliedBufferSizeChanged?.invoke(it) }
     }
 
-    val observedFrameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsStateWithLifecycle()
-    val effectiveFrameRate = videoFrameRate ?: observedFrameRate
-    LaunchedEffect(effectiveFrameRate) {
-        SurfaceLog.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$effectiveFrameRate), engine=$engine")
-        surfaceView.applyContentFrameRate(effectiveFrameRate)
+    LaunchedEffect(videoFrameRate) {
+        SurfaceLog.i(
+            "GyroPlayerSurface",
+            "LaunchedEffect(frameRate=$videoFrameRate), renderController=$renderController"
+        )
+        surfaceView.applyContentFrameRate(videoFrameRate)
     }
 
-    val observedDimensions: VideoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsStateWithLifecycle()
-    val effectiveDimensions = videoDimensions ?: observedDimensions
-    LaunchedEffect(effectiveDimensions.width, effectiveDimensions.height) {
-        if (effectiveDimensions.width <= 0 || effectiveDimensions.height <= 0) return@LaunchedEffect
+    LaunchedEffect(videoDimensions.width, videoDimensions.height) {
+        if (videoDimensions.width <= 0 || videoDimensions.height <= 0) return@LaunchedEffect
         val (displayW, displayH) = resolvePhysicalDisplaySize(context)
         val (targetW, targetH) = computeDisplayFittedBufferSize(
-            videoWidth = effectiveDimensions.width,
-            videoHeight = effectiveDimensions.height,
+            videoWidth = videoDimensions.width,
+            videoHeight = videoDimensions.height,
             displayWidth = displayW,
             displayHeight = displayH
         )
@@ -92,11 +88,11 @@ fun GyroPlayerSurface(
 
     AndroidView(
         factory = {
-            if (effectiveDimensions.width > 0 && effectiveDimensions.height > 0) {
+            if (videoDimensions.width > 0 && videoDimensions.height > 0) {
                 val (displayW, displayH) = resolvePhysicalDisplaySize(context)
                 val (targetW, targetH) = computeDisplayFittedBufferSize(
-                    videoWidth = effectiveDimensions.width,
-                    videoHeight = effectiveDimensions.height,
+                    videoWidth = videoDimensions.width,
+                    videoHeight = videoDimensions.height,
                     displayWidth = displayW,
                     displayHeight = displayH
                 )
@@ -105,7 +101,7 @@ fun GyroPlayerSurface(
             surfaceView
         },
         update = { view ->
-            view.engine = engine
+            view.renderController = renderController
         },
         modifier = modifier
     )

@@ -11,17 +11,23 @@ import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
 import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.DefaultThumbnailRepository
 import dev.gyro.core.data.repository.MediaRepository
+import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.PowerRepository
 import dev.gyro.core.data.repository.ScreenshotRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
+import dev.gyro.core.domain.model.PlaybackFailureReason
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.DefaultPlaybackSession
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.session.PlaylistStateHolder
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.HandleAppBackgroundUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
 import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.ObservePlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
 import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.PowerMetrics
@@ -118,6 +124,7 @@ class PlayerEventTest {
         }
 
         val sessionStateHolder = PlaybackSessionStateHolder()
+        val playlistStateHolder = PlaylistStateHolder()
         val saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val serviceLauncher = PlaybackServiceLauncher.NoOp
         val thumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
@@ -129,28 +136,48 @@ class PlayerEventTest {
             subtitleRepository = fakeSubtitleRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
         )
-        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, loadMediaUseCase)
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadMediaUseCase)
+        val handleAppBackgroundUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveProgressUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
         val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(
             engine = engine,
             saveProgressUseCase = saveProgressUseCase,
             thumbnailRepository = thumbnailRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+        )
+        val observePlaybackSessionUseCase = ObservePlaybackSessionUseCase(sessionStateHolder, engine, testScope)
+        val session = DefaultPlaybackSession(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            mpvConfigRepository = MpvConfigRepository.Empty,
+            subtitleRepository = fakeSubtitleRepo,
+            sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+            loadMediaUseCase = loadMediaUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            handleAppBackgroundUseCase = handleAppBackgroundUseCase,
+            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
+            observePlaybackSessionUseCase = observePlaybackSessionUseCase,
+            scope = testScope,
         )
 
         viewModel = PlayerViewModel(
-            engine = engine,
+            session = session,
             settingsRepository = settingsRepo,
             thumbnailRepository = thumbnailRepo,
-            subtitleRepository = fakeSubtitleRepo,
             screenshotRepository = fakeScreenshotRepo,
             powerRepository = fakePowerRepo,
-            loadMediaUseCase = loadMediaUseCase,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
-            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
         )
     }
 
@@ -175,7 +202,8 @@ class PlayerEventTest {
     fun testPlayAtIndexEmitsInitiatedAndCompletedEventsWithDefaultSource() = runPlayerTest {
         val item0 = VideoMediaItem(1L, "file:///item0.mp4", "Item 0", 1000L, 100L, 0, 0, 0L, "F")
         val item1 = VideoMediaItem(2L, "file:///item1.mp4", "Item 1", 2000L, 200L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(item0, item1), 0)
+        viewModel.setPlaylistAndPlay(listOf(item0, item1), item0)
+        testScheduler.runCurrent()
 
         val emittedEvents = mutableListOf<PlayerEvent>()
         val collectorJob = backgroundScope.launch {
@@ -206,7 +234,8 @@ class PlayerEventTest {
         val item0 = VideoMediaItem(1L, "file:///short0.mp4", "Short 0", 1000L, 100L, 0, 0, 0L, "F")
         val item1 = VideoMediaItem(2L, "file:///short1.mp4", "Short 1", 2000L, 300L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(3L, "file:///short2.mp4", "Short 2", 3000L, 300L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(item0, item1, item2), 0)
+        viewModel.setPlaylistAndPlay(listOf(item0, item1, item2), item0)
+        testScheduler.runCurrent()
 
         val emittedEvents = mutableListOf<PlayerEvent>()
         val collectorJob = backgroundScope.launch {
@@ -235,7 +264,8 @@ class PlayerEventTest {
     @Test
     fun testPlayAtIndexOutOfBoundsEmitsOnlyInitiated() = runPlayerTest {
         val item0 = VideoMediaItem(1L, "file:///item0.mp4", "Item 0", 1000L, 100L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(item0), 0)
+        viewModel.setPlaylistAndPlay(listOf(item0), item0)
+        testScheduler.runCurrent()
 
         val emittedEvents = mutableListOf<PlayerEvent>()
         val collectorJob = backgroundScope.launch {
@@ -369,6 +399,13 @@ class PlayerEventTest {
             )
             localEngine.warmUp()
             val localSessionHolder = PlaybackSessionStateHolder()
+            val localPlaylistHolder = PlaylistStateHolder()
+            val localSubtitleRepo = object : SubtitleRepository {
+                override suspend fun findCompanionSubtitles(
+                    videoUri: Uri,
+                    videoDisplayName: String?,
+                ): List<Uri> = emptyList()
+            }
             val localSaveProgress = SavePlaybackProgressUseCase(localEngine, historyRepo)
             val localThumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
             val localLoadMedia = LoadMediaUseCase(
@@ -376,44 +413,54 @@ class PlayerEventTest {
                 mediaRepository = mediaRepo,
                 historyRepository = historyRepo,
                 settingsRepository = settingsRepo,
-                subtitleRepository = object : SubtitleRepository {
-                    override suspend fun findCompanionSubtitles(
-                        videoUri: Uri,
-                        videoDisplayName: String?,
-                    ): List<Uri> = emptyList()
-                },
+                subtitleRepository = localSubtitleRepo,
                 serviceLauncher = PlaybackServiceLauncher.NoOp,
                 sessionStateHolder = localSessionHolder,
+                playlistStateHolder = localPlaylistHolder,
                 saveProgressUseCase = localSaveProgress,
                 scope = testScope,
             )
-            val localNavigate = NavigatePlaylistUseCase(localEngine, localLoadMedia)
+            val localNavigate = NavigatePlaylistUseCase(localPlaylistHolder, localSessionHolder, localLoadMedia)
+            val localHandleBg = HandleAppBackgroundUseCase(
+                engine = localEngine,
+                settingsRepository = settingsRepo,
+                saveProgressUseCase = localSaveProgress,
+                sessionStateHolder = localSessionHolder,
+                scope = testScope,
+            )
             val localEnd = EndPlaybackSessionUseCase(
                 engine = localEngine,
                 saveProgressUseCase = localSaveProgress,
                 thumbnailRepository = localThumbnailRepo,
                 serviceLauncher = PlaybackServiceLauncher.NoOp,
                 sessionStateHolder = localSessionHolder,
+                playlistStateHolder = localPlaylistHolder,
             )
-            val localVm = PlayerViewModel(
+            val localObserve = ObservePlaybackSessionUseCase(localSessionHolder, localEngine, testScope)
+            val localSession = DefaultPlaybackSession(
                 engine = localEngine,
                 settingsRepository = settingsRepo,
+                mpvConfigRepository = MpvConfigRepository.Empty,
+                subtitleRepository = localSubtitleRepo,
+                sessionStateHolder = localSessionHolder,
+                playlistStateHolder = localPlaylistHolder,
+                loadMediaUseCase = localLoadMedia,
+                navigatePlaylistUseCase = localNavigate,
+                handleAppBackgroundUseCase = localHandleBg,
+                endPlaybackSessionUseCase = localEnd,
+                observePlaybackSessionUseCase = localObserve,
+                scope = testScope,
+            )
+            val localVm = PlayerViewModel(
+                session = localSession,
+                settingsRepository = settingsRepo,
                 thumbnailRepository = localThumbnailRepo,
-                subtitleRepository = object : SubtitleRepository {
-                    override suspend fun findCompanionSubtitles(
-                        videoUri: Uri,
-                        videoDisplayName: String?,
-                    ): List<Uri> = emptyList()
-                },
                 screenshotRepository = object : ScreenshotRepository {
                     override suspend fun saveScreenshot(bitmap: android.graphics.Bitmap, mediaTitle: String, positionMs: Long): Boolean = true
                 },
                 powerRepository = object : PowerRepository {
                     override suspend fun readPowerMetrics(): PowerMetrics = PowerMetrics()
                 },
-                loadMediaUseCase = localLoadMedia,
-                navigatePlaylistUseCase = localNavigate,
-                endPlaybackSessionUseCase = localEnd,
             )
             val events = mutableListOf<PlayerEvent>()
             val collector = backgroundScope.launch {

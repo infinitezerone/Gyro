@@ -149,4 +149,16 @@ internal fun PlayerSystemEffects(
             onResetAudioGain()
         }
     }
+
+    // 8. Restore default screen orientation when PlayerScreen leaves composition (unless rotating)
+    DisposableEffect(activity) {
+        onDispose {
+            val act = activity ?: return@onDispose
+            if (!act.isChangingConfigurations &&
+                act.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            ) {
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
 }

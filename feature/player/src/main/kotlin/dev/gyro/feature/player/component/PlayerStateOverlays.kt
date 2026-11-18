@@ -40,9 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.domain.model.PlaybackFailureReason
 import dev.gyro.core.model.HwdecMode
-import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.feature.player.event.PlaybackFailureReason
+import dev.gyro.engine.model.PlaybackDiagnostics
+import dev.gyro.engine.model.VideoDimensions
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Full-screen state cards that sit above the video surface: load failure, empty library, and the
@@ -226,24 +228,24 @@ fun PlayerFormatBadge(
  */
 @Composable
 fun PlayerStatsOverlay(
-    engine: PlayerEngine,
+    diagnosticsFlow: StateFlow<PlaybackDiagnostics>,
+    videoDimensions: VideoDimensions,
+    videoFrameRate: Float,
     hwdecMode: HwdecMode,
     bitrate: Long,
     hdrLabel: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val telemetry by engine.diagnostics.collectAsStateWithLifecycle()
-    val dimensions by engine.geometry.videoDimensions.collectAsStateWithLifecycle()
-    val sourceFrameRate by engine.geometry.videoFrameRate.collectAsStateWithLifecycle()
+    val telemetry by diagnosticsFlow.collectAsStateWithLifecycle()
     StatsDiagnosticOverlay(
         fps = telemetry.fps,
         droppedFrames = telemetry.droppedFrames,
         hwdecMode = hwdecMode,
         bitrate = bitrate,
         hdrLabel = hdrLabel,
-        sourceWidth = dimensions.width,
-        sourceHeight = dimensions.height,
-        sourceFrameRate = sourceFrameRate,
+        sourceWidth = videoDimensions.width,
+        sourceHeight = videoDimensions.height,
+        sourceFrameRate = videoFrameRate,
         modifier = modifier,
     )
 }

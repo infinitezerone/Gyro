@@ -43,8 +43,7 @@ import androidx.compose.ui.unit.dp
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.VerticalSwipeMode
 import dev.gyro.core.model.VideoMediaItem
-import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.api.session.PlaybackSessionState
+import dev.gyro.engine.api.controller.RenderController
 import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
@@ -71,7 +70,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 internal fun BoxScope.PlayerVideoFeedLayer(
-    engine: PlayerEngine,
+    renderController: RenderController,
     snapshot: PlaybackSnapshot,
     playlist: List<VideoMediaItem>,
     currentPlaylistIndex: Int,
@@ -229,7 +228,8 @@ internal fun BoxScope.PlayerVideoFeedLayer(
                 scaleY = sheetFitScale
                 translationY = sheetShiftY
             },
-        engine = engine,
+        renderController = renderController,
+        isHdr = snapshot.isHdr,
         videoDimensions = snapshot.videoDimensions,
         videoFrameRate = snapshot.videoFrameRate,
         pipTransitionActive = pipTransitionActive,
@@ -242,7 +242,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     val activeIsInPlaylist = activeUriString != null && playlist.any { it.uriString == activeUriString }
     val shutterState = rememberPlayerShutterState(
         activeUri = activeUri,
-        sessionState = snapshot.sessionState,
+        isSwitching = snapshot.session.isSwitching,
         firstFrameRendered = snapshot.firstFrameRendered,
         geometryReady = snapshot.geometryReady,
         videoAspect = videoAspect,
@@ -257,7 +257,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
         playbackState = snapshot.playbackState,
         isPipLayout = isPipLayout,
         firstFrameRendered = snapshot.firstFrameRendered,
-        isSwitching = snapshot.sessionState is PlaybackSessionState.Switching,
+        isSwitching = snapshot.session.isSwitching,
     )
     val isCurrentVideoReady = !shutterCovers &&
         (!activeIsInPlaylist || activePlaylistItem?.uriString == activeUriString)
