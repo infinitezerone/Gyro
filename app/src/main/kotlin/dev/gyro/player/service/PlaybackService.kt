@@ -148,15 +148,29 @@ class PlaybackService : MediaSessionService() {
         playerAdapter?.setArtworkBitmap(bitmap)
     }
 
+    /**
+     * True only when this service asked to stop itself.
+     *
+     * The system also destroys this service when it drops out of the foreground — which happens as
+     * soon as playback is paused in the background — and treating that as "playback is over" tore
+     * down the session, so returning to the app landed on the library instead of the player.
+     */
+    private var stopRequestedBySelf = false
+
     internal fun stopForegroundAndSelf() {
+        stopRequestedBySelf = true
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     @OptIn(UnstableApi::class)
     override fun onDestroy() {
-        Log.i(TAG, "PlaybackService destroyed")
-        session.endSession(SessionEndReason.SERVICE_STOPPED)
+        if (stopRequestedBySelf) {
+            Log.i(TAG, "PlaybackService destroyed after an explicit stop; ending the session")
+            session.endSession(SessionEndReason.SERVICE_STOPPED)
+        } else {
+            Log.i(TAG, "PlaybackService destroyed by the system; keeping the session so the player survives")
+        }
         mediaSession?.let { activeSession ->
             runCatching { activeSession.release() }
                 .onFailure { Log.w(TAG, "release MediaSession failed", it) }
