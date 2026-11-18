@@ -93,6 +93,11 @@ class MpvConfigAdversarialTest {
             param=value#notacomment
             param2=value #isacomment
             param3=value    # indented comment
+            sub-files= # comment after equals
+            sub-files-tab=	# tab comment after equals
+            unquoted-hex=#FFFFFF
+            unquoted-hex-with-comment=#123456 # trailing comment
+            spaced-unquoted-hex = #FFFFFF
         """.trimIndent()
 
         val parsed = MpvConfig.parse(input)
@@ -101,6 +106,32 @@ class MpvConfigAdversarialTest {
         assertEquals("value#notacomment", parsed["param"])
         assertEquals("value", parsed["param2"])
         assertEquals("value", parsed["param3"])
+        assertEquals("", parsed["sub-files"])
+        assertEquals("", parsed["sub-files-tab"])
+        assertEquals("#FFFFFF", parsed["unquoted-hex"])
+        assertEquals("#123456", parsed["unquoted-hex-with-comment"])
+        assertEquals("", parsed["spaced-unquoted-hex"])
+    }
+
+    @Test
+    fun testIniProfileHeadersAreIgnored() {
+        val input = """
+            [high-quality]
+            vo=libmpv
+            [protocol.https]
+            cache=yes
+            [default]
+            deband
+        """.trimIndent()
+
+        val parsed = MpvConfig.parse(input)
+        assertEquals(3, parsed.size)
+        assertEquals("libmpv", parsed["vo"])
+        assertEquals("yes", parsed["cache"])
+        assertEquals("yes", parsed["deband"])
+        assertFalse(parsed.containsKey("[high-quality]"))
+        assertFalse(parsed.containsKey("[protocol.https]"))
+        assertFalse(parsed.containsKey("[default]"))
     }
 
     @Test

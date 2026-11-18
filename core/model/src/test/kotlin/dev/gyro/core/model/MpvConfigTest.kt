@@ -148,7 +148,7 @@ class MpvConfigTest {
             sub-color='#00FF00'
             osd-border-color=#80000000 # Semi-transparent black
             sub-back-color="#102030" # Quoted with comment
-            sub-border-color = #FFFFFF 
+            sub-border-color = "#FFFFFF" 
         """.trimIndent()
 
         val parsed = MpvConfig.parse(input)

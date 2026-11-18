@@ -50,4 +50,16 @@ data class UserSettings(
     val subAutoLoad: Boolean = true,
     val gesturesEnabled: Boolean = true,
     val gestureConfig: PlayerGestureConfig = PlayerGestureConfig()
-)
+) {
+    val defaultHwdecMode: HwdecMode
+        get() = HwdecMode.fromPreference(defaultHwdec)
+
+    val hdrOutput: HdrOutputMode
+        get() = HdrOutputMode.fromKey(hdrOutputMode)
+
+    val toneMapping: ToneMappingAlgorithm
+        get() = ToneMappingAlgorithm.fromKey(toneMappingAlgorithm)
+
+    val videoScalePreset: VideoScale
+        get() = VideoScale.fromKey(videoScale)
+}

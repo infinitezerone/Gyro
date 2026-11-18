@@ -37,6 +37,7 @@ data class MpvConfig(
             text.lineSequence().forEach { rawLine ->
                 val line = rawLine.trim()
                 if (line.isEmpty() || line.startsWith("#")) return@forEach
+                if (line.startsWith("[") && line.endsWith("]")) return@forEach
 
                 val cleanLine = line.removePrefix("--").trim()
                 if (cleanLine.isEmpty() || cleanLine.startsWith("=") || cleanLine.startsWith("#")) return@forEach
@@ -44,12 +45,10 @@ data class MpvConfig(
                 val eqIndex = cleanLine.indexOf('=')
                 if (eqIndex > 0) {
                     val key = cleanLine.substring(0, eqIndex).trim()
-                    var rawVal = cleanLine.substring(eqIndex + 1).trim()
+                    val afterEq = cleanLine.substring(eqIndex + 1)
 
-                    val commentIdx = findInlineCommentIndex(rawVal)
-                    if (commentIdx >= 0) {
-                        rawVal = rawVal.substring(0, commentIdx).trim()
-                    }
+                    val commentIdx = findInlineCommentIndex(afterEq)
+                    var rawVal = (if (commentIdx >= 0) afterEq.substring(0, commentIdx) else afterEq).trim()
 
                     if ((rawVal.startsWith('"') && rawVal.endsWith('"')) ||
                         (rawVal.startsWith('\'') && rawVal.endsWith('\''))
