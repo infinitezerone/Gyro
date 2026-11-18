@@ -64,7 +64,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.domain.model.MediaFeedState
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 
@@ -225,7 +228,7 @@ fun HomeContent(
                             )
                             Text(
                                 text = if (uiState.hasPermission) {
-                                    stringResource(R.string.home_video_count, uiState.rawVideos.size)
+                                    stringResource(R.string.home_video_count, uiState.mediaFeed.rawVideoCount)
                                 } else {
                                     stringResource(R.string.home_storage_unconnected)
                                 },
@@ -280,53 +283,59 @@ fun HomeContent(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
-                uiState.isLoading && uiState.rawVideos.isEmpty() -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = GyroColors.Primary
-                    )
-                }
-                uiState.rawVideos.isEmpty() -> {
-                    EmptyVideosView(
-                        onOpenFile = onOpenFile,
-                        onPickFolder = onPickFolder,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-                uiState.filteredVideos.isEmpty() -> {
-                    EmptySearchView(
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-                else -> {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // 文件夹分类筛选横条
-                        if (uiState.folders.size > 1 && !uiState.isSearching) {
-                            FolderFilterBar(
-                                folders = uiState.folders,
-                                selectedFolder = uiState.selectedFolder,
-                                allCount = uiState.rawVideos.size,
-                                rawVideos = uiState.rawVideos,
-                                onSelectFolder = onSelectFolder
+                else -> when (val feed = uiState.mediaFeed) {
+                    // The only state allowed to show a spinner: nothing is known yet. An empty list
+                    // here would be a claim about the library, which is what used to flash.
+                    MediaFeedState.Loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.Center),
+                            color = GyroColors.Primary
+                        )
+                    }
+                    is MediaFeedState.Ready -> when {
+                        feed.rawVideos.isEmpty() -> {
+                            EmptyVideosView(
+                                onOpenFile = onOpenFile,
+                                onPickFolder = onPickFolder,
+                                modifier = Modifier.align(Alignment.Center)
                             )
                         }
+                        feed.filteredVideos.isEmpty() -> {
+                            EmptySearchView(
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
+                        else -> {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // 文件夹分类筛选横条
+                                if (feed.folders.size > 1 && !uiState.isSearching) {
+                                    FolderFilterBar(
+                                        folders = feed.folders,
+                                        selectedFolder = feed.effectiveSelectedFolder,
+                                        allCount = feed.rawVideos.size,
+                                        rawVideos = feed.rawVideos,
+                                        onSelectFolder = onSelectFolder
+                                    )
+                                }
 
-                        // 视频列表
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(
-                                items = uiState.filteredVideos,
-                                key = { it.uriString }
-                            ) { videoItem ->
-                                val progress = uiState.playbackMap[videoItem.uriString]
-                                VideoCard(
-                                    item = videoItem,
-                                    playbackProgress = progress,
-                                    onClick = { onPlayVideo(videoItem, uiState.filteredVideos) }
-                                )
+                                // 视频列表
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(
+                                        items = feed.filteredVideos,
+                                        key = { it.uriString }
+                                    ) { videoItem ->
+                                        val progress = feed.playbackMap[videoItem.uriString]
+                                        VideoCard(
+                                            item = videoItem,
+                                            playbackProgress = progress,
+                                            onClick = { onPlayVideo(videoItem, feed.filteredVideos) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

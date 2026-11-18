@@ -6,9 +6,8 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.CustomFolderRepository
 import dev.gyro.core.domain.model.MediaFeedQuery
+import dev.gyro.core.domain.model.MediaFeedState
 import dev.gyro.core.domain.usecase.ObserveMediaFeedUseCase
-import dev.gyro.core.model.PlaybackProgress
-import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,15 +18,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class HomeUiState(
-    val isLoading: Boolean = false,
+    /** Starts as [MediaFeedState.Loading]: the library is unknown until the first snapshot. */
+    val mediaFeed: MediaFeedState = MediaFeedState.Loading,
     val hasPermission: Boolean = false,
-    val rawVideos: List<VideoMediaItem> = emptyList(),
-    val filteredVideos: List<VideoMediaItem> = emptyList(),
-    val folders: List<String> = emptyList(),
-    val selectedFolder: String? = null,
     val searchQuery: String = "",
     val isSearching: Boolean = false,
-    val playbackMap: Map<String, PlaybackProgress> = emptyMap(),
 )
 
 @HiltViewModel
@@ -45,20 +40,15 @@ class HomeViewModel @Inject constructor(
         _isSearching,
     ) { feed, query, isSearching ->
         HomeUiState(
-            isLoading = feed.isLoading,
+            mediaFeed = feed,
             hasPermission = query.hasPermission,
-            rawVideos = feed.rawVideos,
-            filteredVideos = feed.filteredVideos,
-            folders = feed.folders,
-            selectedFolder = feed.effectiveSelectedFolder,
             searchQuery = query.searchQuery,
             isSearching = isSearching,
-            playbackMap = feed.playbackMap,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = HomeUiState(isLoading = true),
+        initialValue = HomeUiState(),
     )
 
     fun onPermissionResult(granted: Boolean) {

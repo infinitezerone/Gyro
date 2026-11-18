@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.domain.model.MediaFeedState
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 
@@ -69,15 +70,16 @@ fun HomeScreenPreview() {
     )
 
     val mockState = HomeUiState(
-        isLoading = false,
+        mediaFeed = MediaFeedState.Ready(
+            rawVideos = mockVideos,
+            filteredVideos = mockVideos,
+            folders = listOf("Movies", "4K Demos", "Anime"),
+            effectiveSelectedFolder = null,
+            playbackMap = mockPlaybackMap,
+        ),
         hasPermission = true,
-        rawVideos = mockVideos,
-        filteredVideos = mockVideos,
-        folders = listOf("Movies", "4K Demos", "Anime"),
-        selectedFolder = null,
         searchQuery = "",
         isSearching = false,
-        playbackMap = mockPlaybackMap
     )
 
     Box(

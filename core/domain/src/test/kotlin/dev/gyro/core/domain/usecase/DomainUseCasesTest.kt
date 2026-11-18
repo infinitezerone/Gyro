@@ -15,6 +15,7 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.model.MediaFeedQuery
+import dev.gyro.core.domain.model.MediaFeedState
 import dev.gyro.core.domain.model.PlaybackFailureReason
 import dev.gyro.core.domain.model.PlaybackSessionEvent
 import dev.gyro.core.domain.model.PlaybackSource
@@ -497,11 +498,11 @@ class DomainUseCasesTest {
         val feedState = observeFeed(queryFlow).stateIn(
             scope = backgroundScope,
             started = SharingStarted.Eagerly,
-            initialValue = dev.gyro.core.domain.model.MediaFeed(),
+            initialValue = MediaFeedState.Loading,
         )
         runCurrent()
 
-        val initial = feedState.first { !it.isLoading }
+        val initial = feedState.first { it is MediaFeedState.Ready }.ready()
         assertEquals(1, mediaRepo.getVideosCalls)
         assertEquals(2, initial.filteredVideos.size)
         assertEquals(listOf("Anime", "Movies"), initial.folders)
@@ -509,7 +510,7 @@ class DomainUseCasesTest {
         // Search query filters in-memory without re-scanning MediaRepository
         queryFlow.value = queryFlow.value.copy(searchQuery = "beta")
         runCurrent()
-        val searched = feedState.value
+        val searched = feedState.value.ready()
         assertEquals("Beta.mkv", searched.filteredVideos.single().displayName)
         assertEquals(1, mediaRepo.getVideosCalls)
 
@@ -652,27 +653,27 @@ class DomainUseCasesTest {
         val feed1 = observeFeed(query1).stateIn(
             scope = backgroundScope,
             started = SharingStarted.Eagerly,
-            initialValue = dev.gyro.core.domain.model.MediaFeed(),
+            initialValue = MediaFeedState.Loading,
         )
         runCurrent()
-        assertEquals(1, feed1.value.rawVideos.size)
+        assertEquals(1, feed1.value.ready().rawVideos.size)
 
         // Second collector without permission must not overwrite first collector's cache
         val feed2 = observeFeed(query2).stateIn(
             scope = backgroundScope,
             started = SharingStarted.Eagerly,
-            initialValue = dev.gyro.core.domain.model.MediaFeed(),
+            initialValue = MediaFeedState.Loading,
         )
         runCurrent()
-        assertEquals(0, feed2.value.rawVideos.size)
-        assertEquals(1, feed1.value.rawVideos.size)
+        assertEquals(0, feed2.value.ready().rawVideos.size)
+        assertEquals(1, feed1.value.ready().rawVideos.size)
 
         // Saving progress (10s checkpoint) updates playbackMap without re-scanning mediaRepository
         val scansBeforeProgress = mediaRepo.getVideosCalls
         historyRepo.saveProgress(TestUri("file:///a.mp4"), 5_000L, 10_000L, "Alpha")
         runCurrent()
         assertEquals(scansBeforeProgress, mediaRepo.getVideosCalls)
-        assertEquals(5_000L, feed1.value.playbackMap["file:///a.mp4"]?.positionMs)
+        assertEquals(5_000L, feed1.value.ready().playbackMap["file:///a.mp4"]?.positionMs)
     }
 
     @Test
@@ -864,3 +865,6 @@ class DomainUseCasesTest {
         }
     }
 }
+
+/** The feed never reports data it has not scanned, so any value here is a real snapshot. */
+private fun MediaFeedState.ready(): MediaFeedState.Ready = this as MediaFeedState.Ready
