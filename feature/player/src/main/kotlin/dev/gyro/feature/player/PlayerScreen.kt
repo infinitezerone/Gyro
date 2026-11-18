@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.Lifecycle
@@ -89,6 +90,15 @@ fun PlayerScreen(
     val playbackState = snapshot.playbackState
     val isPlaying = snapshot.isPlaying
     val durationMs = snapshot.durationMs
+
+    // Sticky for the lifetime of this screen instance: a session teardown must never be able to
+    // make an already-playing screen look like it was opened empty.
+    var hasEverHadContent by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(playbackState, durationMs) {
+        if (durationMs > 0L || playbackState != PlaybackState.IDLE) {
+            hasEverHadContent = true
+        }
+    }
     val timePosState = viewModel.timePosMs.collectAsStateWithLifecycle()
     val bufferedPosState = viewModel.bufferedPosMs.collectAsStateWithLifecycle()
     val hwdecMode = snapshot.hwdecMode
@@ -421,7 +431,6 @@ fun PlayerScreen(
         hdrFormat = hdrFormat,
         scrubState = scrubState,
         onBack = onBack,
-        onUserExit = { viewModel.onUserExit() },
         onResetAudioGain = { viewModel.resetAudioSoftwareGain() }
     )
 
@@ -498,7 +507,11 @@ fun PlayerScreen(
         }
 
         // 3. Empty State Card
-        if (playbackState == PlaybackState.IDLE && durationMs == 0L && !isPipLayout) {
+        //
+        // Only for a player that was opened with nothing to play. Once a file has been shown,
+        // leaving the screen tears the session down, and the still-composed player would repaint
+        // itself as "nothing to play" for the length of the exit transition.
+        if (!hasEverHadContent && playbackState == PlaybackState.IDLE && durationMs == 0L && !isPipLayout) {
             PlayerEmptyStateCard(
                 onOpenFile = { videoPicker.launch(arrayOf("video/*", "audio/*", "*/*")) },
                 modifier = Modifier

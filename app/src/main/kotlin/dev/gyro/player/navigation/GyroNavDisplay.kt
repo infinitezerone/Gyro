@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -47,6 +48,14 @@ fun GyroNavDisplay(
     viewModel: MainActivityViewModel,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Invoked once the player destination has actually left the screen.
+     *
+     * Fires from the player entry's composition disposal, which Nav3 performs only after the pop
+     * transition has finished — the earliest moment at which tearing the session down can no longer
+     * pull the video surface out of a visible screen.
+     */
+    onPlayerExited: () -> Unit = {},
 ) {
     val sessionInfo by viewModel.sessionInfo.collectAsStateWithLifecycle()
 
@@ -134,6 +143,14 @@ fun GyroNavDisplay(
             }
             entry<Screen.Player> { playerScreen ->
                 val playerViewModel: PlayerViewModel = hiltViewModel()
+                // The player scene is disposed only once its exit transition is over. Guarding on the
+                // back stack keeps a configuration-change replay (which also disposes composition)
+                // from being mistaken for the user leaving.
+                DisposableEffect(playerScreen) {
+                    onDispose {
+                        if (!appState.isPlayerOnStack) onPlayerExited()
+                    }
+                }
                 val targetInitUri = if (sessionInfo.isActive && sessionInfo.activeUri != null) {
                     sessionInfo.activeUri
                 } else {
@@ -146,7 +163,6 @@ fun GyroNavDisplay(
                     viewModel = playerViewModel,
                     currentUri = targetInitUri ?: playerScreen.uri,
                     onBack = {
-                        playerViewModel.onUserExit()
                         appState.popBack()
                     },
                     onOpenSettings = {

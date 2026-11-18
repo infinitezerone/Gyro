@@ -36,7 +36,6 @@ internal fun PlayerSystemEffects(
     hdrFormat: String,
     scrubState: PlayerScrubState,
     onBack: () -> Unit,
-    onUserExit: () -> Unit,
     onResetAudioGain: () -> Unit,
 ) {
     // 1. Predictive back handler for system back gesture
@@ -45,7 +44,7 @@ internal fun PlayerSystemEffects(
             progress.collect { backEvent ->
                 playerState.backProgress = backEvent.progress
             }
-            onUserExit()
+            // Session teardown happens when the destination is disposed, not on the gesture itself.
             onBack()
         } catch (_: Throwable) {
             playerState.backProgress = 0f

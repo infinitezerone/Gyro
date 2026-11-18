@@ -19,7 +19,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
@@ -29,7 +28,6 @@ import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.player.navigation.GyroNavDisplay
 import dev.gyro.player.navigation.rememberGyroAppState
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * Single-Activity host adhering to Now in Android architecture guidelines.
@@ -104,24 +102,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Leaving the player is a navigation fact: a Player entry that disappears from the back
-            // stack ends the playback session (covers top-bar back, predictive back, system back, and gestures).
-            // Initializing playerOnStack with (sessionActive || isPlayerOnStack) ensures that if Activity
-            // was restored while a background session was running, any absence of Player safely ends the session.
-            LaunchedEffect(appState) {
-                var playerOnStack = viewModel.sessionInfo.value.isActive || appState.isPlayerOnStack
-                snapshotFlow { appState.isPlayerOnStack }
-                    .distinctUntilChanged()
-                    .collect { present ->
-                        if (playerOnStack && !present) {
-                            viewModel.onPlayerDestinationRemoved()
-                            if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            }
-                            incomingIntentUri.value = null
-                        }
-                        playerOnStack = present
-                    }
+            // Restoration guard only: a session that is active while no Player destination exists
+            // (e.g. restored state that no longer shows the player) must not outlive its UI. Runtime
+            // exits are detected by the player entry's disposal in GyroNavDisplay, which happens after
+            // the pop transition instead of on its first frame.
+            LaunchedEffect(Unit) {
+                if (viewModel.sessionInfo.value.isActive && !appState.isPlayerOnStack) {
+                    viewModel.onPlayerDestinationRemoved()
+                }
             }
 
             Surface(
@@ -132,6 +120,13 @@ class MainActivity : ComponentActivity() {
                     appState = appState,
                     viewModel = viewModel,
                     onFinish = { finish() },
+                    onPlayerExited = {
+                        viewModel.onPlayerDestinationRemoved()
+                        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        }
+                        incomingIntentUri.value = null
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             }

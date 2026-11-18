@@ -127,7 +127,9 @@ fun createPlayerOverlayActions(
         },
         onBack = {
             onResetControlsTimeout()
-            viewModel.onUserExit()
+            // The session is torn down when the player destination is disposed, i.e. after its exit
+            // transition. Ending it here would remove the video surface while the screen is still
+            // sliding out, which shows up as a black frame.
             onBack()
         },
         onPlayPrevious = {
