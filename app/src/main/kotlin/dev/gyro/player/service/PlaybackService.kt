@@ -7,22 +7,17 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.IBinder
 import android.util.Log
-import android.view.KeyEvent
+import androidx.annotation.OptIn
 import androidx.core.app.ServiceCompat
-import androidx.core.content.IntentCompat
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.data.repository.ThumbnailRepository
-import dev.gyro.core.domain.model.PlaylistStep
 import dev.gyro.core.domain.model.SessionEndReason
-import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
-import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.session.MediaSessionControls
-import dev.gyro.engine.session.MpvPlayerAdapter
+import dev.gyro.core.domain.session.PlaybackSession
 import dev.gyro.player.MainActivity
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -34,31 +29,27 @@ import javax.inject.Inject
 
 /**
  * Foreground media playback service based on Media3 [MediaSessionService].
- * Automatically handles notifications, lockscreen media card, and system transport integration.
+ * Delegates all playback controls and session teardown to [PlaybackSession] via
+ * [SessionPlayerAdapter], letting Media3 own transport notifications and media button routing.
  */
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 
-    @Inject lateinit var engine: PlayerEngine
-    @Inject lateinit var navigatePlaylistUseCase: NavigatePlaylistUseCase
-    @Inject lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
+    @Inject lateinit var session: PlaybackSession
     @Inject lateinit var thumbnailRepository: ThumbnailRepository
 
     @Inject
     @Dispatcher(GyroDispatchers.MainImmediate)
     lateinit var mainDispatcher: CoroutineDispatcher
 
+    @Inject
+    @Dispatcher(GyroDispatchers.Default)
+    lateinit var defaultDispatcher: CoroutineDispatcher
+
     companion object {
         private const val TAG = "PlaybackService"
         private const val ARTWORK_SIZE_PX = 512
 
-        const val ACTION_PLAY = "dev.gyro.player.ACTION_PLAY"
-        const val ACTION_PAUSE = "dev.gyro.player.ACTION_PAUSE"
-        const val ACTION_PLAY_PAUSE = "dev.gyro.player.ACTION_PLAY_PAUSE"
-        const val ACTION_PREV = "dev.gyro.player.ACTION_PREV"
-        const val ACTION_NEXT = "dev.gyro.player.ACTION_NEXT"
-        const val ACTION_REWIND = "dev.gyro.player.ACTION_REWIND"
-        const val ACTION_FAST_FORWARD = "dev.gyro.player.ACTION_FAST_FORWARD"
         const val ACTION_STOP = "dev.gyro.player.ACTION_STOP"
         const val ACTION_DISMISS = "dev.gyro.player.ACTION_DISMISS"
 
@@ -77,19 +68,19 @@ class PlaybackService : MediaSessionService() {
     private var serviceScope: CoroutineScope? = null
 
     private var mediaSession: MediaSession? = null
-    private var playerAdapter: MpvPlayerAdapter? = null
+    private var playerAdapter: SessionPlayerAdapter? = null
 
+    @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackService created (Media3)")
         val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
         serviceScope = scope
 
-        val adapter = MpvPlayerAdapter(
-            engine = engine,
-            onSkipToNext = { navigatePlaylistUseCase(PlaylistStep.Next) },
-            onSkipToPrevious = { navigatePlaylistUseCase(PlaylistStep.Previous) },
-            onSelectAtIndex = { index -> navigatePlaylistUseCase(PlaylistStep.AtIndex(index)) },
+        val adapter = SessionPlayerAdapter(
+            session = session,
+            mainDispatcher = mainDispatcher,
+            compressionDispatcher = defaultDispatcher,
         )
         playerAdapter = adapter
 
@@ -99,7 +90,7 @@ class PlaybackService : MediaSessionService() {
             Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
         mediaSession = MediaSession.Builder(this, adapter)
@@ -107,7 +98,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         scope.launch {
-            engine.currentUri.collectLatest { uri ->
+            session.currentUri.collectLatest { uri ->
                 loadThumbnailIfNeeded(uri)
             }
         }
@@ -124,61 +115,21 @@ class PlaybackService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         Log.i(TAG, "onStartCommand: action=$action")
-
-        val keyEvent = if (action == Intent.ACTION_MEDIA_BUTTON) {
-            IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-        } else {
-            null
+        if (action == ACTION_STOP || action == ACTION_DISMISS) {
+            return handleCommand(action = action)
         }
-
-        val sticky = handleCommand(
-            action = action,
-            keyEvent = keyEvent,
-            onNotificationStop = { endPlaybackSessionUseCase(SessionEndReason.SERVICE_STOPPED) },
-            stopAndReset = { stopForegroundAndSelf() }
-        )
-
-        val superSticky = super.onStartCommand(intent, flags, startId)
-        return if (action == ACTION_STOP || action == ACTION_DISMISS) sticky else superSticky
+        return super.onStartCommand(intent, flags, startId)
     }
 
     internal fun handleCommand(
         action: String?,
-        keyEvent: KeyEvent?,
-        controls: MediaSessionControls? = null,
-        onNotificationStop: () -> Unit,
-        stopAndReset: () -> Unit
+        onNotificationStop: () -> Unit = { session.endSession(SessionEndReason.SERVICE_STOPPED) },
+        stopAndReset: () -> Unit = { stopForegroundAndSelf() },
     ): Int {
-        if (action != null && !engine.isSurfaceAttached) {
-            engine.isHeadlessMode = true
-        }
-        when (action) {
-            ACTION_PLAY -> controls?.play() ?: engine.play()
-            ACTION_PAUSE -> controls?.pause() ?: engine.pause()
-            ACTION_PLAY_PAUSE -> controls?.togglePlayPause() ?: engine.togglePlayPause()
-            ACTION_PREV -> controls?.skipToPrevious() ?: navigatePlaylistUseCase(PlaylistStep.Previous)
-            ACTION_NEXT -> controls?.skipToNext() ?: navigatePlaylistUseCase(PlaylistStep.Next)
-            ACTION_REWIND -> engine.seekRelative(-10_000L)
-            ACTION_FAST_FORWARD -> engine.seekRelative(10_000L)
-            ACTION_STOP, ACTION_DISMISS -> {
-                onNotificationStop()
-                stopAndReset()
-                return START_NOT_STICKY
-            }
-            Intent.ACTION_MEDIA_BUTTON -> {
-                if (keyEvent != null) {
-                    val handled = controls?.handleKeyEvent(keyEvent) ?: false
-                    if (!handled && keyEvent.action == KeyEvent.ACTION_DOWN) {
-                        when (keyEvent.keyCode) {
-                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> engine.togglePlayPause()
-                            KeyEvent.KEYCODE_MEDIA_PLAY -> engine.play()
-                            KeyEvent.KEYCODE_MEDIA_PAUSE -> engine.pause()
-                            KeyEvent.KEYCODE_MEDIA_NEXT -> navigatePlaylistUseCase(PlaylistStep.Next)
-                            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> navigatePlaylistUseCase(PlaylistStep.Previous)
-                        }
-                    }
-                }
-            }
+        if (action == ACTION_STOP || action == ACTION_DISMISS) {
+            onNotificationStop()
+            stopAndReset()
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
@@ -198,22 +149,21 @@ class PlaybackService : MediaSessionService() {
     }
 
     internal fun stopForegroundAndSelf() {
-        engine.isHeadlessMode = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
+    @OptIn(UnstableApi::class)
     override fun onDestroy() {
         Log.i(TAG, "PlaybackService destroyed")
-        endPlaybackSessionUseCase(SessionEndReason.SERVICE_STOPPED)
-        mediaSession?.let { session ->
-            runCatching { session.release() }
+        session.endSession(SessionEndReason.SERVICE_STOPPED)
+        mediaSession?.let { activeSession ->
+            runCatching { activeSession.release() }
                 .onFailure { Log.w(TAG, "release MediaSession failed", it) }
         }
         mediaSession = null
         playerAdapter?.release()
         playerAdapter = null
-        engine.isHeadlessMode = false
         serviceScope?.cancel()
         serviceScope = null
         currentThumbnailBitmap = null

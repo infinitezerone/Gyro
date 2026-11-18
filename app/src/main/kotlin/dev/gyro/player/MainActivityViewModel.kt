@@ -8,10 +8,7 @@ import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.domain.model.PlaybackSessionInfo
 import dev.gyro.core.domain.model.PlaybackSource
 import dev.gyro.core.domain.model.SessionEndReason
-import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
-import dev.gyro.core.domain.usecase.HandleAppBackgroundUseCase
-import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.ObservePlaybackSessionUseCase
+import dev.gyro.core.domain.session.PlaybackSession
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,8 +19,8 @@ import javax.inject.Inject
 
 /**
  * UI state for [MainActivity], following the Now in Android architecture pattern.
- * Completely decoupled from [dev.gyro.engine.api.PlayerEngine]; all session operations go through
- * single-method UseCases in `:core:domain`.
+ * Completely decoupled from playback engine details; all session operations go through
+ * [PlaybackSession] in `:core:domain`.
  */
 sealed interface MainActivityUiState {
     data object Loading : MainActivityUiState
@@ -33,10 +30,7 @@ sealed interface MainActivityUiState {
 @HiltViewModel
 class MainActivityViewModel @Inject constructor(
     settingsRepository: SettingsRepository,
-    observePlaybackSessionUseCase: ObservePlaybackSessionUseCase,
-    private val loadMediaUseCase: LoadMediaUseCase,
-    private val handleAppBackgroundUseCase: HandleAppBackgroundUseCase,
-    private val endPlaybackSessionUseCase: EndPlaybackSessionUseCase,
+    private val session: PlaybackSession,
 ) : ViewModel() {
 
     val uiState: StateFlow<MainActivityUiState> = settingsRepository.settings
@@ -44,28 +38,28 @@ class MainActivityViewModel @Inject constructor(
         .stateIn(
             scope = viewModelScope,
             initialValue = MainActivityUiState.Loading,
-            started = SharingStarted.WhileSubscribed(5_000)
+            started = SharingStarted.WhileSubscribed(5_000),
         )
 
-    val sessionInfo: StateFlow<PlaybackSessionInfo> = observePlaybackSessionUseCase()
+    val sessionInfo: StateFlow<PlaybackSessionInfo> = session.sessionInfo
 
     fun onPlayVideo(item: VideoMediaItem, currentList: List<VideoMediaItem>) {
-        loadMediaUseCase(PlaybackSource.FromPlaylist(playlist = currentList, targetItem = item))
+        session.load(PlaybackSource.FromPlaylist(playlist = currentList, targetItem = item))
     }
 
     fun onPlaySingleUri(uri: Uri) {
-        loadMediaUseCase(PlaybackSource.Single(uri = uri))
+        session.load(PlaybackSource.Single(uri = uri))
     }
 
     fun onOpenExternalUri(uri: Uri) {
-        loadMediaUseCase(PlaybackSource.Single(uri = uri, skipIfAlreadyActive = true))
+        session.load(PlaybackSource.Single(uri = uri, skipIfAlreadyActive = true))
     }
 
     fun handleAppStop(isPip: Boolean) {
-        handleAppBackgroundUseCase(isPip)
+        session.handleAppBackground(isPip)
     }
 
     fun onPlayerDestinationRemoved() {
-        endPlaybackSessionUseCase(SessionEndReason.USER_EXIT)
+        session.endSession(SessionEndReason.USER_EXIT)
     }
 }

@@ -11,12 +11,13 @@ android {
 }
 
 dependencies {
-    api(project(":core:engine"))
+    compileOnly(project(":core:engine"))
+    compileOnly(project(":core:database"))
     api(project(":core:model"))
-    api(project(":core:database"))
     api(libs.kotlinx.coroutines.test)
     api(libs.mockk)
     api("junit:junit:4.13.2")
 
     implementation(libs.kotlinx.coroutines.core)
+    testImplementation(project(":core:engine"))
 }

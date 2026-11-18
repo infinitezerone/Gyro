@@ -128,4 +128,15 @@ class GyroAppState(
             null
         }
     }
+
+    /**
+     * Removes any active [Screen.Player] entries from the back stack, ensuring [Screen.Home]
+     * remains if removing player entries empties the stack.
+     */
+    fun removePlayerScreens() {
+        backStack.removeAll { it is Screen.Player }
+        if (backStack.isEmpty()) {
+            backStack.add(Screen.Home)
+        }
+    }
 }

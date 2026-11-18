@@ -45,7 +45,6 @@ private val navEffectsSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
 fun GyroNavDisplay(
     appState: GyroAppState,
     viewModel: MainActivityViewModel,
-    onPlayerExit: () -> Unit,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -60,9 +59,7 @@ fun GyroNavDisplay(
         ),
         onBack = {
             val popped = appState.popBack()
-            if (popped is Screen.Player) {
-                onPlayerExit()
-            } else if (popped == null) {
+            if (popped == null) {
                 onFinish()
             }
         },
@@ -150,7 +147,6 @@ fun GyroNavDisplay(
                     currentUri = targetInitUri ?: playerScreen.uri,
                     onBack = {
                         playerViewModel.onUserExit()
-                        onPlayerExit()
                         appState.popBack()
                     },
                     onOpenSettings = {

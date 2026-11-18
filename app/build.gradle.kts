@@ -103,5 +103,9 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:datastore"))
     implementation(project(":core:domain"))
+    implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.session)
+
+    testImplementation(project(":core:engine"))
+    testImplementation(project(":core:database"))
 }

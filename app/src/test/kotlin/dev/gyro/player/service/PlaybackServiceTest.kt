@@ -3,18 +3,56 @@ package dev.gyro.player.service
 import android.app.Service
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
-import android.graphics.SurfaceTexture
-import android.view.KeyEvent
-import android.view.Surface
+import android.net.Uri
+import android.os.Looper
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
+import dev.gyro.core.data.repository.DefaultSettingsRepository
+import dev.gyro.core.data.repository.DefaultThumbnailRepository
+import dev.gyro.core.data.repository.MediaRepository
+import dev.gyro.core.data.repository.MpvConfigRepository
+import dev.gyro.core.data.repository.SubtitleRepository
+import dev.gyro.core.datastore.UserSettingsDataStoreFactory
+import dev.gyro.core.domain.model.PlaybackSource
+import dev.gyro.core.domain.model.SessionEndReason
+import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.DefaultPlaybackSession
+import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.session.PlaylistStateHolder
+import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.HandleAppBackgroundUseCase
+import dev.gyro.core.domain.usecase.LoadMediaUseCase
+import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.domain.usecase.ObservePlaybackSessionUseCase
+import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
+import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.core.testing.util.MainDispatcherRule
+import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
+import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
-import dev.gyro.engine.media.DefaultMediaResourceResolver
-import dev.gyro.engine.session.MediaSessionControls
+import dev.gyro.engine.MpvNativeBridge
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertSame
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -23,172 +61,302 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Drives [PlaybackService.handleCommand] directly on the JVM: dispatch routing, headless-mode
- * arming/disarming, and the STOP/DISMISS sticky semantics. The Android Service plumbing
- * (notification, MediaSession construction) stays out of scope; a recording fake stands in for
- * [MediaSessionControls] and the real engine + [FakeMpvNativeBridge] verify what reaches mpv.
+ * Verifies [PlaybackService.handleCommand] sticky/stop semantics and [SessionPlayerAdapter]
+ * command/state mapping over [dev.gyro.core.domain.session.PlaybackSession].
  */
+@androidx.annotation.OptIn(UnstableApi::class)
+@kotlin.OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackServiceTest {
 
     @get:Rule
     val tempFolder = TemporaryFolder()
 
-    // PlaybackService's field initializers touch Dispatchers.Main (serviceScope).
     @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
+    val mockUriRule = MockUriRule()
 
+    private val testDispatcher = StandardTestDispatcher()
+
+    private lateinit var testContext: Context
+    private lateinit var testScope: CoroutineScope
     private lateinit var fakeBridge: FakeMpvNativeBridge
     private lateinit var engine: GyroPlayerEngine
+    private lateinit var settingsRepo: DefaultSettingsRepository
+    private lateinit var sessionStateHolder: PlaybackSessionStateHolder
+    private lateinit var playlistStateHolder: PlaylistStateHolder
+    private lateinit var session: DefaultPlaybackSession
     private lateinit var service: PlaybackService
-    private lateinit var controls: RecordingControls
+    private lateinit var testLooper: Looper
 
     private var notificationStopCalled = false
     private var stopAndResetCalled = false
 
-    private class RecordingControls : MediaSessionControls {
-        val calls = mutableListOf<String>()
-        val keyEvents = mutableListOf<KeyEvent?>()
-
-        override fun play() { calls += "play" }
-        override fun pause() { calls += "pause" }
-        override fun togglePlayPause() { calls += "toggle" }
-        override fun skipToNext(): Boolean { calls += "next"; return true }
-        override fun skipToPrevious(): Boolean { calls += "prev"; return true }
-        override fun handleKeyEvent(keyEvent: KeyEvent?): Boolean { keyEvents += keyEvent; return true }
-    }
-
     @Before
     fun setUp() {
-        val filesDir: File = tempFolder.newFolder()
-        val context = object : ContextWrapper(null) {
+        Dispatchers.setMain(testDispatcher)
+        val filesDir: File = tempFolder.newFolder("playback_service_test")
+        testContext = object : ContextWrapper(null) {
             override fun getApplicationContext(): Context = this
             override fun getFilesDir(): File = filesDir
+            override fun getPackageName(): String = "dev.gyro.player"
         }
+        testScope = CoroutineScope(SupervisorJob() + testDispatcher)
         fakeBridge = FakeMpvNativeBridge()
         engine = GyroPlayerEngine(
-            context = context,
+            context = testContext,
             bridge = fakeBridge,
-            resolver = DefaultMediaResourceResolver(context)
+            ioDispatcher = testDispatcher,
+            defaultDispatcher = testDispatcher,
+            mainDispatcher = testDispatcher,
+            resolver = FakeMediaResourceResolver(),
         )
         engine.warmUp()
+
+        val dataStore = UserSettingsDataStoreFactory.createForFile(
+            File(filesDir, "user_settings.json"),
+            testScope,
+        )
+        settingsRepo = DefaultSettingsRepository(dataStore)
+        val historyRepo = DefaultPlaybackHistoryRepository(FakePlaybackHistoryDao(), testScope)
+        val mediaRepo = object : MediaRepository {
+            override suspend fun getVideos(): List<VideoMediaItem> = emptyList()
+            override suspend fun getDisplayName(uri: Uri): String? = uri.lastPathSegment
+        }
+        val subtitleRepo = object : SubtitleRepository {
+            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> = emptyList()
+        }
+        val thumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
+
+        sessionStateHolder = PlaybackSessionStateHolder()
+        playlistStateHolder = PlaylistStateHolder()
+        val saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val serviceLauncher = PlaybackServiceLauncher.NoOp
+        val loadMediaUseCase = LoadMediaUseCase(
+            engine = engine,
+            mediaRepository = mediaRepo,
+            historyRepository = historyRepo,
+            settingsRepository = settingsRepo,
+            subtitleRepository = subtitleRepo,
+            serviceLauncher = serviceLauncher,
+            sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+            saveProgressUseCase = saveProgressUseCase,
+            scope = testScope,
+        )
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadMediaUseCase)
+        val handleAppBackgroundUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveProgressUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
+        val endPlaybackSessionUseCase = EndPlaybackSessionUseCase(
+            engine = engine,
+            saveProgressUseCase = saveProgressUseCase,
+            thumbnailRepository = thumbnailRepo,
+            serviceLauncher = serviceLauncher,
+            sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+        )
+        val observePlaybackSessionUseCase = ObservePlaybackSessionUseCase(sessionStateHolder, engine, testScope)
+
+        session = DefaultPlaybackSession(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            mpvConfigRepository = MpvConfigRepository.Empty,
+            subtitleRepository = subtitleRepo,
+            sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
+            loadMediaUseCase = loadMediaUseCase,
+            navigatePlaylistUseCase = navigatePlaylistUseCase,
+            handleAppBackgroundUseCase = handleAppBackgroundUseCase,
+            endPlaybackSessionUseCase = endPlaybackSessionUseCase,
+            observePlaybackSessionUseCase = observePlaybackSessionUseCase,
+            scope = testScope,
+        )
+
         service = PlaybackService()
-        service.engine = engine
-        controls = RecordingControls()
+        service.session = session
+
+        testLooper = mockk<Looper>(relaxed = true) {
+            every { thread } returns Thread.currentThread()
+        }
+
         notificationStopCalled = false
         stopAndResetCalled = false
     }
 
-    private fun dispatch(action: String?, keyEvent: KeyEvent? = null): Int =
-        service.handleCommand(
-            action = action,
-            keyEvent = keyEvent,
-            controls = controls,
-            onNotificationStop = { notificationStopCalled = true },
-            stopAndReset = {
-                stopAndResetCalled = true
-                // Real teardown path so the headless disarm contract is exercised, not assumed.
-                service.stopForegroundAndSelf()
-            }
-        )
-
-    @Test
-    fun nullActionDoesNotArmHeadlessAndReturnsSticky() {
-        assertEquals(Service.START_STICKY, dispatch(null))
-
-        assertFalse("bare service start (action=null) must not arm headless", engine.isHeadlessMode)
-        assertTrue(controls.calls.isEmpty())
+    @After
+    fun tearDown() {
+        engine.release()
+        testScope.cancel()
+        Dispatchers.resetMain()
     }
 
-    @Test
-    fun unknownActionArmsHeadlessAndReturnsSticky() {
-        assertEquals(Service.START_STICKY, dispatch("dev.gyro.player.ACTION_UNKNOWN"))
-
-        // An explicit background action implies background playback intent: loads must bypass Surface queueing.
-        assertTrue(engine.isHeadlessMode)
-        assertTrue(controls.calls.isEmpty())
-    }
-
-    @Test
-    fun transportActionsRouteToSessionControls() {
-        val routing = mapOf(
-            PlaybackService.ACTION_PLAY to "play",
-            PlaybackService.ACTION_PAUSE to "pause",
-            PlaybackService.ACTION_PLAY_PAUSE to "toggle",
-            PlaybackService.ACTION_PREV to "prev",
-            PlaybackService.ACTION_NEXT to "next",
-        )
-        for ((action, expected) in routing) {
-            controls.calls.clear()
-            assertEquals("sticky for $action", Service.START_STICKY, dispatch(action))
-            assertEquals("routing for $action", listOf(expected), controls.calls)
-            assertTrue("headless armed for $action", engine.isHeadlessMode)
-        }
-    }
-
-    @Test
-    fun rewindAndFastForwardIssueRelativeSeekCommands() {
-        // seekRelative only fires once the file is loaded; drive the real load path headless.
-        engine.isHeadlessMode = true
-        engine.load("file:///tmp/clip.mp4")
-        fakeBridge.emitFileLoaded()
-        assertTrue(fakeBridge.findCommands("loadfile").isNotEmpty())
-
-        assertEquals(Service.START_STICKY, dispatch(PlaybackService.ACTION_REWIND))
-        assertEquals(listOf("seek", "-10.0", "relative"), fakeBridge.findCommands("seek").single())
-
-        assertEquals(Service.START_STICKY, dispatch(PlaybackService.ACTION_FAST_FORWARD))
-        assertEquals(listOf("seek", "10.0", "relative"), fakeBridge.findCommands("seek").last())
-    }
-
-    @Test
-    fun stopNotifiesSessionAndDisarmsHeadless() {
-        assertEquals(Service.START_NOT_STICKY, dispatch(PlaybackService.ACTION_STOP))
-
-        assertTrue("stop must notify session to end", notificationStopCalled)
-        assertTrue(stopAndResetCalled)
-        assertFalse("teardown must disarm headless mode", engine.isHeadlessMode)
-    }
-
-    @Test
-    fun dismissNotifiesSessionAndDisarmsHeadless() {
-        assertEquals(Service.START_NOT_STICKY, dispatch(PlaybackService.ACTION_DISMISS))
-
-        assertTrue("dismiss must notify session to end", notificationStopCalled)
-        assertTrue(stopAndResetCalled)
-        assertFalse(engine.isHeadlessMode)
-    }
-
-    @Test
-    fun actionDoesNotArmHeadlessIfSurfaceIsAttached() {
-        val texture = SurfaceTexture(0)
-        val surface = Surface(texture)
+    private fun runServiceTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
         try {
-            engine.attachSurface(surface)
-            assertTrue(engine.isSurfaceAttached)
-
-            assertEquals(Service.START_STICKY, dispatch(PlaybackService.ACTION_PLAY))
-            assertFalse("must not arm headless if surface is attached", engine.isHeadlessMode)
+            body()
         } finally {
-            engine.detachSurface()
-            surface.release()
-            texture.release()
+            session.endSession(SessionEndReason.SERVICE_STOPPED)
+            testScope.cancel()
+        }
+    }
+
+    private fun buildAdapter(onInvalidate: () -> Unit = {}): SessionPlayerAdapter = SessionPlayerAdapter(
+        session = session,
+        mainDispatcher = testDispatcher,
+        compressionDispatcher = testDispatcher,
+        looper = testLooper,
+        coroutineScope = CoroutineScope(SupervisorJob() + testDispatcher),
+        onInvalidateStateForTest = onInvalidate,
+    )
+
+    private fun dispatch(action: String?): Int = service.handleCommand(
+        action = action,
+        onNotificationStop = { notificationStopCalled = true },
+        stopAndReset = { stopAndResetCalled = true },
+    )
+
+    @Test
+    fun nullAndArbitraryActionsReturnStickyWithoutSideEffects() {
+        assertEquals(Service.START_STICKY, dispatch(null))
+        assertEquals(Service.START_STICKY, dispatch("dev.gyro.player.ACTION_UNKNOWN"))
+        assertFalse(notificationStopCalled)
+        assertFalse(stopAndResetCalled)
+    }
+
+    @Test
+    fun stopAndDismissActionsEndSessionWithServiceStoppedAndReturnNotSticky() {
+        assertEquals(Service.START_NOT_STICKY, dispatch(PlaybackService.ACTION_STOP))
+        assertTrue(notificationStopCalled)
+        assertTrue(stopAndResetCalled)
+
+        notificationStopCalled = false
+        stopAndResetCalled = false
+        assertEquals(Service.START_NOT_STICKY, dispatch(PlaybackService.ACTION_DISMISS))
+        assertTrue(notificationStopCalled)
+        assertTrue(stopAndResetCalled)
+
+        // Default callback ends active session with SERVICE_STOPPED semantics
+        engine.setBackgroundPlaybackAllowed(true)
+        session.load(PlaybackSource.Single(Uri.parse("file:///stop_default.mp4"), "Stop Default"))
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(session.sessionInfo.value.isActive)
+
+        var stopped = false
+        assertEquals(
+            Service.START_NOT_STICKY,
+            service.handleCommand(
+                action = PlaybackService.ACTION_STOP,
+                stopAndReset = { stopped = true },
+            ),
+        )
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(stopped)
+        assertFalse(session.sessionInfo.value.isActive)
+        assertNull(session.currentUri.value)
+    }
+
+    @Test
+    fun adapterPlayPauseAndIntraItemSeekDelegateToSession() = runServiceTest {
+        engine.setBackgroundPlaybackAllowed(true)
+        session.load(PlaybackSource.Single(Uri.parse("file:///clip.mp4"), "Clip"))
+        runCurrent()
+        fakeBridge.emitFileLoaded(mediaTitle = "Clip")
+        fakeBridge.emitPropertyDouble("duration", 120.0)
+        runCurrent()
+
+        val adapter = buildAdapter()
+        try {
+            adapter.setPlayWhenReadyForTest(false)
+            assertEquals(true, fakeBridge.properties["pause"])
+
+            adapter.setPlayWhenReadyForTest(true)
+            assertEquals(false, fakeBridge.properties["pause"])
+
+            adapter.seekForTest(0, 15_000L, Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            val seekCmd = fakeBridge.findCommands("seek").last()
+            assertEquals(listOf("seek", "15.0", "absolute"), seekCmd)
+
+            adapter.setSpeedForTest(1.5f)
+            assertEquals(1.5, fakeBridge.properties["speed"] as Double, 0.001)
+        } finally {
+            adapter.releaseForTest()
         }
     }
 
     @Test
-    fun mediaButtonRoutesKeyEventToControls() {
-        val keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+    fun adapterCrossItemNavigationRoutesThroughSessionPlaylist() = runServiceTest {
+        val item0 = VideoMediaItem(1L, "file:///ep0.mp4", "Ep 0", 60_000L, 100L, 0, 0, 0L, "F")
+        val item1 = VideoMediaItem(2L, "file:///ep1.mp4", "Ep 1", 60_000L, 200L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(3L, "file:///ep2.mp4", "Ep 2", 60_000L, 300L, 0, 0, 0L, "F")
 
-        assertEquals(Service.START_STICKY, dispatch(Intent.ACTION_MEDIA_BUTTON, keyEvent))
+        engine.setBackgroundPlaybackAllowed(true)
+        session.load(PlaybackSource.FromPlaylist(listOf(item0, item1, item2), item0))
+        runCurrent()
+        fakeBridge.emitFileLoaded(mediaTitle = "Ep 0")
+        runCurrent()
 
-        assertSame(keyEvent, controls.keyEvents.single())
+        val adapter = buildAdapter()
+        try {
+            adapter.seekForTest(2, C.TIME_UNSET, Player.COMMAND_SEEK_TO_MEDIA_ITEM)
+            runCurrent()
+            assertEquals(2, session.playlist.currentIndex.value)
+            assertEquals("file:///ep2.mp4", session.currentUri.value?.toString())
+
+            adapter.seekForTest(1, C.TIME_UNSET, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            runCurrent()
+            assertEquals(1, session.playlist.currentIndex.value)
+            assertEquals("file:///ep1.mp4", session.currentUri.value?.toString())
+        } finally {
+            adapter.releaseForTest()
+        }
     }
 
     @Test
-    fun mediaButtonWithoutKeyEventDispatchesNothing() {
-        assertEquals(Service.START_STICKY, dispatch(Intent.ACTION_MEDIA_BUTTON, keyEvent = null))
+    fun adapterProducesDistinctMediaItemUidsForDuplicatePlaylistUris() = runServiceTest {
+        val item0 = VideoMediaItem(1L, "file:///dup.mp4", "First Dup", 10_000L, 100L, 0, 0, 0L, "F")
+        val item1 = VideoMediaItem(2L, "file:///dup.mp4", "Second Dup", 10_000L, 100L, 0, 0, 0L, "F")
 
-        assertTrue(controls.keyEvents.isEmpty())
-        assertTrue(controls.calls.isEmpty())
+        engine.setBackgroundPlaybackAllowed(true)
+        session.load(PlaybackSource.FromPlaylist(listOf(item0, item1), item0))
+        runCurrent()
+
+        val adapter = buildAdapter()
+        try {
+            val state = adapter.buildStateForTest()
+            assertEquals(2, state.playlist.size)
+            assertFalse(state.playlist[0].uid == state.playlist[1].uid)
+            assertEquals(2, state.timeline.windowCount)
+        } finally {
+            adapter.releaseForTest()
+        }
+    }
+
+    @Test
+    fun adapterMapsSessionErrorToIdleWithPlayerErrorAndInvalidatesOnSessionChange() = runServiceTest {
+        settingsRepo.setDefaultHwdec(HwdecMode.SOFTWARE)
+        runCurrent()
+
+        var invalidations = 0
+        val adapter = buildAdapter { invalidations++ }
+        try {
+            runCurrent()
+            invalidations = 0
+
+            engine.setBackgroundPlaybackAllowed(true)
+            session.load(PlaybackSource.Single(Uri.parse("file:///broken.mkv"), "Broken"))
+            runCurrent()
+
+            fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+            runCurrent()
+
+            assertTrue(invalidations > 0)
+            val state = adapter.buildStateForTest()
+            assertEquals(Player.STATE_IDLE, state.playbackState)
+            assertNotNull(state.playerError)
+        } finally {
+            adapter.releaseForTest()
+        }
     }
 }

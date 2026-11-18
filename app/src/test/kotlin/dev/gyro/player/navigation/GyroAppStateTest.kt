@@ -129,4 +129,21 @@ class GyroAppStateTest {
         assertEquals(Screen.Settings, backStack[1])
         assertFalse(appState.isPlayerOnStack)
     }
+
+    @Test
+    fun removePlayerScreens_removesPlayerAndPreservesNonPlayerEntries() {
+        val uri1 = TestUri("file:///test/video1.mp4")
+
+        val stackHomePlayer = NavBackStack<NavKey>(Screen.Home, Screen.Player(uri1))
+        GyroAppState(stackHomePlayer, testScope).removePlayerScreens()
+        assertEquals(listOf(Screen.Home), stackHomePlayer.toList())
+
+        val stackOnlyPlayer = NavBackStack<NavKey>(Screen.Player(uri1))
+        GyroAppState(stackOnlyPlayer, testScope).removePlayerScreens()
+        assertEquals(listOf(Screen.Home), stackOnlyPlayer.toList())
+
+        val stackHomePlayerSettings = NavBackStack<NavKey>(Screen.Home, Screen.Player(uri1), Screen.Settings)
+        GyroAppState(stackHomePlayerSettings, testScope).removePlayerScreens()
+        assertEquals(listOf(Screen.Home, Screen.Settings), stackHomePlayerSettings.toList())
+    }
 }

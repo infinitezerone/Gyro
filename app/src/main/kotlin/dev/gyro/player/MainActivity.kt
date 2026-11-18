@@ -26,7 +26,6 @@ import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.designsystem.theme.GyroColors
-import dev.gyro.core.navigation.Screen
 import dev.gyro.player.navigation.GyroNavDisplay
 import dev.gyro.player.navigation.rememberGyroAppState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,8 +73,8 @@ class MainActivity : ComponentActivity() {
 
             var wasSessionActive by remember { mutableStateOf(sessionInfo.isActive) }
             LaunchedEffect(sessionInfo.isActive) {
-                if (wasSessionActive && !sessionInfo.isActive && appState.backStack.lastOrNull() is Screen.Player) {
-                    appState.popBack()
+                if (wasSessionActive && !sessionInfo.isActive) {
+                    appState.removePlayerScreens()
                 }
                 wasSessionActive = sessionInfo.isActive
             }
@@ -116,6 +115,10 @@ class MainActivity : ComponentActivity() {
                     .collect { present ->
                         if (playerOnStack && !present) {
                             viewModel.onPlayerDestinationRemoved()
+                            if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            }
+                            incomingIntentUri.value = null
                         }
                         playerOnStack = present
                     }
@@ -128,13 +131,6 @@ class MainActivity : ComponentActivity() {
                 GyroNavDisplay(
                     appState = appState,
                     viewModel = viewModel,
-                    onPlayerExit = {
-                        viewModel.onPlayerDestinationRemoved()
-                        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                        }
-                        incomingIntentUri.value = null
-                    },
                     onFinish = { finish() },
                     modifier = Modifier.fillMaxSize()
                 )
