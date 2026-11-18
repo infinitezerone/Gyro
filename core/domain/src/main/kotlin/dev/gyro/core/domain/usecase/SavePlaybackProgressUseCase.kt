@@ -24,7 +24,7 @@ class SavePlaybackProgressUseCase @Inject constructor(
         val curPos = engine.timePosMs.value
         val curDur = snapshot.durationMs
         if (curDur > 0L) {
-            historyRepository.saveProgress(activeUri, curPos, curDur)
+            historyRepository.saveProgress(activeUri, curPos, curDur, snapshot.mediaTitle)
         }
     }
 }

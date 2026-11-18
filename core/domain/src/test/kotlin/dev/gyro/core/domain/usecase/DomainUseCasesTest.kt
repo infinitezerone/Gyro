@@ -26,6 +26,9 @@ import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.MpvNativeBridge
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -69,6 +72,7 @@ class DomainUseCasesTest {
     private lateinit var fakeBridge: FakeMpvNativeBridge
     private lateinit var engine: GyroPlayerEngine
     private lateinit var settingsRepo: SettingsRepository
+    private lateinit var fakeHistoryDao: FakePlaybackHistoryDao
     private lateinit var historyRepo: PlaybackHistoryRepository
     private lateinit var subtitleRepo: SubtitleRepository
     private lateinit var mediaRepo: FakeMediaRepo
@@ -129,7 +133,7 @@ class DomainUseCasesTest {
         val dataStore = UserSettingsDataStoreFactory.createForFile(settingsFile, testScope)
         settingsRepo = DefaultSettingsRepository(dataStore)
 
-        val fakeHistoryDao = FakePlaybackHistoryDao()
+        fakeHistoryDao = FakePlaybackHistoryDao()
         historyRepo = DefaultPlaybackHistoryRepository(fakeHistoryDao, testScope)
         subtitleRepo = object : SubtitleRepository {
             override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> = emptyList()
@@ -180,6 +184,7 @@ class DomainUseCasesTest {
         assertNotNull(progress)
         assertEquals(12000L, progress?.positionMs)
         assertEquals(60000L, progress?.durationMs)
+        assertEquals("Save Test", fakeHistoryDao.getByUri(uri1.toString())?.title)
     }
 
     @Test
@@ -366,6 +371,45 @@ class DomainUseCasesTest {
     }
 
     @Test
+    fun testHandleAppBackgroundUseCase_pausesBufferingAndSavesPausedPosition() = runCaseTest {
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val bgUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
+
+        sessionStateHolder.setSessionActive(true)
+        engine.isHeadlessMode = true
+        val uri = TestUri("file:///test/buffering_bg.mp4")
+        engine.load(uri, startPositionMs = 0L, displayTitle = "Buffering BG")
+        runCurrent()
+
+        // Even while BUFFERING (isPlaying == false), backgrounding must disarm headless and pause
+        bgUseCase(isPip = false)
+        runCurrent()
+
+        assertFalse(engine.isHeadlessMode)
+        assertTrue(fakeBridge.properties["pause"] == true)
+
+        // When paused with a scrub position, backgrounding must still checkpoint the paused position
+        engine.attachSurface()
+        fakeBridge.emitFileLoaded(mediaTitle = "Buffering BG")
+        fakeBridge.emitPropertyDouble("duration", 100.0)
+        fakeBridge.emitPropertyDouble("time-pos", 42.0)
+        fakeBridge.emitPropertyFlag("pause", true)
+        runCurrent()
+
+        bgUseCase(isPip = false)
+        runCurrent()
+
+        assertEquals(42_000L, historyRepo.getProgress(uri)?.positionMs)
+        assertEquals("Buffering BG", fakeHistoryDao.getByUri(uri.toString())?.title)
+    }
+
+    @Test
     fun testObservePlaybackSessionUseCase_seedsSynchronously() = runCaseTest {
         val observeSession = ObservePlaybackSessionUseCase(sessionStateHolder, engine, testScope)
         val uri = TestUri("file:///test/active.mp4")
@@ -424,12 +468,28 @@ class DomainUseCasesTest {
     @Test
     fun testLoadMediaUseCase_attachesCompanionSubtitlesAndRejectsStaleDescriptor() = runCaseTest {
         val subUri = TestUri("content://subs/1.srt")
+        var findCalls = 0
+        var openCalls = 0
         var lastAccepted: Boolean? = null
+        var staleAccepted: Boolean? = null
+        var openGate: CompletableDeferred<Unit>? = null
         val trackingSubRepo = object : SubtitleRepository {
-            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> =
-                listOf(subUri)
+            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> {
+                findCalls++
+                return listOf(subUri)
+            }
 
             override suspend fun openSubtitle(subtitleUri: Uri, consume: suspend (String) -> Boolean): Boolean {
+                openCalls++
+                val gate = openGate
+                if (gate != null) {
+                    try {
+                        gate.await()
+                    } catch (e: CancellationException) {
+                        staleAccepted = consume("fdclose://stale")
+                        throw e
+                    }
+                }
                 val accepted = consume("fdclose://42")
                 lastAccepted = accepted
                 return accepted
@@ -453,7 +513,130 @@ class DomainUseCasesTest {
         loadUseCase(PlaybackSource.Single(uri = uri, displayTitle = "Movie"))
         runCurrent()
 
+        // While AwaitingSurface, companion subtitles must NOT be queried or opened
+        assertEquals(0, findCalls)
+        assertEquals(0, openCalls)
+        assertTrue(fakeBridge.findCommands("sub-add").isEmpty())
+
+        // Attaching surface moves phase to Submitting, still before FILE_LOADED
+        engine.attachSurface()
+        runCurrent()
+        assertEquals(0, findCalls)
+        assertEquals(0, openCalls)
+        assertTrue(fakeBridge.findCommands("sub-add").isEmpty())
+
+        // Once FILE_LOADED arrives (SessionPhase.Loaded), subtitles are opened & attached
+        fakeBridge.emitFileLoaded()
+        runCurrent()
+
+        assertEquals(1, findCalls)
+        assertEquals(1, openCalls)
         assertEquals(true, lastAccepted)
         assertTrue(fakeBridge.findCommands("sub-add").any { it.contains("fdclose://42") })
+
+        // Verify a stale descriptor is rejected if another load supersedes it mid-open
+        val gate = CompletableDeferred<Unit>()
+        openGate = gate
+        val uri2 = TestUri("file:///test/movie2.mkv")
+        val uri3 = TestUri("file:///test/movie3.mkv")
+        loadUseCase(PlaybackSource.Single(uri = uri2, displayTitle = "Movie 2"))
+        runCurrent()
+        fakeBridge.emitFileLoaded()
+        runCurrent()
+        assertEquals(2, openCalls)
+
+        // Supersede uri2 with uri3 before openGate completes -> stale descriptor must be rejected
+        openGate = null
+        loadUseCase(PlaybackSource.Single(uri = uri3, displayTitle = "Movie 3"))
+        runCurrent()
+        assertEquals(false, staleAccepted)
+        assertEquals(1, fakeBridge.findCommands("sub-add").size)
+    }
+
+    @Test
+    fun testLoadMediaUseCase_skipsSubtitlesOnFailedLoad() = runCaseTest {
+        val subUri = TestUri("content://subs/1.srt")
+        var findCalls = 0
+        var openCalls = 0
+        val trackingSubRepo = object : SubtitleRepository {
+            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> {
+                findCalls++
+                return listOf(subUri)
+            }
+
+            override suspend fun openSubtitle(subtitleUri: Uri, consume: suspend (String) -> Boolean): Boolean {
+                openCalls++
+                return consume("fdclose://99")
+            }
+        }
+
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val loadUseCase = LoadMediaUseCase(
+            engine = engine,
+            mediaRepository = mediaRepo,
+            historyRepository = historyRepo,
+            settingsRepository = settingsRepo,
+            subtitleRepository = trackingSubRepo,
+            serviceLauncher = fakeServiceLauncher,
+            sessionStateHolder = sessionStateHolder,
+            saveProgressUseCase = saveUseCase,
+            scope = testScope,
+        )
+
+        engine.attachSurface()
+        val uri = TestUri("file:///test/broken.mkv")
+        loadUseCase(PlaybackSource.Single(uri = uri, displayTitle = "Broken"))
+        runCurrent()
+
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        runCurrent()
+
+        assertEquals(0, findCalls)
+        assertEquals(0, openCalls)
+        assertTrue(fakeBridge.findCommands("sub-add").isEmpty())
+    }
+
+    @Test
+    fun testObserveMediaFeedUseCase_isolatesConcurrentCollectorsAndSkipsRescanOnProgress() = runCaseTest {
+        val customFoldersFlow = MutableStateFlow<Set<Uri>>(emptySet())
+        val fakeCustomFolderRepo = object : CustomFolderRepository {
+            override val savedFolderUris = customFoldersFlow
+            override suspend fun addFolder(treeUri: Uri) = true
+            override suspend fun removeFolder(treeUri: Uri) {}
+            override suspend fun getFolderDetails(): List<CustomFolderDetail> = emptyList()
+            override suspend fun scanCustomFolders(): List<VideoMediaItem> = emptyList()
+        }
+
+        val v1 = VideoMediaItem(1L, "file:///a.mp4", "Alpha.mp4", 1000L, 10L, 0, 0, 0L, "Movies")
+        mediaRepo.videos = listOf(v1)
+
+        val observeFeed = ObserveMediaFeedUseCase(mediaRepo, fakeCustomFolderRepo, historyRepo)
+        val query1 = MutableStateFlow(MediaFeedQuery(hasPermission = true))
+        val query2 = MutableStateFlow(MediaFeedQuery(hasPermission = false))
+
+        val feed1 = observeFeed(query1).stateIn(
+            scope = backgroundScope,
+            started = SharingStarted.Eagerly,
+            initialValue = dev.gyro.core.domain.model.MediaFeed(),
+        )
+        runCurrent()
+        assertEquals(1, feed1.value.rawVideos.size)
+
+        // Second collector without permission must not overwrite first collector's cache
+        val feed2 = observeFeed(query2).stateIn(
+            scope = backgroundScope,
+            started = SharingStarted.Eagerly,
+            initialValue = dev.gyro.core.domain.model.MediaFeed(),
+        )
+        runCurrent()
+        assertEquals(0, feed2.value.rawVideos.size)
+        assertEquals(1, feed1.value.rawVideos.size)
+
+        // Saving progress (10s checkpoint) updates playbackMap without re-scanning mediaRepository
+        val scansBeforeProgress = mediaRepo.getVideosCalls
+        historyRepo.saveProgress(TestUri("file:///a.mp4"), 5_000L, 10_000L, "Alpha")
+        runCurrent()
+        assertEquals(scansBeforeProgress, mediaRepo.getVideosCalls)
+        assertEquals(5_000L, feed1.value.playbackMap["file:///a.mp4"]?.positionMs)
     }
 }

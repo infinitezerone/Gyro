@@ -17,7 +17,7 @@ import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.player.service.PlaybackServiceLauncherImpl
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import javax.inject.Singleton
 
@@ -43,16 +43,19 @@ object PlayerModule {
             mainDispatcher = mainDispatcher,
         )
         appScope.launch {
-            val initialSettings = settingsRepository.settings.first()
-            engine.configure(
-                userOptions = mpvConfigRepository.getParsedOptions(),
-                settings = initialSettings,
-            )
-            settingsRepository.settings.collect { updatedSettings ->
-                engine.updateSettings(
-                    settings = updatedSettings,
-                    userOptions = mpvConfigRepository.getParsedOptions(),
-                )
+            var configured = false
+            combine(
+                settingsRepository.settings,
+                mpvConfigRepository.parsedOptions,
+            ) { settings, options ->
+                settings to options
+            }.collect { (settings, options) ->
+                if (!configured) {
+                    configured = true
+                    engine.configure(userOptions = options, settings = settings)
+                } else {
+                    engine.updateSettings(settings = settings, userOptions = options)
+                }
             }
         }
         return engine

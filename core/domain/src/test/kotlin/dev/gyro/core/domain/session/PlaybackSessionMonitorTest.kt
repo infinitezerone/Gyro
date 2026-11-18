@@ -13,10 +13,10 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.model.PlaybackSource
+import dev.gyro.core.domain.model.SessionEndReason
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
-import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
@@ -33,15 +33,15 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -49,7 +49,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class PlaybackHistoryTrackerTest {
+class PlaybackSessionMonitorTest {
 
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -70,8 +70,6 @@ class PlaybackHistoryTrackerTest {
     private lateinit var loadMediaUseCase: LoadMediaUseCase
     private lateinit var saveProgressUseCase: SavePlaybackProgressUseCase
     private lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
-    private lateinit var navigatePlaylistUseCase: NavigatePlaylistUseCase
-    private lateinit var tracker: PlaybackHistoryTracker
     private lateinit var testScope: CoroutineScope
 
     private class FakeMediaRepository : MediaRepository {
@@ -86,7 +84,7 @@ class PlaybackHistoryTrackerTest {
         testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
 
-        val filesDir = tempFolder.newFolder("tracker_test")
+        val filesDir = tempFolder.newFolder("monitor_test")
         testContext = object : ContextWrapper(null) {
             override fun getApplicationContext(): Context = this
             override fun getFilesDir(): File = filesDir
@@ -144,20 +142,6 @@ class PlaybackHistoryTrackerTest {
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
         )
-
-        navigatePlaylistUseCase = NavigatePlaylistUseCase(
-            engine = engine,
-            loadMediaUseCase = loadMediaUseCase,
-        )
-
-        tracker = PlaybackHistoryTracker(
-            engine = engine,
-            sessionStateHolder = sessionStateHolder,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
-            saveProgressUseCase = saveProgressUseCase,
-            scope = testScope,
-        )
-        tracker.startObserving()
     }
 
     @After
@@ -167,7 +151,7 @@ class PlaybackHistoryTrackerTest {
         Dispatchers.resetMain()
     }
 
-    private fun runTrackerTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
+    private fun runMonitorTest(body: suspend TestScope.() -> Unit) = runTest(testDispatcher) {
         try {
             body()
         } finally {
@@ -176,7 +160,7 @@ class PlaybackHistoryTrackerTest {
     }
 
     @Test
-    fun testAutoAdvance_advancesWhenPlaybackEnds() = runTrackerTest {
+    fun testAutoAdvance_advancesWhenPlaybackEnds() = runMonitorTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/a.mp4", "A", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/b.mp4", "B", 2000L, 200L, 0, 0, 0L, "F")
         loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
@@ -194,7 +178,7 @@ class PlaybackHistoryTrackerTest {
     }
 
     @Test
-    fun testPeriodicCheckpoint_savesProgressWhilePlaying() = runTrackerTest {
+    fun testPeriodicCheckpoint_savesProgressWhilePlaying() = runMonitorTest {
         val item = VideoMediaItem(1L, "file:///tmp/checkpoint.mp4", "Checkpoint", 60000L, 100L, 0, 0, 0L, "F")
         loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item), item))
         runCurrent()
@@ -213,7 +197,7 @@ class PlaybackHistoryTrackerTest {
     }
 
     @Test
-    fun testPeriodicCheckpoint_savesProgressAfterBackwardSeek() = runTrackerTest {
+    fun testPeriodicCheckpoint_savesProgressAfterBackwardSeek() = runMonitorTest {
         val uri = TestUri("file:///tmp/rewind_checkpoint.mp4")
         val item = VideoMediaItem(1L, uri.toString(), "Rewind", 120_000L, 100L, 0, 0, 0L, "F")
         loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item), item))
@@ -235,5 +219,48 @@ class PlaybackHistoryTrackerTest {
         advanceTimeBy(10_500L)
         runCurrent()
         assertEquals(12_000L, historyRepo.getProgress(uri)?.positionMs)
+    }
+
+    @Test
+    fun testPauseTransition_savesProgressImmediately() = runMonitorTest {
+        val uri = TestUri("file:///tmp/pause_save.mp4")
+        val item = VideoMediaItem(1L, uri.toString(), "PauseSave", 90_000L, 100L, 0, 0, 0L, "F")
+        loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item), item))
+        runCurrent()
+
+        fakeBridge.emitPropertyDouble("duration", 90.0)
+        fakeBridge.emitPropertyDouble("time-pos", 22.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        // No 10s interval elapsed yet -> nothing persisted prior to pause
+        assertNull(historyRepo.getProgress(uri))
+
+        fakeBridge.emitPropertyFlag("pause", true)
+        runCurrent()
+
+        val progress = historyRepo.getProgress(uri)
+        assertNotNull(progress)
+        assertEquals(22_000L, progress?.positionMs)
+    }
+
+    @Test
+    fun testEndPlaybackSession_cancelsMonitorAndPreventsPostEndAutoAdvance() = runMonitorTest {
+        val item1 = VideoMediaItem(1L, "file:///tmp/end1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///tmp/end2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
+        loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
+        runCurrent()
+
+        endPlaybackSessionUseCase(SessionEndReason.USER_EXIT)
+        runCurrent()
+
+        fakeBridge.emitEndFile()
+        runCurrent()
+        advanceTimeBy(1_000L)
+        runCurrent()
+
+        assertFalse(sessionStateHolder.sessionActive.value)
+        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals("file:///tmp/end1.mp4", engine.currentUri.value?.toString())
     }
 }

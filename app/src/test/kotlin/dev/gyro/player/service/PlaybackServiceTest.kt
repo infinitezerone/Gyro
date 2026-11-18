@@ -92,10 +92,18 @@ class PlaybackServiceTest {
         )
 
     @Test
-    fun unknownActionArmsHeadlessAndReturnsSticky() {
+    fun nullActionDoesNotArmHeadlessAndReturnsSticky() {
         assertEquals(Service.START_STICKY, dispatch(null))
 
-        // A service start implies background playback intent: loads must bypass Surface queueing.
+        assertFalse("bare service start (action=null) must not arm headless", engine.isHeadlessMode)
+        assertTrue(controls.calls.isEmpty())
+    }
+
+    @Test
+    fun unknownActionArmsHeadlessAndReturnsSticky() {
+        assertEquals(Service.START_STICKY, dispatch("dev.gyro.player.ACTION_UNKNOWN"))
+
+        // An explicit background action implies background playback intent: loads must bypass Surface queueing.
         assertTrue(engine.isHeadlessMode)
         assertTrue(controls.calls.isEmpty())
     }

@@ -15,8 +15,10 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -24,6 +26,7 @@ import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.navigation.Screen
 import dev.gyro.player.navigation.GyroNavDisplay
 import dev.gyro.player.navigation.rememberGyroAppState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,8 +69,16 @@ class MainActivity : ComponentActivity() {
                 initialSessionActive = sessionInfo.isActive,
                 initialActiveUri = sessionInfo.activeUri,
             )
-            val intentUri by incomingIntentUri.collectAsState()
+            val intentUri by incomingIntentUri.collectAsStateWithLifecycle()
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+            var wasSessionActive by remember { mutableStateOf(sessionInfo.isActive) }
+            LaunchedEffect(sessionInfo.isActive) {
+                if (wasSessionActive && !sessionInfo.isActive && appState.backStack.lastOrNull() is Screen.Player) {
+                    appState.popBack()
+                }
+                wasSessionActive = sessionInfo.isActive
+            }
 
             // Background playback posts a media notification via Media3; without POST_NOTIFICATIONS
             // (Android 13+) the notification is suppressed and the foreground service never calls

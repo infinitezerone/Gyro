@@ -13,10 +13,12 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
@@ -47,6 +49,8 @@ fun GyroNavDisplay(
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val sessionInfo by viewModel.sessionInfo.collectAsStateWithLifecycle()
+
     NavDisplay(
         backStack = appState.backStack,
         modifier = modifier,
@@ -133,12 +137,17 @@ fun GyroNavDisplay(
             }
             entry<Screen.Player> { playerScreen ->
                 val playerViewModel: PlayerViewModel = hiltViewModel()
-                LaunchedEffect(playerScreen.uri) {
-                    playerViewModel.initialize(playerScreen.uri)
+                val targetInitUri = if (sessionInfo.isActive && sessionInfo.activeUri != null) {
+                    sessionInfo.activeUri
+                } else {
+                    playerScreen.uri
+                }
+                LaunchedEffect(playerScreen) {
+                    playerViewModel.initialize(targetInitUri)
                 }
                 PlayerScreen(
                     viewModel = playerViewModel,
-                    currentUri = playerScreen.uri,
+                    currentUri = targetInitUri ?: playerScreen.uri,
                     onBack = {
                         playerViewModel.onUserExit()
                         onPlayerExit()
@@ -179,6 +188,7 @@ fun GyroNavDisplay(
             }
             entry<Screen.MpvConfigEditor> {
                 MpvConfigEditorScreen(
+                    viewModel = hiltViewModel(),
                     onBack = {
                         appState.popBack()
                     },
@@ -187,6 +197,7 @@ fun GyroNavDisplay(
             }
             entry<Screen.GestureSettings> {
                 GestureSettingsScreen(
+                    viewModel = hiltViewModel(),
                     onBack = {
                         appState.popBack()
                     },

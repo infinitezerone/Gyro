@@ -10,6 +10,7 @@ import dev.gyro.core.domain.model.contentUri
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.engine.model.SessionPhase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -70,6 +71,7 @@ class LoadMediaUseCase @Inject constructor(
                 }
             }
             sessionStateHolder.setSessionActive(true)
+            ensureSessionMonitorActive()
             serviceLauncher.start()
             return null
         }
@@ -139,23 +141,51 @@ class LoadMediaUseCase @Inject constructor(
             )
 
             if (settings.subAutoLoad && isCurrentLoad()) {
-                val subUris = subtitleRepository.findCompanionSubtitles(targetUri, resolvedTitle)
+                val loadedSnapshot = engine.state.first {
+                    !isCurrentLoad() ||
+                        (it.currentUri == targetUri &&
+                            (it.session is SessionPhase.Loaded || it.session is SessionPhase.Failed))
+                }
                 currentCoroutineContext().ensureActive()
-                for (subUri in subUris) {
+                if (isCurrentLoad() && loadedSnapshot.session is SessionPhase.Loaded) {
+                    val subUris = subtitleRepository.findCompanionSubtitles(targetUri, resolvedTitle)
                     currentCoroutineContext().ensureActive()
-                    if (!isCurrentLoad()) break
-                    subtitleRepository.openSubtitle(subUri) { subTarget ->
-                        if (!isCurrentLoad() || engine.currentUri.value != targetUri) {
-                            false
-                        } else {
-                            engine.addSubtitle(subTarget)
-                            true
+                    for (subUri in subUris) {
+                        currentCoroutineContext().ensureActive()
+                        if (!isCurrentLoad()) break
+                        subtitleRepository.openSubtitle(subUri) { subTarget ->
+                            if (!isCurrentLoad() || engine.currentUri.value != targetUri) {
+                                false
+                            } else {
+                                engine.addSubtitle(subTarget)
+                                true
+                            }
                         }
                     }
                 }
             }
         }
+        ensureSessionMonitorActive()
         serviceLauncher.start()
         return job
+    }
+
+    private fun ensureSessionMonitorActive() {
+        sessionStateHolder.ensureSessionMonitor(
+            scope = scope,
+            engine = engine,
+            onSaveProgress = { saveProgressUseCase() },
+            onAutoAdvanceNext = {
+                val next = engine.advanceToNextItem() ?: return@ensureSessionMonitor
+                invoke(
+                    PlaybackSource.UriItem(
+                        uri = next.contentUri,
+                        displayTitle = next.displayName,
+                        initialWidth = next.width,
+                        initialHeight = next.height,
+                    )
+                )
+            },
+        )
     }
 }

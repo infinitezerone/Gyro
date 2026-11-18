@@ -10,9 +10,19 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transformLatest
 import javax.inject.Inject
+
+private data class FilteredMediaFeed(
+    val isLoading: Boolean,
+    val rawVideos: List<VideoMediaItem>,
+    val filteredVideos: List<VideoMediaItem>,
+    val folders: List<String>,
+    val effectiveSelectedFolder: String?,
+)
 
 /**
  * Single-method UseCase coordinating [MediaRepository], [CustomFolderRepository], and
@@ -28,7 +38,7 @@ class ObserveMediaFeedUseCase @Inject constructor(
     private val historyRepository: PlaybackHistoryRepository,
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
-    operator fun invoke(queryFlow: Flow<MediaFeedQuery>): Flow<MediaFeed> {
+    operator fun invoke(queryFlow: Flow<MediaFeedQuery>): Flow<MediaFeed> = flow {
         var cachedVideos: List<VideoMediaItem> = emptyList()
 
         val scanTriggerFlow = combine(
@@ -50,27 +60,41 @@ class ObserveMediaFeedUseCase @Inject constructor(
             }
         }
 
-        return combine(
+        val filteredFeedFlow = combine(
             scanResultFlow,
-            queryFlow,
-            historyRepository.progressMap,
-        ) { (isLoading, rawVideos), query, progressMap ->
+            queryFlow.map { it.selectedFolder to it.searchQuery }.distinctUntilChanged(),
+        ) { (isLoading, rawVideos), (selectedFolder, searchQuery) ->
             val folders = rawVideos.map { it.folderName }.distinct().sorted()
-            val effectiveFolder = query.selectedFolder?.takeIf { it in folders }
+            val effectiveFolder = selectedFolder?.takeIf { it in folders }
             val filtered = rawVideos.filter { video ->
                 val matchesFolder = effectiveFolder == null || video.folderName == effectiveFolder
-                val matchesQuery = query.searchQuery.isBlank() ||
-                    video.displayName.contains(query.searchQuery, ignoreCase = true)
+                val matchesQuery = searchQuery.isBlank() ||
+                    video.displayName.contains(searchQuery, ignoreCase = true)
                 matchesFolder && matchesQuery
             }
-            MediaFeed(
+            FilteredMediaFeed(
                 isLoading = isLoading,
                 rawVideos = rawVideos,
                 filteredVideos = filtered,
                 folders = folders,
                 effectiveSelectedFolder = effectiveFolder,
-                playbackMap = progressMap,
             )
-        }
+        }.distinctUntilChanged()
+
+        emitAll(
+            combine(
+                filteredFeedFlow,
+                historyRepository.progressMap.distinctUntilChanged(),
+            ) { feed, progressMap ->
+                MediaFeed(
+                    isLoading = feed.isLoading,
+                    rawVideos = feed.rawVideos,
+                    filteredVideos = feed.filteredVideos,
+                    folders = feed.folders,
+                    effectiveSelectedFolder = feed.effectiveSelectedFolder,
+                    playbackMap = progressMap,
+                )
+            }
+        )
     }
 }
