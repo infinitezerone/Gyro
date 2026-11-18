@@ -25,9 +25,6 @@ sealed interface MediaFeedState {
 
     /**
      * A real snapshot. An empty list here means the library really is empty.
-     *
-     * [refreshing] marks a scan that is running behind an already-usable snapshot, so a revisit can
-     * keep showing the previous list instead of dropping to a spinner.
      */
     data class Ready(
         val rawVideos: List<VideoMediaItem> = emptyList(),
@@ -35,7 +32,6 @@ sealed interface MediaFeedState {
         val folders: List<String> = emptyList(),
         val effectiveSelectedFolder: String? = null,
         val playbackMap: Map<String, PlaybackProgress> = emptyMap(),
-        val refreshing: Boolean = false,
     ) : MediaFeedState
 
     /** Videos before filtering, `0` while nothing is known yet. */

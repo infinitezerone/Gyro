@@ -46,6 +46,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -112,6 +113,23 @@ class DomainUseCasesTest {
         var getVideosCalls = 0
         val names = mutableMapOf<String, String>()
         var onGetDisplayName: (suspend (Uri) -> String?)? = null
+
+        // The repository owns the cache now: it lives here, not in each collector's flow.
+        private val cached = MutableStateFlow<List<VideoMediaItem>?>(null)
+        override fun observeVideos(): StateFlow<List<VideoMediaItem>?> = cached
+
+        override fun ensureLoaded() {
+            if (cached.value == null) {
+                getVideosCalls++
+                cached.value = videos
+            }
+        }
+
+        override fun requestRefresh() {
+            getVideosCalls++
+            cached.value = videos
+        }
+
         override suspend fun getVideos(): List<VideoMediaItem> {
             getVideosCalls++
             return videos
@@ -633,7 +651,7 @@ class DomainUseCasesTest {
     }
 
     @Test
-    fun testObserveMediaFeedUseCase_isolatesConcurrentCollectorsAndSkipsRescanOnProgress() = runCaseTest {
+    fun testObserveMediaFeedUseCase_sharesOneCachedSnapshotAndSkipsRescanOnProgress() = runCaseTest {
         val customFoldersFlow = MutableStateFlow<Set<Uri>>(emptySet())
         val fakeCustomFolderRepo = object : CustomFolderRepository {
             override val savedFolderUris = customFoldersFlow
@@ -657,22 +675,24 @@ class DomainUseCasesTest {
         )
         runCurrent()
         assertEquals(1, feed1.value.ready().rawVideos.size)
+        val scansAfterFirstLoad = mediaRepo.getVideosCalls
 
-        // Second collector without permission must not overwrite first collector's cache
+        // A second collector reads the same repository snapshot. Revisiting the screen must not
+        // trigger another scan — that was the whole point of moving the cache out of the flow.
         val feed2 = observeFeed(query2).stateIn(
             scope = backgroundScope,
             started = SharingStarted.Eagerly,
             initialValue = MediaFeedState.Loading,
         )
         runCurrent()
-        assertEquals(0, feed2.value.ready().rawVideos.size)
+        assertEquals(1, feed2.value.ready().rawVideos.size)
         assertEquals(1, feed1.value.ready().rawVideos.size)
+        assertEquals(scansAfterFirstLoad, mediaRepo.getVideosCalls)
 
         // Saving progress (10s checkpoint) updates playbackMap without re-scanning mediaRepository
-        val scansBeforeProgress = mediaRepo.getVideosCalls
         historyRepo.saveProgress(TestUri("file:///a.mp4"), 5_000L, 10_000L, "Alpha")
         runCurrent()
-        assertEquals(scansBeforeProgress, mediaRepo.getVideosCalls)
+        assertEquals(scansAfterFirstLoad, mediaRepo.getVideosCalls)
         assertEquals(5_000L, feed1.value.ready().playbackMap["file:///a.mp4"]?.positionMs)
     }
 

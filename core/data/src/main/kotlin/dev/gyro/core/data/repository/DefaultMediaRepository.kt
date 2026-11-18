@@ -2,18 +2,33 @@ package dev.gyro.core.data.repository
 
 import android.content.ContentUris
 import android.content.Context
+import android.database.ContentObserver
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gyro.core.common.dispatcher.ApplicationScope
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,8 +37,94 @@ import javax.inject.Singleton
 class DefaultMediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @ApplicationScope private val scope: CoroutineScope,
     private val customFolderRepository: CustomFolderRepository,
 ) : MediaRepository {
+
+    /** `null` until the first scan lands: "unknown" must stay distinguishable from "empty". */
+    private val cachedVideos = MutableStateFlow<List<VideoMediaItem>?>(null)
+
+    /** Conflated on purpose: a bulk import fires hundreds of changes and only the last one matters. */
+    private val refreshSignals = Channel<Unit>(Channel.CONFLATED)
+
+    private val scanMutex = Mutex()
+
+    /** MediaStore generation after the last scan, used to catch changes an observer missed. */
+    private var lastKnownGeneration: Long? = null
+
+    init {
+        // MediaStore is a ContentProvider, so a change notification is the only mechanism the
+        // platform offers for keeping a list in sync with it. Registered for the process lifetime:
+        // data freshness must not depend on which screen happens to be subscribed.
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                requestRefresh()
+            }
+        }
+        runCatching {
+            context.contentResolver.registerContentObserver(
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                true,
+                observer,
+            )
+        }.onFailure { Log.w(TAG, "MediaStore observer registration failed", it) }
+
+        // Granted SAF folders are part of the library but live in DataStore, not MediaStore, so
+        // the provider observer above never sees them change. Subscribe for the process lifetime
+        // too: a folder added while no screen is collecting must still invalidate the cache before
+        // the home screen comes back. The first value is the current set; only changes matter.
+        scope.launch {
+            customFolderRepository.savedFolderUris
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { requestRefresh() }
+        }
+
+        scope.launch {
+            for (signal in refreshSignals) {
+                // Let a burst settle, then collapse anything queued behind it into one scan.
+                delay(OBSERVER_SETTLE_MS)
+                while (refreshSignals.tryReceive().isSuccess) {
+                    // Drain.
+                }
+                scan()
+            }
+        }
+    }
+
+    override fun observeVideos(): StateFlow<List<VideoMediaItem>?> = cachedVideos.asStateFlow()
+
+    override fun requestRefresh() {
+        refreshSignals.trySend(Unit)
+    }
+
+    override fun ensureLoaded() {
+        if (cachedVideos.value == null) {
+            requestRefresh()
+            return
+        }
+        // Belt and braces for ROMs that throttle or drop observer callbacks: the generation counter
+        // is cheap to read and only a real change costs a scan.
+        val generation = currentGeneration() ?: return
+        if (generation != lastKnownGeneration) {
+            requestRefresh()
+        }
+    }
+
+    private fun currentGeneration(): Long? = runCatching {
+        // getGeneration(Context, String) arrived in API 30. On 29 the call throws NoSuchMethodError,
+        // which runCatching absorbs: the observer and manual refresh remain the triggers there, an
+        // acceptable degradation for a fallback that is not the primary invalidation path.
+        MediaStore.getGeneration(context, MediaStore.VOLUME_EXTERNAL)
+    }.getOrNull()
+
+    private suspend fun scan() {
+        scanMutex.withLock {
+            val loaded = getVideos()
+            cachedVideos.value = loaded
+            lastKnownGeneration = currentGeneration()
+        }
+    }
 
     override suspend fun getDisplayName(uri: Uri): String? = withContext(ioDispatcher) {
         try {
@@ -145,5 +246,8 @@ class DefaultMediaRepository @Inject constructor(
 
     private companion object {
         const val TAG = "DefaultMediaRepository"
+
+        /** Long enough for a bulk import burst to collapse into a single scan. */
+        const val OBSERVER_SETTLE_MS = 400L
     }
 }

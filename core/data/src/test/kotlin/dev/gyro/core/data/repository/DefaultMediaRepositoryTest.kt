@@ -63,6 +63,7 @@ class DefaultMediaRepositoryTest {
         }
 
         val customFolderRepo = mockk<CustomFolderRepository>()
+        every { customFolderRepo.savedFolderUris } returns kotlinx.coroutines.flow.emptyFlow()
         coEvery { customFolderRepo.scanCustomFolders() } returns listOf(
             // Same URI as MediaStore entry -> excluded
             VideoMediaItem(
@@ -118,7 +119,12 @@ class DefaultMediaRepositoryTest {
             ),
         )
 
-        val repository = DefaultMediaRepository(context, testDispatcher, customFolderRepo)
+        val repository = DefaultMediaRepository(
+            context = context,
+            ioDispatcher = testDispatcher,
+            scope = backgroundScope,
+            customFolderRepository = customFolderRepo,
+        )
         val videos = repository.getVideos()
 
         assertEquals(listOf("ep01.mkv", "ova.mkv"), videos.map { it.displayName })
