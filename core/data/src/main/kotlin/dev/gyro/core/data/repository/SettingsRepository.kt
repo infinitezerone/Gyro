@@ -23,7 +23,6 @@ interface SettingsRepository {
     suspend fun setAutoResume(enabled: Boolean): UserSettings
     suspend fun setAutoPip(enabled: Boolean): UserSettings
     suspend fun setBackgroundAudio(enabled: Boolean): UserSettings
-    suspend fun setBackgroundPlayMode(mode: String): UserSettings
     suspend fun setSeekStepSeconds(seconds: Int): UserSettings
     suspend fun setDefaultHwdec(hwdec: String): UserSettings
     suspend fun setDefaultHwdec(mode: HwdecMode): UserSettings = setDefaultHwdec(mode.persistedKey)

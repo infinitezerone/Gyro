@@ -55,7 +55,7 @@ class SettingsRepositoryTest {
             val current = repo.settings.first()
 
             assertTrue(current.autoResume)
-            assertEquals("pip", current.backgroundPlayMode)
+            assertFalse(current.backgroundAudio)
             assertEquals(10, current.seekStepSeconds)
             assertEquals(HWDEC_HARDWARE, current.defaultHwdec)
             assertTrue(current.subAutoLoad)
@@ -82,7 +82,7 @@ class SettingsRepositoryTest {
             val store = newStore(scope, "persisted")
             val persisted = UserSettings(
                 autoResume = false,
-                backgroundPlayMode = "audio_only",
+                backgroundAudio = true,
                 seekStepSeconds = 30,
                 defaultHwdec = HWDEC_SOFTWARE,
                 subAutoLoad = false,
@@ -94,7 +94,7 @@ class SettingsRepositoryTest {
             val current = repo.awaitSettings { it == persisted }
 
             assertFalse(current.autoResume)
-            assertEquals("audio_only", current.backgroundPlayMode)
+            assertTrue(current.backgroundAudio)
             assertEquals(30, current.seekStepSeconds)
             assertEquals(HWDEC_SOFTWARE, current.defaultHwdec)
             assertFalse(current.subAutoLoad)
@@ -212,11 +212,28 @@ class SettingsRepositoryTest {
             val repo = newRepo(newStore(scope, "flow"), scope)
             val before = repo.settings.first()
 
-            val returned = repo.setBackgroundPlayMode("audio_only")
+            val returned = repo.setBackgroundAudio(true)
 
-            assertEquals("audio_only", returned.backgroundPlayMode)
-            val settled = repo.awaitSettings { it.backgroundPlayMode == "audio_only" }
-            assertEquals(before.copy(backgroundPlayMode = "audio_only"), settled)
+            assertTrue(returned.backgroundAudio)
+            val settled = repo.awaitSettings { it.backgroundAudio }
+            assertEquals(before.copy(backgroundAudio = true), settled)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun legacyJsonWithRemovedBackgroundPlayModeKeyStillLoadsCleanly() = runBlocking {
+        val scope = newScope()
+        try {
+            val file = File(tempFolder.root, "legacy_bg_mode.json")
+            file.writeText("""{"autoResume":false,"backgroundPlayMode":"audio_only","seekStepSeconds":15}""")
+            val store = UserSettingsDataStoreFactory.createForFile(file, scope)
+            val repo = newRepo(store, scope)
+
+            val loaded = repo.awaitSettings { !it.autoResume && it.seekStepSeconds == 15 }
+            assertFalse(loaded.autoResume)
+            assertEquals(15, loaded.seekStepSeconds)
         } finally {
             scope.cancel()
         }

@@ -38,12 +38,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setBackgroundPlayMode(mode: String) {
-        viewModelScope.launch {
-            repository.setBackgroundPlayMode(mode)
-        }
-    }
-
     fun setSeekStepSeconds(seconds: Int) {
         viewModelScope.launch {
             repository.setSeekStepSeconds(seconds)

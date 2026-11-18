@@ -2,6 +2,7 @@ package dev.gyro.core.data.repository
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Interface contract for managing the custom `mpv.conf` configuration file.
@@ -16,4 +17,14 @@ interface MpvConfigRepository {
     suspend fun saveConfig(content: String)
     suspend fun resetToDefault(): String
     suspend fun getParsedOptions(): Map<String, String>
+
+    companion object {
+        val Empty: MpvConfigRepository = object : MpvConfigRepository {
+            override val parsedOptions: Flow<Map<String, String>> = flowOf(emptyMap())
+            override suspend fun loadConfig(): String = ""
+            override suspend fun saveConfig(content: String) {}
+            override suspend fun resetToDefault(): String = ""
+            override suspend fun getParsedOptions(): Map<String, String> = emptyMap()
+        }
+    }
 }

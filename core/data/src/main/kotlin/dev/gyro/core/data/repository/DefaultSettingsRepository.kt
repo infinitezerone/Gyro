@@ -44,9 +44,6 @@ class DefaultSettingsRepository @Inject constructor(
     override suspend fun setBackgroundAudio(enabled: Boolean) =
         updateSettings { it.copy(backgroundAudio = enabled) }
 
-    override suspend fun setBackgroundPlayMode(mode: String) =
-        updateSettings { it.copy(backgroundPlayMode = mode) }
-
     override suspend fun setSeekStepSeconds(seconds: Int) = updateSettings { current ->
         current.copy(
             seekStepSeconds = seconds,

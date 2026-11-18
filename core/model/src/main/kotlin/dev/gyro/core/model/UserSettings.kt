@@ -39,7 +39,6 @@ data class UserSettings(
     val autoResume: Boolean = true,
     val autoPip: Boolean = true,
     val backgroundAudio: Boolean = false,
-    val backgroundPlayMode: String = "pip", // Deprecated: preserved for backward compatibility
     val seekStepSeconds: Int = 10, // 5, 10, 15, 30
     val defaultHwdec: String = HWDEC_HARDWARE, // HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE
     val hdrOutputMode: String = HDR_OUTPUT_AUTO, // HDR_OUTPUT_AUTO, HDR_OUTPUT_PQ, HDR_OUTPUT_HLG, HDR_OUTPUT_SDR

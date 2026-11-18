@@ -3,6 +3,12 @@ package dev.gyro.core.model
 /** Copy-back hardware decoding string key. */
 const val HWDEC_HARDWARE_COPY = "mediacodec-copy"
 
+/** Five-band graphical equalizer centre frequencies in Hz. */
+val EQUALIZER_BANDS: List<Double> = listOf(60.0, 230.0, 910.0, 3600.0, 14000.0)
+
+/** Maximum symmetrical boost/cut in dB per equalizer band. */
+const val EQUALIZER_GAIN_LIMIT_DB: Double = 12.0
+
 /**
  * Strongly typed video decoder preference / active mode, decoupling feature and domain
  * layers from backend-specific mpv strings such as `"mediacodec,mediacodec-copy"` or `"no"`.
