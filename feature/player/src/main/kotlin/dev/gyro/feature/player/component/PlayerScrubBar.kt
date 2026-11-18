@@ -128,6 +128,12 @@ fun PlayerScrubBar(
                     var isDragging = false
                     var hasTriggeredPreciseSeek = false
 
+                    // Whether the finger landed while the precise panel was already open. Inside the
+                    // panel a drag that ends in an upward flick must keep the position the user just
+                    // scrubbed to; the pull-up branch below exists to undo an accidental horizontal
+                    // drag that turns into "open precise seeking", which cannot happen once it is open.
+                    val startedInsidePreciseSeeking = scrubState.isPreciseSeeking
+
                     val currentPlaybackFraction = if (durationMs > 0L) {
                         (currentTimePosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                     } else 0f
@@ -153,7 +159,7 @@ fun PlayerScrubBar(
                             // 1. 向上轻推：激活精准选帧胶卷，以当前播放进度为基准展开，绝不瞬移跳转到碰触的 X 坐标
                             // 2. 水平拖动超过 TouchSlop：用户意图拖拽快进/快退
                             if (!isDragging) {
-                                if (deltaY <= -pullUpThresholdPx) {
+                                if (!startedInsidePreciseSeeking && deltaY <= -pullUpThresholdPx) {
                                     isDragging = true
                                     hasTriggeredPreciseSeek = true
                                     change.consume()
@@ -171,8 +177,12 @@ fun PlayerScrubBar(
                             if (isDragging) {
                                 change.consume()
 
-                                // 无论上滑前是否不小心横向滑动了进度条，只要判定为上滑激活微调，一律恢复至原始播放进度
-                                if (!hasTriggeredPreciseSeek && deltaY <= -pullUpThresholdPx) {
+                                // 无论上滑前是否不小心横向滑动了进度条，只要判定为上滑激活微调，一律恢复至原始播放进度。
+                                // 但面板已经打开时不成立：那时用户是在面板内拖动，上移不应把刚拖到的位置打回起点。
+                                if (!hasTriggeredPreciseSeek &&
+                                    !startedInsidePreciseSeeking &&
+                                    deltaY <= -pullUpThresholdPx
+                                ) {
                                     hasTriggeredPreciseSeek = true
                                     currentHaptics.tick()
                                     scrubState.update(currentPlaybackFraction)
