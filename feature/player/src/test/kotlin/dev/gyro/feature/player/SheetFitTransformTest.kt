@@ -1,6 +1,8 @@
 package dev.gyro.feature.player
 
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,5 +61,18 @@ class SheetFitTransformTest {
     fun degenerateSheetHeight_doesNotCollapseThePicture() {
         val fit = sheetFitTransform(videoHeightPx = 2262f, screenHeightPx = screen, sheetHeightPx = screen, active = true)
         assertTrue(fit.scale >= 0.2f)
+    }
+
+    @Test
+    fun isSheetFitActive_excludesPlaylistAndChaptersAndNonPortraitPipStates() {
+        assertFalse(isSheetFitActive(null, isLandscape = false, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetTab.PLAYLIST, isLandscape = false, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetTab.CHAPTERS, isLandscape = false, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetTab.SETTINGS_HUB, isLandscape = true, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetTab.SETTINGS_HUB, isLandscape = false, isPipLayout = true))
+
+        assertTrue(isSheetFitActive(PlayerSheetTab.SETTINGS_HUB, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetTab.ASPECT, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetTab.STATS, isLandscape = false, isPipLayout = false))
     }
 }

@@ -81,8 +81,10 @@ open class PlaybackTimelineController internal constructor(
             }
         }
 
-    private var pendingSeekTargetMs: Long? = null
-    private var pendingSeekIssuedElapsedMs = 0L
+    private data class PendingSeek(val targetMs: Long, val issuedElapsedMs: Long)
+
+    @Volatile
+    private var pendingSeek: PendingSeek? = null
 
     @Volatile
     private var pendingSeekMs = -1L
@@ -138,7 +140,15 @@ open class PlaybackTimelineController internal constructor(
         }
     }
 
-    override fun reset() {}
+    override fun reset() {
+        fileLoaded = false
+        loadedAtGeometryState = null
+        pendingSeek = null
+        pendingSeekMs = -1L
+        _timePosMs.value = 0L
+        _durationMs.value = 0L
+        _bufferedPosMs.value = 0L
+    }
 
     fun observeEvents(scope: CoroutineScope): Job = scope.launch(
         Dispatchers.Unconfined,
@@ -150,7 +160,7 @@ open class PlaybackTimelineController internal constructor(
     fun onLoadStarted(startPositionMs: Long, initialDurationMs: Long = 0L) {
         fileLoaded = false
         loadedAtGeometryState = null
-        pendingSeekTargetMs = null
+        pendingSeek = null
         val startMs = startPositionMs.coerceAtLeast(0L)
         _timePosMs.value = startMs
         _durationMs.value = initialDurationMs.coerceAtLeast(0L)
@@ -174,13 +184,13 @@ open class PlaybackTimelineController internal constructor(
 
     fun onPositionChanged(positionSeconds: Double) {
         val positionMs = (positionSeconds * 1000.0).toLong().coerceAtLeast(0L)
-        val target = pendingSeekTargetMs
-        if (target != null) {
-            val reached = abs(positionMs - target) <= SEEK_SETTLE_TOLERANCE_MS
-            val stale = elapsedRealtimeMs() - pendingSeekIssuedElapsedMs >= SEEK_SETTLE_TIMEOUT_MS
+        val activeSeek = pendingSeek
+        if (activeSeek != null) {
+            val reached = abs(positionMs - activeSeek.targetMs) <= SEEK_SETTLE_TOLERANCE_MS
+            val stale = elapsedRealtimeMs() - activeSeek.issuedElapsedMs >= SEEK_SETTLE_TIMEOUT_MS
             // Pre-seek reports must not pull the displayed position back before mpv lands.
             if (!reached && !stale) return
-            pendingSeekTargetMs = null
+            pendingSeek = null
         }
         _timePosMs.value = positionMs
     }
@@ -240,8 +250,7 @@ open class PlaybackTimelineController internal constructor(
 
     private fun beginPendingSeek(targetMs: Long) {
         val target = targetMs.coerceAtLeast(0L)
-        pendingSeekTargetMs = target
-        pendingSeekIssuedElapsedMs = elapsedRealtimeMs()
+        pendingSeek = PendingSeek(targetMs = target, issuedElapsedMs = elapsedRealtimeMs())
         _timePosMs.value = target
     }
 }

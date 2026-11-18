@@ -1,7 +1,12 @@
 package dev.gyro.feature.player.gesture
 
+import android.content.Context
+import android.content.ContextWrapper
+import android.media.AudioManager
 import dev.gyro.feature.player.PlayerScrubState
 import androidx.compose.ui.geometry.Offset
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -201,5 +206,59 @@ class PlayerGestureTest {
 
         callbacks.onVerticalSwitchDragEnd(-200f)
         assertEquals(-200f, endRecordedDeltaY, 0.001f)
+    }
+
+    @Test
+    fun testDefaultPlayerGestureCallbacksOverdriveVolumeContinuesFromDragStartWithoutSlammingToZero() {
+        var systemVol = 15
+        val audioManager = mockk<AudioManager>(relaxed = true)
+        every { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) } returns 15
+        every { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) } answers { systemVol }
+        every { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, any(), any()) } answers {
+            systemVol = secondArg()
+        }
+        val fakeContext = object : ContextWrapper(null) {
+            override fun getSystemService(name: String): Any? =
+                if (name == Context.AUDIO_SERVICE) audioManager else null
+        }
+
+        var softwareVolume = 100.0
+        var latestHud: GestureHudState = GestureHudState.Idle
+        val callbacks = DefaultPlayerGestureCallbacks(
+            context = fakeContext,
+            currentPosMs = { 0L },
+            durationMs = { 0L },
+            scrubState = null,
+            zoomScale = { 1.0f },
+            onZoomChange = { _, _, _, _ -> },
+            onResetZoom = {},
+            onSettleZoom = {},
+            onSingleTap = {},
+            onDoubleTapSeek = {},
+            onDoubleTapPlayPause = {},
+            onFastForwardStart = {},
+            onFastForwardEnd = {},
+            onHudStateChange = { latestHud = it },
+            onSoftwareVolumeChange = { softwareVolume = it },
+            getSoftwareVolume = { softwareVolume },
+        )
+
+        callbacks.onVolumeStart()
+        assertEquals(GestureHudState.Volume(percent = 100, volumeRatio = 1.0f, isOverdrive = false), latestHud)
+
+        callbacks.onVolumeUpdate(0.5f)
+        assertEquals(150.0, softwareVolume, 0.001)
+        assertEquals(15, systemVol)
+        assertEquals(GestureHudState.Volume(percent = 150, volumeRatio = 0.5f, isOverdrive = true), latestHud)
+
+        callbacks.onVolumeUpdate(0.4f)
+        assertEquals(140.0, softwareVolume, 0.001)
+        assertEquals(15, systemVol)
+        assertEquals(GestureHudState.Volume(percent = 140, volumeRatio = 0.4f, isOverdrive = true), latestHud)
+
+        callbacks.onVolumeUpdate(-0.2f)
+        assertEquals(100.0, softwareVolume, 0.001)
+        assertEquals(12, systemVol)
+        assertEquals(GestureHudState.Volume(percent = 80, volumeRatio = 0.8f, isOverdrive = false), latestHud)
     }
 }

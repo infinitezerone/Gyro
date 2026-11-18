@@ -1,5 +1,10 @@
 package dev.gyro.engine.trace
 
+import android.util.Log
+
+/**
+ * Lightweight monotonic phase tracer across switch/surface/shutter boundaries.
+ */
 object SwitchTrace {
     private const val TAG = "SWITCH_TRACE"
 
@@ -10,18 +15,18 @@ object SwitchTrace {
 
     fun start(label: String, details: String = "") {
         lastSwitchStartTime = monotonicMs()
-        EngineLog.i(TAG, "[T+0ms] ▶ $label $details")
+        runCatching { Log.i(TAG, "[T+0ms] ▶ $label $details") }
     }
 
     fun log(stage: String, details: String = "") {
         val now = monotonicMs()
         val diff = if (lastSwitchStartTime > 0L) now - lastSwitchStartTime else 0L
-        EngineLog.i(TAG, "[T+${diff}ms] ├─ $stage $details")
+        runCatching { Log.i(TAG, "[T+${diff}ms] ├─ $stage $details") }
     }
 
     fun end(stage: String, details: String = "") {
         val now = monotonicMs()
         val diff = if (lastSwitchStartTime > 0L) now - lastSwitchStartTime else 0L
-        EngineLog.i(TAG, "[T+${diff}ms] ⏹ $stage $details (Total: ${diff}ms)")
+        runCatching { Log.i(TAG, "[T+${diff}ms] ⏹ $stage $details (Total: ${diff}ms)") }
     }
 }

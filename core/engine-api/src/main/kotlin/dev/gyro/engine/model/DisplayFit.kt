@@ -1,4 +1,4 @@
-package dev.gyro.engine.ui
+package dev.gyro.engine.model
 
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -18,7 +18,7 @@ import kotlin.math.roundToInt
  * 3. **Zero re-lock on same-aspect playlist switches**: A 360p (16:9) video and a 4K (16:9) video
  *    map to the exact same screen-fitted buffer size, avoiding buffer churn across playlist items.
  */
-internal fun computeDisplayFittedBufferSize(
+fun computeDisplayFittedBufferSize(
     videoWidth: Int,
     videoHeight: Int,
     displayWidth: Int,
@@ -51,7 +51,7 @@ internal fun computeDisplayFittedBufferSize(
  * if it falls within a 3.5% tolerance window. Returns the nominal rate if matched,
  * or the contentFps itself if > 1f, or 0f if non-positive.
  */
-internal fun normalizeContentFps(contentFps: Float): Float {
+fun normalizeContentFps(contentFps: Float): Float {
     if (contentFps <= 1f) return 0f
     val nominalRates = floatArrayOf(
         23.976f, 24.0f, 25.0f, 29.97f, 30.0f,

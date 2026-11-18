@@ -7,6 +7,7 @@ import dev.gyro.core.model.GlslShader
 import dev.gyro.engine.trace.EngineLog
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Manages extraction of built-in shader assets and caching of SAF imported custom shaders.
@@ -36,36 +37,45 @@ class ShaderManager(
         File(baseDir, CUSTOM_DIR).apply { mkdirs() }
     }
 
+    private val builtInCache = ConcurrentHashMap<GlslShader, File>()
+    private val builtInExtractLock = Any()
+
+    /**
+     * Returns a previously verified built-in shader file from the in-memory cache if it still
+     * exists and is non-empty on disk, avoiding APK asset reads on hot paths.
+     */
+    fun getCachedBuiltInShaderFile(shader: GlslShader): File? {
+        val cached = builtInCache[shader] ?: return null
+        return if (cached.exists() && cached.length() > 0L) {
+            cached
+        } else {
+            builtInCache.remove(shader, cached)
+            null
+        }
+    }
+
     /**
      * Extracts built-in shader assets from APK to internal storage.
      */
-    fun extractBuiltInShaders(): Map<GlslShader, File> {
+    fun extractBuiltInShaders(): Map<GlslShader, File> = synchronized(builtInExtractLock) {
         val extracted = mutableMapOf<GlslShader, File>()
-        for ((shader, assetName) in BUILT_IN_ASSET_NAMES) {
-            val targetFile = File(builtInDir, assetName)
-            val ctx = context
-            if (ctx != null) {
-                try {
-                    val assetBytes = ctx.assets.open("shaders/$assetName").use { it.readBytes() }
-                    if (!targetFile.exists() || targetFile.length() != assetBytes.size.toLong()) {
-                        targetFile.writeBytes(assetBytes)
-                        EngineLog.i(TAG, "Extracted/Updated built-in shader $assetName (${assetBytes.size} bytes) to ${targetFile.absolutePath}")
-                    }
-                } catch (e: Exception) {
-                    EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName", e)
-                }
-            }
-            if (targetFile.exists() && targetFile.length() > 0L) {
-                extracted[shader] = targetFile
-            }
+        for ((shader, _) in BUILT_IN_ASSET_NAMES) {
+            extractOrVerifyBuiltInShaderLocked(shader)?.let { extracted[shader] = it }
         }
-        return extracted
+        extracted
     }
 
     /**
      * Retrieves the absolute File for a built-in shader, extracting on-demand if absent or outdated.
      */
     fun getBuiltInShaderFile(shader: GlslShader): File? {
+        getCachedBuiltInShaderFile(shader)?.let { return it }
+        return synchronized(builtInExtractLock) {
+            getCachedBuiltInShaderFile(shader) ?: extractOrVerifyBuiltInShaderLocked(shader)
+        }
+    }
+
+    private fun extractOrVerifyBuiltInShaderLocked(shader: GlslShader): File? {
         val assetName = BUILT_IN_ASSET_NAMES[shader] ?: return null
         val targetFile = File(builtInDir, assetName)
         val ctx = context
@@ -74,13 +84,15 @@ class ShaderManager(
                 val assetBytes = ctx.assets.open("shaders/$assetName").use { it.readBytes() }
                 if (!targetFile.exists() || targetFile.length() != assetBytes.size.toLong()) {
                     targetFile.writeBytes(assetBytes)
-                    EngineLog.i(TAG, "Updated built-in shader $assetName (${assetBytes.size} bytes) on demand")
+                    EngineLog.i(TAG, "Extracted/Updated built-in shader $assetName (${assetBytes.size} bytes) to ${targetFile.absolutePath}")
                 }
             } catch (e: Exception) {
-                EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName on demand", e)
+                EngineLog.e(TAG, "Failed to extract built-in shader asset $assetName", e)
             }
         }
-        return targetFile.takeIf { it.exists() && it.length() > 0L }
+        return targetFile.takeIf { it.exists() && it.length() > 0L }?.also { verified ->
+            builtInCache[shader] = verified
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.gyro.engine.model.PlaybackState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
@@ -117,7 +118,7 @@ class GyroNativeStressTest {
         Log.i(TAG, "Verified dimensions: ${dimensions?.width}x${dimensions?.height}")
 
         val hwdec = withTimeoutOrNull(5000L) {
-            engine.hwdecCurrent.first { it.isNotBlank() }
+            engine.state.map { it.hwdecCurrent }.first { it.isNotBlank() }
         }
         assertNotNull("Hardware decoder should be engaged", hwdec)
         assertTrue("Decoder should be mediacodec, actual: $hwdec", hwdec?.contains("mediacodec") == true)

@@ -4,6 +4,7 @@ import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.model.HwdecMode
 
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableLongStateOf
@@ -351,7 +352,7 @@ private fun ScrubTimePreview(
 fun StatsDiagnosticOverlay(
     fps: Double,
     droppedFrames: Long,
-    hwdec: String,
+    hwdecMode: HwdecMode,
     bitrate: Long = 0L,
     hdrLabel: String? = null,
     sourceWidth: Int = 0,
@@ -420,7 +421,7 @@ fun StatsDiagnosticOverlay(
             // and vsync-ratio is only published in display-sync mode - this pipeline does its own
             // present timing, so it read "--" forever.
             DiagnosticGroup("RENDER")
-            DiagnosticRow(label = "DEC", value = if (hwdec.contains("mediacodec")) "HW" else "SW")
+            DiagnosticRow(label = "DEC", value = if (hwdecMode.isHardware) "HW" else "SW")
         }
     }
 }

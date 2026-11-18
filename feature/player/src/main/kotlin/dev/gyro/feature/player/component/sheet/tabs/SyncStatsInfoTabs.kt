@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -495,7 +496,7 @@ internal fun StatsTabContent(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             SheetSectionHeader(stringResource(R.string.stats_decode_config), modifier = Modifier.padding(start = 4.dp))
 
-            val isHw = state.hwdec.contains("mediacodec")
+            val isHw = state.hwdecMode.isHardware
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = SheetCardColor,
@@ -665,7 +666,7 @@ internal fun MediaInfoTabContent(
                     value = resolvedInfo.formattedVideoBitrate
                 )
             }
-            val isHw = resolvedInfo.hwdecCurrent.contains("mediacodec")
+            val isHw = HwdecMode.fromRuntimeValue(resolvedInfo.hwdecCurrent)?.isHardware == true
             MediaInfoRow(
                 label = stringResource(R.string.stats_decoder),
                 value = if (isHw) stringResource(R.string.stats_hwdec_active) else stringResource(R.string.stats_hwdec_software)

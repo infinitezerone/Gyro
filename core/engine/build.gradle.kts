@@ -1,6 +1,5 @@
 plugins {
     id("gyro.android.library")
-    id("gyro.android.compose")
 }
 
 // The native engine is compiled from crates/gyro-engine at build time: no .so is committed.
@@ -89,10 +88,6 @@ android {
         }
     }
 
-    buildFeatures {
-        compose = true
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -133,9 +128,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-
-    implementation(libs.androidx.compose.ui)
 
     testImplementation(project(":core:testing"))
     // Tests construct real MpvConfigRepository/SettingsRepository instances to drive the

@@ -1,5 +1,6 @@
 package dev.gyro.engine.video
 
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
@@ -67,8 +68,9 @@ class VideoEffectsController(
         bridge.setPropertyBoolean("deband", enabled)
     }
 
-    override fun setToneMapping(algorithm: String) {
-        bridge.setPropertyString("tone-mapping", algorithm)
+    override fun setToneMapping(algorithm: ToneMappingAlgorithm) {
+        val effective = if (algorithm == ToneMappingAlgorithm.AUTO) "hable" else algorithm.persistedKey
+        bridge.setPropertyString("tone-mapping", effective)
     }
 
     override fun setBrightness(value: Int) {

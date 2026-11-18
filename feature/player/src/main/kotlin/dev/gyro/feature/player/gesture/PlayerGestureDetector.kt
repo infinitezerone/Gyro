@@ -5,7 +5,9 @@ import android.content.Context
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
@@ -94,55 +96,64 @@ fun Modifier.playerGestures(
         )
     }
 
-    val callbacks = remember(
-        context,
-        scrubState,
-        currentPosMs,
-        durationMs,
-        zoomScale,
-        onZoomChange,
-        onResetZoom,
-        onSettleZoom,
-        onSingleTap,
-        onDoubleTapSeek,
-        onDoubleTapPlayPause,
-        onFastForwardStart,
-        onFastForwardEnd,
-        onHudStateChange,
-        onSoftwareVolumeChange,
-        getSoftwareVolume,
-        onSeekTo,
-        onPlayPrevious,
-        onPlayNext,
-        videoBounds,
-        onVerticalSwitchDragStart,
-        onVerticalSwitchDragUpdate,
-        onVerticalSwitchDragEnd
-    ) {
+    val currentPosMsState by rememberUpdatedState(currentPosMs)
+    val durationMsState by rememberUpdatedState(durationMs)
+    val zoomScaleState by rememberUpdatedState(zoomScale)
+    val currentOnZoomChange by rememberUpdatedState(onZoomChange)
+    val currentOnResetZoom by rememberUpdatedState(onResetZoom)
+    val currentOnSettleZoom by rememberUpdatedState(onSettleZoom)
+    val currentOnSingleTap by rememberUpdatedState(onSingleTap)
+    val currentOnDoubleTapSeek by rememberUpdatedState(onDoubleTapSeek)
+    val currentOnDoubleTapPlayPause by rememberUpdatedState(onDoubleTapPlayPause)
+    val currentOnFastForwardStart by rememberUpdatedState(onFastForwardStart)
+    val currentOnFastForwardEnd by rememberUpdatedState(onFastForwardEnd)
+    val currentOnHudStateChange by rememberUpdatedState(onHudStateChange)
+    val currentOnSoftwareVolumeChange by rememberUpdatedState(onSoftwareVolumeChange)
+    val currentGetSoftwareVolume by rememberUpdatedState(getSoftwareVolume)
+    val currentOnSeekTo by rememberUpdatedState(onSeekTo)
+    val currentOnPlayPrevious by rememberUpdatedState(onPlayPrevious)
+    val currentOnPlayNext by rememberUpdatedState(onPlayNext)
+    val currentVideoBounds by rememberUpdatedState(videoBounds)
+    val currentOnVerticalSwitchDragStart by rememberUpdatedState(onVerticalSwitchDragStart)
+    val currentOnVerticalSwitchDragUpdate by rememberUpdatedState(onVerticalSwitchDragUpdate)
+    val currentOnVerticalSwitchDragEnd by rememberUpdatedState(onVerticalSwitchDragEnd)
+
+    // Key solely on (context, scrubState) so DefaultPlayerGestureCallbacks (and its dragStartOverallVolume /
+    // dragStartBrightness state) is never recreated mid-drag when snapshot.softwareVolume or HUD updates.
+    val callbacks = remember(context, scrubState) {
         DefaultPlayerGestureCallbacks(
             context = context,
-            currentPosMs = currentPosMs,
-            durationMs = durationMs,
+            currentPosMs = { currentPosMsState() },
+            durationMs = { durationMsState() },
             scrubState = scrubState,
-            zoomScale = zoomScale,
-            onZoomChange = onZoomChange,
-            onResetZoom = onResetZoom,
-            onSettleZoom = onSettleZoom,
-            onSingleTap = onSingleTap,
-            onDoubleTapSeek = onDoubleTapSeek,
-            onDoubleTapPlayPause = onDoubleTapPlayPause,
-            onFastForwardStart = onFastForwardStart,
-            onFastForwardEnd = onFastForwardEnd,
-            onHudStateChange = onHudStateChange,
-            onSoftwareVolumeChange = onSoftwareVolumeChange,
-            getSoftwareVolume = getSoftwareVolume,
-            onSeekTo = onSeekTo,
-            onPlayPrevious = onPlayPrevious,
-            onPlayNext = onPlayNext,
-            getVideoBounds = videoBounds,
-            onVerticalSwitchDragStart = onVerticalSwitchDragStart,
-            onVerticalSwitchDragUpdate = onVerticalSwitchDragUpdate,
-            onVerticalSwitchDragEnd = onVerticalSwitchDragEnd
+            zoomScale = { zoomScaleState() },
+            onZoomChange = { zoom, pan, centroid, isPinch ->
+                currentOnZoomChange(zoom, pan, centroid, isPinch)
+            },
+            onResetZoom = { currentOnResetZoom() },
+            onSettleZoom = { currentOnSettleZoom() },
+            onSingleTap = { currentOnSingleTap() },
+            onDoubleTapSeek = { deltaMs -> currentOnDoubleTapSeek(deltaMs) },
+            onDoubleTapPlayPause = { currentOnDoubleTapPlayPause() },
+            onFastForwardStart = { speed -> currentOnFastForwardStart(speed) },
+            onFastForwardEnd = { currentOnFastForwardEnd() },
+            onHudStateChange = { state -> currentOnHudStateChange(state) },
+            onSoftwareVolumeChange = { gain -> currentOnSoftwareVolumeChange?.invoke(gain) },
+            getSoftwareVolume = { currentGetSoftwareVolume?.invoke() ?: 100.0 },
+            onSeekTo = { targetMs ->
+                val seek = currentOnSeekTo
+                if (seek != null) {
+                    seek(targetMs)
+                } else {
+                    currentOnDoubleTapSeek(targetMs - currentPosMsState())
+                }
+            },
+            onPlayPrevious = { currentOnPlayPrevious?.invoke() },
+            onPlayNext = { currentOnPlayNext?.invoke() },
+            getVideoBounds = { currentVideoBounds?.invoke() },
+            onVerticalSwitchDragStart = { currentOnVerticalSwitchDragStart?.invoke() },
+            onVerticalSwitchDragUpdate = { deltaY -> currentOnVerticalSwitchDragUpdate?.invoke(deltaY) },
+            onVerticalSwitchDragEnd = { deltaY -> currentOnVerticalSwitchDragEnd?.invoke(deltaY) },
         )
     }
 

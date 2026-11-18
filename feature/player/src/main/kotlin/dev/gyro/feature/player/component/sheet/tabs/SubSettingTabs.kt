@@ -46,7 +46,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.ToneMappingAlgorithm
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.EmptyTrackNotice
@@ -115,9 +120,9 @@ internal fun HwdecSubTabContent(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks
 ) {
-    val isCopyMode = state.hwdec.contains("copy")
-    val isHwDirect = state.hwdec.contains("mediacodec") && !isCopyMode
-    val isSw = !state.hwdec.contains("mediacodec")
+    val isCopyMode = state.hwdecMode == HwdecMode.HARDWARE_COPY
+    val isHwDirect = state.hwdecMode == HwdecMode.HARDWARE_DIRECT
+    val isSw = state.hwdecMode == HwdecMode.SOFTWARE
 
     Column(
         modifier = Modifier
@@ -129,7 +134,7 @@ internal fun HwdecSubTabContent(
             title = stringResource(R.string.hwdec_copy_recommended),
             subtitle = stringResource(R.string.hwdec_copy_desc),
             isSelected = isCopyMode,
-            onClick = { callbacks.onSetHwdec("mediacodec-copy") }
+            onClick = { callbacks.onSetHwdec(HwdecMode.HARDWARE_COPY) }
         )
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
@@ -137,7 +142,7 @@ internal fun HwdecSubTabContent(
             title = stringResource(R.string.hwdec_direct),
             subtitle = stringResource(R.string.hwdec_direct_desc),
             isSelected = isHwDirect,
-            onClick = { callbacks.onSetHwdec("mediacodec") }
+            onClick = { callbacks.onSetHwdec(HwdecMode.HARDWARE_DIRECT) }
         )
         HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
 
@@ -145,7 +150,7 @@ internal fun HwdecSubTabContent(
             title = stringResource(R.string.hwdec_sw),
             subtitle = stringResource(R.string.hwdec_sw_desc),
             isSelected = isSw,
-            onClick = { callbacks.onSetHwdec("no") }
+            onClick = { callbacks.onSetHwdec(HwdecMode.SOFTWARE) }
         )
     }
 }
@@ -158,7 +163,7 @@ internal fun ShadersSubTabContent(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks
 ) {
-    val isHwDirect = state.hwdec.contains("mediacodec") && !state.hwdec.contains("copy")
+    val isHwDirect = state.hwdecMode == HwdecMode.HARDWARE_DIRECT
 
     Column(
         modifier = Modifier
@@ -179,7 +184,7 @@ internal fun ShadersSubTabContent(
             subtitle = stringResource(R.string.shader_anime4k_upscale_desc),
             isSelected = state.shaderState.activeShader == GlslShader.ANIME4K,
             onClick = {
-                if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
+                if (isHwDirect) callbacks.onSetHwdec(HwdecMode.HARDWARE_COPY)
                 callbacks.onSelectShader(GlslShader.ANIME4K)
             }
         )
@@ -190,7 +195,7 @@ internal fun ShadersSubTabContent(
             subtitle = stringResource(R.string.shader_cas_sharpen_desc),
             isSelected = state.shaderState.activeShader == GlslShader.CAS,
             onClick = {
-                if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
+                if (isHwDirect) callbacks.onSetHwdec(HwdecMode.HARDWARE_COPY)
                 callbacks.onSelectShader(GlslShader.CAS)
             }
         )
@@ -412,7 +417,7 @@ internal fun AudioTracksSubTabContent(
                     title = track.title ?: stringResource(R.string.track_audio_index_fmt, track.id),
                     subtitle = track.lang?.uppercase() ?: "Standard Audio",
                     isSelected = track.isSelected,
-                    onClick = { callbacks.onSelectTrack("audio", track.id) }
+                    onClick = { callbacks.onSelectTrack(TrackType.AUDIO, track.id) }
                 )
             }
         }
@@ -576,7 +581,7 @@ internal fun SubtitleTracksSubTabContent(
         SettingRadioRow(
             title = stringResource(R.string.track_none_subtitle),
             isSelected = state.subtitleTracks.none { it.isSelected },
-            onClick = { callbacks.onSelectTrack("sub", 0) }
+            onClick = { callbacks.onSelectTrack(TrackType.SUBTITLE, 0) }
         )
 
         state.subtitleTracks.forEach { track ->
@@ -585,7 +590,7 @@ internal fun SubtitleTracksSubTabContent(
                 title = track.title ?: stringResource(R.string.track_builtin_subtitle_fmt, track.id),
                 subtitle = track.lang?.uppercase() ?: "ASS/SRT",
                 isSelected = track.isSelected,
-                onClick = { callbacks.onSelectTrack("sub", track.id) }
+                onClick = { callbacks.onSelectTrack(TrackType.SUBTITLE, track.id) }
             )
         }
 
@@ -834,26 +839,26 @@ internal fun HdrToneMappingSubTabContent(
         SettingRadioRow(
             title = autoLabel,
             subtitle = stringResource(R.string.hdr_auto_desc),
-            isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_AUTO,
-            onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_AUTO) }
+            isSelected = state.hdrOutputMode == HdrOutputMode.AUTO,
+            onClick = { callbacks.onSetHdrOutputMode(HdrOutputMode.AUTO) }
         )
         SettingRadioRow(
             title = stringResource(R.string.hdr_force_pq),
             subtitle = stringResource(R.string.hdr_force_pq_desc),
-            isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_PQ,
-            onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_PQ) }
+            isSelected = state.hdrOutputMode == HdrOutputMode.PQ,
+            onClick = { callbacks.onSetHdrOutputMode(HdrOutputMode.PQ) }
         )
         SettingRadioRow(
             title = stringResource(R.string.hdr_force_hlg),
             subtitle = stringResource(R.string.hdr_force_hlg_desc),
-            isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_HLG,
-            onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_HLG) }
+            isSelected = state.hdrOutputMode == HdrOutputMode.HLG,
+            onClick = { callbacks.onSetHdrOutputMode(HdrOutputMode.HLG) }
         )
         SettingRadioRow(
             title = stringResource(R.string.hdr_tone_map_sdr),
             subtitle = stringResource(R.string.hdr_tone_map_sdr_desc),
-            isSelected = state.hdrOutputMode == dev.gyro.core.model.HDR_OUTPUT_SDR,
-            onClick = { callbacks.onSetHdrOutputMode(dev.gyro.core.model.HDR_OUTPUT_SDR) }
+            isSelected = state.hdrOutputMode == HdrOutputMode.SDR,
+            onClick = { callbacks.onSetHdrOutputMode(HdrOutputMode.SDR) }
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -863,32 +868,32 @@ internal fun HdrToneMappingSubTabContent(
         SettingRadioRow(
             title = stringResource(R.string.tone_map_auto),
             subtitle = stringResource(R.string.tone_map_auto_desc),
-            isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_AUTO,
-            onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_AUTO) }
+            isSelected = state.toneMappingAlgorithm == ToneMappingAlgorithm.AUTO,
+            onClick = { callbacks.onSetToneMappingAlgorithm(ToneMappingAlgorithm.AUTO) }
         )
         SettingRadioRow(
             title = stringResource(R.string.tone_map_hable),
             subtitle = stringResource(R.string.tone_map_hable_desc),
-            isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_HABLE,
-            onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_HABLE) }
+            isSelected = state.toneMappingAlgorithm == ToneMappingAlgorithm.HABLE,
+            onClick = { callbacks.onSetToneMappingAlgorithm(ToneMappingAlgorithm.HABLE) }
         )
         SettingRadioRow(
             title = stringResource(R.string.tone_map_bt2446a),
             subtitle = stringResource(R.string.tone_map_bt2446a_desc),
-            isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_BT2446A,
-            onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_BT2446A) }
+            isSelected = state.toneMappingAlgorithm == ToneMappingAlgorithm.BT_2446A,
+            onClick = { callbacks.onSetToneMappingAlgorithm(ToneMappingAlgorithm.BT_2446A) }
         )
         SettingRadioRow(
             title = stringResource(R.string.tone_map_spline),
             subtitle = stringResource(R.string.tone_map_spline_desc),
-            isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_SPLINE,
-            onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_SPLINE) }
+            isSelected = state.toneMappingAlgorithm == ToneMappingAlgorithm.SPLINE,
+            onClick = { callbacks.onSetToneMappingAlgorithm(ToneMappingAlgorithm.SPLINE) }
         )
         SettingRadioRow(
             title = stringResource(R.string.tone_map_reinhard),
             subtitle = stringResource(R.string.tone_map_reinhard_desc),
-            isSelected = state.toneMappingAlgorithm == dev.gyro.core.model.TONE_MAPPING_REINHARD,
-            onClick = { callbacks.onSetToneMappingAlgorithm(dev.gyro.core.model.TONE_MAPPING_REINHARD) }
+            isSelected = state.toneMappingAlgorithm == ToneMappingAlgorithm.REINHARD,
+            onClick = { callbacks.onSetToneMappingAlgorithm(ToneMappingAlgorithm.REINHARD) }
         )
     }
 }
@@ -910,20 +915,20 @@ internal fun VideoScaleSubTabContent(
         SettingRadioRow(
             title = stringResource(R.string.video_scale_spline36),
             subtitle = stringResource(R.string.video_scale_spline36_desc),
-            isSelected = state.videoScale == dev.gyro.core.model.SCALE_SPLINE36 || state.videoScale == dev.gyro.core.model.SCALE_AUTO,
-            onClick = { callbacks.onSetVideoScale(dev.gyro.core.model.SCALE_SPLINE36) }
+            isSelected = state.videoScale == VideoScale.SPLINE36,
+            onClick = { callbacks.onSetVideoScale(VideoScale.SPLINE36) }
         )
         SettingRadioRow(
             title = stringResource(R.string.video_scale_bilinear),
             subtitle = stringResource(R.string.video_scale_bilinear_desc),
-            isSelected = state.videoScale == dev.gyro.core.model.SCALE_BILINEAR || state.videoScale == dev.gyro.core.model.SCALE_OFF,
-            onClick = { callbacks.onSetVideoScale(dev.gyro.core.model.SCALE_BILINEAR) }
+            isSelected = state.videoScale == VideoScale.BILINEAR,
+            onClick = { callbacks.onSetVideoScale(VideoScale.BILINEAR) }
         )
         SettingRadioRow(
             title = stringResource(R.string.video_scale_lanczos),
             subtitle = stringResource(R.string.video_scale_lanczos_desc),
-            isSelected = state.videoScale == dev.gyro.core.model.SCALE_LANCZOS,
-            onClick = { callbacks.onSetVideoScale(dev.gyro.core.model.SCALE_LANCZOS) }
+            isSelected = state.videoScale == VideoScale.LANCZOS,
+            onClick = { callbacks.onSetVideoScale(VideoScale.LANCZOS) }
         )
     }
 }

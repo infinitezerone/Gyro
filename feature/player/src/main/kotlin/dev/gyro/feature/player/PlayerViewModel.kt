@@ -17,13 +17,27 @@ import dev.gyro.core.domain.model.contentUri
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
 import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
+import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaPalette
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.PowerMetrics
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.api.media.Playlist
+import dev.gyro.engine.model.EnginePlaybackException
+import dev.gyro.engine.model.PlaybackSnapshot
+import dev.gyro.engine.model.PlaybackSourceOpenException
+import dev.gyro.engine.model.PlaybackState
+import dev.gyro.engine.model.ResizeMode
+import dev.gyro.engine.model.SessionPhase
+import dev.gyro.engine.model.TrackType
+import dev.gyro.feature.player.event.PlaybackFailureReason
 import dev.gyro.feature.player.event.PlaybackTriggerSource
 import dev.gyro.feature.player.event.PlayerEvent
 import kotlinx.coroutines.Job
@@ -38,6 +52,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileNotFoundException
 import javax.inject.Inject
 import kotlin.math.abs
 
@@ -77,8 +93,24 @@ class PlayerViewModel @Inject constructor(
     private val _events = MutableSharedFlow<PlayerEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<PlayerEvent> = _events.asSharedFlow()
 
+    private val _failureReason = MutableStateFlow<PlaybackFailureReason?>(null)
+    val failureReason: StateFlow<PlaybackFailureReason?> = _failureReason.asStateFlow()
+
     private val _screenEntryEpoch = MutableStateFlow(0)
     val screenEntryEpoch: StateFlow<Int> = _screenEntryEpoch.asStateFlow()
+
+    private var lastHandledError: Throwable? = null
+    private var hwdecFallbackAttemptedKey: String? = null
+    private var autoFallbackTargetKey: String? = null
+    private var lastRequestedHwdec: HwdecMode? = null
+
+    init {
+        viewModelScope.launch {
+            engine.state.collect { snapshot ->
+                onEngineSnapshot(snapshot)
+            }
+        }
+    }
 
     fun notifyScreenEntry() {
         _screenEntryEpoch.value += 1
@@ -99,6 +131,8 @@ class PlayerViewModel @Inject constructor(
 
     fun onUserExit() {
         initializedUri = null
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
         endPlaybackSessionUseCase(SessionEndReason.USER_EXIT)
     }
 
@@ -108,6 +142,9 @@ class PlayerViewModel @Inject constructor(
         initialWidth: Int = 0,
         initialHeight: Int = 0,
     ): Job? {
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
+        engine.geometry.resetZoomAndPan()
         return loadMediaUseCase(
             PlaybackSource.UriItem(
                 uri = uri,
@@ -128,16 +165,38 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setPlaylistAndPlay(items: List<VideoMediaItem>, item: VideoMediaItem) {
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
+        engine.geometry.resetZoomAndPan()
         loadMediaUseCase(PlaybackSource.FromPlaylist(playlist = items, targetItem = item))
     }
 
     fun setSingleAndPlay(uri: Uri, displayName: String? = null): Job? {
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
+        engine.geometry.resetZoomAndPan()
         return loadMediaUseCase(PlaybackSource.Single(uri = uri, displayTitle = displayName))
     }
 
-    fun playNext(): Boolean = navigatePlaylistUseCase(PlaylistStep.Next)
+    fun playNext(): Boolean {
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
+        val success = navigatePlaylistUseCase(PlaylistStep.Next)
+        if (success) {
+            engine.geometry.resetZoomAndPan()
+        }
+        return success
+    }
 
-    fun playPrevious(): Boolean = navigatePlaylistUseCase(PlaylistStep.Previous)
+    fun playPrevious(): Boolean {
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
+        val success = navigatePlaylistUseCase(PlaylistStep.Previous)
+        if (success) {
+            engine.geometry.resetZoomAndPan()
+        }
+        return success
+    }
 
     fun playAtIndex(
         index: Int,
@@ -151,8 +210,11 @@ class PlayerViewModel @Inject constructor(
                 source = source,
             )
         )
+        hwdecFallbackAttemptedKey = null
+        restoreAutoFallbackHwdecIfNeeded()
         val success = navigatePlaylistUseCase(PlaylistStep.AtIndex(index))
         if (success) {
+            engine.geometry.resetZoomAndPan()
             val item = playlistManager.items.value.getOrNull(index)
             val uri = item?.contentUri ?: activeUri.value ?: Uri.EMPTY
             _events.tryEmit(
@@ -185,8 +247,41 @@ class PlayerViewModel @Inject constructor(
         engine.seekRelative(deltaMs)
     }
 
-    fun selectSubtitleTrack(trackId: Int) {
-        engine.trackManager.selectTrack("sub", trackId)
+    fun seekToChapter(index: Int) {
+        engine.seekToChapter(index)
+    }
+
+    fun setSpeed(speed: Float) {
+        engine.setSpeed(speed)
+    }
+
+    fun toggleHwdec() {
+        autoFallbackTargetKey = null
+        engine.toggleHwdec()
+        lastRequestedHwdec = engine.state.value.hwdecMode
+    }
+
+    fun setHwdec(mode: HwdecMode) {
+        autoFallbackTargetKey = null
+        lastRequestedHwdec = mode
+        engine.setHwdec(mode)
+    }
+
+    fun cycleHwdec(): HwdecMode {
+        autoFallbackTargetKey = null
+        val next = engine.cycleHwdec()
+        lastRequestedHwdec = next
+        return next
+    }
+
+    fun selectTrack(type: TrackType, id: Int) {
+        engine.trackManager.selectTrack(type, id)
+    }
+
+    fun selectSubtitleTrack(trackId: Int) = selectTrack(TrackType.SUBTITLE, trackId)
+
+    fun selectSecondarySubtitle(id: Int) {
+        engine.trackManager.selectSecondarySubtitle(id)
     }
 
     fun frameStep() {
@@ -215,10 +310,102 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null) {
+        engine.shaders.setShader(shader, customPath, customName)
+    }
+
+    fun clearShader() {
+        engine.shaders.clearShader()
+    }
+
+    fun setCustomShaderFile(file: File) {
+        engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
+    }
+
     fun setCustomShader(uri: Uri) {
         viewModelScope.launch {
             engine.shaders.importAndSetCustomShader(uri)
         }
+    }
+
+    fun setDeband(enabled: Boolean) {
+        engine.video.setDeband(enabled)
+    }
+
+    fun setBrightness(value: Int) {
+        engine.video.setBrightness(value)
+    }
+
+    fun setContrast(value: Int) {
+        engine.video.setContrast(value)
+    }
+
+    fun setSaturation(value: Int) {
+        engine.video.setSaturation(value)
+    }
+
+    fun resetColors() {
+        engine.video.resetColors()
+    }
+
+    fun setResizeMode(mode: ResizeMode) {
+        engine.geometry.setResizeMode(mode)
+    }
+
+    fun setHdrOutputMode(mode: HdrOutputMode) {
+        engine.setHdrOutputMode(mode)
+    }
+
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
+        engine.setToneMappingAlgorithm(algorithm)
+    }
+
+    fun setVideoScale(scale: VideoScale) {
+        engine.setVideoScale(scale)
+    }
+
+    fun setInterpolation(enabled: Boolean) {
+        engine.setInterpolation(enabled)
+    }
+
+    fun setSoftwareVolume(gain: Double) {
+        engine.audio.setSoftwareVolume(gain)
+    }
+
+    fun setNightMode(enabled: Boolean) {
+        engine.audio.setNightMode(enabled)
+    }
+
+    fun setEqualizerGains(gainsDb: List<Double>) {
+        engine.audio.setEqualizerGains(gainsDb)
+    }
+
+    fun setStereoDownmix(enabled: Boolean) {
+        engine.audio.setStereoDownmix(enabled)
+    }
+
+    fun setAudioPassthrough(enabled: Boolean) {
+        engine.setAudioPassthrough(enabled)
+    }
+
+    fun setSubtitleDelay(delaySec: Double) {
+        engine.tuning.setSubtitleDelay(delaySec)
+    }
+
+    fun setAudioDelay(delaySec: Double) {
+        engine.tuning.setAudioDelay(delaySec)
+    }
+
+    fun setSubtitleScale(scale: Double) {
+        engine.tuning.setSubtitleScale(scale)
+    }
+
+    fun setSubtitlePosition(percent: Long) {
+        engine.tuning.setSubtitlePosition(percent)
+    }
+
+    fun setSubAssOverride(force: Boolean) {
+        engine.tuning.setSubAssOverride(force)
     }
 
     fun resetZoomAndPan() {
@@ -325,4 +512,125 @@ class PlayerViewModel @Inject constructor(
 
     suspend fun samplePowerMetrics(): PowerMetrics =
         powerRepository.readPowerMetrics()
+
+    private fun restoreAutoFallbackHwdecIfNeeded() {
+        if (autoFallbackTargetKey != null) {
+            autoFallbackTargetKey = null
+            lastRequestedHwdec = null
+            engine.setHwdec(settings.value.defaultHwdecMode)
+        }
+    }
+
+    private fun onEngineSnapshot(snapshot: PlaybackSnapshot) {
+        val failedTarget = (snapshot.session as? SessionPhase.Failed)?.target?.takeIf { it.isNotBlank() }
+        val currentKey = snapshot.currentUri?.toString()?.takeIf { it.isNotBlank() } ?: failedTarget
+
+        if (currentKey != null && autoFallbackTargetKey != null && currentKey != autoFallbackTargetKey) {
+            restoreAutoFallbackHwdecIfNeeded()
+            hwdecFallbackAttemptedKey = null
+        }
+
+        if (snapshot.playbackState != PlaybackState.ERROR || snapshot.error == null) {
+            lastHandledError = null
+            _failureReason.value = null
+            if (snapshot.playbackState == PlaybackState.READY &&
+                snapshot.hwdecCurrent.isNotBlank() &&
+                autoFallbackTargetKey == null
+            ) {
+                lastRequestedHwdec = null
+            }
+            return
+        }
+
+        val error = snapshot.error ?: return
+        if (error === lastHandledError) return
+        lastHandledError = error
+
+        val runtimeHwdecMode = HwdecMode.fromRuntimeValue(snapshot.hwdecCurrent)
+        val effectiveHwdecMode = lastRequestedHwdec
+            ?: runtimeHwdecMode
+            ?: settings.value.defaultHwdecMode
+        val effectiveHwdecLabel = snapshot.hwdecCurrent.ifBlank { effectiveHwdecMode.persistedKey }
+        val targetUri = snapshot.currentUri ?: activeUri.value
+        val reason = classifyPlaybackFailure(error, targetUri, effectiveHwdecLabel)
+
+        val isSourceOpenFailure =
+            reason is PlaybackFailureReason.FileNotFound ||
+                reason is PlaybackFailureReason.PermissionDenied
+        val isHardwareActive = effectiveHwdecMode.isHardware
+
+        if (!isSourceOpenFailure &&
+            isHardwareActive &&
+            currentKey != null &&
+            hwdecFallbackAttemptedKey != currentKey
+        ) {
+            hwdecFallbackAttemptedKey = currentKey
+            autoFallbackTargetKey = currentKey
+            lastRequestedHwdec = HwdecMode.SOFTWARE
+            _failureReason.value = null
+            engine.setHwdec(HwdecMode.SOFTWARE)
+            _events.tryEmit(
+                PlayerEvent.HwdecAutoFallback(
+                    from = effectiveHwdecMode,
+                    to = HwdecMode.SOFTWARE,
+                )
+            )
+
+            val resumePosMs = engine.timePosMs.value.coerceAtLeast(0L)
+            val title = snapshot.mediaTitle.ifBlank { null }
+            if (targetUri != null) {
+                engine.load(
+                    uri = targetUri,
+                    startPositionMs = resumePosMs,
+                    displayTitle = title,
+                    initialDurationMs = snapshot.durationMs,
+                    initialWidth = snapshot.videoDimensions.width,
+                    initialHeight = snapshot.videoDimensions.height,
+                )
+            } else if (failedTarget != null) {
+                engine.load(
+                    MediaItem(
+                        target = failedTarget,
+                        title = title,
+                        startPositionMs = resumePosMs,
+                        initialDurationMs = snapshot.durationMs,
+                        initialWidth = snapshot.videoDimensions.width,
+                        initialHeight = snapshot.videoDimensions.height,
+                    )
+                )
+            }
+        } else {
+            _failureReason.value = reason
+            _events.tryEmit(PlayerEvent.ErrorOccurred(reason))
+        }
+    }
+
+    private fun classifyPlaybackFailure(
+        error: Throwable,
+        uri: Uri?,
+        hwdec: String,
+    ): PlaybackFailureReason {
+        val chain = generateSequence(error) { it.cause }.toList()
+        if (chain.any { it is SecurityException }) {
+            return PlaybackFailureReason.PermissionDenied(uri ?: Uri.EMPTY)
+        }
+        if (chain.any { it is FileNotFoundException || it is PlaybackSourceOpenException }) {
+            return PlaybackFailureReason.FileNotFound(uri ?: Uri.EMPTY)
+        }
+        val isCodecMessage = error.message?.let { msg ->
+            msg.contains("codec", ignoreCase = true) || msg.contains("decoder", ignoreCase = true)
+        } == true
+        if (chain.any { it is EnginePlaybackException }) {
+            return if (isCodecMessage) {
+                PlaybackFailureReason.CodecCrash(hwdec.ifBlank { "unknown" })
+            } else {
+                PlaybackFailureReason.DemuxError(error.message ?: "Playback failed")
+            }
+        }
+        return if (isCodecMessage) {
+            PlaybackFailureReason.CodecCrash(hwdec.ifBlank { "unknown" })
+        } else {
+            PlaybackFailureReason.Unknown
+        }
+    }
 }

@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -155,10 +156,10 @@ internal fun MediaInfoStatsTabContent(
 
                 // 解码器状态
                 Column(horizontalAlignment = Alignment.End) {
-                    val hwdecText = when {
-                        state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
-                        state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
-                        else -> stringResource(R.string.hwdec_sw)
+                    val hwdecText = when (state.hwdecMode) {
+                        HwdecMode.HARDWARE_COPY -> stringResource(R.string.hwdec_copy)
+                        HwdecMode.HARDWARE_DIRECT -> stringResource(R.string.hwdec_direct)
+                        HwdecMode.SOFTWARE -> stringResource(R.string.hwdec_sw)
                     }
                     Text(
                         text = hwdecText,

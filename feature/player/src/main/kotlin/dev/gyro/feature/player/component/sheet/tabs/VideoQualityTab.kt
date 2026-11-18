@@ -24,12 +24,9 @@ import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.component.GyroPillButton
 import dev.gyro.core.model.GlslShader
-import dev.gyro.core.model.HDR_OUTPUT_HLG
-import dev.gyro.core.model.HDR_OUTPUT_PQ
-import dev.gyro.core.model.HDR_OUTPUT_SDR
-import dev.gyro.core.model.SCALE_BILINEAR
-import dev.gyro.core.model.SCALE_LANCZOS
-import dev.gyro.core.model.SCALE_OFF
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.VideoScale
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -64,10 +61,10 @@ internal fun VideoQualityTabContent(
             modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp)
         )
 
-        val hwLabel = when {
-            state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
-            state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
-            else -> stringResource(R.string.hwdec_sw)
+        val hwLabel = when (state.hwdecMode) {
+            HwdecMode.HARDWARE_COPY -> stringResource(R.string.hwdec_copy)
+            HwdecMode.HARDWARE_DIRECT -> stringResource(R.string.hwdec_direct)
+            HwdecMode.SOFTWARE -> stringResource(R.string.hwdec_sw)
         }
         SettingsItemRow(
             title = stringResource(R.string.stats_decoder),
@@ -111,10 +108,10 @@ internal fun VideoQualityTabContent(
         )
 
         val hdrSummary = when (state.hdrOutputMode) {
-            HDR_OUTPUT_PQ -> stringResource(R.string.hdr_force_pq)
-            HDR_OUTPUT_HLG -> stringResource(R.string.hdr_force_hlg)
-            HDR_OUTPUT_SDR -> stringResource(R.string.hdr_summary_sdr)
-            else -> if (state.isHdr) {
+            HdrOutputMode.PQ -> stringResource(R.string.hdr_force_pq)
+            HdrOutputMode.HLG -> stringResource(R.string.hdr_force_hlg)
+            HdrOutputMode.SDR -> stringResource(R.string.hdr_summary_sdr)
+            HdrOutputMode.AUTO -> if (state.isHdr) {
                 stringResource(R.string.hdr_summary_auto_fmt, state.hdrFormat.ifBlank { "HDR" })
             } else {
                 stringResource(R.string.hdr_summary_auto_sdr)
@@ -128,9 +125,9 @@ internal fun VideoQualityTabContent(
         )
 
         val scaleSummary = when (state.videoScale) {
-            SCALE_BILINEAR, SCALE_OFF -> stringResource(R.string.scale_summary_bilinear)
-            SCALE_LANCZOS -> stringResource(R.string.scale_summary_lanczos)
-            else -> stringResource(R.string.scale_summary_spline36)
+            VideoScale.BILINEAR -> stringResource(R.string.scale_summary_bilinear)
+            VideoScale.LANCZOS -> stringResource(R.string.scale_summary_lanczos)
+            VideoScale.SPLINE36 -> stringResource(R.string.scale_summary_spline36)
         }
         SettingsItemRow(
             title = stringResource(R.string.settings_video_scale),

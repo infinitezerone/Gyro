@@ -172,13 +172,18 @@ class ModuleBoundaryPlugin : Plugin<Project> {
                 "dev.gyro.player", "kotlinx.coroutines.Dispatchers",
             )
         ),
-        // :feature:player still owns the Compose surface wrapper (dev.gyro.engine.ui), so the
-        // engine is not forbidden here yet. Persistence internals and direct Dispatchers are.
+        // :feature:player owns the Compose surface host (dev.gyro.feature.player.surface) and consumes
+        // only public engine contracts (api, model, switch tracing) — never :core:engine implementations.
         ":feature:player" to Boundary(
             forbidden = listOf(
                 "dev.gyro.core.database", "dev.gyro.core.datastore", "dev.gyro.player",
                 "kotlinx.coroutines.Dispatchers",
-            )
+            ),
+            engineAllowlist = listOf(
+                "dev.gyro.engine.api.",
+                "dev.gyro.engine.model.",
+                "dev.gyro.engine.trace.",
+            ),
         ),
         ":app" to Boundary(
             forbidden = listOf(

@@ -13,9 +13,9 @@ android {
 }
 
 dependencies {
-    // The player is the only feature that talks to the native engine directly.
+    // The player depends strictly on :core:engine-api contracts and :core:domain use cases;
+    // concrete :core:engine is bound only by :app.
     implementation(project(":core:engine-api"))
-    implementation(project(":core:engine"))
     // Session business logic is app-scoped and lives outside the feature layer.
     implementation(project(":core:domain"))
 

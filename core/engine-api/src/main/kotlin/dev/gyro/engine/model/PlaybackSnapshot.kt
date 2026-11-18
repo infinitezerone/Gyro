@@ -3,6 +3,10 @@ package dev.gyro.engine.model
 import android.net.Uri
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShaderState
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.ToneMappingAlgorithm
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.api.session.PlaybackSessionState
 
 /**
@@ -18,9 +22,9 @@ data class PlaybackSnapshot(
 
     // Decode / configuration. Per-second telemetry lives in PlaybackDiagnostics, not here.
     val hwdecCurrent: String = "",
-    val hdrOutputMode: String = dev.gyro.core.model.HDR_OUTPUT_AUTO,
-    val toneMappingAlgorithm: String = dev.gyro.core.model.TONE_MAPPING_AUTO,
-    val videoScale: String = dev.gyro.core.model.SCALE_AUTO,
+    val hdrOutputMode: HdrOutputMode = HdrOutputMode.AUTO,
+    val toneMappingAlgorithm: ToneMappingAlgorithm = ToneMappingAlgorithm.AUTO,
+    val videoScale: VideoScale = VideoScale.SPLINE36,
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
     val speed: Float = 1.0f,
@@ -70,4 +74,8 @@ data class PlaybackSnapshot(
     // Our own orchestration state, not a mirror of mpv
     val session: SessionPhase = SessionPhase.Idle,
     val error: Throwable? = null
-)
+) {
+    /** Strongly typed decoder mode derived from [hwdecCurrent], defaulting to [HwdecMode.SOFTWARE]. */
+    val hwdecMode: HwdecMode
+        get() = HwdecMode.fromRuntimeValue(hwdecCurrent) ?: HwdecMode.SOFTWARE
+}

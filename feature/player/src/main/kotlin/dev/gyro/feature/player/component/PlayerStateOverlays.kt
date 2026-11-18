@@ -18,17 +18,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,7 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.feature.player.event.PlaybackFailureReason
 
 /**
  * Full-screen state cards that sit above the video surface: load failure, empty library, and the
@@ -49,12 +53,22 @@ import dev.gyro.engine.api.PlayerEngine
 fun PlayerPlaybackErrorCard(
     error: Throwable,
     onRetry: () -> Unit,
+    failureReason: PlaybackFailureReason? = null,
+    onSkipNext: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    // The cause is not rendered yet; keeping it as a parameter makes the failure identity part of
-    // the composable's inputs, so switching to a different error does not reuse stale content.
+    // The cause is not rendered directly; keeping it as a parameter makes the failure identity
+    // part of the composable's inputs, so switching to a different error does not reuse stale content.
     @Suppress("UNUSED_EXPRESSION")
     error
+    val descriptionRes = when (failureReason) {
+        is PlaybackFailureReason.FileNotFound -> R.string.player_error_file_not_found
+        is PlaybackFailureReason.PermissionDenied -> R.string.player_error_permission_denied
+        is PlaybackFailureReason.CodecCrash -> R.string.player_error_codec_crash
+        is PlaybackFailureReason.DemuxError,
+        PlaybackFailureReason.Unknown,
+        null -> R.string.player_error_desc
+    }
     Surface(
         color = Color.Black.copy(alpha = 0.82f),
         shape = RoundedCornerShape(16.dp),
@@ -79,17 +93,33 @@ fun PlayerPlaybackErrorCard(
                 color = Color.White
             )
             Text(
-                text = stringResource(R.string.player_error_desc),
+                text = stringResource(descriptionRes),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.7f)
             )
-            Button(
-                onClick = onRetry,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.action_retry))
+                Button(
+                    onClick = onRetry,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.action_retry))
+                }
+                if (onSkipNext != null) {
+                    OutlinedButton(
+                        onClick = onSkipNext,
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    ) {
+                        Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.action_skip_next))
+                    }
+                }
             }
         }
     }
@@ -197,18 +227,18 @@ fun PlayerFormatBadge(
 @Composable
 fun PlayerStatsOverlay(
     engine: PlayerEngine,
-    hwdec: String,
+    hwdecMode: HwdecMode,
     bitrate: Long,
     hdrLabel: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val telemetry by engine.diagnostics.collectAsState()
-    val dimensions by engine.geometry.videoDimensions.collectAsState()
-    val sourceFrameRate by engine.geometry.videoFrameRate.collectAsState()
+    val telemetry by engine.diagnostics.collectAsStateWithLifecycle()
+    val dimensions by engine.geometry.videoDimensions.collectAsStateWithLifecycle()
+    val sourceFrameRate by engine.geometry.videoFrameRate.collectAsStateWithLifecycle()
     StatsDiagnosticOverlay(
         fps = telemetry.fps,
         droppedFrames = telemetry.droppedFrames,
-        hwdec = hwdec,
+        hwdecMode = hwdecMode,
         bitrate = bitrate,
         hdrLabel = hdrLabel,
         sourceWidth = dimensions.width,

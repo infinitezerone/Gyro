@@ -1,8 +1,9 @@
 package dev.gyro.engine.config
 
-import dev.gyro.core.model.HDR_OUTPUT_SDR
 import dev.gyro.core.model.HWDEC_HARDWARE
+import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.UserSettings
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.trace.EngineLog
 import java.util.concurrent.atomic.AtomicReference
@@ -189,16 +190,16 @@ class MpvOptionConfigurator {
         bridge.setOptionString("hdr-output", "no")
         // Not an mpv option: it reaches the native EGL layer, which needs the answer before the
         // first surface exists to pick a 10-bit config for the PQ window surface.
-        bridge.setOptionString("hdr-capable", if (settings.hdrOutputMode == HDR_OUTPUT_SDR) "no" else "yes")
+        bridge.setOptionString("hdr-capable", if (settings.hdrOutput == HdrOutputMode.SDR) "no" else "yes")
         bridge.setOptionString("idle", "yes")
         bridge.setOptionString("keep-open", "yes")
         bridge.setOptionString("ao", "audiotrack,opensles")
         bridge.setOptionString("volume-max", "200.0")
 
-        val scaleFilter = when (settings.videoScale) {
-            dev.gyro.core.model.SCALE_BILINEAR, dev.gyro.core.model.SCALE_OFF -> "bilinear"
-            dev.gyro.core.model.SCALE_LANCZOS -> "lanczos"
-            else -> "spline36" // 对齐系统相册级别的高清晰样条重采样
+        val scaleFilter = when (settings.videoScalePreset) {
+            VideoScale.BILINEAR -> "bilinear"
+            VideoScale.LANCZOS -> "lanczos"
+            VideoScale.SPLINE36 -> "spline36" // 对齐系统相册级别的高清晰样条重采样
         }
         if (!userOptions.containsKey("scale")) {
             bridge.setOptionString("scale", scaleFilter)

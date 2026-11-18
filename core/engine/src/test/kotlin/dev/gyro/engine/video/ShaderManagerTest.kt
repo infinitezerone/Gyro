@@ -9,8 +9,12 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.OpenableColumns
 import dev.gyro.core.model.GlslShader
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -93,5 +97,48 @@ class ShaderManagerTest {
         val deletedOutside = manager.deleteCustomShader(outsideFile)
         assertFalse(deletedOutside)
         assertTrue(outsideFile.exists())
+    }
+
+    @Test
+    fun testGetCachedBuiltInShaderFile_cachesVerifiedFilesAndAvoidsRepeatedAssetReads() {
+        var animeAssetOpens = 0
+        var casAssetOpens = 0
+        val mockAssets = mockk<AssetManager>()
+        every { mockAssets.open("shaders/anime4k_lite.glsl") } answers {
+            animeAssetOpens++
+            ByteArrayInputStream("// Anime4K".toByteArray(Charsets.UTF_8))
+        }
+        every { mockAssets.open("shaders/cas.glsl") } answers {
+            casAssetOpens++
+            ByteArrayInputStream("// CAS".toByteArray(Charsets.UTF_8))
+        }
+        val ctxWithAssets = object : ContextWrapper(null) {
+            override fun getApplicationContext(): Context = this
+            override fun getFilesDir(): File = baseDir
+            override fun getAssets(): AssetManager = mockAssets
+        }
+
+        val manager = ShaderManager(ctxWithAssets, baseDir)
+        assertNull(manager.getCachedBuiltInShaderFile(GlslShader.ANIME4K))
+        assertNull(manager.getCachedBuiltInShaderFile(GlslShader.OFF))
+        assertNull(manager.getCachedBuiltInShaderFile(GlslShader.CUSTOM))
+
+        val extracted = manager.extractBuiltInShaders()
+        assertEquals(1, animeAssetOpens)
+        assertEquals(1, casAssetOpens)
+        assertNotNull(extracted[GlslShader.ANIME4K])
+
+        val cachedAnime = manager.getCachedBuiltInShaderFile(GlslShader.ANIME4K)
+        assertNotNull(cachedAnime)
+        assertEquals(cachedAnime?.absolutePath, manager.getBuiltInShaderFile(GlslShader.ANIME4K)?.absolutePath)
+        assertEquals(cachedAnime?.absolutePath, manager.getBuiltInShaderFile(GlslShader.ANIME4K)?.absolutePath)
+        // Must serve from memory cache without re-opening APK assets
+        assertEquals(1, animeAssetOpens)
+
+        // Deleting file invalidates cache entry and causes on-demand re-extraction
+        assertTrue(cachedAnime!!.delete())
+        assertNull(manager.getCachedBuiltInShaderFile(GlslShader.ANIME4K))
+        assertNotNull(manager.getBuiltInShaderFile(GlslShader.ANIME4K))
+        assertEquals(2, animeAssetOpens)
     }
 }

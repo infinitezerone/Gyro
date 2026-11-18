@@ -1,26 +1,25 @@
-package dev.gyro.engine.ui
+package dev.gyro.feature.player.surface
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.VideoDimensions
-import dev.gyro.engine.trace.EngineLog
+import dev.gyro.engine.model.computeDisplayFittedBufferSize
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Jetpack Compose wrapper for [GyroSurfaceView].
- * Native MPV handles hardware zoom and pan directly in GPU shaders on the EGL render thread,
- * avoiding SurfaceView scaling and SurfaceFlinger BLAST transaction locks on the UI thread.
+ * Communicates strictly against the `:core:engine-api` [PlayerEngine] contract.
  */
 @Composable
 fun GyroPlayerSurface(
@@ -47,13 +46,12 @@ fun GyroPlayerSurface(
         surfaceView.pipTransitionActive = pipTransitionActive
     }
 
-    // Tell the engine up front whether the panel can present HDR. Without it mpv is told to
-    // output PQ on an SDR display, where it skips tone-mapping and the picture washes out.
+    // Tell the engine up front whether the panel can present HDR.
     LaunchedEffect(engine) {
         engine?.geometry?.setDisplayHdrCapable(context.displaySupportsHdr())
     }
 
-    val isHdr by (engine?.geometry?.isHdr ?: remember { MutableStateFlow(false) }).collectAsState()
+    val isHdr by (engine?.geometry?.isHdr ?: remember { MutableStateFlow(false) }).collectAsStateWithLifecycle()
     LaunchedEffect(isHdr) {
         val canHdr = isHdr && context.displaySupportsHdr()
         surfaceView.setHdrOutput(canHdr)
@@ -71,18 +69,14 @@ fun GyroPlayerSurface(
             .collect { onAppliedBufferSizeChanged?.invoke(it) }
     }
 
-    val observedFrameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsState()
+    val observedFrameRate by (engine?.geometry?.videoFrameRate ?: remember { MutableStateFlow(0f) }).collectAsStateWithLifecycle()
     val effectiveFrameRate = videoFrameRate ?: observedFrameRate
     LaunchedEffect(effectiveFrameRate) {
-        EngineLog.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$effectiveFrameRate), engine=$engine")
+        SurfaceLog.i("GyroPlayerSurface", "LaunchedEffect(frameRate=$effectiveFrameRate), engine=$engine")
         surfaceView.applyContentFrameRate(effectiveFrameRate)
     }
 
-    // Pin the buffer to the physical display resolution fitted to the video's aspect ratio.
-    // From then on window resizes (including PiP entry/exit) never touch the BufferQueue again;
-    // low-res videos still get full screen-resolution FBOs for Anime4K shaders and ASS subtitles,
-    // while same-aspect playlist switches reuse the exact same BufferQueue without re-locking.
-    val observedDimensions: VideoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsState(initial = VideoDimensions())
+    val observedDimensions: VideoDimensions by (engine?.geometry?.videoDimensions ?: remember { MutableStateFlow(VideoDimensions()) }).collectAsStateWithLifecycle()
     val effectiveDimensions = videoDimensions ?: observedDimensions
     LaunchedEffect(effectiveDimensions.width, effectiveDimensions.height) {
         if (effectiveDimensions.width <= 0 || effectiveDimensions.height <= 0) return@LaunchedEffect

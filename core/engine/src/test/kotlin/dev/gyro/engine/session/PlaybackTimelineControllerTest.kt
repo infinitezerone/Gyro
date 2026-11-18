@@ -425,6 +425,66 @@ class PlaybackTimelineControllerTest {
         assertEquals(12_500L, timeline.timePosMs.value)
     }
 
+    @Test
+    fun reset_clearsLoadedStatePendingSeeksAndTimelineFlows() {
+        // 1. Standalone timeline (geometry = null): reset() clears fileLoaded, pendingSeek, pendingSeekMs, and flows
+        val standalone = PlaybackTimelineController(
+            bridge = bridge,
+            geometry = null,
+            trackManager = trackManager,
+            elapsedRealtimeMs = { nowMs },
+        )
+        standalone.onFileLoaded()
+        assertTrue(standalone.isFileLoaded)
+        standalone.onDurationChanged(120.0)
+        standalone.onPositionChanged(35.0)
+        standalone.onBufferedPositionChanged(60.0)
+        standalone.seekTo(50_000L)
+
+        standalone.reset()
+
+        assertFalse(standalone.isFileLoaded)
+        assertEquals(0L, standalone.timePosMs.value)
+        assertEquals(0L, standalone.durationMs.value)
+        assertEquals(0L, standalone.bufferedPosMs.value)
+
+        // Pre-reset pendingSeek must not suppress incoming position updates
+        standalone.onPositionChanged(1.5)
+        assertEquals(1500L, standalone.timePosMs.value)
+
+        // Deferred seek queued while unloaded before reset must not fire when file loads later
+        bridge.commands.clear()
+        standalone.reset()
+        standalone.seekTo(10_000L)
+        standalone.reset()
+        standalone.onFileLoaded()
+        assertTrue(bridge.commands.isEmpty())
+
+        // 2. Coupled with geometry (matching GyroPlayerEngine.release() resetting all subsystems)
+        fileLoaded()
+        timeline.onDurationChanged(120.0)
+        timeline.onPositionChanged(35.0)
+        timeline.onBufferedPositionChanged(60.0)
+        timeline.seekTo(50_000L)
+
+        geometry.reset()
+        timeline.reset()
+
+        assertFalse(timeline.isFileLoaded)
+        assertEquals(0L, timeline.timePosMs.value)
+        assertEquals(0L, timeline.durationMs.value)
+        assertEquals(0L, timeline.bufferedPosMs.value)
+
+        timeline.onPositionChanged(1.5)
+        assertEquals(1500L, timeline.timePosMs.value)
+
+        bridge.commands.clear()
+        timeline.seekTo(10_000L)
+        timeline.reset()
+        fileLoaded()
+        assertTrue(bridge.commands.isEmpty())
+    }
+
     private fun fileLoaded() {
         geometry.onFileLoaded("test://video", hasVideo = true)
         timeline.onFileLoaded()

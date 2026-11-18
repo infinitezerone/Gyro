@@ -6,9 +6,9 @@ import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.feature.player.component.PlayerOverlayActions
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.surface.GyroSurfaceView
 
 /**
  * Hoisted factory for [PlayerOverlayActions], wiring every UI control interaction callback

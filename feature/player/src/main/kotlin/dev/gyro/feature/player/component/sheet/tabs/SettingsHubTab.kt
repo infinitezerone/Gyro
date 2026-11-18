@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
@@ -260,10 +261,10 @@ internal fun SettingsHubTabContent(
         CategoryHeader(stringResource(R.string.settings_title))
 
         // 1. 画面与画质 (Video & Rendering)
-        val hwLabel = when {
-            state.hwdec.contains("copy") -> stringResource(R.string.hwdec_copy)
-            state.hwdec.contains("mediacodec") -> stringResource(R.string.hwdec_direct)
-            else -> stringResource(R.string.hwdec_sw)
+        val hwLabel = when (state.hwdecMode) {
+            HwdecMode.HARDWARE_COPY -> stringResource(R.string.hwdec_copy)
+            HwdecMode.HARDWARE_DIRECT -> stringResource(R.string.hwdec_direct)
+            HwdecMode.SOFTWARE -> stringResource(R.string.hwdec_sw)
         }
         val shaderLabel = when (state.shaderState.activeShader) {
             GlslShader.ANIME4K -> stringResource(R.string.shader_anime4k_short)

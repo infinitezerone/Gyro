@@ -392,8 +392,9 @@ private fun FilmstripThumbnailCard(
     ) {
         val bitmap = frameBitmap
         if (bitmap != null) {
+            val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = imageBitmap,
                 contentDescription = null,
                 contentScale = ContentScale.Fit, // 严格按照视频原本宽高比完整呈现，绝不裁剪失真
                 modifier = Modifier.fillMaxSize()

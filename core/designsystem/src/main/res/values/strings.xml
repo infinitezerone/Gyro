@@ -39,6 +39,11 @@
     <string name="player_error_title">无法播放此视频</string>
     <string name="player_error_desc">文件可能已损坏或格式不受支持</string>
     <string name="action_retry">重试</string>
+    <string name="action_skip_next">跳过</string>
+    <string name="player_error_file_not_found">未找到视频文件，可能已被移动或删除</string>
+    <string name="player_error_permission_denied">缺少文件访问权限，请重新选择或授权目录</string>
+    <string name="player_error_codec_crash">解码器异常中断，请尝试重试或切换其他视频</string>
+    <string name="player_hwdec_fallback_toast">硬解异常，已自动切换至软解播放</string>
 
     <!-- Sheet Tabs -->
     <string name="sheet_tab_playlist">列表</string>

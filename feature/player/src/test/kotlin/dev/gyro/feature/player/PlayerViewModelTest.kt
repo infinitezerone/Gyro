@@ -22,7 +22,6 @@ import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
-import dev.gyro.core.domain.session.PlaybackHistoryTracker
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
 import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
@@ -50,6 +49,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -146,14 +146,6 @@ class PlayerViewModelTest {
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
         )
-
-        PlaybackHistoryTracker(
-            engine = engine,
-            sessionStateHolder = sessionStateHolder,
-            navigatePlaylistUseCase = navigatePlaylistUseCase,
-            saveProgressUseCase = saveProgressUseCase,
-            scope = testScope,
-        ).startObserving()
 
         viewModel = PlayerViewModel(
             engine = engine,
@@ -614,6 +606,79 @@ class PlayerViewModelTest {
         val loadCommandCountAfter = fakeBridge.commands.count { it.firstOrNull() == "loadfile" }
         assertEquals(loadCommandCountBefore, loadCommandCountAfter)
         assertEquals("Original Title", engine.mediaTitle.value)
+    }
+
+    private fun seedNonZeroZoomAndPan() {
+        fakeBridge.setPropertyDouble("video-zoom", 1.25)
+        fakeBridge.setPropertyDouble("video-pan-x", 0.15)
+        fakeBridge.setPropertyDouble("video-pan-y", -0.25)
+    }
+
+    private fun assertZoomAndPanReset() {
+        assertEquals(0.0, fakeBridge.properties["video-zoom"] as Double, 0.0001)
+        assertEquals(0.0, fakeBridge.properties["video-pan-x"] as Double, 0.0001)
+        assertEquals(0.0, fakeBridge.properties["video-pan-y"] as Double, 0.0001)
+    }
+
+    @Test
+    fun testMediaSwitchingMethodsResetZoomAndPan() = runPlayerTest {
+        val item1 = VideoMediaItem(1L, "file:///z1.mp4", "Z1", 1000L, 100L, 0, 0, 0L, "F")
+        val item2 = VideoMediaItem(2L, "file:///z2.mp4", "Z2", 2000L, 200L, 0, 0, 0L, "F")
+        val item3 = VideoMediaItem(3L, "file:///z3.mp4", "Z3", 3000L, 300L, 0, 0, 0L, "F")
+
+        seedNonZeroZoomAndPan()
+        viewModel.setPlaylistAndPlay(listOf(item1, item2, item3), item1)
+        runCurrent()
+        assertZoomAndPanReset()
+
+        seedNonZeroZoomAndPan()
+        assertTrue(viewModel.playNext())
+        runCurrent()
+        assertZoomAndPanReset()
+
+        seedNonZeroZoomAndPan()
+        assertTrue(viewModel.playPrevious())
+        runCurrent()
+        assertZoomAndPanReset()
+
+        seedNonZeroZoomAndPan()
+        assertTrue(viewModel.playAtIndex(2))
+        runCurrent()
+        assertZoomAndPanReset()
+
+        // Out-of-bounds navigation returns false and preserves existing zoom/pan.
+        seedNonZeroZoomAndPan()
+        assertFalse(viewModel.playNext())
+        assertFalse(viewModel.playAtIndex(99))
+        assertEquals(1.25, fakeBridge.properties["video-zoom"] as Double, 0.0001)
+
+        seedNonZeroZoomAndPan()
+        viewModel.openUri(TestUri("file:///z_open.mp4"))
+        runCurrent()
+        assertZoomAndPanReset()
+
+        seedNonZeroZoomAndPan()
+        viewModel.setSingleAndPlay(TestUri("file:///z_single.mp4"))
+        runCurrent()
+        assertZoomAndPanReset()
+    }
+
+    @Test
+    fun testInitializeReentryDoesNotResetZoomAndPan() = runPlayerTest {
+        val uri = TestUri("file:///zoom_reentry.mp4")
+        viewModel.openUri(uri, displayTitle = "Zoomed")
+        runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        runCurrent()
+
+        seedNonZeroZoomAndPan()
+        viewModel.initialize(uri)
+        runCurrent()
+
+        assertEquals(1.25, fakeBridge.properties["video-zoom"] as Double, 0.0001)
+        assertEquals(0.15, fakeBridge.properties["video-pan-x"] as Double, 0.0001)
+        assertEquals(-0.25, fakeBridge.properties["video-pan-y"] as Double, 0.0001)
     }
 
     private class FakeMediaRepository : MediaRepository {

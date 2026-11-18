@@ -1,6 +1,7 @@
 package dev.gyro.engine.tracks
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import dev.gyro.engine.model.TrackType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,16 +52,16 @@ class TrackAndChapterManagerTest {
 
     @Test
     fun testTrackSelection() {
-        manager.selectTrack("audio", 2)
+        manager.selectTrack(TrackType.AUDIO, 2)
         assertEquals("2", bridge.properties["aid"])
 
-        manager.selectTrack("audio", 0)
+        manager.selectTrack(TrackType.AUDIO, 0)
         assertEquals("no", bridge.properties["aid"])
 
-        manager.selectTrack("sub", 1)
+        manager.selectTrack(TrackType.SUBTITLE, 1)
         assertEquals("1", bridge.properties["sid"])
 
-        manager.selectTrack("sub", 0)
+        manager.selectTrack(TrackType.SUBTITLE, 0)
         assertEquals("no", bridge.properties["sid"])
     }
 

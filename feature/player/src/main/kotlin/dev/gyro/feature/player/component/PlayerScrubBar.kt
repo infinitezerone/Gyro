@@ -105,6 +105,7 @@ fun PlayerScrubBar(
     val touchSlopPx = LocalViewConfiguration.current.touchSlop
     val haptics = rememberChapterHaptics()
 
+    val currentTimePosMs by rememberUpdatedState(timePosMs)
     val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
     val currentOnEnterPreciseSeeking by rememberUpdatedState(onEnterPreciseSeeking)
     val currentOnDismiss by rememberUpdatedState(onDismiss)
@@ -128,7 +129,7 @@ fun PlayerScrubBar(
                     var hasTriggeredPreciseSeek = false
 
                     val currentPlaybackFraction = if (durationMs > 0L) {
-                        (timePosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                        (currentTimePosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                     } else 0f
 
                     while (true) {
@@ -158,7 +159,7 @@ fun PlayerScrubBar(
                                     change.consume()
                                     scrubState.begin(currentPlaybackFraction)
                                     currentHaptics.tick()
-                                    currentOnEnterPreciseSeeking(timePosMs)
+                                    currentOnEnterPreciseSeeking(currentTimePosMs)
                                 } else if (abs(deltaX) >= touchSlopPx) {
                                     isDragging = true
                                     change.consume()
@@ -175,7 +176,7 @@ fun PlayerScrubBar(
                                     hasTriggeredPreciseSeek = true
                                     currentHaptics.tick()
                                     scrubState.update(currentPlaybackFraction)
-                                    currentOnEnterPreciseSeeking(timePosMs)
+                                    currentOnEnterPreciseSeeking(currentTimePosMs)
                                 }
 
                                 if (!hasTriggeredPreciseSeek) {

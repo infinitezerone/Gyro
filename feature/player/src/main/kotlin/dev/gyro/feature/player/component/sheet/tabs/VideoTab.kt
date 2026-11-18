@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -71,9 +72,9 @@ internal fun VideoTabContent(
         state.brightness != 0 || state.contrast != 0 || state.saturation != 0
     val currentPreset = VisualColorPreset.match(state.brightness, state.contrast, state.saturation)
 
-    val isCopyMode = state.hwdec.contains("copy")
-    val isHwDirect = state.hwdec.contains("mediacodec") && !isCopyMode
-    val isSw = !state.hwdec.contains("mediacodec")
+    val isCopyMode = state.hwdecMode == HwdecMode.HARDWARE_COPY
+    val isHwDirect = state.hwdecMode == HwdecMode.HARDWARE_DIRECT
+    val isSw = state.hwdecMode == HwdecMode.SOFTWARE
 
     Column(
         modifier = Modifier
@@ -97,19 +98,19 @@ internal fun VideoTabContent(
             ) {
                 SheetChip(
                     selected = isCopyMode,
-                    onClick = { callbacks.onSetHwdec("mediacodec-copy") },
+                    onClick = { callbacks.onSetHwdec(HwdecMode.HARDWARE_COPY) },
                     label = stringResource(R.string.hwdec_copy),
                     modifier = Modifier.weight(1.1f)
                 )
                 SheetChip(
                     selected = isHwDirect,
-                    onClick = { callbacks.onSetHwdec("mediacodec") },
+                    onClick = { callbacks.onSetHwdec(HwdecMode.HARDWARE_DIRECT) },
                     label = stringResource(R.string.hwdec_direct),
                     modifier = Modifier.weight(1f)
                 )
                 SheetChip(
                     selected = isSw,
-                    onClick = { callbacks.onSetHwdec("no") },
+                    onClick = { callbacks.onSetHwdec(HwdecMode.SOFTWARE) },
                     label = stringResource(R.string.hwdec_sw),
                     modifier = Modifier.weight(0.9f)
                 )
@@ -151,7 +152,7 @@ internal fun VideoTabContent(
                 SheetChip(
                     selected = state.shaderState.activeShader == GlslShader.ANIME4K,
                     onClick = {
-                        if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
+                        if (isHwDirect) callbacks.onSetHwdec(HwdecMode.HARDWARE_COPY)
                         callbacks.onSelectShader(GlslShader.ANIME4K)
                     },
                     label = stringResource(R.string.shader_anime4k_short),
@@ -160,7 +161,7 @@ internal fun VideoTabContent(
                 SheetChip(
                     selected = state.shaderState.activeShader == GlslShader.CAS,
                     onClick = {
-                        if (isHwDirect) callbacks.onSetHwdec("mediacodec-copy")
+                        if (isHwDirect) callbacks.onSetHwdec(HwdecMode.HARDWARE_COPY)
                         callbacks.onSelectShader(GlslShader.CAS)
                     },
                     label = stringResource(R.string.shader_cas_short),

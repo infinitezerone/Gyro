@@ -1,17 +1,15 @@
 package dev.gyro.feature.player
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import android.net.Uri
-import dev.gyro.core.model.GlslShader
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackSnapshot
-import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerPlaylistSheet
 import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
@@ -45,11 +43,11 @@ internal fun PlayerSheetsHost(
     onEnterPip: () -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
-    val timePosMs by engine.timePosMs.collectAsState()
-    val telemetry by engine.diagnostics.collectAsState()
-    val eqGainsDb by engine.audio.equalizerGains.collectAsState()
-    val subAssOverride by engine.tuning.subAssOverride.collectAsState()
-    val sleepTimerSec by viewModel.sleepTimerSecondsRemaining.collectAsState()
+    val timePosMs by engine.timePosMs.collectAsStateWithLifecycle()
+    val telemetry by engine.diagnostics.collectAsStateWithLifecycle()
+    val eqGainsDb by engine.audio.equalizerGains.collectAsStateWithLifecycle()
+    val subAssOverride by engine.tuning.subAssOverride.collectAsStateWithLifecycle()
+    val sleepTimerSec by viewModel.sleepTimerSecondsRemaining.collectAsStateWithLifecycle()
     val fps = telemetry.fps
     val droppedFrames = telemetry.droppedFrames
     val currentMediaInfo = remember(tab, activeUri) {
@@ -74,6 +72,7 @@ internal fun PlayerSheetsHost(
         subScale = snapshot.subtitleScale,
         subPos = snapshot.subtitlePositionPercent,
         hwdec = snapshot.hwdecCurrent,
+        hwdecMode = snapshot.hwdecMode,
         fps = fps,
         droppedFrames = droppedFrames,
         videoBitrate = telemetryState.liveVideoBitrate,
@@ -106,64 +105,23 @@ internal fun PlayerSheetsHost(
         subAssOverride = subAssOverride
     )
 
-    val sheetCallbacks = PlayerSheetCallbacks(
-        onSelectPlaylistItem = { idx ->
-            viewModel.playAtIndex(idx)
-            playerState.activeSheetTab = null
-        },
-        onSelectChapter = { idx ->
-            engine.seekToChapter(idx)
-            playerState.activeSheetTab = null
-        },
-        onSelectShader = { shader -> engine.shaders.setShader(shader) },
-        onClearShader = { engine.shaders.clearShader() },
-        onSelectCustomShaderFile = { file ->
-            engine.shaders.setShader(GlslShader.CUSTOM, file.absolutePath, file.nameWithoutExtension)
-        },
-        onImportCustomShader = onImportCustomShader,
-        onSetDeband = { enabled -> engine.video.setDeband(enabled) },
-        onSetBrightness = { value -> engine.video.setBrightness(value) },
-        onSetContrast = { value -> engine.video.setContrast(value) },
-        onSetSaturation = { value -> engine.video.setSaturation(value) },
-        onResetColors = { engine.video.resetColors() },
-        onSetSoftwareVolume = { gain -> engine.audio.setSoftwareVolume(gain) },
-        onSetNightMode = { enabled -> engine.audio.setNightMode(enabled) },
-        onSetEqualizerGains = { gains -> engine.audio.setEqualizerGains(gains) },
-        onSetStereoDownmix = { enabled -> engine.audio.setStereoDownmix(enabled) },
-        onSelectTrack = { type, id -> engine.trackManager.selectTrack(type, id) },
-        onSelectResizeMode = { mode -> engine.geometry.setResizeMode(mode) },
-        onSelectSpeed = { sp -> engine.setSpeed(sp) },
-        onSetSubDelay = { delay -> engine.tuning.setSubtitleDelay(delay) },
-        onSetAudioDelay = { delay -> engine.tuning.setAudioDelay(delay) },
-        onSetSubScale = { scale -> engine.tuning.setSubtitleScale(scale) },
-        onSetSubPos = { pos -> engine.tuning.setSubtitlePosition(pos) },
-        onToggleHwdec = { engine.toggleHwdec() },
-        onSetHwdec = { target -> engine.setHwdec(target) },
-        onToggleStatsOverlay = { playerState.statsOverlayEnabled = it },
-        onAddExternalSubtitle = onAddExternalSubtitle,
-        onSetHdrOutputMode = { mode -> engine.setHdrOutputMode(mode) },
-        onSetToneMappingAlgorithm = { algo -> engine.setToneMappingAlgorithm(algo) },
-        onSetVideoScale = { scale -> engine.setVideoScale(scale) },
-        onToggleInterpolation = { enabled -> engine.setInterpolation(enabled) },
-        onToggleAudioPassthrough = { enabled -> engine.setAudioPassthrough(enabled) },
-        onCycleAbLoop = { viewModel.cycleAbLoop() },
-        onClearAbLoop = { viewModel.clearAbLoop() },
-        onOpenFullSettings = {
-            playerState.activeSheetTab = null
-            onOpenFullSettings()
-        },
-        // Close the sheet first: otherwise it is still open inside the floating window, which
-        // makes the PiP preview a picture of the settings panel.
-        onEnterPip = {
-            playerState.activeSheetTab = null
-            onEnterPip()
-        },
-        onSelectSecondarySubtitle = { id -> engine.trackManager.selectSecondarySubtitle(id) },
-        onSetSubAssOverride = { force -> engine.tuning.setSubAssOverride(force) },
-        onFrameStep = { engine.frameStep() },
-        onFrameBackStep = { engine.frameBackStep() },
-        onSetSleepTimer = { minutes -> viewModel.setSleepTimer(minutes) }
-    )
+    val sheetCallbacks = remember(
+        viewModel,
+        playerState,
+        onImportCustomShader,
+        onAddExternalSubtitle,
+        onOpenFullSettings,
+        onEnterPip,
+    ) {
+        createPlayerSheetCallbacks(
+            viewModel = viewModel,
+            playerState = playerState,
+            onImportCustomShader = onImportCustomShader,
+            onAddExternalSubtitle = onAddExternalSubtitle,
+            onOpenFullSettings = onOpenFullSettings,
+            onEnterPip = onEnterPip,
+        )
+    }
 
     val isPlaylistScene = tab == PlayerSheetTab.PLAYLIST || tab == PlayerSheetTab.CHAPTERS
     if (isPlaylistScene) {
@@ -203,3 +161,71 @@ internal fun PlayerSheetsHost(
         )
     }
 }
+
+/**
+ * Pure factory creating [PlayerSheetCallbacks] without Compose runtime dependency,
+ * routing all sheet mutations through [PlayerViewModel].
+ */
+internal fun createPlayerSheetCallbacks(
+    viewModel: PlayerViewModel,
+    playerState: PlayerState,
+    onImportCustomShader: () -> Unit = {},
+    onAddExternalSubtitle: () -> Unit = {},
+    onOpenFullSettings: () -> Unit = {},
+    onEnterPip: () -> Unit = {},
+): PlayerSheetCallbacks = PlayerSheetCallbacks(
+    onSelectPlaylistItem = { idx ->
+        viewModel.playAtIndex(idx)
+        playerState.activeSheetTab = null
+    },
+    onSelectChapter = { idx ->
+        viewModel.seekToChapter(idx)
+        playerState.activeSheetTab = null
+    },
+    onSelectShader = { shader -> viewModel.setShader(shader) },
+    onClearShader = { viewModel.clearShader() },
+    onSelectCustomShaderFile = { file -> viewModel.setCustomShaderFile(file) },
+    onImportCustomShader = onImportCustomShader,
+    onSetDeband = { enabled -> viewModel.setDeband(enabled) },
+    onSetBrightness = { value -> viewModel.setBrightness(value) },
+    onSetContrast = { value -> viewModel.setContrast(value) },
+    onSetSaturation = { value -> viewModel.setSaturation(value) },
+    onResetColors = { viewModel.resetColors() },
+    onSetSoftwareVolume = { gain -> viewModel.setSoftwareVolume(gain) },
+    onSetNightMode = { enabled -> viewModel.setNightMode(enabled) },
+    onSetEqualizerGains = { gains -> viewModel.setEqualizerGains(gains) },
+    onSetStereoDownmix = { enabled -> viewModel.setStereoDownmix(enabled) },
+    onSelectTrack = { type, id -> viewModel.selectTrack(type, id) },
+    onSelectResizeMode = { mode -> viewModel.setResizeMode(mode) },
+    onSelectSpeed = { sp -> viewModel.setSpeed(sp) },
+    onSetSubDelay = { delay -> viewModel.setSubtitleDelay(delay) },
+    onSetAudioDelay = { delay -> viewModel.setAudioDelay(delay) },
+    onSetSubScale = { scale -> viewModel.setSubtitleScale(scale) },
+    onSetSubPos = { pos -> viewModel.setSubtitlePosition(pos) },
+    onToggleHwdec = { viewModel.toggleHwdec() },
+    onSetHwdec = { mode -> viewModel.setHwdec(mode) },
+    onToggleStatsOverlay = { playerState.statsOverlayEnabled = it },
+    onAddExternalSubtitle = onAddExternalSubtitle,
+    onSetHdrOutputMode = { mode -> viewModel.setHdrOutputMode(mode) },
+    onSetToneMappingAlgorithm = { algo -> viewModel.setToneMappingAlgorithm(algo) },
+    onSetVideoScale = { scale -> viewModel.setVideoScale(scale) },
+    onToggleInterpolation = { enabled -> viewModel.setInterpolation(enabled) },
+    onToggleAudioPassthrough = { enabled -> viewModel.setAudioPassthrough(enabled) },
+    onCycleAbLoop = { viewModel.cycleAbLoop() },
+    onClearAbLoop = { viewModel.clearAbLoop() },
+    onOpenFullSettings = {
+        playerState.activeSheetTab = null
+        onOpenFullSettings()
+    },
+    // Close the sheet first: otherwise it is still open inside the floating window, which
+    // makes the PiP preview a picture of the settings panel.
+    onEnterPip = {
+        playerState.activeSheetTab = null
+        onEnterPip()
+    },
+    onSelectSecondarySubtitle = { id -> viewModel.selectSecondarySubtitle(id) },
+    onSetSubAssOverride = { force -> viewModel.setSubAssOverride(force) },
+    onFrameStep = { viewModel.frameStep() },
+    onFrameBackStep = { viewModel.frameBackStep() },
+    onSetSleepTimer = { minutes -> viewModel.setSleepTimer(minutes) },
+)

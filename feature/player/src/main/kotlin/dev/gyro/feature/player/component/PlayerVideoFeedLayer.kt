@@ -49,13 +49,16 @@ import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.trace.SwitchTrace
-import dev.gyro.engine.ui.GyroPlayerSurface
-import dev.gyro.engine.ui.GyroSurfaceView
 import dev.gyro.feature.player.MAX_POSTER_CACHE_SIZE
 import dev.gyro.feature.player.PlayerState
 import dev.gyro.feature.player.PlayerViewportState
+import dev.gyro.feature.player.event.PlaybackFailureReason
 import dev.gyro.feature.player.gesture.PlayerZoomState
+import dev.gyro.feature.player.isSheetFitActive
+import dev.gyro.feature.player.rememberPlayerShutterState
 import dev.gyro.feature.player.sheetFitTransform
+import dev.gyro.feature.player.surface.GyroPlayerSurface
+import dev.gyro.feature.player.surface.GyroSurfaceView
 import dev.gyro.feature.player.videoSurfacePageOffset
 import kotlin.math.roundToInt
 
@@ -84,9 +87,11 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     isLandscape: Boolean,
     pipTransitionActive: Boolean,
     freezeViewportFullscreen: Boolean = false,
+    failureReason: PlaybackFailureReason? = null,
     onLoadPoster: suspend (String) -> Bitmap?,
     onSurfaceViewAvailable: (GyroSurfaceView?) -> Unit,
     onRetryPlayback: () -> Unit,
+    onSkipNext: (() -> Unit)? = null,
 ) {
     val density = LocalDensity.current
 
@@ -126,7 +131,11 @@ internal fun BoxScope.PlayerVideoFeedLayer(
         ResizeMode.ASPECT_21_9 -> minOf(screenH, screenW / (21f / 9f))
         ResizeMode.FIT -> if (videoAspect > 0f) minOf(screenH, screenW / videoAspect) else screenH
     }
-    val sheetFitActive = playerState.activeSheetTab != null && !isLandscape && !isPipLayout
+    val sheetFitActive = isSheetFitActive(
+        activeSheetTab = playerState.activeSheetTab,
+        isLandscape = isLandscape,
+        isPipLayout = isPipLayout,
+    )
     // A drag shrinks the sheet's footprint before it dismisses, so the fit follows the dragged
     // edge rather than the fully-open height. While dragging the value is applied directly: a
     // 220ms chase would visibly trail the finger.
@@ -231,8 +240,26 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     val activePlaylistItem = playlist.getOrNull(currentPlaylistIndex)
     val activeUriString = activeUri?.toString()
     val activeIsInPlaylist = activeUriString != null && playlist.any { it.uriString == activeUriString }
-    val isCurrentVideoReady = snapshot.firstFrameRendered &&
-        snapshot.sessionState !is PlaybackSessionState.Switching &&
+    val shutterState = rememberPlayerShutterState(
+        activeUri = activeUri,
+        sessionState = snapshot.sessionState,
+        firstFrameRendered = snapshot.firstFrameRendered,
+        geometryReady = snapshot.geometryReady,
+        videoAspect = videoAspect,
+        videoWidth = snapshot.videoDimensions.width,
+        videoHeight = snapshot.videoDimensions.height,
+        resizeMode = effectiveResizeMode,
+        containerSize = viewport.videoContainerSize,
+        bufferSize = viewport.appliedBufferSize,
+    )
+    val shutterCovers = shutterState.covers(
+        activeUri = activeUri,
+        playbackState = snapshot.playbackState,
+        isPipLayout = isPipLayout,
+        firstFrameRendered = snapshot.firstFrameRendered,
+        isSwitching = snapshot.sessionState is PlaybackSessionState.Switching,
+    )
+    val isCurrentVideoReady = !shutterCovers &&
         (!activeIsInPlaylist || activePlaylistItem?.uriString == activeUriString)
 
     // A2. VerticalPager for Douyin-style feed
@@ -285,6 +312,8 @@ internal fun BoxScope.PlayerVideoFeedLayer(
         PlayerPlaybackErrorCard(
             error = error,
             onRetry = onRetryPlayback,
+            failureReason = failureReason,
+            onSkipNext = onSkipNext,
             modifier = Modifier
                 .align(Alignment.Center)
                 .padding(24.dp)
@@ -327,8 +356,9 @@ private fun VideoPagePoster(
     ) {
         val currentBitmap = bitmap
         if (currentBitmap != null) {
+            val imageBitmap = remember(currentBitmap) { currentBitmap.asImageBitmap() }
             Image(
-                bitmap = currentBitmap.asImageBitmap(),
+                bitmap = imageBitmap,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit

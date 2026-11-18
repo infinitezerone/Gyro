@@ -1,5 +1,6 @@
 package dev.gyro.engine.api.controller
 
+import dev.gyro.core.model.ToneMappingAlgorithm
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -12,7 +13,7 @@ interface VideoController {
     val saturation: StateFlow<Int>
 
     fun setDeband(enabled: Boolean)
-    fun setToneMapping(algorithm: String)
+    fun setToneMapping(algorithm: ToneMappingAlgorithm)
     fun setBrightness(value: Int)
     fun setContrast(value: Int)
     fun setSaturation(value: Int)

@@ -23,6 +23,8 @@ import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
 import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
+import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
@@ -31,7 +33,14 @@ import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.api.PlayerEngine
+import dev.gyro.engine.api.controller.AudioController
+import dev.gyro.engine.api.controller.GeometryController
 import dev.gyro.engine.api.controller.TrackController
+import dev.gyro.engine.api.controller.TuningController
+import dev.gyro.engine.api.controller.VideoController
+import dev.gyro.engine.api.extension.ShaderExtension
+import dev.gyro.engine.model.ResizeMode
+import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import kotlinx.coroutines.CoroutineScope
@@ -335,11 +344,11 @@ class PlayerScreenActionsTest {
 
     @Test
     fun toggleSubtitleSelectsTrackZeroWhenEnabled() {
-        var selectedType: String? = null
+        var selectedType: TrackType? = null
         var selectedId: Int? = null
 
         val fakeTrackController = object : TrackController by engine.trackManager {
-            override fun selectTrack(type: String, id: Int) {
+            override fun selectTrack(type: TrackType, id: Int) {
                 selectedType = type
                 selectedId = id
             }
@@ -364,17 +373,17 @@ class PlayerScreenActionsTest {
         )
 
         actions.onToggleSubtitle()
-        assertEquals("sub", selectedType)
+        assertEquals(TrackType.SUBTITLE, selectedType)
         assertEquals(0, selectedId)
     }
 
     @Test
     fun toggleSubtitleRestoresLastSubTrackIdWhenDisabled() {
-        var selectedType: String? = null
+        var selectedType: TrackType? = null
         var selectedId: Int? = null
 
         val fakeTrackController = object : TrackController by engine.trackManager {
-            override fun selectTrack(type: String, id: Int) {
+            override fun selectTrack(type: TrackType, id: Int) {
                 selectedType = type
                 selectedId = id
             }
@@ -399,7 +408,7 @@ class PlayerScreenActionsTest {
         )
 
         actions.onToggleSubtitle()
-        assertEquals("sub", selectedType)
+        assertEquals(TrackType.SUBTITLE, selectedType)
         assertEquals(3, selectedId)
     }
 
@@ -554,5 +563,103 @@ class PlayerScreenActionsTest {
 
         actions.onEnterPiP()
         assertTrue(enteredPiP)
+    }
+
+    @Test
+    fun createPlayerSheetCallbacksRoutesMutationsThroughViewModel() {
+        var chapterIndex = -1
+        var selectedSpeed = 0f
+        var hwdecTarget: HwdecMode? = null
+        var debandEnabled = false
+        var softwareVolume = 0.0
+        var subDelay = 0.0
+        var resizeMode: ResizeMode? = null
+        var selectedShader: GlslShader? = null
+        var selectedTrack: Pair<TrackType, Int>? = null
+
+        val fakeVideo = object : VideoController by engine.video {
+            override fun setDeband(enabled: Boolean) {
+                debandEnabled = enabled
+            }
+        }
+        val fakeAudio = object : AudioController by engine.audio {
+            override fun setSoftwareVolume(gain: Double) {
+                softwareVolume = gain
+            }
+        }
+        val fakeTuning = object : TuningController by engine.tuning {
+            override fun setSubtitleDelay(delaySec: Double) {
+                subDelay = delaySec
+            }
+        }
+        val fakeGeometry = object : GeometryController by engine.geometry {
+            override fun setResizeMode(mode: ResizeMode) {
+                resizeMode = mode
+            }
+        }
+        val fakeShaders = object : ShaderExtension by engine.shaders {
+            override fun setShader(shader: GlslShader, customPath: String?, customName: String?) {
+                selectedShader = shader
+            }
+        }
+        val fakeTracks = object : TrackController by engine.trackManager {
+            override fun selectTrack(type: TrackType, id: Int) {
+                selectedTrack = type to id
+            }
+        }
+        val fakeEngine = object : PlayerEngine by engine {
+            override val video = fakeVideo
+            override val audio = fakeAudio
+            override val tuning = fakeTuning
+            override val geometry = fakeGeometry
+            override val shaders = fakeShaders
+            override val trackManager = fakeTracks
+
+            override fun seekToChapter(index: Int) {
+                chapterIndex = index
+            }
+
+            override fun setSpeed(speed: Float) {
+                selectedSpeed = speed
+            }
+
+            override fun setHwdec(mode: HwdecMode) {
+                hwdecTarget = mode
+            }
+        }
+
+        playerState.activeSheetTab = PlayerSheetTab.AUDIO
+        val callbacks = createPlayerSheetCallbacks(
+            viewModel = buildViewModel(fakeEngine),
+            playerState = playerState,
+        )
+
+        callbacks.onSelectChapter(3)
+        assertEquals(3, chapterIndex)
+        assertEquals(null, playerState.activeSheetTab)
+
+        callbacks.onSelectSpeed(1.5f)
+        assertEquals(1.5f, selectedSpeed, 0.001f)
+
+        callbacks.onSetHwdec(HwdecMode.SOFTWARE)
+        assertEquals(HwdecMode.SOFTWARE, hwdecTarget)
+
+        callbacks.onSetDeband(true)
+        assertTrue(debandEnabled)
+
+        callbacks.onSetSoftwareVolume(145.0)
+        assertEquals(145.0, softwareVolume, 0.001)
+
+        callbacks.onSetSubDelay(0.25)
+        assertEquals(0.25, subDelay, 0.001)
+
+        callbacks.onSelectResizeMode(ResizeMode.CROP)
+        assertEquals(ResizeMode.CROP, resizeMode)
+
+        callbacks.onSelectShader(GlslShader.ANIME4K)
+        assertEquals(GlslShader.ANIME4K, selectedShader)
+
+        callbacks.onSelectTrack(TrackType.AUDIO, 2)
+        assertEquals(TrackType.AUDIO to 2, selectedTrack)
     }
 }

@@ -2,10 +2,15 @@ package dev.gyro.engine.api
 
 import android.net.Uri
 import android.view.Surface
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.api.controller.AudioController
 import dev.gyro.engine.api.controller.GeometryController
+import dev.gyro.engine.api.controller.RenderController
 import dev.gyro.engine.api.controller.TrackController
 import dev.gyro.engine.api.controller.TuningController
 import dev.gyro.engine.api.controller.VideoController
@@ -40,7 +45,9 @@ interface PlayerEngine {
     val timePosMs: StateFlow<Long>
     val bufferedPosMs: StateFlow<Long>
     val playlist: Playlist
+    val render: RenderController
     val isSurfaceAttached: Boolean
+        get() = render.isSurfaceAttached
     var isHeadlessMode: Boolean
 
     val audio: AudioController
@@ -78,11 +85,11 @@ interface PlayerEngine {
 
     fun addSubtitle(path: String)
 
-    fun attachSurface(surface: Surface)
-    fun detachSurface()
-    fun detachSurface(surface: Surface?)
-    fun redraw()
-    fun requestSurfaceRebuild()
+    fun attachSurface(surface: Surface) = render.attachSurface(surface)
+    fun detachSurface() = render.detachSurface()
+    fun detachSurface(surface: Surface?) = render.detachSurface(surface)
+    fun redraw() = render.redraw()
+    fun requestSurfaceRebuild() = render.requestSurfaceRebuild()
 
     fun setSpeed(speed: Float)
     fun setResizeMode(mode: ResizeMode)
@@ -109,13 +116,13 @@ interface PlayerEngine {
     fun clearAbLoop()
     fun frameStep() {}
     fun frameBackStep() {}
-    fun cycleHwdec(): String
+    fun cycleHwdec(): HwdecMode
     fun toggleHwdec()
-    fun setHwdec(target: String)
+    fun setHwdec(mode: HwdecMode)
 
-    fun setHdrOutputMode(mode: String)
-    fun setToneMappingAlgorithm(algorithm: String)
-    fun setVideoScale(scale: String)
+    fun setHdrOutputMode(mode: HdrOutputMode)
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm)
+    fun setVideoScale(scale: VideoScale)
     fun setInterpolation(enabled: Boolean)
     fun setAudioPassthrough(enabled: Boolean)
 

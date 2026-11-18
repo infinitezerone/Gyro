@@ -89,6 +89,11 @@ class MediaLoadCoordinator(
 
     fun load(item: MediaItem) {
         val target = item.target.ifBlank { item.uri?.toString().orEmpty() }
+        val effectiveUri = item.uri ?: if (target.startsWith("content://")) {
+            runCatching { Uri.parse(target) }.getOrNull()
+        } else {
+            null
+        }
         // Ensure the native engine exists BEFORE this load captures its epoch. Lazy init runs
         // reset_engine_lifecycle_state, which advances the native epoch counter; bumping first
         // would make the very first load after create trail the native counter (observed on
@@ -101,6 +106,7 @@ class MediaLoadCoordinator(
             title = item.title,
             startPositionMs = item.startPositionMs,
             uri = item.uri,
+            effectiveUri = effectiveUri,
             initialDurationMs = item.initialDurationMs,
             initialWidth = item.initialWidth,
             initialHeight = item.initialHeight,
@@ -110,13 +116,17 @@ class MediaLoadCoordinator(
         currentLoadJob?.cancel()
         discardPending()
 
-        val uri = item.uri
-        if (uri != null && (uri.scheme == "content" || target.startsWith("content://"))) {
+        if (effectiveUri?.scheme == "content" || target.startsWith("content://")) {
+            val resolvedItem = if (item.uri == null && effectiveUri != null) {
+                item.copy(uri = effectiveUri)
+            } else {
+                item
+            }
             val jobEpoch = epoch
             currentLoadJob = coroutineScope().launch {
                 var owned: ResolvedMediaSource? = null
                 try {
-                    val resolved = resolver.resolve(item)
+                    val resolved = resolver.resolve(resolvedItem)
                     owned = resolved
                     SwitchTrace.log("RESOLVE_PATH_DONE", "target=${resolved.targetDescription}, epoch=$jobEpoch")
                     withContext(mainDispatcher) {
@@ -155,6 +165,7 @@ class MediaLoadCoordinator(
         title: String?,
         startPositionMs: Long,
         uri: Uri?,
+        effectiveUri: Uri? = uri,
         initialDurationMs: Long = 0L,
         initialWidth: Int = 0,
         initialHeight: Int = 0,
@@ -163,12 +174,13 @@ class MediaLoadCoordinator(
         SwitchTrace.start("LOAD_URI", "uri=$target, startPos=$startPositionMs, epoch=$epoch")
         ensureInitialized()
 
+        val activeUri = uri ?: effectiveUri
         store.batch {
             store.update {
                 it.copy(
                     session = SessionPhase.Resolving(target, startPositionMs),
                     error = null,
-                    currentUri = uri ?: it.currentUri
+                    currentUri = activeUri
                 )
             }
             geometry.onSwitchStarted(target, startPositionMs, initialWidth, initialHeight)
@@ -179,7 +191,7 @@ class MediaLoadCoordinator(
 
             requestedTitle = title?.trim().orEmpty()
             val resolvedTitle = requestedTitle.ifBlank {
-                (uri?.lastPathSegment ?: target.substringAfterLast('/').substringAfterLast('\\'))
+                (activeUri?.lastPathSegment ?: target.substringAfterLast('/').substringAfterLast('\\'))
                     .takeIf { candidate -> candidate.isNotBlank() && !candidate.startsWith("fdclose://") }
                     .orEmpty()
             }

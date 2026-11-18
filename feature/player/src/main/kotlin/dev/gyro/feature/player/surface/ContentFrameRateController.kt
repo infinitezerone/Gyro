@@ -1,8 +1,8 @@
-package dev.gyro.engine.ui
+package dev.gyro.feature.player.surface
 
 import android.os.Build
 import android.view.Surface
-import dev.gyro.engine.trace.EngineLog
+import dev.gyro.engine.model.normalizeContentFps
 
 /**
  * Votes the display's refresh rate towards the playing content's frame rate.
@@ -22,7 +22,7 @@ internal class ContentFrameRateController(
 
     /** Applies [fps], normalizing it to a nominal broadcast rate within the 3.5% window. */
     fun apply(fps: Float) {
-        EngineLog.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
+        SurfaceLog.i(TAG, "applyContentFrameRate: ENTER fps=$fps (current contentFrameRate=$contentFrameRate)")
         contentFrameRate = fps
         val requested = if (fps > 1f && fps < 1000f) fps else 0f
         val normalized = normalizeContentFps(requested)
@@ -49,8 +49,8 @@ internal class ContentFrameRateController(
                         Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
                     )
                 }
-                EngineLog.i(TAG, "setFrameRate: vote=$normalized (compat=DEFAULT, SEAMLESS)")
-            }.onFailure { EngineLog.w(TAG, "setFrameRate($normalized) failed: ${it.message}") }
+                SurfaceLog.i(TAG, "setFrameRate: vote=$normalized (compat=DEFAULT, SEAMLESS)")
+            }.onFailure { SurfaceLog.w(TAG, "setFrameRate($normalized) failed: ${it.message}") }
         }
     }
 

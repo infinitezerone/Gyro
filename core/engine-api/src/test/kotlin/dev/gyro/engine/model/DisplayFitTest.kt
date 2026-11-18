@@ -1,4 +1,4 @@
-package dev.gyro.engine.ui
+package dev.gyro.engine.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

@@ -3,14 +3,26 @@ package dev.gyro.engine
 import android.content.Context
 import android.content.ContextWrapper
 import android.net.TestUri
+import android.net.Uri
 import android.view.Surface
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.audio.AudioFocusController
+import dev.gyro.engine.media.MediaResourceResolver
+import dev.gyro.engine.media.NativeFileDescriptor
+import dev.gyro.engine.media.ResolvedMediaSource
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.SessionPhase
+import dev.gyro.engine.model.TrackType
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.model.computeDisplayFittedBufferSize
+import dev.gyro.engine.model.normalizeContentFps
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -149,18 +161,18 @@ class GyroPlayerEngineTest {
         val tracks = engine.trackManager.tracks.value
         assertEquals(2, tracks.size)
         assertEquals(1, tracks[0].id)
-        assertEquals("audio", tracks[0].type)
+        assertEquals(TrackType.AUDIO, tracks[0].type)
         assertEquals("English", tracks[0].title)
         assertTrue(tracks[0].isSelected)
 
         assertEquals(2, tracks[1].id)
-        assertEquals("sub", tracks[1].type)
+        assertEquals(TrackType.SUBTITLE, tracks[1].type)
         assertFalse(tracks[1].isSelected)
 
-        engine.trackManager.selectTrack("audio", 1)
+        engine.trackManager.selectTrack(TrackType.AUDIO, 1)
         assertEquals("1", fakeBridge.properties["aid"])
 
-        engine.trackManager.selectTrack("sub", 0)
+        engine.trackManager.selectTrack(TrackType.SUBTITLE, 0)
         assertEquals("no", fakeBridge.properties["sid"])
     }
 
@@ -493,28 +505,28 @@ class GyroPlayerEngineTest {
     @Test
     fun testComputeDisplayFittedBufferSize_fitsDisplayResolutionAcrossAllVideoSizes() {
         // Low-res 360p (16:9) and 4K (16:9) both map to the exact same 2261x1272 native screen FBO
-        val from360p = dev.gyro.engine.ui.computeDisplayFittedBufferSize(640, 360, 1272, 2772)
-        val from4k = dev.gyro.engine.ui.computeDisplayFittedBufferSize(3840, 2160, 1272, 2772)
+        val from360p = computeDisplayFittedBufferSize(640, 360, 1272, 2772)
+        val from4k = computeDisplayFittedBufferSize(3840, 2160, 1272, 2772)
         assertEquals(Pair(2261, 1272), from360p)
         assertEquals(from360p, from4k)
 
         // Portrait 9:16 maps to 1272x2261
-        val portrait = dev.gyro.engine.ui.computeDisplayFittedBufferSize(1080, 1920, 1272, 2772)
+        val portrait = computeDisplayFittedBufferSize(1080, 1920, 1272, 2772)
         assertEquals(Pair(1272, 2261), portrait)
 
         // Ultrawide 21:9 (2560x1080) fits long edge 2772
-        val ultrawide = dev.gyro.engine.ui.computeDisplayFittedBufferSize(2560, 1080, 1272, 2772)
+        val ultrawide = computeDisplayFittedBufferSize(2560, 1080, 1272, 2772)
         assertEquals(Pair(2772, 1169), ultrawide)
     }
 
     @Test
     fun testNormalizeContentFps_snapsTransientJitterToNominalRates() {
-        assertEquals(90.0f, dev.gyro.engine.ui.normalizeContentFps(87.3584f), 0.001f)
-        assertEquals(23.976f, dev.gyro.engine.ui.normalizeContentFps(23.976f), 0.001f)
-        assertEquals(59.94f, dev.gyro.engine.ui.normalizeContentFps(59.94f), 0.001f)
-        assertEquals(75.0f, dev.gyro.engine.ui.normalizeContentFps(75.0699f), 0.001f)
-        assertEquals(0f, dev.gyro.engine.ui.normalizeContentFps(0.5f), 0.001f)
-        assertEquals(80.0f, dev.gyro.engine.ui.normalizeContentFps(80.0f), 0.001f)
+        assertEquals(90.0f, normalizeContentFps(87.3584f), 0.001f)
+        assertEquals(23.976f, normalizeContentFps(23.976f), 0.001f)
+        assertEquals(59.94f, normalizeContentFps(59.94f), 0.001f)
+        assertEquals(75.0f, normalizeContentFps(75.0699f), 0.001f)
+        assertEquals(0f, normalizeContentFps(0.5f), 0.001f)
+        assertEquals(80.0f, normalizeContentFps(80.0f), 0.001f)
     }
 
     @Test
@@ -609,5 +621,62 @@ class GyroPlayerEngineTest {
         assertEquals("no", fakeBridge.properties["sub-auto"])
         assertEquals("3", fakeBridge.properties["deband-iterations"])
         assertEquals("libmpv", fakeBridge.options["vo"])
+    }
+
+    @Test
+    fun testLoadStringTarget_clearsPreviousCurrentUriInsteadOfLeaking() {
+        val uri = TestUri("content://media/external/video/201")
+        engine.load(uri)
+        assertEquals(uri, engine.currentUri.value)
+
+        engine.load("https://example.com/live.m3u8?token=1")
+        assertNull(engine.currentUri.value)
+    }
+
+    @Test
+    fun testLoadNetworkTarget_preservesFullUrlInLoadfile() {
+        val url = "https://example.com/live.m3u8?token=1"
+        engine.attachSurface(Any())
+        engine.load(url)
+
+        val loadfile = fakeBridge.findCommands("loadfile").single()
+        assertEquals(url, loadfile[1])
+    }
+
+    @Test
+    fun testLoadContentStringTarget_parsesUriAndRoutesThroughResolver() {
+        val contentStr = "content://media/external/video/88"
+        var capturedItem: MediaItem? = null
+        val recordingResolver = object : MediaResourceResolver {
+            override suspend fun resolve(item: MediaItem): ResolvedMediaSource {
+                capturedItem = item
+                return ResolvedMediaSource(item.target, NativeFileDescriptor { 88 })
+            }
+        }
+        val localBridge = FakeMpvNativeBridge()
+        val localEngine = GyroPlayerEngine(
+            context = testContext,
+            bridge = localBridge,
+            ioDispatcher = Dispatchers.Unconfined,
+            defaultDispatcher = Dispatchers.Unconfined,
+            mainDispatcher = Dispatchers.Unconfined,
+            resolver = recordingResolver,
+        )
+
+        mockkStatic(Uri::class)
+        try {
+            every { Uri.parse(any()) } answers { TestUri(firstArg()) }
+            localEngine.attachSurface(Any())
+            localEngine.load(contentStr)
+
+            val expectedUri = TestUri(contentStr)
+            assertEquals(expectedUri, localEngine.currentUri.value)
+            assertEquals(expectedUri, capturedItem?.uri)
+            val loadfile = localBridge.findCommands("loadfile").single()
+            assertEquals("fdclose://88", loadfile[1])
+        } finally {
+            localEngine.release()
+            unmockkStatic(Uri::class)
+        }
     }
 }

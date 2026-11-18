@@ -2,6 +2,7 @@ package dev.gyro.engine.api.controller
 
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.TrackInfo
+import dev.gyro.engine.model.TrackType
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -13,7 +14,7 @@ interface TrackController {
     val currentChapter: StateFlow<Int>
     val secondarySubId: StateFlow<Int>
 
-    fun selectTrack(type: String, id: Int)
-    fun selectSecondarySubtitle(id: Int) = selectTrack("secondary-sub", id)
+    fun selectTrack(type: TrackType, id: Int)
+    fun selectSecondarySubtitle(id: Int) = selectTrack(TrackType.SECONDARY_SUBTITLE, id)
     fun addSubtitle(path: String)
 }

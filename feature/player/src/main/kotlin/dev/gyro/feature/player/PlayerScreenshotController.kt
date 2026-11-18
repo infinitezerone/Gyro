@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import dev.gyro.core.designsystem.R
-import dev.gyro.engine.ui.GyroSurfaceView
+import dev.gyro.feature.player.surface.GyroSurfaceView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean

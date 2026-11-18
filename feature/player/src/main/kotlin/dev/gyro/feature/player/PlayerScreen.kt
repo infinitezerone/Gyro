@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Rect
 import android.net.Uri
 import android.util.Rational
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
@@ -19,14 +20,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -41,7 +46,8 @@ import androidx.compose.ui.unit.dp
 import dev.gyro.core.common.toUri
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.PlaybackState
-import dev.gyro.engine.ui.GyroSurfaceView
+import dev.gyro.engine.model.TrackType
+import dev.gyro.feature.player.surface.GyroSurfaceView
 import dev.gyro.feature.player.component.PlayerBufferingSpinner
 import dev.gyro.feature.player.component.PlayerControlsOverlay
 import dev.gyro.feature.player.component.PlayerEmptyStateCard
@@ -51,7 +57,9 @@ import dev.gyro.feature.player.component.PlayerPipLifecycleEffects
 import dev.gyro.feature.player.component.PlayerStatsOverlay
 import dev.gyro.feature.player.component.PlayerSystemEffects
 import dev.gyro.feature.player.component.PlayerVideoFeedLayer
+import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.event.PlaybackTriggerSource
+import dev.gyro.feature.player.event.PlayerEvent
 import dev.gyro.feature.player.util.rememberPlayerPalette
 
 /**
@@ -79,13 +87,13 @@ fun PlayerScreen(
     val playerState = rememberPlayerState(activity = activity, scope = scope)
 
     // 1. Engine & Playback States
-    val snapshot by engine.state.collectAsState()
+    val snapshot by engine.state.collectAsStateWithLifecycle()
     val playbackState = snapshot.playbackState
     val isPlaying = snapshot.isPlaying
     val durationMs = snapshot.durationMs
-    val timePosState = engine.timePosMs.collectAsState()
-    val bufferedPosState = engine.bufferedPosMs.collectAsState()
-    val hwdecCurrent = snapshot.hwdecCurrent
+    val timePosState = engine.timePosMs.collectAsStateWithLifecycle()
+    val bufferedPosState = engine.bufferedPosMs.collectAsStateWithLifecycle()
+    val hwdecMode = snapshot.hwdecMode
     val speed = snapshot.speed
     val tracks = snapshot.tracks
     val resizeMode = snapshot.resizeMode
@@ -95,19 +103,34 @@ fun PlayerScreen(
     val chapters = snapshot.chapters
     val hdrFormat = snapshot.hdrFormat
 
-    val liveSettings by viewModel.settings.collectAsState()
+    val liveSettings by viewModel.settings.collectAsStateWithLifecycle()
+    val failureReason by viewModel.failureReason.collectAsStateWithLifecycle()
 
-    // Subtitle quick-toggle state
-    val subtitleEnabled = tracks.any { it.type == "sub" && it.isSelected }
-    var lastSubTrackId by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(tracks) {
-        tracks.firstOrNull { it.type == "sub" && it.isSelected }?.let { lastSubTrackId = it.id }
+    LaunchedEffect(viewModel, context) {
+        viewModel.events.collect { event ->
+            if (event is PlayerEvent.HwdecAutoFallback) {
+                Toast.makeText(
+                    context,
+                    context.getString(dev.gyro.core.designsystem.R.string.player_hwdec_fallback_toast),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
     }
 
-    // Telemetry & power sampling states (active strictly when stats UI is open)
-    val isPowerSheetActive = playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.STATS ||
-        playerState.activeSheetTab == dev.gyro.feature.player.component.sheet.PlayerSheetTab.SETTINGS_HUB
-    val isStatsActive = playerState.statsOverlayEnabled || isPowerSheetActive
+    // Subtitle quick-toggle state
+    val subtitleEnabled = tracks.any { it.type == TrackType.SUBTITLE && it.isSelected }
+    var lastSubTrackId by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(tracks) {
+        tracks.firstOrNull { it.type == TrackType.SUBTITLE && it.isSelected }?.let { lastSubTrackId = it.id }
+    }
+
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val isLifecycleStarted = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+
+    // Telemetry & power sampling states (active strictly when stats UI is open and screen is started)
+    val isPowerSheetActive = isLifecycleStarted && playerState.activeSheetTab == PlayerSheetTab.STATS
+    val isStatsActive = isLifecycleStarted && (playerState.statsOverlayEnabled || isPowerSheetActive)
     val telemetryState = rememberPlayerTelemetryState(
         engine = engine,
         isActive = isPlaying && isStatsActive,
@@ -122,13 +145,13 @@ fun PlayerScreen(
         onSaveScreenshot = viewModel::saveScreenshot,
     )
 
-    val vmActiveUri by viewModel.activeUri.collectAsState()
+    val vmActiveUri by viewModel.activeUri.collectAsStateWithLifecycle()
     val engineCurrentUri = snapshot.currentUri
     val activeUri = vmActiveUri ?: engineCurrentUri ?: currentUri
 
     val playlistMgr = viewModel.playlistManager
-    val playlist by playlistMgr.items.collectAsState()
-    val currentPlaylistIndex by playlistMgr.currentIndex.collectAsState()
+    val playlist by playlistMgr.items.collectAsStateWithLifecycle()
+    val currentPlaylistIndex by playlistMgr.currentIndex.collectAsStateWithLifecycle()
     val hasPrevious = playlistMgr.hasPrevious
     val hasNext = playlistMgr.hasNext
 
@@ -181,11 +204,6 @@ fun PlayerScreen(
             initialWidth = item?.width ?: 0,
             initialHeight = item?.height ?: 0
         )
-    }
-
-    // Reset native MPV zoom on start
-    LaunchedEffect(Unit) {
-        viewModel.resetZoomAndPan()
     }
 
     // Aspect ratio & Viewport calculations
@@ -252,7 +270,7 @@ fun PlayerScreen(
         onEnterPiP = { pipState.enterPip() }
     )
 
-    val screenEntryEpoch by viewModel.screenEntryEpoch.collectAsState()
+    val screenEntryEpoch by viewModel.screenEntryEpoch.collectAsStateWithLifecycle()
     LaunchedEffect(screenEntryEpoch) {
         playerState.showControls = true
     }
@@ -331,7 +349,8 @@ fun PlayerScreen(
         activeUri = activeUri,
         playerState = playerState,
         isPlaying = isPlaying,
-        engine = engine,
+        currentPosMsProvider = { timePosState.value },
+        softwareVolumeProvider = { snapshot.softwareVolume },
         durationMs = durationMs,
         speed = speed,
         scope = scope,
@@ -351,21 +370,39 @@ fun PlayerScreen(
         initialPage = initialPage,
         pageCount = { pageCount }
     )
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
+    var userInitiatedScroll by remember { mutableStateOf(false) }
+    val latestPlaylist = rememberUpdatedState(playlist)
+    val latestCurrentPlaylistIndex = rememberUpdatedState(currentPlaylistIndex)
     LaunchedEffect(currentPlaylistIndex, pageCount) {
         if (currentPlaylistIndex in 0 until pageCount && pagerState.currentPage != currentPlaylistIndex && !pagerState.isScrollInProgress) {
-            pagerState.scrollToPage(currentPlaylistIndex)
+            isProgrammaticScroll = true
+            userInitiatedScroll = false
+            try {
+                pagerState.scrollToPage(currentPlaylistIndex)
+            } finally {
+                isProgrammaticScroll = false
+            }
         }
     }
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
-            .collect { settledPage ->
-                if (settledPage in playlist.indices && settledPage != currentPlaylistIndex) {
-                    viewModel.playAtIndex(settledPage, source = PlaybackTriggerSource.SHORT_VIDEO_SWIPE)
+        snapshotFlow { Triple(pagerState.isScrollInProgress, pagerState.settledPage, pagerState.currentPage) }
+            .collect { (isScrollInProgress, settledPage, _) ->
+                if (isScrollInProgress && !isProgrammaticScroll) {
+                    userInitiatedScroll = true
+                } else if (!isScrollInProgress && userInitiatedScroll) {
+                    userInitiatedScroll = false
+                    val activePlaylist = latestPlaylist.value
+                    val activeIndex = latestCurrentPlaylistIndex.value
+                    if (settledPage in activePlaylist.indices && settledPage != activeIndex) {
+                        viewModel.playAtIndex(settledPage, source = PlaybackTriggerSource.SHORT_VIDEO_SWIPE)
+                    }
                 }
             }
     }
     LaunchedEffect(pagerState.isScrollInProgress) {
-        if (pagerState.isScrollInProgress) {
+        if (pagerState.isScrollInProgress && !isProgrammaticScroll) {
+            userInitiatedScroll = true
             playerState.showControls = false
             scrubState.exitPreciseSeeking()
         }
@@ -450,9 +487,11 @@ fun PlayerScreen(
             isLandscape = isLandscape,
             pipTransitionActive = pipState.isTransitionActive,
             freezeViewportFullscreen = freezeViewportFullscreen,
+            failureReason = failureReason,
             onLoadPoster = loadPosterForUriString,
             onSurfaceViewAvailable = { surfaceViewRef = it },
             onRetryPlayback = { activeUri?.let { openUri(it) } },
+            onSkipNext = if (hasNext) ({ viewModel.playNext() }) else null,
         )
 
         // 2. Buffering Spinner
@@ -496,7 +535,7 @@ fun PlayerScreen(
         if (!isPipLayout && !hideChrome && playerState.statsOverlayEnabled && !playerState.showControls) {
             PlayerStatsOverlay(
                 engine = engine,
-                hwdec = hwdecCurrent,
+                hwdecMode = hwdecMode,
                 bitrate = telemetryState.liveVideoBitrate,
                 hdrLabel = if (snapshot.isHdr) hdrFormat else null,
                 modifier = Modifier

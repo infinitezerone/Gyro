@@ -1,6 +1,8 @@
 package dev.gyro.engine.video
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
+import dev.gyro.engine.MpvEvent
+import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.api.session.PlaybackSessionState
 import org.junit.Assert.assertEquals
@@ -292,5 +294,77 @@ class VideoGeometryCoordinatorTest {
         assertFalse("新视频装载后稳定为 SDR", coordinator.isHdr.value)
         assertEquals("", coordinator.hdrFormat.value)
         assertEquals("no", bridge.properties["hdr-output"])
+    }
+
+    @Test
+    fun testRegisterObservers_observesTrackList() {
+        coordinator.registerObservers()
+        assertTrue(bridge.isPropertyObserved("track-list", MpvNativeBridge.Format.NONE))
+    }
+
+    @Test
+    fun testDoviTrackCache_avoidsRescanningTracksOnGeometryEventsAndRefreshesOnTrackListChange() {
+        var trackListScanCount = 0
+        val countingBridge = object : MpvNativeBridge by bridge {
+            override fun getPropertyLong(name: String): Long? {
+                if (name == "track-list/count") trackListScanCount++
+                return bridge.getPropertyLong(name)
+            }
+
+            override fun getLong(name: String): Long? {
+                if (name == "track-list/count") trackListScanCount++
+                return bridge.getLong(name)
+            }
+        }
+        val coord = VideoGeometryCoordinator(countingBridge)
+        coord.registerObservers()
+
+        bridge.properties["track-list/count"] = 1L
+        bridge.properties["track-list/0/type"] = "video"
+        bridge.properties["track-list/0/codec"] = "hevc"
+        bridge.properties["track-list/0/demux-w"] = 1920L
+        bridge.properties["track-list/0/demux-h"] = 1080L
+        bridge.properties["video-params/gamma"] = "pq"
+        bridge.properties["video-out-params/dw"] = 1920L
+        bridge.properties["video-out-params/dh"] = 1080L
+
+        coord.onSwitchStarted("test://hdr10.mkv", 0L)
+        coord.onFileLoaded("test://hdr10.mkv", hasVideo = true)
+        assertTrue(coord.isHdr.value)
+        assertEquals("HDR10", coord.hdrFormat.value)
+
+        // Reset counter after initial file load; subsequent dimension events must reuse cached track scan
+        trackListScanCount = 0
+        repeat(5) {
+            coord.onEvent(MpvEvent.LongProperty("width", 1920L, bridge.currentEpoch()))
+            coord.onEvent(MpvEvent.LongProperty("height", 1080L, bridge.currentEpoch()))
+            coord.onEvent(MpvEvent.LongProperty("dwidth", 1920L, bridge.currentEpoch()))
+            coord.onEvent(MpvEvent.LongProperty("dheight", 1080L, bridge.currentEpoch()))
+            coord.onEvent(MpvEvent.PropertyChanged("video-out-params", bridge.currentEpoch()))
+        }
+        assertEquals(0, trackListScanCount)
+
+        // When track-list changes to Dolby Vision, cache refreshes and disables PQ lighting
+        bridge.properties["track-list/0/codec"] = "dvhe"
+        coord.onEvent(MpvEvent.PropertyChanged("track-list", bridge.currentEpoch()))
+        assertEquals(1, trackListScanCount)
+        assertEquals("Dolby Vision", coord.hdrFormat.value)
+        assertFalse(coord.isHdr.value)
+
+        // TRACKS_CHANGED also refreshes cached Dolby Vision state
+        bridge.properties["track-list/0/codec"] = "hevc"
+        coord.onEvent(MpvEvent.Lifecycle(MpvNativeBridge.Event.TRACKS_CHANGED, bridge.currentEpoch()))
+        assertEquals(2, trackListScanCount)
+        assertEquals("HDR10", coord.hdrFormat.value)
+        assertTrue(coord.isHdr.value)
+
+        // Reset clears cache so standalone updateHdrState computes once and reuses
+        coord.reset()
+        trackListScanCount = 0
+        coord.onVoParamsChanged()
+        coord.onVoParamsChanged()
+        assertEquals(1, trackListScanCount)
+        assertTrue(coord.isHdr.value)
+        assertEquals("HDR10", coord.hdrFormat.value)
     }
 }

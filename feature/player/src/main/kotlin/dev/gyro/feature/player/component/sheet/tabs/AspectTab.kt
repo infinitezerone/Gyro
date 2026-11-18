@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
@@ -88,7 +89,7 @@ internal fun AspectTabContent(
         ) {
             SheetSectionHeader(stringResource(R.string.aspect_hwdec_section))
 
-            val isHw = state.hwdec.contains("mediacodec")
+            val isHw = state.hwdecMode.isHardware
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = SheetCardColor,

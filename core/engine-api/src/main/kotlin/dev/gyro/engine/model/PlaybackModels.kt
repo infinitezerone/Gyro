@@ -16,9 +16,17 @@ data class VideoDimensions(
         get() = if (height > 0) width.toFloat() / height.toFloat() else 16f / 9f
 }
 
+enum class TrackType {
+    VIDEO,
+    AUDIO,
+    SUBTITLE,
+    SECONDARY_SUBTITLE,
+    UNKNOWN
+}
+
 data class TrackInfo(
     val id: Int,
-    val type: String, // "video", "audio", "sub"
+    val type: TrackType,
     val title: String?,
     val lang: String?,
     val isSelected: Boolean

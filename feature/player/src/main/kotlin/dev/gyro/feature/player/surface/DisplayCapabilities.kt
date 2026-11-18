@@ -1,4 +1,4 @@
-package dev.gyro.engine.ui
+package dev.gyro.feature.player.surface
 
 import android.app.Activity
 import android.content.Context

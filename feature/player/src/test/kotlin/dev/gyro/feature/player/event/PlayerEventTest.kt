@@ -2,7 +2,10 @@ package dev.gyro.feature.player.event
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.SurfaceTexture
+import android.net.TestUri
 import android.net.Uri
+import android.view.Surface
 import androidx.lifecycle.viewModelScope
 import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
 import dev.gyro.core.data.repository.DefaultSettingsRepository
@@ -20,6 +23,7 @@ import dev.gyro.core.domain.usecase.EndPlaybackSessionUseCase
 import dev.gyro.core.domain.usecase.LoadMediaUseCase
 import dev.gyro.core.domain.usecase.NavigatePlaylistUseCase
 import dev.gyro.core.domain.usecase.SavePlaybackProgressUseCase
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
@@ -27,7 +31,10 @@ import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
+import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.media.MediaResourceResolver
 import dev.gyro.feature.player.PlayerViewModel
+import java.io.FileNotFoundException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -248,6 +255,227 @@ class PlayerEventTest {
         assertEquals(PlaybackTriggerSource.SHORT_VIDEO_SWIPE, initiated.source)
 
         collectorJob.cancel()
+    }
+
+    @Test
+    fun testHardwareDecodeFailureTriggersAutoFallbackAndReloadsAtCurrentPosition() = runPlayerTest {
+        engine.attachSurface(Surface(SurfaceTexture(0)))
+
+        val emittedEvents = mutableListOf<PlayerEvent>()
+        val collectorJob = backgroundScope.launch {
+            viewModel.events.collect { emittedEvents.add(it) }
+        }
+        testScheduler.runCurrent()
+
+        viewModel.openUri(TestUri("file:///hw_fail.mp4"), displayTitle = "HW Fail")
+        testScheduler.runCurrent()
+
+        fakeBridge.emitFileLoaded(mediaTitle = "HW Fail", hwdec = "mediacodec")
+        fakeBridge.emitPropertyDouble("time-pos", 42.0)
+        testScheduler.runCurrent()
+
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        testScheduler.runCurrent()
+
+        assertEquals(1, emittedEvents.size)
+        val fallback = emittedEvents.single() as PlayerEvent.HwdecAutoFallback
+        assertEquals(HwdecMode.HARDWARE_DIRECT, fallback.from)
+        assertEquals(HwdecMode.SOFTWARE, fallback.to)
+        assertEquals("no", fakeBridge.properties["hwdec"])
+        assertEquals(null, viewModel.failureReason.value)
+
+        val loadCommands = fakeBridge.findCommands("loadfile")
+        assertEquals(2, loadCommands.size)
+        assertTrue(loadCommands.last().any { it.contains("start=+42.000") })
+
+        collectorJob.cancel()
+    }
+
+    @Test
+    fun testSecondFailureAfterSoftwareFallbackEmitsFatalDemuxErrorWithoutLooping() = runPlayerTest {
+        engine.attachSurface(Surface(SurfaceTexture(0)))
+
+        val emittedEvents = mutableListOf<PlayerEvent>()
+        val collectorJob = backgroundScope.launch {
+            viewModel.events.collect { emittedEvents.add(it) }
+        }
+        testScheduler.runCurrent()
+
+        viewModel.openUri(TestUri("file:///double_fail.mp4"), displayTitle = "Double Fail")
+        testScheduler.runCurrent()
+
+        fakeBridge.emitFileLoaded(mediaTitle = "Double Fail", hwdec = "mediacodec")
+        testScheduler.runCurrent()
+
+        // 1st failure triggers software fallback
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        testScheduler.runCurrent()
+
+        // 2nd failure under software decode must NOT loop; emit fatal ErrorOccurred
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        testScheduler.runCurrent()
+
+        assertEquals(2, emittedEvents.size)
+        assertTrue(emittedEvents[0] is PlayerEvent.HwdecAutoFallback)
+        val errorEvent = emittedEvents[1] as PlayerEvent.ErrorOccurred
+        assertTrue(errorEvent.reason is PlaybackFailureReason.DemuxError)
+        assertTrue(viewModel.failureReason.value is PlaybackFailureReason.DemuxError)
+        assertEquals(2, fakeBridge.findCommands("loadfile").size)
+
+        collectorJob.cancel()
+    }
+
+    @Test
+    fun testSoftwareDecodeModeSkipsAutoFallbackOnError() = runPlayerTest {
+        engine.attachSurface(Surface(SurfaceTexture(0)))
+
+        val emittedEvents = mutableListOf<PlayerEvent>()
+        val collectorJob = backgroundScope.launch {
+            viewModel.events.collect { emittedEvents.add(it) }
+        }
+        testScheduler.runCurrent()
+
+        viewModel.setHwdec(HwdecMode.SOFTWARE)
+        viewModel.openUri(TestUri("file:///sw_fail.mp4"), displayTitle = "SW Fail")
+        testScheduler.runCurrent()
+
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        testScheduler.runCurrent()
+
+        assertEquals(1, emittedEvents.size)
+        val errorEvent = emittedEvents.single() as PlayerEvent.ErrorOccurred
+        assertTrue(errorEvent.reason is PlaybackFailureReason.DemuxError)
+        assertTrue(viewModel.failureReason.value is PlaybackFailureReason.DemuxError)
+        assertEquals(1, fakeBridge.findCommands("loadfile").size)
+
+        collectorJob.cancel()
+    }
+
+    @Test
+    fun testSourceOpenFailureClassifiesFileNotFoundAndPermissionDeniedWithoutHwdecFallback() = runPlayerTest {
+        suspend fun verifyOpenFailure(
+            failure: Throwable,
+            uri: Uri,
+            assertReason: (PlaybackFailureReason) -> Unit,
+        ) {
+            val localBridge = FakeMpvNativeBridge()
+            val localEngine = GyroPlayerEngine(
+                context = testContext,
+                bridge = localBridge,
+                ioDispatcher = testDispatcher,
+                defaultDispatcher = testDispatcher,
+                mainDispatcher = testDispatcher,
+                resolver = FakeMediaResourceResolver(failure = failure),
+            )
+            localEngine.warmUp()
+            val localSessionHolder = PlaybackSessionStateHolder()
+            val localSaveProgress = SavePlaybackProgressUseCase(localEngine, historyRepo)
+            val localThumbnailRepo = DefaultThumbnailRepository(testContext, testScope, testDispatcher, testDispatcher)
+            val localLoadMedia = LoadMediaUseCase(
+                engine = localEngine,
+                mediaRepository = mediaRepo,
+                historyRepository = historyRepo,
+                settingsRepository = settingsRepo,
+                subtitleRepository = object : SubtitleRepository {
+                    override suspend fun findCompanionSubtitles(
+                        videoUri: Uri,
+                        videoDisplayName: String?,
+                    ): List<Uri> = emptyList()
+                },
+                serviceLauncher = PlaybackServiceLauncher.NoOp,
+                sessionStateHolder = localSessionHolder,
+                saveProgressUseCase = localSaveProgress,
+                scope = testScope,
+            )
+            val localNavigate = NavigatePlaylistUseCase(localEngine, localLoadMedia)
+            val localEnd = EndPlaybackSessionUseCase(
+                engine = localEngine,
+                saveProgressUseCase = localSaveProgress,
+                thumbnailRepository = localThumbnailRepo,
+                serviceLauncher = PlaybackServiceLauncher.NoOp,
+                sessionStateHolder = localSessionHolder,
+            )
+            val localVm = PlayerViewModel(
+                engine = localEngine,
+                settingsRepository = settingsRepo,
+                thumbnailRepository = localThumbnailRepo,
+                subtitleRepository = object : SubtitleRepository {
+                    override suspend fun findCompanionSubtitles(
+                        videoUri: Uri,
+                        videoDisplayName: String?,
+                    ): List<Uri> = emptyList()
+                },
+                screenshotRepository = object : ScreenshotRepository {
+                    override suspend fun saveScreenshot(bitmap: android.graphics.Bitmap, mediaTitle: String, positionMs: Long): Boolean = true
+                },
+                powerRepository = object : PowerRepository {
+                    override suspend fun readPowerMetrics(): PowerMetrics = PowerMetrics()
+                },
+                loadMediaUseCase = localLoadMedia,
+                navigatePlaylistUseCase = localNavigate,
+                endPlaybackSessionUseCase = localEnd,
+            )
+            val events = mutableListOf<PlayerEvent>()
+            val collector = backgroundScope.launch {
+                localVm.events.collect { events.add(it) }
+            }
+            try {
+                testScheduler.runCurrent()
+                localVm.openUri(uri, displayTitle = "Unopenable")
+                testScheduler.runCurrent()
+
+                assertEquals(1, events.size)
+                val errorEvent = events.single() as PlayerEvent.ErrorOccurred
+                assertReason(errorEvent.reason)
+                assertEquals(errorEvent.reason, localVm.failureReason.value)
+                assertFalse(localBridge.properties["hwdec"] == "no")
+            } finally {
+                collector.cancel()
+                localVm.onUserExit()
+                localVm.viewModelScope.cancel()
+                localEngine.release()
+            }
+        }
+
+        val permissionUri = TestUri("content://media/external/video/denied")
+        verifyOpenFailure(
+            failure = MediaResourceResolver.MediaOpenException("denied", SecurityException("revoked")),
+            uri = permissionUri,
+        ) { reason ->
+            assertTrue(reason is PlaybackFailureReason.PermissionDenied)
+            assertEquals(permissionUri, (reason as PlaybackFailureReason.PermissionDenied).uri)
+        }
+
+        val missingUri = TestUri("content://media/external/video/missing")
+        verifyOpenFailure(
+            failure = MediaResourceResolver.MediaOpenException("missing", FileNotFoundException("gone")),
+            uri = missingUri,
+        ) { reason ->
+            assertTrue(reason is PlaybackFailureReason.FileNotFound)
+            assertEquals(missingUri, (reason as PlaybackFailureReason.FileNotFound).uri)
+        }
+    }
+
+    @Test
+    fun testAutoFallbackRestoresPreferredHwdecWhenSwitchingToNextItem() = runPlayerTest {
+        engine.attachSurface(Surface(SurfaceTexture(0)))
+        val item0 = VideoMediaItem(1L, "file:///ep0.mp4", "Ep 0", 1000L, 100L, 0, 0, 0L, "F")
+        val item1 = VideoMediaItem(2L, "file:///ep1.mp4", "Ep 1", 2000L, 200L, 0, 0, 0L, "F")
+
+        viewModel.setPlaylistAndPlay(listOf(item0, item1), item0)
+        testScheduler.runCurrent()
+
+        fakeBridge.emitFileLoaded(mediaTitle = "Ep 0", hwdec = "mediacodec")
+        testScheduler.runCurrent()
+
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+        testScheduler.runCurrent()
+        assertEquals("no", fakeBridge.properties["hwdec"])
+
+        assertTrue(viewModel.playNext())
+        testScheduler.runCurrent()
+
+        assertEquals("mediacodec,mediacodec-copy", fakeBridge.properties["hwdec"])
     }
 
     private class FakeMediaRepository : MediaRepository {

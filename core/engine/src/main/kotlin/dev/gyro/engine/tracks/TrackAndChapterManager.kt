@@ -5,6 +5,7 @@ import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.TrackInfo
+import dev.gyro.engine.model.TrackType
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import kotlinx.coroutines.CoroutineScope
@@ -92,7 +93,14 @@ class TrackAndChapterManager(
             val trackList = mutableListOf<TrackInfo>()
             for (i in 0 until count) {
                 val id = bridge.getLong("track-list/$i/id")?.toInt() ?: (i.toInt() + 1)
-                val type = bridge.getPropertyString("track-list/$i/type") ?: ""
+                val rawType = bridge.getPropertyString("track-list/$i/type") ?: ""
+                val type = when (rawType.trim().lowercase()) {
+                    "video" -> TrackType.VIDEO
+                    "audio" -> TrackType.AUDIO
+                    "sub" -> TrackType.SUBTITLE
+                    "secondary-sub" -> TrackType.SECONDARY_SUBTITLE
+                    else -> TrackType.UNKNOWN
+                }
                 val title = bridge.getPropertyString("track-list/$i/title")
                 val lang = bridge.getPropertyString("track-list/$i/lang")
                 val selected = bridge.getBoolean("track-list/$i/selected") ?: false
@@ -105,37 +113,28 @@ class TrackAndChapterManager(
         }
     }
 
-    override fun selectTrack(type: String, id: Int) {
+    override fun selectTrack(type: TrackType, id: Int) {
         when (type) {
-            "audio" -> {
-                if (id <= 0) {
-                    bridge.setPropertyString("aid", "no")
-                } else {
-                    bridge.setPropertyString("aid", "$id")
-                }
+            TrackType.VIDEO -> {
+                bridge.setPropertyString("vid", if (id <= 0) "no" else "$id")
             }
-            "sub" -> {
-                if (id <= 0) {
-                    bridge.setPropertyString("sid", "no")
-                } else {
-                    bridge.setPropertyString("sid", "$id")
-                }
+            TrackType.AUDIO -> {
+                bridge.setPropertyString("aid", if (id <= 0) "no" else "$id")
             }
-            "secondary-sub" -> {
+            TrackType.SUBTITLE -> {
+                bridge.setPropertyString("sid", if (id <= 0) "no" else "$id")
+            }
+            TrackType.SECONDARY_SUBTITLE -> {
                 // 次字幕（双语同屏）：id <= 0 关闭；主字幕轨不会被次字幕抢占
-                if (id <= 0) {
-                    bridge.setPropertyString("secondary-sid", "no")
-                } else {
-                    bridge.setPropertyString("secondary-sid", "$id")
-                }
+                bridge.setPropertyString("secondary-sid", if (id <= 0) "no" else "$id")
             }
+            TrackType.UNKNOWN -> return
         }
         // 乐观同步内存中的选中状态，消除在 UI 主线程阻塞发起数十次同步 JNI 往返；
         // 底层 mpv 生效后会触发 TRACKS_CHANGED 事件在后台协程自动权威核实刷新。
-        if (type != "secondary-sub") {
-            val targetType = if (type == "sub") "sub" else "audio"
+        if (type != TrackType.SECONDARY_SUBTITLE) {
             _tracks.value = _tracks.value.map { track ->
-                if (track.type == targetType) {
+                if (track.type == type) {
                     track.copy(isSelected = (id > 0 && track.id == id))
                 } else {
                     track

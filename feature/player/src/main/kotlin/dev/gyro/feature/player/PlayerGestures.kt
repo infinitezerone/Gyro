@@ -12,7 +12,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.toSize
 import dev.gyro.core.model.PlayerGestureConfig
-import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import dev.gyro.feature.player.gesture.playerGestures
@@ -37,7 +36,8 @@ internal fun rememberPlayerGestureModifier(
     activeUri: android.net.Uri?,
     playerState: PlayerState,
     isPlaying: Boolean,
-    engine: PlayerEngine,
+    currentPosMsProvider: () -> Long,
+    softwareVolumeProvider: () -> Double,
     durationMs: Long,
     speed: Float,
     scope: CoroutineScope,
@@ -72,7 +72,7 @@ internal fun rememberPlayerGestureModifier(
         context = context,
         isLocked = playerState.isLocked,
         isPlaying = isPlaying,
-        currentPosMs = { engine.timePosMs.value },
+        currentPosMs = currentPosMsProvider,
         durationMs = { durationMs },
         scrubState = scrubState,
         zoomScale = { zoomState.scale },
@@ -107,7 +107,7 @@ internal fun rememberPlayerGestureModifier(
             if (scrubState.isPreciseSeeking) {
                 scrubState.exitPreciseSeeking()
                 if (scrubState.wasPlayingBeforePreciseSeek) {
-                    engine.play()
+                    viewModel.play()
                 }
             } else {
                 playerState.showControls = !playerState.showControls
@@ -117,19 +117,19 @@ internal fun rememberPlayerGestureModifier(
             }
         },
         onDoubleTapSeek = { deltaMs ->
-            engine.seekRelative(deltaMs)
+            viewModel.seekRelative(deltaMs)
         },
         onDoubleTapPlayPause = {
-            engine.togglePlayPause()
+            viewModel.togglePlayPause()
         },
         onFastForwardStart = { targetSpeed ->
             priorSpeedBeforeBoost = speed
-            engine.setSpeed(targetSpeed)
+            viewModel.setSpeed(targetSpeed)
             playerState.gestureHudState = GestureHudState.Speed(targetSpeed)
         },
         onFastForwardEnd = {
             val restoreSpeed = priorSpeedBeforeBoost ?: 1.0f
-            engine.setSpeed(restoreSpeed)
+            viewModel.setSpeed(restoreSpeed)
             priorSpeedBeforeBoost = null
             playerState.gestureHudState = GestureHudState.Idle
         },
@@ -137,15 +137,13 @@ internal fun rememberPlayerGestureModifier(
             playerState.gestureHudState = newState
         },
         onSoftwareVolumeChange = { gain ->
-            engine.audio.setSoftwareVolume(gain)
+            viewModel.setSoftwareVolume(gain)
         },
-        getSoftwareVolume = {
-            engine.state.value.softwareVolume
-        },
+        getSoftwareVolume = softwareVolumeProvider,
         onSeekTo = { targetMs ->
             // Commit the gesture seek only. Control-layer visibility is owned by the
             // auto-hide timer in PlayerState, not by gesture callbacks.
-            engine.seekTo(targetMs)
+            viewModel.seekTo(targetMs)
         },
         onPlayPrevious = {
             viewModel.playPrevious()

@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.EmptyTrackNotice
@@ -107,7 +108,7 @@ internal fun SubtitlesTabContent(
                 isSelected = state.subtitleTracks.none { it.isSelected },
                 accentColor = SheetAccentBlue,
                 icon = Icons.Default.ClosedCaption,
-                onClick = { callbacks.onSelectTrack("sub", 0) }
+                onClick = { callbacks.onSelectTrack(TrackType.SUBTITLE, 0) }
             )
 
             state.subtitleTracks.forEach { track ->
@@ -117,7 +118,7 @@ internal fun SubtitlesTabContent(
                     isSelected = track.isSelected,
                     accentColor = SheetAccentBlue,
                     icon = Icons.Default.ClosedCaption,
-                    onClick = { callbacks.onSelectTrack("sub", track.id) }
+                    onClick = { callbacks.onSelectTrack(TrackType.SUBTITLE, track.id) }
                 )
             }
         }
@@ -140,7 +141,7 @@ internal fun SubtitlesTabContent(
                     isSelected = state.secondarySubId <= 0,
                     accentColor = SheetAccentBlue,
                     icon = Icons.Default.ClosedCaption,
-                    onClick = { callbacks.onSelectTrack("secondary-sub", 0) }
+                    onClick = { callbacks.onSelectTrack(TrackType.SECONDARY_SUBTITLE, 0) }
                 )
 
                 state.subtitleTracks.forEach { track ->
@@ -150,7 +151,7 @@ internal fun SubtitlesTabContent(
                         isSelected = state.secondarySubId == track.id,
                         accentColor = SheetAccentBlue,
                         icon = Icons.Default.ClosedCaption,
-                        onClick = { callbacks.onSelectTrack("secondary-sub", track.id) }
+                        onClick = { callbacks.onSelectTrack(TrackType.SECONDARY_SUBTITLE, track.id) }
                     )
                 }
             }
@@ -327,7 +328,7 @@ internal fun AudioTabContent(
                         isSelected = track.isSelected,
                         accentColor = SheetAccentBlue,
                         icon = Icons.AutoMirrored.Filled.VolumeUp,
-                        onClick = { callbacks.onSelectTrack("audio", track.id) }
+                        onClick = { callbacks.onSelectTrack(TrackType.AUDIO, track.id) }
                     )
                 }
             }

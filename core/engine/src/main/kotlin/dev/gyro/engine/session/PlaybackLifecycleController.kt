@@ -1,16 +1,22 @@
 package dev.gyro.engine.session
 
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.audio.AudioFocusController
+import dev.gyro.engine.model.EnginePlaybackException
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
 
-class MpvLoadException(val reason: Int, message: String) : RuntimeException(message)
+class MpvLoadException(
+    reason: Int,
+    message: String,
+    cause: Throwable? = null,
+) : EnginePlaybackException(reason, message, cause)
 
 /**
  * Controller responsible for core playback actions (play, pause, speed, hwdec)
@@ -261,24 +267,31 @@ open class PlaybackLifecycleController(
     }
 
     fun toggleHwdec() {
-        val current = store.current.hwdecCurrent
-        val isHw = current.contains("mediacodec")
-        val target = if (isHw) "no" else (if (bridge.isZeroCopySafe()) "mediacodec,mediacodec-copy" else "mediacodec-copy")
+        val target = if (store.current.hwdecMode.isHardware) {
+            HwdecMode.SOFTWARE
+        } else {
+            HwdecMode.HARDWARE_DIRECT
+        }
+        setHwdec(target)
+    }
+
+    fun setHwdec(mode: HwdecMode) {
+        val target = when (mode) {
+            HwdecMode.HARDWARE_DIRECT ->
+                if (bridge.isZeroCopySafe()) "mediacodec,mediacodec-copy" else "mediacodec-copy"
+            HwdecMode.HARDWARE_COPY -> "mediacodec-copy"
+            HwdecMode.SOFTWARE -> "no"
+        }
         bridge.setPropertyString("hwdec", target)
         store.update { it.copy(hwdecCurrent = target) }
     }
 
-    fun setHwdec(target: String) {
-        bridge.setPropertyString("hwdec", target)
-        store.update { it.copy(hwdecCurrent = target) }
-    }
-
-    fun cycleHwdec(): String {
-        val current = store.current.hwdecCurrent
-        val next = when {
-            current.contains("copy") -> "no"
-            current == "no" || current == "none" -> if (bridge.isZeroCopySafe()) "mediacodec" else "mediacodec-copy"
-            else -> "mediacodec-copy"
+    fun cycleHwdec(): HwdecMode {
+        val next = when (store.current.hwdecMode) {
+            HwdecMode.HARDWARE_DIRECT -> HwdecMode.HARDWARE_COPY
+            HwdecMode.HARDWARE_COPY -> HwdecMode.SOFTWARE
+            HwdecMode.SOFTWARE ->
+                if (bridge.isZeroCopySafe()) HwdecMode.HARDWARE_DIRECT else HwdecMode.HARDWARE_COPY
         }
         setHwdec(next)
         return next

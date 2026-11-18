@@ -4,11 +4,16 @@ import androidx.compose.runtime.Stable
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.GlslShaderState
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.PowerMetrics
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackInfo
+import dev.gyro.engine.model.TrackType
 import java.io.File
 
 /**
@@ -34,6 +39,7 @@ data class PlayerSheetUiState(
     val subScale: Double = 1.0,
     val subPos: Long = 100L,
     val hwdec: String = "",
+    val hwdecMode: HwdecMode = HwdecMode.SOFTWARE,
     val fps: Double = 0.0,
     val droppedFrames: Long = 0L,
     val videoBitrate: Long = 0L,
@@ -54,9 +60,9 @@ data class PlayerSheetUiState(
     val stereoDownmix: Boolean = false,
     val isHdr: Boolean = false,
     val hdrFormat: String = "",
-    val hdrOutputMode: String = dev.gyro.core.model.HDR_OUTPUT_AUTO,
-    val toneMappingAlgorithm: String = dev.gyro.core.model.TONE_MAPPING_AUTO,
-    val videoScale: String = dev.gyro.core.model.SCALE_AUTO,
+    val hdrOutputMode: HdrOutputMode = HdrOutputMode.AUTO,
+    val toneMappingAlgorithm: ToneMappingAlgorithm = ToneMappingAlgorithm.AUTO,
+    val videoScale: VideoScale = VideoScale.SPLINE36,
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
     val abLoopASeconds: Double = -1.0,
@@ -64,8 +70,8 @@ data class PlayerSheetUiState(
     val sleepTimerSecondsRemaining: Long = 0L,
     val subAssOverride: Boolean = false
 ) {
-    val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "audio" } }
-    val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == "sub" } }
+    val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == TrackType.AUDIO } }
+    val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == TrackType.SUBTITLE } }
 }
 
 /**
@@ -89,7 +95,7 @@ class PlayerSheetCallbacks(
     val onSetNightMode: (Boolean) -> Unit = {},
     val onSetEqualizerGains: (List<Double>) -> Unit = {},
     val onSetStereoDownmix: (Boolean) -> Unit = {},
-    val onSelectTrack: (type: String, id: Int) -> Unit = { _, _ -> },
+    val onSelectTrack: (type: TrackType, id: Int) -> Unit = { _, _ -> },
     val onSelectResizeMode: (ResizeMode) -> Unit = {},
     val onSelectSpeed: (Float) -> Unit = {},
     val onSetSubDelay: (Double) -> Unit = {},
@@ -97,12 +103,12 @@ class PlayerSheetCallbacks(
     val onSetSubScale: (Double) -> Unit = {},
     val onSetSubPos: (Long) -> Unit = {},
     val onToggleHwdec: () -> Unit = {},
-    val onSetHwdec: (String) -> Unit = {},
+    val onSetHwdec: (HwdecMode) -> Unit = {},
     val onToggleStatsOverlay: (Boolean) -> Unit = {},
     val onAddExternalSubtitle: () -> Unit = {},
-    val onSetHdrOutputMode: (String) -> Unit = {},
-    val onSetToneMappingAlgorithm: (String) -> Unit = {},
-    val onSetVideoScale: (String) -> Unit = {},
+    val onSetHdrOutputMode: (HdrOutputMode) -> Unit = {},
+    val onSetToneMappingAlgorithm: (ToneMappingAlgorithm) -> Unit = {},
+    val onSetVideoScale: (VideoScale) -> Unit = {},
     val onToggleInterpolation: (Boolean) -> Unit = {},
     val onToggleAudioPassthrough: (Boolean) -> Unit = {},
     val onCycleAbLoop: () -> Unit = {},

@@ -402,6 +402,7 @@ fun rememberPlayerPipState(
     val isLeavingForeground = rememberUserLeavingHint(onControlsHide, enabled = autoPipEnabled)
 
     val latestOnPipDismissed by rememberUpdatedState(onPipDismissed)
+    val latestIsInPipMode by rememberUpdatedState(isInPipMode)
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(activity, lifecycleOwner) {
         val act = activity ?: return@DisposableEffect onDispose {}
@@ -412,7 +413,15 @@ fun rememberPlayerPipState(
         }
         val lifecycleObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                if (act.isInPictureInPictureMode || isInPipMode) {
+                val isInteractive = (act.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)
+                    ?.isInteractive != false
+                if (shouldDismissPipOnStop(
+                        isActivityInPipMode = act.isInPictureInPictureMode,
+                        isInPipMode = latestIsInPipMode,
+                        isInteractive = isInteractive,
+                        isChangingConfigurations = act.isChangingConfigurations,
+                    )
+                ) {
                     latestOnPipDismissed?.invoke()
                 }
             }
@@ -575,6 +584,17 @@ fun rememberPlayerPipState(
         )
     }
 }
+
+/**
+ * Returns true when `ON_STOP` during PiP indicates the user dismissed the PiP window rather than
+ * locking the screen (`isInteractive == false`) or rotating/recreating the Activity.
+ */
+internal fun shouldDismissPipOnStop(
+    isActivityInPipMode: Boolean,
+    isInPipMode: Boolean,
+    isInteractive: Boolean,
+    isChangingConfigurations: Boolean,
+): Boolean = (isActivityInPipMode || isInPipMode) && isInteractive && !isChangingConfigurations
 
 /**
  * Registers BroadcastReceiver for PIP_ACTION_TOGGLE to handle play/pause clicks.

@@ -36,6 +36,11 @@
     <string name="player_error_title">Cannot Play This Video</string>
     <string name="player_error_desc">The file may be corrupted or in an unsupported format</string>
     <string name="action_retry">Retry</string>
+    <string name="action_skip_next">Skip</string>
+    <string name="player_error_file_not_found">Video file not found; it may have been moved or deleted</string>
+    <string name="player_error_permission_denied">Permission denied to access this file; please re-authorize</string>
+    <string name="player_error_codec_crash">Decoder stopped unexpectedly; please retry or skip</string>
+    <string name="player_hwdec_fallback_toast">Hardware decoding failed, switched to software decoding</string>
     <!-- Sheet Tabs -->
     <string name="sheet_tab_playlist">Playlist</string>
     <string name="sheet_tab_subtitles">Subtitles</string>

@@ -5,8 +5,13 @@ import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.view.Display
 import android.view.Surface
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
+import dev.gyro.core.model.VideoScale
+import dev.gyro.engine.api.controller.RenderController
 import dev.gyro.engine.audio.AudioEffectsController
 import dev.gyro.engine.audio.AudioFocusController
 import dev.gyro.engine.audio.GyroAudioFocusManager
@@ -78,6 +83,10 @@ class GyroPlayerEngine(
     private val isInitialized = AtomicBoolean(false)
     private var engineJob = SupervisorJob()
     private var engineScope = CoroutineScope(engineJob + defaultDispatcher)
+
+    init {
+        shaders.bindScopeProvider { engineScope }
+    }
 
     internal val playback: PlaybackLifecycleController = PlaybackLifecycleController(
         bridge = bridge,
@@ -166,6 +175,25 @@ class GyroPlayerEngine(
     val durationMs: StateFlow<Long> get() = timeline.durationMs
     override val bufferedPosMs: StateFlow<Long> get() = timeline.bufferedPosMs
     val isFileLoaded: Boolean get() = timeline.isFileLoaded
+    override val render: RenderController = object : RenderController {
+        override val isSurfaceAttached: Boolean
+            get() = loadCoordinator.isSurfaceAttached
+
+        override fun attachSurface(surface: Surface) =
+            this@GyroPlayerEngine.attachSurface(surface)
+
+        override fun detachSurface() =
+            this@GyroPlayerEngine.detachSurface()
+
+        override fun detachSurface(surface: Surface?) =
+            this@GyroPlayerEngine.detachSurface(surface)
+
+        override fun redraw() =
+            this@GyroPlayerEngine.redraw()
+
+        override fun requestSurfaceRebuild() =
+            this@GyroPlayerEngine.requestSurfaceRebuild()
+    }
     override val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
 
     override fun addSubtitle(path: String) = trackManager.addSubtitle(path)
@@ -183,11 +211,14 @@ class GyroPlayerEngine(
         userOptions: Map<String, String> = configurator.currentState.userOptions,
         settings: UserSettings = configurator.currentState.settings,
     ) {
+        val hdrOutput = settings.hdrOutput
+        val toneMapping = settings.toneMapping
+        val videoScale = settings.videoScalePreset
         store.update {
             it.copy(
-                hdrOutputMode = settings.hdrOutputMode,
-                toneMappingAlgorithm = settings.toneMappingAlgorithm,
-                videoScale = settings.videoScale,
+                hdrOutputMode = hdrOutput,
+                toneMappingAlgorithm = toneMapping,
+                videoScale = videoScale,
                 interpolation = settings.interpolation,
                 audioPassthrough = settings.audioPassthrough
             )
@@ -196,8 +227,8 @@ class GyroPlayerEngine(
         if (isInitialized.get()) {
             configurator.applyRuntimeUpdate(bridge, settings, userOptions)
             geometry.onHdrOutputModeChanged()
-            geometry.setToneMappingAlgorithm(settings.toneMappingAlgorithm)
-            geometry.setVideoScale(settings.videoScale)
+            geometry.setToneMappingAlgorithm(toneMapping)
+            geometry.setVideoScale(videoScale)
             geometry.setInterpolation(settings.interpolation)
             audio.setAudioPassthrough(settings.audioPassthrough)
         } else {
@@ -238,6 +269,9 @@ class GyroPlayerEngine(
                 subsystems.forEach { it.registerObservers() }
                 observePlaybackEvents()
                 bridge.init()
+                engineScope.launch(ioDispatcher) {
+                    shaders.extractBuiltInShaders()
+                }
             } catch (t: Throwable) {
                 dev.gyro.engine.trace.EngineLog.e("GyroPlayerEngine", "Failed to initialize GyroPlayerEngine", t)
                 engineJob.cancel()
@@ -273,8 +307,8 @@ class GyroPlayerEngine(
     override fun togglePlayPause() = playback.togglePlayPause()
     override fun setSpeed(speed: Float) = playback.setSpeed(speed)
     override fun toggleHwdec() = playback.toggleHwdec()
-    override fun setHwdec(target: String) = playback.setHwdec(target)
-    override fun cycleHwdec(): String = playback.cycleHwdec()
+    override fun setHwdec(mode: HwdecMode) = playback.setHwdec(mode)
+    override fun cycleHwdec(): HwdecMode = playback.cycleHwdec()
     override fun abandonAudioFocus() = playback.abandonAudioFocus()
 
     override fun seekTo(positionMs: Long) = timeline.seekTo(positionMs)
@@ -289,9 +323,10 @@ class GyroPlayerEngine(
     override fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
     override fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())
 
-    override fun setHdrOutputMode(mode: String) = geometry.setHdrOutputMode(mode)
-    override fun setToneMappingAlgorithm(algorithm: String) = geometry.setToneMappingAlgorithm(algorithm)
-    override fun setVideoScale(scale: String) = geometry.setVideoScale(scale)
+    override fun setHdrOutputMode(mode: HdrOutputMode) = geometry.setHdrOutputMode(mode)
+    override fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) =
+        geometry.setToneMappingAlgorithm(algorithm)
+    override fun setVideoScale(scale: VideoScale) = geometry.setVideoScale(scale)
     override fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
     override fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
 

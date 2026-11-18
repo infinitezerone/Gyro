@@ -1,13 +1,16 @@
 package dev.gyro.engine.video
 
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.ToneMappingAlgorithm
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
+import dev.gyro.engine.model.normalizeContentFps
 import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.SwitchTrace
-import dev.gyro.engine.ui.normalizeContentFps
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +55,9 @@ class VideoGeometryCoordinator(
     @Volatile
     private var currentUrl = ""
 
+    @Volatile
+    private var cachedIsDoviTrack: Boolean? = null
+
     private val _displayRefreshRate = store.property({ it.displayRefreshRate }) { s, v -> s.copy(displayRefreshRate = v) }
     val displayRefreshRate: StateFlow<Float> = _displayRefreshRate.asStateFlow()
 
@@ -93,6 +99,7 @@ class VideoGeometryCoordinator(
         bridge.observeProperty("estimated-vf-fps", MpvNativeBridge.Format.DOUBLE)
         bridge.observeProperty("video-params", MpvNativeBridge.Format.NONE)
         bridge.observeProperty("video-out-params", MpvNativeBridge.Format.NONE)
+        bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
     }
 
     override fun onEvent(event: MpvEvent) {
@@ -105,6 +112,10 @@ class VideoGeometryCoordinator(
             is MpvEvent.Lifecycle -> when (event.id) {
                 MpvNativeBridge.Event.FILE_LOADED ->
                     onFileLoaded(currentUrl, bridge.getPropertyString("video") != "no")
+                MpvNativeBridge.Event.TRACKS_CHANGED -> {
+                    refreshDoviTrackCache()
+                    updateHdrState()
+                }
                 MpvNativeBridge.Event.FIRST_FRAME -> onFirstFramePresented()
                 MpvNativeBridge.Event.END_FILE, MpvNativeBridge.Event.SHUTDOWN -> onSessionEnded()
             }
@@ -115,6 +126,10 @@ class VideoGeometryCoordinator(
             }
             is MpvEvent.PropertyChanged -> when (event.name) {
                 "video-params", "video-out-params" -> onVoParamsChanged()
+                "track-list" -> {
+                    refreshDoviTrackCache()
+                    updateHdrState()
+                }
             }
             is MpvEvent.LongProperty -> when (event.name) {
                 "width", "height", "dwidth", "dheight" -> onVoParamsChanged()
@@ -138,6 +153,7 @@ class VideoGeometryCoordinator(
         initialHeight: Int = 0
     ) {
         currentUrl = url
+        cachedIsDoviTrack = null
         _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false
         _videoFrameRate.value = 0f
@@ -162,6 +178,7 @@ class VideoGeometryCoordinator(
     }
     fun onFileLoaded(url: String, hasVideo: Boolean) {
         if (!hasVideo) {
+            cachedIsDoviTrack = false
             _sessionState.value = PlaybackSessionState.Presenting(url, VideoDimensions(0, 0), 1.0f)
             _firstFrameRendered.value = true
             _geometryReady.value = true
@@ -183,6 +200,7 @@ class VideoGeometryCoordinator(
             SwitchTrace.log("DIMS_PUBLISHED", "${w}x${h}, aspect=$aspect, source=demux")
         }
 
+        refreshDoviTrackCache()
         updateHdrState()
 
         bridge.getDouble("container-fps")?.let { fps ->
@@ -270,6 +288,7 @@ class VideoGeometryCoordinator(
         updateHdrState()
     }
     fun onSessionEnded() {
+        cachedIsDoviTrack = null
         _sessionState.value = PlaybackSessionState.Ended
         _firstFrameRendered.value = false
         _geometryReady.value = false
@@ -283,6 +302,7 @@ class VideoGeometryCoordinator(
 
     override fun reset() {
         currentUrl = ""
+        cachedIsDoviTrack = null
         _sessionState.value = PlaybackSessionState.Idle
         _firstFrameRendered.value = false
         _geometryReady.value = false
@@ -296,6 +316,26 @@ class VideoGeometryCoordinator(
         bridge.setPropertyString("target-prim", "auto")
     }
 
+    private fun refreshDoviTrackCache() {
+        cachedIsDoviTrack = queryIsDoviTrack()
+    }
+
+    private fun queryIsDoviTrack(): Boolean {
+        val count = bridge.getLong("track-list/count") ?: 0L
+        for (i in 0 until count) {
+            if (bridge.getPropertyString("track-list/$i/type") == "video") {
+                val codec = bridge.getPropertyString("track-list/$i/codec")?.lowercase() ?: ""
+                val fName = bridge.getPropertyString("track-list/$i/format-name")?.lowercase() ?: ""
+                if (codec.contains("dovi") || codec.contains("dvhe") || codec.contains("dvh1") ||
+                    fName.contains("dovi") || fName.contains("dolby")
+                ) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private fun updateHdrState() {
         if (_sessionState.value is PlaybackSessionState.Switching) {
             return
@@ -303,19 +343,7 @@ class VideoGeometryCoordinator(
         val gamma = bridge.getPropertyString("video-params/gamma")?.lowercase()?.trim() ?: ""
         val colormatrix = bridge.getPropertyString("video-params/colormatrix")?.lowercase()?.trim() ?: ""
 
-        var isDoviTrack = false
-        val count = bridge.getLong("track-list/count") ?: 0L
-        for (i in 0 until count) {
-            if (bridge.getPropertyString("track-list/$i/type") == "video") {
-                val codec = bridge.getPropertyString("track-list/$i/codec")?.lowercase() ?: ""
-                val fName = bridge.getPropertyString("track-list/$i/format-name")?.lowercase() ?: ""
-                if (codec.contains("dovi") || codec.contains("dvhe") || codec.contains("dvh1") ||
-                    fName.contains("dovi") || fName.contains("dolby")) {
-                    isDoviTrack = true
-                    break
-                }
-            }
-        }
+        val isDoviTrack = cachedIsDoviTrack ?: queryIsDoviTrack().also { cachedIsDoviTrack = it }
 
         val isDovi = colormatrix.contains("dolby") || colormatrix.contains("dovi") || isDoviTrack
         val isPq = gamma == "pq"
@@ -328,7 +356,7 @@ class VideoGeometryCoordinator(
             else -> ""
         }
 
-        val allowHdrLighting = store.current.hdrOutputMode != dev.gyro.core.model.HDR_OUTPUT_SDR &&
+        val allowHdrLighting = store.current.hdrOutputMode != HdrOutputMode.SDR &&
             displayHdrCapable
 
         // Standard HDR10 and HLG can be physically lit up by vo=gpu on 10-bit displays.
@@ -366,23 +394,23 @@ class VideoGeometryCoordinator(
         bridge.setPropertyDouble("display-fps", rate.toDouble())
     }
 
-    fun setHdrOutputMode(mode: String) {
+    fun setHdrOutputMode(mode: HdrOutputMode) {
         store.update { it.copy(hdrOutputMode = mode) }
         updateHdrState()
     }
 
-    fun setToneMappingAlgorithm(algorithm: String) {
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
         store.update { it.copy(toneMappingAlgorithm = algorithm) }
-        val effective = if (algorithm == dev.gyro.core.model.TONE_MAPPING_AUTO) "hable" else algorithm
+        val effective = if (algorithm == ToneMappingAlgorithm.AUTO) "hable" else algorithm.persistedKey
         bridge.setPropertyString("tone-mapping", effective)
     }
 
-    fun setVideoScale(scale: String) {
+    fun setVideoScale(scale: VideoScale) {
         store.update { it.copy(videoScale = scale) }
         val effective = when (scale) {
-            dev.gyro.core.model.SCALE_BILINEAR, dev.gyro.core.model.SCALE_OFF -> "bilinear"
-            dev.gyro.core.model.SCALE_LANCZOS -> "lanczos"
-            else -> "spline36"
+            VideoScale.BILINEAR -> "bilinear"
+            VideoScale.LANCZOS -> "lanczos"
+            VideoScale.SPLINE36 -> "spline36"
         }
         bridge.setPropertyString("scale", effective)
         bridge.setPropertyString("dscale", if (effective == "bilinear") "bilinear" else "mitchell")

@@ -2,7 +2,9 @@ package dev.gyro.feature.player.component
 
 import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.model.TrackInfo
+import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetTab
@@ -143,7 +145,7 @@ fun PlayerMediaInfoSheetPreview() {
         audioChannels = "5.1 (side)",
         audioSampleRate = 48_000L,
         audioBitrate = 640_000L,
-        hwdecCurrent = "mediacodec",
+        hwdecCurrent = HwdecMode.HARDWARE_DIRECT.persistedKey,
         droppedFrames = 0L
     )
 
@@ -155,7 +157,8 @@ fun PlayerMediaInfoSheetPreview() {
         PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.INFO,
             state = PlayerSheetUiState(
-                hwdec = "mediacodec",
+                hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
+                hwdecMode = HwdecMode.HARDWARE_DIRECT,
                 fps = 23.976,
                 videoWidth = 1920,
                 videoHeight = 1080,
@@ -210,7 +213,8 @@ fun PlayerSettingsHubPreview() {
         PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.SETTINGS_HUB,
             state = PlayerSheetUiState(
-                hwdec = "mediacodec",
+                hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
+                hwdecMode = HwdecMode.HARDWARE_DIRECT,
                 fps = 60.0,
                 videoWidth = 1920,
                 videoHeight = 1080
@@ -261,9 +265,9 @@ fun PlayerPlaylistSheetPreview() {
 @Composable
 fun PlayerSubtitlesSheetPreview() {
     val sampleTracks = listOf(
-        TrackInfo(id = 1, type = "sub", title = "Chinese (Simplified)", lang = "chi", isSelected = true),
-        TrackInfo(id = 2, type = "sub", title = "English (Full)", lang = "eng", isSelected = false),
-        TrackInfo(id = 3, type = "sub", title = "Japanese (Original)", lang = "jpn", isSelected = false)
+        TrackInfo(id = 1, type = TrackType.SUBTITLE, title = "Chinese (Simplified)", lang = "chi", isSelected = true),
+        TrackInfo(id = 2, type = TrackType.SUBTITLE, title = "English (Full)", lang = "eng", isSelected = false),
+        TrackInfo(id = 3, type = TrackType.SUBTITLE, title = "Japanese (Original)", lang = "jpn", isSelected = false)
     )
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
@@ -292,9 +296,9 @@ fun PlayerSubtitlesSheetPreview() {
 @Composable
 fun PlayerAudioSheetPreview() {
     val sampleTracks = listOf(
-        TrackInfo(id = 1, type = "audio", title = "Japanese FLAC 5.1ch", lang = "jpn", isSelected = true),
-        TrackInfo(id = 2, type = "audio", title = "Chinese Mandarin AAC 2.0ch", lang = "chi", isSelected = false),
-        TrackInfo(id = 3, type = "audio", title = "Director Commentary", lang = "eng", isSelected = false)
+        TrackInfo(id = 1, type = TrackType.AUDIO, title = "Japanese FLAC 5.1ch", lang = "jpn", isSelected = true),
+        TrackInfo(id = 2, type = TrackType.AUDIO, title = "Chinese Mandarin AAC 2.0ch", lang = "chi", isSelected = false),
+        TrackInfo(id = 3, type = TrackType.AUDIO, title = "Director Commentary", lang = "eng", isSelected = false)
     )
     androidx.compose.material3.Surface(
         color = Color(0xFF1E1E1E),
@@ -370,7 +374,8 @@ fun PlayerStatsSheetPreview() {
         PlayerSettingsSheetContent(
             initialTab = PlayerSheetTab.STATS,
             state = PlayerSheetUiState(
-                hwdec = "mediacodec",
+                hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
+                hwdecMode = HwdecMode.HARDWARE_DIRECT,
                 fps = 59.94,
                 droppedFrames = 3L,
                 videoWidth = 3840,

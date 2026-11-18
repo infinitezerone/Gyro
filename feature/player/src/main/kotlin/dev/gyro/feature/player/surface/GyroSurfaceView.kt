@@ -1,4 +1,4 @@
-package dev.gyro.engine.ui
+package dev.gyro.feature.player.surface
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -14,7 +14,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import dev.gyro.engine.api.PlayerEngine
-import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.trace.SwitchTrace
 import kotlin.math.abs
 
@@ -22,18 +21,11 @@ import kotlin.math.abs
 private const val ASPECT_EPSILON = 0.01
 
 /**
- * High-performance, zero-overhead SurfaceView for Gyro MPV player.
+ * High-performance, zero-overhead SurfaceView for Gyro playback engines.
  *
- * All rendering loops, EGL context lifecycles, and frame swaps are executed
- * strictly on the native Rust thread `gyro-render`.
- *
- * This SurfaceView only acts as the window handle provider:
- * - `surfaceCreated`: passes the native ANativeWindow to Rust.
- * - `surfaceDestroyed`: detaches surface without tearing down EGLContext.
- *
- * Pure display math lives in [DisplayFit.kt], display capability probes in
- * [DisplayCapabilities.kt], frame capture in [SurfaceCapture.kt], and the refresh-rate vote
- * in [ContentFrameRateController] - this class is the window-handle and buffer-format bridge.
+ * All rendering loops, EGL context lifecycles, and frame swaps execute inside the engine backend;
+ * this SurfaceView acts strictly as the Android window handle provider communicating via
+ * [PlayerEngine.render] (`RenderController`) and [PlayerEngine.geometry].
  */
 class GyroSurfaceView @JvmOverloads constructor(
     context: Context,
@@ -54,9 +46,8 @@ class GyroSurfaceView @JvmOverloads constructor(
      * Buffer dims actually applied by the platform, as of the last [surfaceChanged]. Unlike
      * [lockedWidth]/[lockedHeight] (the *requested* lock), these reflect the live BufferQueue:
      * `setFixedSize` is an async transaction, so between a re-lock and the matching
-     * [surfaceChanged] mpv still draws into the previous file's buffer. The shutter-reveal
-     * policy consumes this to avoid revealing the new video through stale buffer geometry -
-     * the "corner jump" regression of 2026-11-08.
+     * [surfaceChanged] the backend still draws into the previous file's buffer. The shutter-reveal
+     * policy consumes this to avoid revealing the new video through stale buffer geometry.
      */
     var appliedBufferWidth by mutableIntStateOf(0)
         private set
@@ -65,10 +56,6 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     /**
      * Pixel format the platform last reported through [surfaceChanged], 0 before the first call.
-     *
-     * The surface colourspace is baked into the EGL surface, so a format change (8-bit <-> 10-bit
-     * for HDR) has to rebuild it; the callback is the only reliable signal that the new format is
-     * actually in effect.
      */
     private var appliedFormat = 0
 
@@ -79,13 +66,13 @@ class GyroSurfaceView @JvmOverloads constructor(
 
     /**
      * Set to true while entering or settling after exiting PiP mode.
-     * Prevents buffer reallocation and mpv redraw churn during transition animation.
+     * Prevents buffer reallocation and redraw churn during transition animation.
      */
     @Volatile
     var pipTransitionActive: Boolean = false
         set(value) {
             field = value
-            EngineLog.d(TAG, "pipTransitionActive = $value")
+            SurfaceLog.d(TAG, "pipTransitionActive = $value")
         }
 
     private val displayListener = object : DisplayManager.DisplayListener {
@@ -95,7 +82,7 @@ class GyroSurfaceView @JvmOverloads constructor(
             val myDisplay = display ?: return
             if (displayId == myDisplay.displayId) {
                 val refreshRate = myDisplay.refreshRate
-                EngineLog.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
+                SurfaceLog.i(TAG, "onDisplayChanged: displayId=$displayId, refreshRate=$refreshRate")
                 engine?.geometry?.updateDisplayRefreshRate(refreshRate)
             }
         }
@@ -133,12 +120,12 @@ class GyroSurfaceView @JvmOverloads constructor(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val format = if (enabled) PixelFormat.RGBA_1010102 else PixelFormat.RGBA_8888
             holder?.setFormat(format)
-            EngineLog.i(TAG, "setHdrOutput: enabled=$enabled, format=$format")
+            SurfaceLog.i(TAG, "setHdrOutput: enabled=$enabled, format=$format")
         }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        EngineLog.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
+        SurfaceLog.i(TAG, "surfaceCreated -> attachSurface (engine=$engine, buffer=${lockedWidth}x$lockedHeight)")
         attach(holder.surface)
     }
 
@@ -148,34 +135,24 @@ class GyroSurfaceView @JvmOverloads constructor(
         val formatChanged = appliedFormat != 0 && appliedFormat != format
         appliedFormat = format
         SwitchTrace.log("SURFACE_CHANGED", "view=${width}x$height buffer=${lockedWidth}x$lockedHeight format=$format")
-        EngineLog.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight format=$format")
+        SurfaceLog.d(TAG, "surfaceChanged: window=${width}x$height buffer=${lockedWidth}x$lockedHeight format=$format")
         if (lockedWidth <= 0 || lockedHeight <= 0) {
-            // No video dimensions have arrived yet: let the buffer follow the view so first paint
-            // has something to draw into. [lockBufferSizeToVideo] re-locks once mpv reports size.
             lockBufferSize(holder, width, height)
         }
 
         val target = engine ?: return
-        // A live surface with the native side unbound is the frozen-picture case: `surfaceDestroyed`
-        // ran, no `surfaceCreated` followed because the view was reused, and drawing silently stops
-        // while audio keeps playing. Re-bind before deciding whether a repaint is needed.
-        if (!target.isSurfaceAttached && holder.surface?.isValid == true) {
-            EngineLog.i(TAG, "surfaceChanged -> re-attach unbound surface")
+        if (!target.render.isSurfaceAttached && holder.surface?.isValid == true) {
+            SurfaceLog.i(TAG, "surfaceChanged -> re-attach unbound surface")
             attach(holder.surface)
             return
         }
-        // An HDR switch flips the window between 8-bit and 10-bit buffers. The EGL surface was
-        // created for the previous format and carries its colourspace, so it has to be rebuilt;
-        // rebuilding also repaints, which makes the redraw below redundant.
         if (formatChanged) {
-            EngineLog.i(TAG, "surfaceChanged -> buffer format changed to $format, rebuilding render surface")
-            target.requestSurfaceRebuild()
+            SurfaceLog.i(TAG, "surfaceChanged -> buffer format changed to $format, rebuilding render surface")
+            target.render.requestSurfaceRebuild()
             return
         }
-        // Repaint so a paused player follows a relock. A playing one is already producing frames at
-        // whatever size EGL reports, which is the number the renderer trusts.
         if (!pipTransitionActive && target.geometry.firstFrameRendered.value) {
-            target.redraw()
+            target.render.redraw()
         }
     }
 
@@ -199,7 +176,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         lockedWidth = w
         lockedHeight = h
         holder.setFixedSize(w, h)
-        EngineLog.i(TAG, "lockBufferSize: ${w}x$h")
+        SurfaceLog.i(TAG, "lockBufferSize: ${w}x$h")
     }
 
     private fun attach(surface: Surface?) {
@@ -209,10 +186,8 @@ class GyroSurfaceView @JvmOverloads constructor(
         if (rate != null) {
             engine?.geometry?.updateDisplayRefreshRate(rate)
         }
-        // A fresh surface starts at the platform default rate; re-apply the content rate that
-        // was published before it existed.
         frameRateController.reapplyCurrent()
-        engine?.attachSurface(surface)
+        engine?.render?.attachSurface(surface)
     }
 
     /**
@@ -223,18 +198,10 @@ class GyroSurfaceView @JvmOverloads constructor(
         val surfaceToDetach = attachedSurface ?: holder.surface
         attachedSurface = null
         if (surfaceToDetach != null) {
-            targetEngine?.detachSurface(surfaceToDetach)
+            targetEngine?.render?.detachSurface(surfaceToDetach)
         }
     }
 
-    /**
-     * Re-binds a surface that is still valid but was unbound earlier.
-     *
-     * Compose reuses this view across layouts - rotation, full screen, leaving PiP - so it can be
-     * detached and attached again without `surfaceCreated` firing a second time. `surfaceDestroyed`
-     * has already unbound the native side by then, and nothing paints afterwards: audio keeps
-     * playing while the picture stays frozen on the last frame.
-     */
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
@@ -245,7 +212,7 @@ class GyroSurfaceView @JvmOverloads constructor(
         }
         val surface = holder.surface
         if (surface != null && surface.isValid && attachedSurface !== surface) {
-            EngineLog.i(TAG, "onAttachedToWindow -> re-attach existing surface")
+            SurfaceLog.i(TAG, "onAttachedToWindow -> re-attach existing surface")
             attach(surface)
         }
     }
@@ -257,21 +224,18 @@ class GyroSurfaceView @JvmOverloads constructor(
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        // Only the surface the engine actually holds may unbind it. A new view can attach before the
-        // old one detaches during a Compose layout change, and an unconditional detach then tears
-        // down the fresh surface: the picture freezes while audio keeps playing.
         val current = attachedSurface
         if (current != null && current !== holder.surface) {
-            EngineLog.i(TAG, "surfaceDestroyed ignored: surface is no longer the attached one")
+            SurfaceLog.i(TAG, "surfaceDestroyed ignored: surface is no longer the attached one")
             return
         }
         val surfaceToDetach = current ?: holder.surface
         attachedSurface = null
         lockedWidth = 0
         lockedHeight = 0
-        EngineLog.i(TAG, "surfaceDestroyed -> detachSurface")
+        SurfaceLog.i(TAG, "surfaceDestroyed -> detachSurface")
         if (surfaceToDetach != null) {
-            engine?.detachSurface(surfaceToDetach)
+            engine?.render?.detachSurface(surfaceToDetach)
         }
     }
 }
