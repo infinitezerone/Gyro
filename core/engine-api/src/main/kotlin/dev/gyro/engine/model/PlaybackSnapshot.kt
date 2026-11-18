@@ -72,9 +72,10 @@ data class PlaybackSnapshot(
     val equalizerGains: List<Double> = List(EQUALIZER_BANDS.size) { 0.0 },
     val displayRefreshRate: Float = 0f,
 
-    // Our own orchestration state, not a mirror of mpv
+    // Our own orchestration state, not a mirror of mpv. [error] is classified by the engine so no
+    // consumer has to infer a cause from message text.
     val session: SessionPhase = SessionPhase.Idle,
-    val error: Throwable? = null
+    val error: PlaybackError? = null
 ) {
     /** Strongly typed decoder mode derived from [hwdecCurrent], defaulting to [HwdecMode.SOFTWARE]. */
     val hwdecMode: HwdecMode

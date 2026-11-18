@@ -6,9 +6,8 @@ import dev.gyro.core.domain.model.PlaybackSessionEvent
 import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.api.media.MediaItem
-import dev.gyro.engine.model.EnginePlaybackException
+import dev.gyro.engine.model.PlaybackError
 import dev.gyro.engine.model.PlaybackSnapshot
-import dev.gyro.engine.model.PlaybackSourceOpenException
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.SessionPhase
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +23,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.FileNotFoundException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -64,7 +62,7 @@ class PlaybackSessionStateHolder @Inject constructor() {
     private var pendingLoadUri: Uri? = null
     private var loadGeneration: Long = 0L
 
-    private var lastHandledError: Throwable? = null
+    private var lastHandledError: PlaybackError? = null
     private var hwdecFallbackAttemptedKey: String? = null
     private var autoFallbackTargetKey: String? = null
     private var lastRequestedHwdec: HwdecMode? = null
@@ -292,7 +290,7 @@ class PlaybackSessionStateHolder @Inject constructor() {
         val currentKey = snapshot.currentUri?.toString()?.takeIf { it.isNotBlank() } ?: failedTarget
 
         var shouldRestoreHwdec = false
-        var actionError: Throwable? = null
+        var actionError: PlaybackError? = null
         synchronized(lock) {
             if (!_sessionActive.value) return
 
@@ -332,7 +330,7 @@ class PlaybackSessionStateHolder @Inject constructor() {
         }
         val effectiveHwdecLabel = snapshot.hwdecCurrent.ifBlank { effectiveHwdecMode.persistedKey }
         val targetUri = snapshot.currentUri
-        val reason = classifyPlaybackFailure(error, targetUri, effectiveHwdecLabel)
+        val reason = classifyFailure(error, targetUri, effectiveHwdecMode, effectiveHwdecLabel)
 
         val isSourceOpenFailure =
             reason is PlaybackFailureReason.FileNotFound ||
@@ -391,33 +389,34 @@ class PlaybackSessionStateHolder @Inject constructor() {
         }
     }
 
-    private fun classifyPlaybackFailure(
-        error: Throwable,
+    /**
+     * Maps an engine-classified [PlaybackError] onto the UI-facing reason.
+     *
+     * mpv reports `end-file` failures without a structured cause, so a playback failure is
+     * attributed to the decoder only when hardware decoding is the active configuration — that is
+     * the single fact the domain actually knows. Under software decoding the same failure means the
+     * container or the stream itself is unreadable, which surfaces as [PlaybackFailureReason.DemuxError].
+     */
+    private fun classifyFailure(
+        error: PlaybackError,
         uri: Uri?,
-        hwdec: String,
-    ): PlaybackFailureReason {
-        val chain = generateSequence(error) { it.cause }.toList()
-        if (chain.any { it is SecurityException }) {
-            return PlaybackFailureReason.PermissionDenied(uri ?: Uri.EMPTY)
-        }
-        if (chain.any { it is FileNotFoundException || it is PlaybackSourceOpenException }) {
-            return PlaybackFailureReason.FileNotFound(uri ?: Uri.EMPTY)
-        }
-        val isCodecMessage = error.message?.let { msg ->
-            msg.contains("codec", ignoreCase = true) || msg.contains("decoder", ignoreCase = true)
-        } == true
-        if (chain.any { it is EnginePlaybackException }) {
-            return if (isCodecMessage) {
-                PlaybackFailureReason.CodecCrash(hwdec.ifBlank { "unknown" })
+        hwdecMode: HwdecMode,
+        hwdecLabel: String,
+    ): PlaybackFailureReason = when (error) {
+        is PlaybackError.SourcePermissionDenied ->
+            PlaybackFailureReason.PermissionDenied(uri ?: Uri.EMPTY)
+
+        is PlaybackError.SourceUnreadable ->
+            PlaybackFailureReason.FileNotFound(uri ?: Uri.EMPTY)
+
+        is PlaybackError.PlaybackFailed ->
+            if (hwdecMode.isHardware) {
+                PlaybackFailureReason.CodecCrash(hwdecLabel)
             } else {
                 PlaybackFailureReason.DemuxError(error.message ?: "Playback failed")
             }
-        }
-        return if (isCodecMessage) {
-            PlaybackFailureReason.CodecCrash(hwdec.ifBlank { "unknown" })
-        } else {
-            PlaybackFailureReason.Unknown
-        }
+
+        is PlaybackError.Unknown -> PlaybackFailureReason.Unknown
     }
 
     /**

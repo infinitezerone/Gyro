@@ -15,6 +15,7 @@ import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.model.MediaFeedQuery
+import dev.gyro.core.domain.model.PlaybackFailureReason
 import dev.gyro.core.domain.model.PlaybackSessionEvent
 import dev.gyro.core.domain.model.PlaybackSource
 import dev.gyro.core.domain.model.PlaylistStep
@@ -32,6 +33,9 @@ import dev.gyro.core.testing.fakes.FakePlaybackHistoryDao
 import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.model.PlaybackError
+import dev.gyro.engine.model.PlaybackSnapshot
+import dev.gyro.engine.model.PlaybackState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -404,6 +408,59 @@ class DomainUseCasesTest {
 
         assertEquals(42_000L, historyRepo.getProgress(uri)?.positionMs)
         assertEquals("Buffering BG", fakeHistoryDao.getByUri(uri.toString())?.title)
+    }
+
+    @Test
+    fun testHwdecFallbackIsDrivenByTypedPlaybackErrorThenReportsCodecCrashOnExplicitRetry() = runCaseTest {
+        val holder = PlaybackSessionStateHolder()
+        holder.setSessionActive(true)
+
+        val events = mutableListOf<PlaybackSessionEvent>()
+        val collector = backgroundScope.launch { holder.events.collect { events.add(it) } }
+        runCurrent()
+
+        val uri = TestUri("content://media/external/video/media/hw_fail")
+        var appliedHwdec: HwdecMode? = null
+        var reloads = 0
+
+        fun failureSnapshot() = PlaybackSnapshot(
+            playbackState = PlaybackState.ERROR,
+            currentUri = uri,
+            hwdecCurrent = "mediacodec",
+            error = PlaybackError.PlaybackFailed("failed to decode", RuntimeException("boom")),
+        )
+
+        holder.onEngineSnapshot(
+            snapshot = failureSnapshot(),
+            defaultHwdecMode = HwdecMode.HARDWARE_DIRECT,
+            currentTimePosMs = 0L,
+            setEngineHwdec = { appliedHwdec = it },
+            reloadUri = { _, _, _, _, _ -> reloads++ },
+            reloadRawTarget = { },
+        )
+        runCurrent()
+
+        assertEquals(HwdecMode.SOFTWARE, appliedHwdec)
+        assertEquals(1, reloads)
+        assertTrue(events.any { it is PlaybackSessionEvent.HwdecAutoFallback })
+        assertNull(holder.failureReason.value)
+
+        // Switching back to hardware by hand and failing again must not loop: the one-shot retry is
+        // already spent, so the failure surfaces as a decoder crash instead of falling back twice.
+        holder.onExplicitHwdecSelected(HwdecMode.HARDWARE_DIRECT)
+        holder.onEngineSnapshot(
+            snapshot = failureSnapshot(),
+            defaultHwdecMode = HwdecMode.HARDWARE_DIRECT,
+            currentTimePosMs = 0L,
+            setEngineHwdec = { appliedHwdec = it },
+            reloadUri = { _, _, _, _, _ -> reloads++ },
+            reloadRawTarget = { },
+        )
+
+        assertEquals(1, reloads)
+        assertTrue(holder.failureReason.value is PlaybackFailureReason.CodecCrash)
+
+        collector.cancel()
     }
 
     @Test

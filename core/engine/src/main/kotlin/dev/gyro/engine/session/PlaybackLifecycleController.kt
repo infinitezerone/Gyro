@@ -118,10 +118,11 @@ open class PlaybackLifecycleController(
                         reason = event.reason,
                         message = "mpv failed to load or play media (reason=${event.reason}, target=$target)"
                     )
+                    val error = PlaybackErrorClassifier.fromMpvEndFileError(cause)
                     store.update {
                         it.copy(
-                            session = SessionPhase.Failed(target.ifBlank { null }, cause),
-                            error = cause,
+                            session = SessionPhase.Failed(target.ifBlank { null }, error),
+                            error = error,
                             playbackState = PlaybackState.ERROR,
                             isPlaying = false
                         )

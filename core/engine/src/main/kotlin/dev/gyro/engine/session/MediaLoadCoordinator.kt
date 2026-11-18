@@ -143,10 +143,11 @@ class MediaLoadCoordinator(
                 } catch (t: Throwable) {
                     if (jobEpoch == bridge.currentEpoch()) {
                         EngineLog.e(TAG, "load: cannot resolve $target", t)
+                        val error = PlaybackErrorClassifier.fromSourceOpenFailure(t)
                         store.update {
                             it.copy(
-                                session = SessionPhase.Failed(target, t),
-                                error = t,
+                                session = SessionPhase.Failed(target, error),
+                                error = error,
                                 playbackState = PlaybackState.ERROR
                             )
                         }
