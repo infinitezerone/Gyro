@@ -67,6 +67,7 @@ class PlaybackSessionMonitorTest {
     private lateinit var historyLookup: suspend (Uri) -> PlaybackProgress?
     private lateinit var mediaRepo: FakeMediaRepository
     private lateinit var sessionStateHolder: PlaybackSessionStateHolder
+    private lateinit var playlistStateHolder: PlaylistStateHolder
     private lateinit var loadMediaUseCase: LoadMediaUseCase
     private lateinit var saveProgressUseCase: SavePlaybackProgressUseCase
     private lateinit var endPlaybackSessionUseCase: EndPlaybackSessionUseCase
@@ -115,6 +116,7 @@ class PlaybackSessionMonitorTest {
         }
 
         sessionStateHolder = PlaybackSessionStateHolder()
+        playlistStateHolder = PlaylistStateHolder()
         saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
         val serviceLauncher = PlaybackServiceLauncher.NoOp
 
@@ -131,6 +133,7 @@ class PlaybackSessionMonitorTest {
             subtitleRepository = fakeSubtitleRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
             saveProgressUseCase = saveProgressUseCase,
             scope = testScope,
         )
@@ -141,6 +144,7 @@ class PlaybackSessionMonitorTest {
             thumbnailRepository = fakeThumbnailRepo,
             serviceLauncher = serviceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
         )
     }
 
@@ -166,14 +170,14 @@ class PlaybackSessionMonitorTest {
         loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
         runCurrent()
 
-        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals(0, playlistStateHolder.currentIndex.value)
 
         fakeBridge.emitEndFile()
         runCurrent()
         advanceTimeBy(600L)
         runCurrent()
 
-        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals(1, playlistStateHolder.currentIndex.value)
         assertEquals("file:///tmp/b.mp4", engine.currentUri.value?.toString())
     }
 
@@ -248,8 +252,10 @@ class PlaybackSessionMonitorTest {
     fun testEndPlaybackSession_cancelsMonitorAndPreventsPostEndAutoAdvance() = runMonitorTest {
         val item1 = VideoMediaItem(1L, "file:///tmp/end1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///tmp/end2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
+        engine.attachSurface()
         loadMediaUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
         runCurrent()
+        assertEquals(1, fakeBridge.findCommands("loadfile").size)
 
         endPlaybackSessionUseCase(SessionEndReason.USER_EXIT)
         runCurrent()
@@ -260,7 +266,8 @@ class PlaybackSessionMonitorTest {
         runCurrent()
 
         assertFalse(sessionStateHolder.sessionActive.value)
-        assertEquals(0, engine.playlist.currentIndex.value)
-        assertEquals("file:///tmp/end1.mp4", engine.currentUri.value?.toString())
+        assertEquals(-1, playlistStateHolder.currentIndex.value)
+        assertNull(engine.currentUri.value)
+        assertEquals(1, fakeBridge.findCommands("loadfile").size)
     }
 }

@@ -8,18 +8,23 @@ import dev.gyro.core.data.repository.CustomFolderRepository
 import dev.gyro.core.data.repository.DefaultPlaybackHistoryRepository
 import dev.gyro.core.data.repository.DefaultSettingsRepository
 import dev.gyro.core.data.repository.MediaRepository
+import dev.gyro.core.data.repository.MpvConfigRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.data.repository.SubtitleRepository
 import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.model.MediaFeedQuery
+import dev.gyro.core.domain.model.PlaybackSessionEvent
 import dev.gyro.core.domain.model.PlaybackSource
 import dev.gyro.core.domain.model.PlaylistStep
 import dev.gyro.core.domain.model.SessionEndReason
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
+import dev.gyro.core.domain.session.DefaultPlaybackSession
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.session.PlaylistStateHolder
 import dev.gyro.core.model.CustomFolderDetail
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.testing.fakes.FakeMediaResourceResolver
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
@@ -39,8 +44,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -77,6 +85,7 @@ class DomainUseCasesTest {
     private lateinit var subtitleRepo: SubtitleRepository
     private lateinit var mediaRepo: FakeMediaRepo
     private lateinit var sessionStateHolder: PlaybackSessionStateHolder
+    private lateinit var playlistStateHolder: PlaylistStateHolder
     private lateinit var testScope: CoroutineScope
 
     private var serviceStartCalls = 0
@@ -142,6 +151,7 @@ class DomainUseCasesTest {
         }
         mediaRepo = FakeMediaRepo()
         sessionStateHolder = PlaybackSessionStateHolder()
+        playlistStateHolder = PlaylistStateHolder()
     }
 
     @After
@@ -187,6 +197,21 @@ class DomainUseCasesTest {
         assertEquals("Save Test", fakeHistoryDao.getByUri(uri1.toString())?.title)
     }
 
+    private fun buildLoadUseCase(
+        subRepo: SubtitleRepository = subtitleRepo,
+    ) = LoadMediaUseCase(
+        engine = engine,
+        mediaRepository = mediaRepo,
+        historyRepository = historyRepo,
+        settingsRepository = settingsRepo,
+        subtitleRepository = subRepo,
+        serviceLauncher = fakeServiceLauncher,
+        sessionStateHolder = sessionStateHolder,
+        playlistStateHolder = playlistStateHolder,
+        saveProgressUseCase = SavePlaybackProgressUseCase(engine, historyRepo),
+        scope = testScope,
+    )
+
     @Test
     fun testEndPlaybackSessionUseCase_distinguishesEndReason() = runCaseTest {
         val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
@@ -196,6 +221,7 @@ class DomainUseCasesTest {
             thumbnailRepository = fakeThumbnailRepo,
             serviceLauncher = fakeServiceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
         )
 
         sessionStateHolder.setSessionActive(true)
@@ -213,6 +239,8 @@ class DomainUseCasesTest {
         assertEquals(1, serviceStopCalls)
         assertEquals(1, thumbnailReleaseCalls)
         assertTrue(fakeBridge.properties["pause"] == true)
+        assertNull(engine.currentUri.value)
+        assertTrue(playlistStateHolder.items.value.isEmpty())
 
         val progress = historyRepo.getProgress(uri)
         assertNotNull(progress)
@@ -238,29 +266,20 @@ class DomainUseCasesTest {
         }
 
         val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
-        val loadUseCase = LoadMediaUseCase(
-            engine = engine,
-            mediaRepository = mediaRepo,
-            historyRepository = historyRepo,
-            settingsRepository = settingsRepo,
-            subtitleRepository = subtitleRepo,
-            serviceLauncher = fakeServiceLauncher,
-            sessionStateHolder = sessionStateHolder,
-            saveProgressUseCase = saveUseCase,
-            scope = testScope,
-        )
-        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, loadUseCase)
+        val loadUseCase = buildLoadUseCase()
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadUseCase)
         val endUseCase = EndPlaybackSessionUseCase(
             engine = engine,
             saveProgressUseCase = saveUseCase,
             thumbnailRepository = fakeThumbnailRepo,
             serviceLauncher = fakeServiceLauncher,
             sessionStateHolder = sessionStateHolder,
+            playlistStateHolder = playlistStateHolder,
         )
 
         val item1 = VideoMediaItem(1L, "content://videos/1", "", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "content://videos/2", "", 2000L, 200L, 0, 0, 0L, "F")
-        engine.setPlaylist(listOf(item1, item2), 0)
+        playlistStateHolder.setPlaylist(listOf(item1, item2), 0)
 
         assertTrue(navigatePlaylistUseCase(PlaylistStep.Next))
         runCurrent()
@@ -276,40 +295,29 @@ class DomainUseCasesTest {
 
     @Test
     fun testNavigatePlaylistUseCase_stepsAndBounds() = runCaseTest {
-        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
-        val loadUseCase = LoadMediaUseCase(
-            engine = engine,
-            mediaRepository = mediaRepo,
-            historyRepository = historyRepo,
-            settingsRepository = settingsRepo,
-            subtitleRepository = subtitleRepo,
-            serviceLauncher = fakeServiceLauncher,
-            sessionStateHolder = sessionStateHolder,
-            saveProgressUseCase = saveUseCase,
-            scope = testScope,
-        )
-        val navigatePlaylistUseCase = NavigatePlaylistUseCase(engine, loadUseCase)
+        val loadUseCase = buildLoadUseCase()
+        val navigatePlaylistUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadUseCase)
 
         val item1 = VideoMediaItem(1L, "file:///1.mp4", "One", 1000L, 100L, 0, 0, 0L, "F")
         val item2 = VideoMediaItem(2L, "file:///2.mp4", "Two", 2000L, 200L, 0, 0, 0L, "F")
 
         loadUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
         runCurrent()
-        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals(0, playlistStateHolder.currentIndex.value)
         assertFalse(navigatePlaylistUseCase(PlaylistStep.Previous))
 
         assertTrue(navigatePlaylistUseCase(PlaylistStep.Next))
         runCurrent()
-        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals(1, playlistStateHolder.currentIndex.value)
         assertFalse(navigatePlaylistUseCase(PlaylistStep.Next))
 
         assertTrue(navigatePlaylistUseCase(PlaylistStep.Previous))
         runCurrent()
-        assertEquals(0, engine.playlist.currentIndex.value)
+        assertEquals(0, playlistStateHolder.currentIndex.value)
 
         assertTrue(navigatePlaylistUseCase(PlaylistStep.AtIndex(1)))
         runCurrent()
-        assertEquals(1, engine.playlist.currentIndex.value)
+        assertEquals(1, playlistStateHolder.currentIndex.value)
         assertFalse(navigatePlaylistUseCase(PlaylistStep.AtIndex(99)))
     }
 
@@ -319,18 +327,7 @@ class DomainUseCasesTest {
         historyRepo.saveProgress(uri, positionMs = 15000L, durationMs = 60000L)
         runCurrent()
 
-        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
-        val loadUseCase = LoadMediaUseCase(
-            engine = engine,
-            mediaRepository = mediaRepo,
-            historyRepository = historyRepo,
-            settingsRepository = settingsRepo,
-            subtitleRepository = subtitleRepo,
-            serviceLauncher = fakeServiceLauncher,
-            sessionStateHolder = sessionStateHolder,
-            saveProgressUseCase = saveUseCase,
-            scope = testScope,
-        )
+        val loadUseCase = buildLoadUseCase()
 
         loadUseCase(PlaybackSource.UriItem(uri = uri, displayTitle = "Resume Video"))
         runCurrent()
@@ -382,7 +379,7 @@ class DomainUseCasesTest {
         )
 
         sessionStateHolder.setSessionActive(true)
-        engine.isHeadlessMode = true
+        engine.setBackgroundPlaybackAllowed(true)
         val uri = TestUri("file:///test/buffering_bg.mp4")
         engine.load(uri, startPositionMs = 0L, displayTitle = "Buffering BG")
         runCurrent()
@@ -391,7 +388,7 @@ class DomainUseCasesTest {
         bgUseCase(isPip = false)
         runCurrent()
 
-        assertFalse(engine.isHeadlessMode)
+        assertFalse(engine.isBackgroundPlaybackAllowed)
         assertTrue(fakeBridge.properties["pause"] == true)
 
         // When paused with a scrub position, backgrounding must still checkpoint the paused position
@@ -496,18 +493,7 @@ class DomainUseCasesTest {
             }
         }
 
-        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
-        val loadUseCase = LoadMediaUseCase(
-            engine = engine,
-            mediaRepository = mediaRepo,
-            historyRepository = historyRepo,
-            settingsRepository = settingsRepo,
-            subtitleRepository = trackingSubRepo,
-            serviceLauncher = fakeServiceLauncher,
-            sessionStateHolder = sessionStateHolder,
-            saveProgressUseCase = saveUseCase,
-            scope = testScope,
-        )
+        val loadUseCase = buildLoadUseCase(subRepo = trackingSubRepo)
 
         val uri = TestUri("file:///test/movie.mkv")
         loadUseCase(PlaybackSource.Single(uri = uri, displayTitle = "Movie"))
@@ -570,18 +556,10 @@ class DomainUseCasesTest {
             }
         }
 
-        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
-        val loadUseCase = LoadMediaUseCase(
-            engine = engine,
-            mediaRepository = mediaRepo,
-            historyRepository = historyRepo,
-            settingsRepository = settingsRepo,
-            subtitleRepository = trackingSubRepo,
-            serviceLauncher = fakeServiceLauncher,
-            sessionStateHolder = sessionStateHolder,
-            saveProgressUseCase = saveUseCase,
-            scope = testScope,
-        )
+        val loadUseCase = buildLoadUseCase(subRepo = trackingSubRepo)
+
+        settingsRepo.setDefaultHwdec(HwdecMode.SOFTWARE)
+        runCurrent()
 
         engine.attachSurface()
         val uri = TestUri("file:///test/broken.mkv")
@@ -638,5 +616,194 @@ class DomainUseCasesTest {
         runCurrent()
         assertEquals(scansBeforeProgress, mediaRepo.getVideosCalls)
         assertEquals(5_000L, feed1.value.playbackMap["file:///a.mp4"]?.positionMs)
+    }
+
+    @Test
+    fun testHandleAppBackgroundWithAudioEnabled_permitsHeadlessAutoAdvanceWithoutSurface() = runCaseTest {
+        settingsRepo.setBackgroundAudio(true)
+        runCurrent()
+
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val loadUseCase = buildLoadUseCase()
+        val bgUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
+
+        val item1 = VideoMediaItem(1L, "file:///test/a.mp4", "Ep 1", 1000L, 100L, 0, 0, 0L, "Anime")
+        val item2 = VideoMediaItem(2L, "file:///test/b.mp4", "Ep 2", 2000L, 200L, 0, 0, 0L, "Anime")
+        engine.attachSurface()
+        loadUseCase(PlaybackSource.FromPlaylist(listOf(item1, item2), item1))
+        runCurrent()
+
+        bgUseCase(isPip = false)
+        runCurrent()
+        assertTrue(engine.isBackgroundPlaybackAllowed)
+
+        fakeBridge.emitEndFile(MpvNativeBridge.EndReason.EOF)
+        runCurrent()
+        advanceTimeBy(600L)
+        runCurrent()
+
+        assertEquals(1, playlistStateHolder.currentIndex.value)
+        assertEquals("file:///test/b.mp4", engine.currentUri.value?.toString())
+    }
+
+    @Test
+    fun testHeadlessHwdecFallback_reloadsViaUseCaseAndAttachesCompanionSubtitles() = runCaseTest {
+        val subUri = TestUri("content://subs/ep1.srt")
+        val trackingSubRepo = object : SubtitleRepository {
+            override suspend fun findCompanionSubtitles(videoUri: Uri, videoDisplayName: String?): List<Uri> =
+                listOf(subUri)
+
+            override suspend fun openSubtitle(subtitleUri: Uri, consume: suspend (String) -> Boolean): Boolean =
+                consume("fdclose://77")
+        }
+        val loadUseCase = buildLoadUseCase(subRepo = trackingSubRepo)
+
+        val emittedEvents = mutableListOf<PlaybackSessionEvent>()
+        val collectJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+            sessionStateHolder.events.collect { emittedEvents.add(it) }
+        }
+        try {
+            engine.setBackgroundPlaybackAllowed(true)
+            val uri = TestUri("file:///test/ep1.mkv")
+            loadUseCase(PlaybackSource.Single(uri = uri, displayTitle = "Ep 1"))
+            runCurrent()
+
+            fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+            runCurrent()
+
+            assertTrue(emittedEvents.any { it is PlaybackSessionEvent.HwdecAutoFallback })
+            assertEquals(HwdecMode.SOFTWARE, engine.state.value.hwdecMode)
+
+            fakeBridge.emitFileLoaded()
+            runCurrent()
+
+            assertTrue(fakeBridge.findCommands("sub-add").any { it.contains("fdclose://77") })
+        } finally {
+            collectJob.cancel()
+        }
+    }
+
+    @Test
+    fun testSleepTimer_countsDownInApplicationScopeAndCancelsOnSessionEnd() = runCaseTest {
+        val sessionScope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob())
+        try {
+            val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+            val loadUseCase = buildLoadUseCase()
+            val navUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadUseCase)
+            val bgUseCase = HandleAppBackgroundUseCase(engine, settingsRepo, saveUseCase, sessionStateHolder, testScope)
+            val endUseCase = EndPlaybackSessionUseCase(
+                engine = engine,
+                saveProgressUseCase = saveUseCase,
+                thumbnailRepository = fakeThumbnailRepo,
+                serviceLauncher = fakeServiceLauncher,
+                sessionStateHolder = sessionStateHolder,
+                playlistStateHolder = playlistStateHolder,
+            )
+            val observeUseCase = ObservePlaybackSessionUseCase(sessionStateHolder, engine, testScope)
+            val session = DefaultPlaybackSession(
+                engine = engine,
+                settingsRepository = settingsRepo,
+                mpvConfigRepository = MpvConfigRepository.Empty,
+                subtitleRepository = subtitleRepo,
+                sessionStateHolder = sessionStateHolder,
+                playlistStateHolder = playlistStateHolder,
+                loadMediaUseCase = loadUseCase,
+                navigatePlaylistUseCase = navUseCase,
+                handleAppBackgroundUseCase = bgUseCase,
+                endPlaybackSessionUseCase = endUseCase,
+                observePlaybackSessionUseCase = observeUseCase,
+                scope = sessionScope,
+            )
+
+            engine.attachSurface()
+            session.load(PlaybackSource.Single(TestUri("file:///test/sleep.mp4"), displayTitle = "Sleep"))
+            runCurrent()
+            fakeBridge.emitFileLoaded()
+            session.play()
+            runCurrent()
+
+            session.setSleepTimer(1)
+            assertEquals(60L, session.sleepTimerSecondsRemaining.value)
+
+            advanceTimeBy(60_000L)
+            runCurrent()
+            assertEquals(0L, session.sleepTimerSecondsRemaining.value)
+            assertTrue(fakeBridge.properties["pause"] == true)
+
+            session.setSleepTimer(5)
+            assertEquals(300L, session.sleepTimerSecondsRemaining.value)
+            session.endSession(SessionEndReason.USER_EXIT)
+            runCurrent()
+            assertEquals(0L, session.sleepTimerSecondsRemaining.value)
+        } finally {
+            sessionScope.cancel()
+        }
+    }
+
+    @Test
+    fun testSettingsUpdateDuringActiveHwdecFallback_preservesSoftwareOverrideUntilDefaultHwdecChanges() = runCaseTest {
+        val sessionScope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob())
+        try {
+            engine.warmUp()
+            val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+            val loadUseCase = buildLoadUseCase()
+            val navUseCase = NavigatePlaylistUseCase(playlistStateHolder, sessionStateHolder, loadUseCase)
+            val bgUseCase = HandleAppBackgroundUseCase(engine, settingsRepo, saveUseCase, sessionStateHolder, testScope)
+            val endUseCase = EndPlaybackSessionUseCase(
+                engine = engine,
+                saveProgressUseCase = saveUseCase,
+                thumbnailRepository = fakeThumbnailRepo,
+                serviceLauncher = fakeServiceLauncher,
+                sessionStateHolder = sessionStateHolder,
+                playlistStateHolder = playlistStateHolder,
+            )
+            val observeUseCase = ObservePlaybackSessionUseCase(sessionStateHolder, engine, testScope)
+            val session = DefaultPlaybackSession(
+                engine = engine,
+                settingsRepository = settingsRepo,
+                mpvConfigRepository = MpvConfigRepository.Empty,
+                subtitleRepository = subtitleRepo,
+                sessionStateHolder = sessionStateHolder,
+                playlistStateHolder = playlistStateHolder,
+                loadMediaUseCase = loadUseCase,
+                navigatePlaylistUseCase = navUseCase,
+                handleAppBackgroundUseCase = bgUseCase,
+                endPlaybackSessionUseCase = endUseCase,
+                observePlaybackSessionUseCase = observeUseCase,
+                scope = sessionScope,
+            )
+            runCurrent()
+
+            engine.setBackgroundPlaybackAllowed(true)
+            session.load(PlaybackSource.Single(TestUri("file:///test/hw_fallback_settings.mkv"), displayTitle = "HW Test"))
+            runCurrent()
+            fakeBridge.emitFileLoaded(hwdec = "mediacodec")
+            runCurrent()
+
+            fakeBridge.emitEndFile(MpvNativeBridge.EndReason.ERROR)
+            runCurrent()
+            assertEquals("no", fakeBridge.properties["hwdec"])
+
+            // Unrelated setting change must NOT clobber active auto-fallback software decode override
+            settingsRepo.setSeekStepSeconds(20)
+            runCurrent()
+            assertEquals("no", fakeBridge.properties["hwdec"])
+
+            // Explicit default decoder preference change takes effect cleanly
+            settingsRepo.setDefaultHwdec(HwdecMode.HARDWARE_COPY)
+            runCurrent()
+            assertEquals("mediacodec-copy", fakeBridge.properties["hwdec"])
+
+            session.endSession(SessionEndReason.USER_EXIT)
+            runCurrent()
+        } finally {
+            sessionScope.cancel()
+        }
     }
 }

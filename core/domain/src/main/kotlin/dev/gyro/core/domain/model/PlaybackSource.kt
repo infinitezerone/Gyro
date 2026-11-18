@@ -33,5 +33,7 @@ sealed interface PlaybackSource {
         val initialWidth: Int = 0,
         val initialHeight: Int = 0,
         val skipIfAlreadyActive: Boolean = false,
+        val startPositionOverrideMs: Long? = null,
+        val preserveHwdecOverride: Boolean = false,
     ) : PlaybackSource
 }

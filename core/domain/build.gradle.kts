@@ -13,10 +13,8 @@ android {
 }
 
 dependencies {
-    // Repository interfaces and PlayerEngine appear in domain UseCase constructors,
-    // so consumers (feature screens, app, tests) need them on their compile classpath.
-    api(project(":core:data"))
     api(project(":core:engine-api"))
+    implementation(project(":core:data"))
 
     implementation(project(":core:common"))
     implementation(libs.kotlinx.coroutines.core)
@@ -24,5 +22,7 @@ dependencies {
     // Tests drive a real GyroPlayerEngine against FakeMpvNativeBridge and a DataStore-backed
     // SettingsRepository, so the concrete engine and persistence modules are declared explicitly.
     testImplementation(project(":core:testing"))
+    testImplementation(project(":core:engine"))
+    testImplementation(project(":core:database"))
     testImplementation(project(":core:datastore"))
 }

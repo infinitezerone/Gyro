@@ -9,24 +9,27 @@ import dev.gyro.core.domain.model.PlaybackSource
 import dev.gyro.core.domain.model.contentUri
 import dev.gyro.core.domain.service.PlaybackServiceLauncher
 import dev.gyro.core.domain.session.PlaybackSessionStateHolder
+import dev.gyro.core.domain.session.PlaylistStateHolder
 import dev.gyro.engine.api.PlayerEngine
 import dev.gyro.engine.model.SessionPhase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /**
  * Single-method UseCase orchestrating media loading across all [PlaybackSource] variants:
- * 1. Checkpoints current progress before switching.
- * 2. Updates engine playlist queue atomically when requested (`FromPlaylist` / `Single`).
+ * 1. Checkpoints current progress and resets transient viewport zoom/pan on track change.
+ * 2. Updates `:core:domain` [PlaylistStateHolder] queue atomically when requested (`FromPlaylist` / `Single`).
  * 3. Deduplicates already-active or in-flight playback when `skipIfAlreadyActive` is enabled.
  * 4. Cancels any superseded in-flight load and guards async steps with a monotonic generation token.
- * 5. Resolves missing titles, auto-resume positions, and companion subtitles via main-safe repositories
- *    without performing any manual dispatcher switching in the domain layer.
- * 6. Starts the background session service.
+ * 5. Resolves missing titles, auto-resume positions, hwdec override restoration, and companion
+ *    subtitles via main-safe repositories without performing manual dispatcher switching.
+ * 6. Keeps the session monitor and background playback service active.
  */
 class LoadMediaUseCase @Inject constructor(
     private val engine: PlayerEngine,
@@ -36,6 +39,7 @@ class LoadMediaUseCase @Inject constructor(
     private val subtitleRepository: SubtitleRepository,
     private val serviceLauncher: PlaybackServiceLauncher,
     private val sessionStateHolder: PlaybackSessionStateHolder,
+    private val playlistStateHolder: PlaylistStateHolder,
     private val saveProgressUseCase: SavePlaybackProgressUseCase,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -62,12 +66,12 @@ class LoadMediaUseCase @Inject constructor(
 
         if (skipIfAlreadyActive && alreadyActive) {
             if (source is PlaybackSource.Single) {
-                val existingItems = engine.playlist.items.value
+                val existingItems = playlistStateHolder.items.value
                 val inPlaylist = existingItems.any { it.uriString == targetUri.toString() }
                 if (!inPlaylist) {
                     val title = source.displayTitle?.takeIf { it.isNotBlank() }
                         ?: engine.state.value.mediaTitle.ifBlank { targetUri.lastPathSegment ?: "Video" }
-                    engine.setSingleItem(targetUri, title)
+                    playlistStateHolder.setSingle(targetUri, title)
                 }
             }
             sessionStateHolder.setSessionActive(true)
@@ -80,6 +84,12 @@ class LoadMediaUseCase @Inject constructor(
             saveProgressUseCase()
         }
 
+        val preserveHwdecOverride = (source as? PlaybackSource.UriItem)?.preserveHwdecOverride == true
+        val startPosOverrideMs = (source as? PlaybackSource.UriItem)?.startPositionOverrideMs
+        if (!preserveHwdecOverride) {
+            engine.geometry.resetZoomAndPan()
+        }
+
         val knownTitle: String?
         val resolvedWidth: Int
         val resolvedHeight: Int
@@ -89,19 +99,19 @@ class LoadMediaUseCase @Inject constructor(
                 val startIdx = source.playlist
                     .indexOfFirst { it.id == source.targetItem.id || it.uriString == source.targetItem.uriString }
                     .coerceAtLeast(0)
-                engine.setPlaylist(source.playlist, startIdx)
+                playlistStateHolder.setPlaylist(source.playlist, startIdx)
                 knownTitle = source.targetItem.displayName.takeIf { it.isNotBlank() }
                 resolvedWidth = source.targetItem.width
                 resolvedHeight = source.targetItem.height
             }
             is PlaybackSource.Single -> {
                 knownTitle = source.displayTitle?.takeIf { it.isNotBlank() }
-                engine.setSingleItem(targetUri, knownTitle ?: "")
+                playlistStateHolder.setSingle(targetUri, knownTitle ?: "")
                 resolvedWidth = 0
                 resolvedHeight = 0
             }
             is PlaybackSource.UriItem -> {
-                val matched = engine.playlist.items.value.firstOrNull { it.uriString == targetUri.toString() }
+                val matched = playlistStateHolder.items.value.firstOrNull { it.uriString == targetUri.toString() }
                 knownTitle = source.displayTitle?.takeIf { it.isNotBlank() }
                     ?: matched?.displayName?.takeIf { it.isNotBlank() }
                 resolvedWidth = if (source.initialWidth > 0) source.initialWidth else (matched?.width ?: 0)
@@ -113,23 +123,38 @@ class LoadMediaUseCase @Inject constructor(
             uri = targetUri,
             scope = scope,
         ) { isCurrentLoad ->
+            val settings = settingsRepository.settings.first()
+            currentCoroutineContext().ensureActive()
+            if (!isCurrentLoad()) return@launchLoad
+
+            sessionStateHolder.prepareNewLoad(
+                preserveHwdecOverride = preserveHwdecOverride,
+                defaultHwdecMode = settings.defaultHwdecMode,
+                setEngineHwdec = engine::setHwdec,
+            )
+
             val resolvedTitle = knownTitle ?: mediaRepository.getDisplayName(targetUri)
             currentCoroutineContext().ensureActive()
             if (!isCurrentLoad()) return@launchLoad
 
-            val settings = settingsRepository.settings.first()
-            val progress = historyRepository.getProgress(targetUri)
-            val startPos = if (settings.autoResume && progress != null && !progress.isCompleted && progress.positionMs >= 2000L) {
-                progress.positionMs
+            val progress = if (startPosOverrideMs != null) {
+                null
             } else {
-                0L
+                historyRepository.getProgress(targetUri)
             }
-            val initialDuration = progress?.durationMs ?: 0L
+            val startPos = startPosOverrideMs?.coerceAtLeast(0L)
+                ?: if (settings.autoResume && progress != null && !progress.isCompleted && progress.positionMs >= 2000L) {
+                    progress.positionMs
+                } else {
+                    0L
+                }
+            val initialDuration = progress?.durationMs
+                ?: if (startPosOverrideMs != null) engine.state.value.durationMs else 0L
             currentCoroutineContext().ensureActive()
             if (!isCurrentLoad()) return@launchLoad
 
             if (source is PlaybackSource.Single && knownTitle == null) {
-                engine.setSingleItem(targetUri, resolvedTitle ?: targetUri.lastPathSegment ?: "Video")
+                playlistStateHolder.setSingle(targetUri, resolvedTitle ?: targetUri.lastPathSegment ?: "Video")
             }
             engine.load(
                 uri = targetUri,
@@ -157,7 +182,7 @@ class LoadMediaUseCase @Inject constructor(
                             if (!isCurrentLoad() || engine.currentUri.value != targetUri) {
                                 false
                             } else {
-                                engine.addSubtitle(subTarget)
+                                engine.trackManager.addSubtitle(subTarget)
                                 true
                             }
                         }
@@ -174,9 +199,11 @@ class LoadMediaUseCase @Inject constructor(
         sessionStateHolder.ensureSessionMonitor(
             scope = scope,
             engine = engine,
+            playlist = playlistStateHolder,
+            defaultHwdecFlow = settingsRepository.settings.map { it.defaultHwdecMode }.distinctUntilChanged(),
             onSaveProgress = { saveProgressUseCase() },
             onAutoAdvanceNext = {
-                val next = engine.advanceToNextItem() ?: return@ensureSessionMonitor
+                val next = playlistStateHolder.playNext() ?: return@ensureSessionMonitor
                 invoke(
                     PlaybackSource.UriItem(
                         uri = next.contentUri,
@@ -185,6 +212,22 @@ class LoadMediaUseCase @Inject constructor(
                         initialHeight = next.height,
                     )
                 )
+            },
+            onReloadUri = { uri, resumePosMs, title, width, height ->
+                invoke(
+                    PlaybackSource.UriItem(
+                        uri = uri,
+                        displayTitle = title,
+                        initialWidth = width,
+                        initialHeight = height,
+                        skipIfAlreadyActive = false,
+                        startPositionOverrideMs = resumePosMs,
+                        preserveHwdecOverride = true,
+                    )
+                )
+            },
+            onReloadRawTarget = { rawItem ->
+                engine.load(rawItem)
             },
         )
     }

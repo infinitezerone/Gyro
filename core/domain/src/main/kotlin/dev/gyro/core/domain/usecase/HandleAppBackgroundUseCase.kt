@@ -14,8 +14,9 @@ import javax.inject.Inject
  * Single-method UseCase handling application transition to background (e.g. `Activity.onStop`):
  * 1. No-ops during Picture-in-Picture or when no active session exists.
  * 2. Checkpoints playback progress and detaches video surface immediately.
- * 3. Reads authoritative `backgroundAudio` setting from [SettingsRepository] and pauses playback
- *    if background audio is disabled.
+ * 3. Reads authoritative `backgroundAudio` setting from [SettingsRepository]:
+ *    - When enabled, permits background/headless loading so auto-advance & notification skips keep running.
+ *    - When disabled, disallows headless loading and pauses playback.
  */
 class HandleAppBackgroundUseCase @Inject constructor(
     private val engine: PlayerEngine,
@@ -29,11 +30,14 @@ class HandleAppBackgroundUseCase @Inject constructor(
             return null
         }
         saveProgressUseCase()
-        engine.detachSurface()
+        engine.render.detachSurface()
         return scope.launch {
             val backgroundAudioEnabled = settingsRepository.settings.first().backgroundAudio
-            if (!backgroundAudioEnabled && sessionStateHolder.sessionActive.value) {
-                engine.isHeadlessMode = false
+            if (!sessionStateHolder.sessionActive.value) return@launch
+            if (backgroundAudioEnabled) {
+                engine.setBackgroundPlaybackAllowed(true)
+            } else {
+                engine.setBackgroundPlaybackAllowed(false)
                 engine.pause()
             }
         }
