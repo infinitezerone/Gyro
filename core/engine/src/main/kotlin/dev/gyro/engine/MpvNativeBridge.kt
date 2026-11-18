@@ -2,6 +2,7 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.view.Surface
+import dev.gyro.engine.video.HdrColorSpaceSupport
 import kotlinx.coroutines.flow.SharedFlow
 
 /**
@@ -70,6 +71,14 @@ interface MpvNativeBridge {
      * nothing is attached.
      */
     fun rebuildSurface() {}
+
+    /**
+     * Window-surface colours spaces the EGL implementation can create.
+     *
+     * `Unknown` until the render thread probes, which keeps a missed probe from taking HDR away;
+     * only a definitive `false` is treated as "this path is unavailable".
+     */
+    fun hdrColorSpaceSupport(): HdrColorSpaceSupport = HdrColorSpaceSupport.Unknown
 
     // ---------- Commands and Options ----------
 

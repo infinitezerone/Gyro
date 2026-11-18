@@ -585,7 +585,7 @@ pub fn event_thread() {
                     G_SESSION.cached_rotate.store(0, Ordering::Release);
                     G_SESSION.file_loaded_reached.store(false, Ordering::Release);
                     G_SESSION.awaiting_first_frame.store(true, Ordering::Release);
-                    G_SESSION.hdr_output.store(false, Ordering::Release);
+                    crate::render::set_output_colorspace(crate::render::OUTPUT_COLORSPACE_SDR);
                     crate::render::G_RENDER_EPOCH.store(epoch, Ordering::Release);
                 }
                 MPV_EVENT_FILE_LOADED => {

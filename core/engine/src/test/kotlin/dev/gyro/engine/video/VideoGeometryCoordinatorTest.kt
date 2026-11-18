@@ -1,8 +1,11 @@
 package dev.gyro.engine.video
 
+import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.model.HdrDisplayCapabilities
+import dev.gyro.engine.model.HdrDisplayCapabilities.HdrType
 import dev.gyro.engine.model.VideoDimensions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +14,12 @@ import org.junit.Before
 import org.junit.Test
 
 class VideoGeometryCoordinatorTest {
+
+    /** A panel that understands HDR10 and HLG and claims 900 nits. */
+    private val HDR_PANEL = HdrDisplayCapabilities(
+        supportedHdrTypes = setOf(HdrType.HDR10, HdrType.HLG),
+        peakLuminanceNits = 900f,
+    )
 
     private lateinit var bridge: FakeMpvNativeBridge
     private lateinit var coordinator: VideoGeometryCoordinator
@@ -250,6 +259,7 @@ class VideoGeometryCoordinatorTest {
     @Test
     fun testHdrStateSuppressedDuringSwitchAndResetToSdr() {
         // 1. 模拟上一部视频为 HLG HDR，处于正常 Presenting 状态
+        coordinator.setDisplayCapabilities(HDR_PANEL)
         coordinator.onSwitchStarted("test://hdr_video.mp4", 0L)
         bridge.properties["video-params/gamma"] = "hlg"
         bridge.properties["video-params/colormatrix"] = "bt.2020-ncl"
@@ -263,7 +273,7 @@ class VideoGeometryCoordinatorTest {
         // 验证 HDR 已被点亮
         assertTrue(coordinator.isHdr.value)
         assertEquals("HLG", coordinator.hdrFormat.value)
-        assertEquals("yes", bridge.properties["hdr-output"])
+        assertEquals("pq", bridge.properties["hdr-output"])
 
         // 2. 切换到 SDR 视频（onSwitchStarted 换片起点）
         coordinator.onSwitchStarted("test://sdr_video.mp4", 0L)
@@ -293,6 +303,61 @@ class VideoGeometryCoordinatorTest {
         assertFalse("新视频装载后稳定为 SDR", coordinator.isHdr.value)
         assertEquals("", coordinator.hdrFormat.value)
         assertEquals("no", bridge.properties["hdr-output"])
+    }
+
+    @Test
+    fun testHdrOutputPublishesReportedPanelPeakAsTargetPeak() {
+        coordinator.setDisplayCapabilities(HdrDisplayCapabilities(setOf(HdrType.HDR10), 900f))
+        coordinator.onSwitchStarted("test://hlg.mp4", 0L)
+        bridge.properties["video-params/gamma"] = "hlg"
+        bridge.properties["video-params/colormatrix"] = "bt.2020-ncl"
+        bridge.properties["track-list/count"] = 0L
+        coordinator.onFileLoaded("test://hlg.mp4", hasVideo = true)
+
+        assertTrue("HDR 应当被点亮", coordinator.isHdr.value)
+        assertEquals("pq", bridge.properties["target-trc"])
+        assertEquals("bt.2020", bridge.properties["target-prim"])
+        // 没有峰值时 mpv 会在编码 PQ 前先做一遍 tone mapping，直接把对比度压平
+        assertEquals(900.0, (bridge.properties["target-peak"] as Number).toDouble(), 0.01)
+    }
+
+    @Test
+    fun testHdrOutputDegradesToSdrToneMappingWhenPqSurfaceUnsupported() {
+        // 驱动未声明 EGL_EXT_gl_colorspace_bt2020_pq：申请 PQ surface 只会静默退回 SDR，
+        // 把 PQ 码值塞进 SDR buffer 反而更糟，因此必须主动降级。
+        coordinator.setDisplayCapabilities(HDR_PANEL)
+        bridge.hdrColorSpaceSupportResult = HdrColorSpaceSupport(pq = false)
+        coordinator.onSwitchStarted("test://hlg.mp4", 0L)
+        bridge.properties["video-params/gamma"] = "hlg"
+        bridge.properties["video-params/colormatrix"] = "bt.2020-ncl"
+        bridge.properties["track-list/count"] = 0L
+        coordinator.onFileLoaded("test://hlg.mp4", hasVideo = true)
+
+        assertFalse("PQ surface 不可用时不得声称 HDR", coordinator.isHdr.value)
+        assertEquals("HLG", coordinator.hdrFormat.value)
+        assertEquals("no", bridge.properties["hdr-output"])
+        assertEquals("auto", bridge.properties["target-trc"])
+        // AUTO keeps the engine's configured curve; the fold must not silently swap in another one.
+        assertEquals("hable", bridge.properties["tone-mapping"])
+        // And it must not hand the panel's HDR peak to an SDR tone mapper.
+        assertEquals("auto", bridge.properties["target-peak"])
+    }
+
+    @Test
+    fun testHlgPreferenceTakesEffectOnlyWhenThePanelAndDriverBothUnderstandHlg() {
+        coordinator.setDisplayCapabilities(HDR_PANEL)
+        bridge.hdrColorSpaceSupportResult = HdrColorSpaceSupport(pq = true, hlg = true)
+        coordinator.setHdrOutputMode(HdrOutputMode.HLG)
+        coordinator.onSwitchStarted("test://hlg.mp4", 0L)
+        bridge.properties["video-params/gamma"] = "hlg"
+        bridge.properties["video-params/colormatrix"] = "bt.2020-ncl"
+        bridge.properties["track-list/count"] = 0L
+        coordinator.onFileLoaded("test://hlg.mp4", hasVideo = true)
+
+        assertTrue(coordinator.isHdr.value)
+        // 用户选了 HLG 且两端都支持：这次不再被写死成 pq
+        assertEquals("hlg", bridge.properties["hdr-output"])
+        assertEquals("hlg", bridge.properties["target-trc"])
     }
 
     @Test
@@ -327,6 +392,7 @@ class VideoGeometryCoordinatorTest {
         bridge.properties["video-out-params/dw"] = 1920L
         bridge.properties["video-out-params/dh"] = 1080L
 
+        coord.setDisplayCapabilities(HDR_PANEL)
         coord.onSwitchStarted("test://hdr10.mkv", 0L)
         coord.onFileLoaded("test://hdr10.mkv", hasVideo = true)
         assertTrue(coord.isHdr.value)

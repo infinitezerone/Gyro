@@ -44,14 +44,16 @@ fun GyroPlayerSurface(
         surfaceView.pipTransitionActive = pipTransitionActive
     }
 
-    // Tell the render backend up front whether the panel can present HDR.
-    LaunchedEffect(renderController) {
-        renderController?.setDisplayHdrCapable(context.displaySupportsHdr())
+    // The panel's HDR ability, read once and handed over as a whole table: the engine has to know
+    // which HDR types the panel understands, not merely that it understands "some HDR".
+    val displayCapabilities = remember(context) { context.displayHdrCapabilities() }
+
+    LaunchedEffect(renderController, displayCapabilities) {
+        renderController?.setDisplayCapabilities(displayCapabilities)
     }
 
-    LaunchedEffect(isHdr) {
-        val canHdr = isHdr && context.displaySupportsHdr()
-        surfaceView.setHdrOutput(canHdr)
+    LaunchedEffect(isHdr, displayCapabilities) {
+        surfaceView.setHdrOutput(isHdr && displayCapabilities.supportsHdr)
     }
 
     DisposableEffect(renderController) {

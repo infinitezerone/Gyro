@@ -46,6 +46,10 @@ pub const EGL_CONTEXT_LOST: EGLint = 0x300E;
 pub const EGL_SLOW_CONFIG: EGLint = 0x3050;
 pub const EGL_NON_CONFORMANT_CONFIG: EGLint = 0x3051;
 
+/// `ANativeWindow` 的 10-bit buffer 格式，判断 window 是否已具备深色深输出能力。
+pub const WINDOW_FORMAT_RGBA_FP16: i32 = 0x16;
+pub const WINDOW_FORMAT_RGBA_1010102: i32 = 0x2B;
+
 pub const GL_VENDOR: u32 = 0x1F00;
 pub const GL_RENDERER: u32 = 0x1F01;
 pub const GL_VERSION: u32 = 0x1F02;
@@ -121,4 +125,6 @@ extern "C" {
     pub fn ANativeWindow_fromSurface(env: *mut jni::sys::JNIEnv, surface: jni::sys::jobject) -> *mut ANativeWindow;
     pub fn ANativeWindow_acquire(window: *mut ANativeWindow);
     pub fn ANativeWindow_release(window: *mut ANativeWindow);
+    /// 当前 window 的 buffer 格式（`WINDOW_FORMAT_*`），用于判断是否已切到 10-bit。
+    pub fn ANativeWindow_getFormat(window: *mut ANativeWindow) -> i32;
 }

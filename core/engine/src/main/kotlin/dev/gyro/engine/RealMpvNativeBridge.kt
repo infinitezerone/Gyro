@@ -2,6 +2,12 @@ package dev.gyro.engine
 
 import android.content.Context
 import android.view.Surface
+import dev.gyro.engine.video.HdrColorSpaceSupport
+
+/** Bit 0 / bit 1 of the native EGL colours-space probe result. */
+private const val PQ_COLORSPACE_BIT = 1
+private const val HLG_COLORSPACE_BIT = 2
+
 open class RealMpvNativeBridge : MpvNativeBridge {
 
     companion object : RealMpvNativeBridge()
@@ -44,6 +50,16 @@ open class RealMpvNativeBridge : MpvNativeBridge {
 
     override fun rebuildSurface() {
         GyroNative.rebuildSurface()
+    }
+
+    override fun hdrColorSpaceSupport(): HdrColorSpaceSupport {
+        val mask = GyroNative.hdrColorSpaceSupport()
+        // -1 is the native "not probed yet" sentinel; the bits only mean anything after a probe.
+        if (mask < 0) return HdrColorSpaceSupport.Unknown
+        return HdrColorSpaceSupport(
+            pq = mask and PQ_COLORSPACE_BIT != 0,
+            hlg = mask and HLG_COLORSPACE_BIT != 0,
+        )
     }
 
     override fun command(cmd: Array<out String>) {

@@ -15,7 +15,7 @@ pub mod types;
 
 use std::collections::VecDeque;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 
 // ---------- 重导出对外公共接口，保持向后完全兼容 ----------
@@ -60,8 +60,12 @@ pub struct SessionState {
     pub active_fences: Mutex<VecDeque<SyncHandle>>,
     pub render_slot_ready: AtomicBool,
     pub pending_vo_check: AtomicBool,
-    pub hdr_output: AtomicBool,
+    /// 输出色彩空间，见 `OUTPUT_COLORSPACE_*`。替代了原先的 `hdr_output` 布尔量：HLG 与 PQ
+    /// 需要不同的 window surface colorspace，一个 bool 表达不了。
+    pub output_colorspace: AtomicU8,
     pub hdr_capable: AtomicBool,
+    /// EGL 扩展探测位掩码：`COLORSPACE_PROBED_BIT` 置位前其余位无意义。
+    pub hdr_colorspace_support: AtomicU8,
 }
 
 impl Default for SessionState {
@@ -92,8 +96,9 @@ impl SessionState {
             active_fences: Mutex::new(VecDeque::new()),
             render_slot_ready: AtomicBool::new(false),
             pending_vo_check: AtomicBool::new(false),
-            hdr_output: AtomicBool::new(false),
+            output_colorspace: AtomicU8::new(OUTPUT_COLORSPACE_SDR),
             hdr_capable: AtomicBool::new(false),
+            hdr_colorspace_support: AtomicU8::new(0),
         }
     }
 
@@ -119,20 +124,43 @@ impl SessionState {
         }
         self.render_slot_ready.store(false, Ordering::Release);
         self.pending_vo_check.store(false, Ordering::Release);
-        self.hdr_output.store(false, Ordering::Release);
+        self.output_colorspace.store(OUTPUT_COLORSPACE_SDR, Ordering::Release);
         self.hdr_capable.store(false, Ordering::Release);
+        self.hdr_colorspace_support.store(0, Ordering::Release);
     }
 }
+
+// ---------- 输出色彩空间 ----------
+
+/// 默认 colorspace（SDR），mpv 侧对应 `target-trc=auto`。
+pub const OUTPUT_COLORSPACE_SDR: u8 = 0;
+/// BT.2020 / PQ，`EGL_GL_COLORSPACE_BT2020_PQ_EXT`。
+pub const OUTPUT_COLORSPACE_PQ: u8 = 1;
+/// BT.2020 / HLG，`EGL_GL_COLORSPACE_BT2020_HLG_EXT`。
+pub const OUTPUT_COLORSPACE_HLG: u8 = 2;
+
+/// 探测完成标志位。置位前，其余位不可信。
+pub const COLORSPACE_PROBED_BIT: u8 = 0x80;
+/// EGL 支持 BT.2020/PQ window surface。
+pub const COLORSPACE_PQ_BIT: u8 = 0x01;
+/// EGL 支持 BT.2020/HLG window surface。
+pub const COLORSPACE_HLG_BIT: u8 = 0x02;
 
 pub static G_SESSION: SessionState = SessionState::new();
 pub static G_RENDER_EPOCH: AtomicU64 = AtomicU64::new(0);
 
-pub fn set_hdr_output(enabled: bool) {
-    G_SESSION.hdr_output.store(enabled, Ordering::Release);
+/// 设置输出色彩空间。HLG 与 PQ 走的是不同 surface 属性，因此不再是布尔量。
+pub fn set_output_colorspace(colorspace: u8) {
+    G_SESSION.output_colorspace.store(colorspace, Ordering::Release);
 }
 
+pub fn output_colorspace() -> u8 {
+    G_SESSION.output_colorspace.load(Ordering::Acquire)
+}
+
+/// 是否处于 HDR 输出（PQ 或 HLG）。渲染侧只关心「是不是 HDR」的地方用它。
 pub fn is_hdr_output() -> bool {
-    G_SESSION.hdr_output.load(Ordering::Acquire)
+    output_colorspace() != OUTPUT_COLORSPACE_SDR
 }
 
 pub fn set_hdr_capable(capable: bool) {
@@ -141,6 +169,44 @@ pub fn set_hdr_capable(capable: bool) {
 
 pub fn is_hdr_capable() -> bool {
     G_SESSION.hdr_capable.load(Ordering::Acquire)
+}
+
+/// 记录 EGL colorspace 扩展探测结论。
+pub fn set_hdr_colorspace_support(pq: bool, hlg: bool) {
+    let mut mask = COLORSPACE_PROBED_BIT;
+    if pq {
+        mask |= COLORSPACE_PQ_BIT;
+    }
+    if hlg {
+        mask |= COLORSPACE_HLG_BIT;
+    }
+    G_SESSION.hdr_colorspace_support.store(mask, Ordering::Release);
+}
+
+/// `None` 表示渲染线程尚未完成 EGL 探测，调用方应保持既有行为而不是关掉 HDR。
+pub fn hdr_colorspace_support() -> Option<(bool, bool)> {
+    let mask = G_SESSION.hdr_colorspace_support.load(Ordering::Acquire);
+    if mask & COLORSPACE_PROBED_BIT == 0 {
+        return None;
+    }
+    Some((mask & COLORSPACE_PQ_BIT != 0, mask & COLORSPACE_HLG_BIT != 0))
+}
+
+/// JNI 用的紧凑形式：`-1` 未探测，否则 bit0 = PQ、bit1 = HLG。
+pub fn hdr_colorspace_support_mask() -> i32 {
+    match hdr_colorspace_support() {
+        None => -1,
+        Some((pq, hlg)) => {
+            let mut mask = 0;
+            if pq {
+                mask |= COLORSPACE_PQ_BIT as i32;
+            }
+            if hlg {
+                mask |= COLORSPACE_HLG_BIT as i32;
+            }
+            mask
+        }
+    }
 }
 
 #[cfg(test)]
@@ -169,8 +235,9 @@ mod tests {
             active_fences: Mutex::new(VecDeque::from([SyncHandle(0xABCD as *mut c_void)])),
             render_slot_ready: AtomicBool::new(true),
             pending_vo_check: AtomicBool::new(true),
-            hdr_output: AtomicBool::new(true),
+            output_colorspace: AtomicU8::new(OUTPUT_COLORSPACE_PQ),
             hdr_capable: AtomicBool::new(true),
+            hdr_colorspace_support: AtomicU8::new(COLORSPACE_PROBED_BIT | COLORSPACE_PQ_BIT),
         };
 
         s.reset();
@@ -180,8 +247,9 @@ mod tests {
         assert_eq!(0, s.last_draw_ms.load(Ordering::Acquire));
         assert!(!s.rearm_video.load(Ordering::Acquire));
         assert!(!s.pending_wid_rebind.load(Ordering::Acquire));
-        assert!(!s.hdr_output.load(Ordering::Acquire));
         assert!(!s.hdr_capable.load(Ordering::Acquire));
+        assert_eq!(OUTPUT_COLORSPACE_SDR, s.output_colorspace.load(Ordering::Acquire));
+        assert_eq!(0, s.hdr_colorspace_support.load(Ordering::Acquire));
         assert!(!s.awaiting_first_frame.load(Ordering::Acquire));
         assert!(!s.file_loaded_reached.load(Ordering::Acquire));
         assert_eq!(0, s.load_started_ms.load(Ordering::Acquire));

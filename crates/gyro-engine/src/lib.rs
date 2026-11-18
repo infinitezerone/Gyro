@@ -302,7 +302,7 @@ mod tests {
         }
         render::G_SESSION.render_slot_ready.store(true, Ordering::Release);
         render::G_SESSION.pending_vo_check.store(true, Ordering::Release);
-        render::set_hdr_output(true);
+        render::set_output_colorspace(render::OUTPUT_COLORSPACE_PQ);
         render::set_hdr_capable(true);
         if let Ok(mut health) = events::G_EVENT_PUMP.frame_health.lock() {
             health.on_counter(logic::FrameCounter::DecoderDropped, 10, 1000);
@@ -433,7 +433,7 @@ mod tests {
         render::G_SESSION.cached_rotate.store(0, Ordering::Release);
         render::G_SESSION.file_loaded_reached.store(true, Ordering::Release);
         render::G_SESSION.awaiting_first_frame.store(false, Ordering::Release);
-        render::set_hdr_output(true);
+        render::set_output_colorspace(render::OUTPUT_COLORSPACE_PQ);
         let old_epoch = events::current_epoch();
 
         // 阶段 2：换片开始（MPV_EVENT_START_FILE 到来）
@@ -446,7 +446,7 @@ mod tests {
         render::G_SESSION.cached_rotate.store(0, Ordering::Release);
         render::G_SESSION.file_loaded_reached.store(false, Ordering::Release);
         render::G_SESSION.awaiting_first_frame.store(true, Ordering::Release);
-        render::set_hdr_output(false);
+        render::set_output_colorspace(render::OUTPUT_COLORSPACE_SDR);
         render::G_RENDER_EPOCH.store(new_epoch, Ordering::Release);
 
         // 不变量断言 1：旧几何必须完全清零，HDR 输出必须恢复 false，杜绝陈旧尺寸与色域泄露

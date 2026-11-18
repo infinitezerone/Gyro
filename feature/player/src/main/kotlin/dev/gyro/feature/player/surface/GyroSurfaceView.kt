@@ -115,13 +115,17 @@ class GyroSurfaceView @JvmOverloads constructor(
     /**
      * Sets the buffer format to 10-bit RGBA_1010102 when HDR output is enabled,
      * or standard RGBA_8888 for SDR content.
+     *
+     * Recreating the render surface for a *colours space* change is deliberately not done here:
+     * the native render thread compares its surface's colours space against the requested one on
+     * every frame and rebuilds itself when they differ, which also covers PQ <-> HLG swaps that
+     * keep the buffer format at 10-bit.
      */
     fun setHdrOutput(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val format = if (enabled) PixelFormat.RGBA_1010102 else PixelFormat.RGBA_8888
-            holder?.setFormat(format)
-            SurfaceLog.i(TAG, "setHdrOutput: enabled=$enabled, format=$format")
-        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val format = if (enabled) PixelFormat.RGBA_1010102 else PixelFormat.RGBA_8888
+        holder?.setFormat(format)
+        SurfaceLog.i(TAG, "setHdrOutput: enabled=$enabled, format=$format")
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {

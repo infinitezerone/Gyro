@@ -55,6 +55,12 @@ internal object GyroNative {
     external fun command(cmd: Array<out String>)
     external fun setOptionString(name: String, value: String): Int
 
+    /**
+     * EGL window-surface colours-space support, as a bitmask: bit 0 BT.2020/PQ, bit 1 BT.2020/HLG.
+     * `-1` means the render thread has not probed yet.
+     */
+    external fun hdrColorSpaceSupport(): Int
+
     private external fun getPropertyLong(name: String): Long
     private external fun getPropertyDouble(name: String): Double
     private external fun getPropertyBoolean(name: String): Byte

@@ -5,6 +5,7 @@ import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.model.HdrDisplayCapabilities
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.model.normalizeContentFps
@@ -83,18 +84,23 @@ class VideoGeometryCoordinator(
     override val hdrFormat: StateFlow<String> = _hdrFormat.asStateFlow()
 
     /**
-     * Whether the panel can actually present HDR.
+     * Panel capabilities as reported by the view.
      *
-     * Only the view can answer this (`Display.isHdr`), and without it an SDR panel would still be
-     * told to output PQ: mpv would skip tone-mapping and the picture would turn washed out.
-     * Defaults to true so a missed report keeps the previous behaviour rather than killing HDR.
+     * SDR-only until the view says otherwise: a missed report then degrades into an honest SDR
+     * fold instead of a PQ surface that nothing on the panel can interpret.
      */
     @Volatile
-    private var displayHdrCapable = true
+    private var displayCapabilities = HdrDisplayCapabilities.SdrOnly
 
-    override fun setDisplayHdrCapable(capable: Boolean) {
-        if (displayHdrCapable == capable) return
-        displayHdrCapable = capable
+    /** Last target actually written, so a repeated report does not rewrite the colour pipeline. */
+    private var appliedTarget: HdrOutputTarget? = null
+
+    /** Last `tone-mapping` value written, `null` when the pipeline still holds the init option. */
+    private var appliedToneMapping: String? = null
+
+    override fun setDisplayCapabilities(capabilities: HdrDisplayCapabilities) {
+        if (displayCapabilities == capabilities) return
+        displayCapabilities = capabilities
         updateHdrState()
     }
 
@@ -110,6 +116,8 @@ class VideoGeometryCoordinator(
         bridge.observeProperty("container-fps", MpvNativeBridge.Format.DOUBLE)
         bridge.observeProperty("estimated-vf-fps", MpvNativeBridge.Format.DOUBLE)
         bridge.observeProperty("video-params", MpvNativeBridge.Format.NONE)
+        bridge.observeProperty("video-params/gamma", MpvNativeBridge.Format.STRING)
+        bridge.observeProperty("video-params/colormatrix", MpvNativeBridge.Format.STRING)
         bridge.observeProperty("video-out-params", MpvNativeBridge.Format.NONE)
         bridge.observeProperty("track-list", MpvNativeBridge.Format.NONE)
     }
@@ -143,6 +151,12 @@ class VideoGeometryCoordinator(
                     updateHdrState()
                 }
             }
+            is MpvEvent.StringProperty -> when (event.name) {
+                // The transfer function is only populated once the decoder has inspected the
+                // stream, which can land after FILE_LOADED and after the first frame. Without
+                // this observer such a file stayed SDR for its whole playback.
+                "video-params/gamma", "video-params/colormatrix" -> updateHdrState()
+            }
             is MpvEvent.LongProperty -> when (event.name) {
                 "width", "height", "dwidth", "dheight" -> onVoParamsChanged()
             }
@@ -171,9 +185,7 @@ class VideoGeometryCoordinator(
         _videoFrameRate.value = 0f
         _isHdr.value = false
         _hdrFormat.value = ""
-        bridge.setPropertyString("hdr-output", "no")
-        bridge.setPropertyString("target-trc", "auto")
-        bridge.setPropertyString("target-prim", "auto")
+        resetHdrPipeline()
         if (initialWidth > 0 && initialHeight > 0) {
             val aspect = initialWidth.toFloat() / initialHeight
             val dims = VideoDimensions(initialWidth, initialHeight)
@@ -253,6 +265,10 @@ class VideoGeometryCoordinator(
         _sessionState.value = GeometrySessionState.Presenting(url, dims, aspect)
         _firstFrameRendered.value = true
         _geometryReady.value = true
+        // `video-params` frequently lands while the session is still Switching, where the HDR
+        // decision is suppressed by design. Without this re-check the first frame of a cold start
+        // would stay SDR until some later property event happened to fire again.
+        updateHdrState()
     }
     fun onVoParamsChanged() {
         when (val state = _sessionState.value) {
@@ -307,9 +323,7 @@ class VideoGeometryCoordinator(
         _videoFrameRate.value = 0f
         _isHdr.value = false
         _hdrFormat.value = ""
-        bridge.setPropertyString("hdr-output", "no")
-        bridge.setPropertyString("target-trc", "auto")
-        bridge.setPropertyString("target-prim", "auto")
+        resetHdrPipeline()
     }
 
     override fun reset() {
@@ -323,9 +337,7 @@ class VideoGeometryCoordinator(
         _videoAspect.value = 0f
         _isHdr.value = false
         _hdrFormat.value = ""
-        bridge.setPropertyString("hdr-output", "no")
-        bridge.setPropertyString("target-trc", "auto")
-        bridge.setPropertyString("target-prim", "auto")
+        resetHdrPipeline()
     }
 
     private fun refreshDoviTrackCache() {
@@ -352,43 +364,79 @@ class VideoGeometryCoordinator(
         if (_sessionState.value is GeometrySessionState.Switching) {
             return
         }
+        val format = resolveHdrFormat()
+        val target = HdrOutputPlanner.plan(
+            format = format,
+            display = displayCapabilities,
+            colorSpace = bridge.hdrColorSpaceSupport(),
+            preference = store.current.hdrOutputMode,
+        )
+        applyHdrTarget(format, target)
+    }
+
+    /**
+     * Classifies the source from `video-params`, which describes what the decoder actually
+     * produced. `video-out-params` is deliberately not consulted: that is the renderer's output,
+     * so reading it would make the HDR decision chase its own tail.
+     */
+    private fun resolveHdrFormat(): HdrFormat {
         val gamma = bridge.getPropertyString("video-params/gamma")?.lowercase()?.trim() ?: ""
         val colormatrix = bridge.getPropertyString("video-params/colormatrix")?.lowercase()?.trim() ?: ""
-
         val isDoviTrack = cachedIsDoviTrack ?: queryIsDoviTrack().also { cachedIsDoviTrack = it }
-
         val isDovi = colormatrix.contains("dolby") || colormatrix.contains("dovi") || isDoviTrack
-        val isPq = gamma == "pq"
-        val isHlg = gamma == "hlg"
-
-        val format = when {
-            isDovi -> "Dolby Vision"
-            isPq -> "HDR10"
-            isHlg -> "HLG"
-            else -> ""
+        return when {
+            isDovi -> HdrFormat.DOLBY_VISION
+            gamma == "pq" -> HdrFormat.HDR10
+            gamma == "hlg" -> HdrFormat.HLG
+            else -> HdrFormat.NONE
         }
+    }
 
-        val allowHdrLighting = store.current.hdrOutputMode != HdrOutputMode.SDR &&
-            displayHdrCapable
+    /**
+     * Writes one [HdrOutputTarget] to the whole pipeline: the EGL surface selector, the mpv target
+     * colours, and the tone curve. Single writer, so "参数只改了一个" cannot happen again.
+     */
+    private fun applyHdrTarget(format: HdrFormat, target: HdrOutputTarget) {
+        val unchanged = _hdrFormat.value == format.label &&
+            _isHdr.value == target.isHdr &&
+            appliedTarget == target
+        if (unchanged) return
 
-        // Standard HDR10 and HLG can be physically lit up by vo=gpu on 10-bit displays.
-        // Dolby Vision Profile 5 (ICtCp) is skipped from PQ hardware lighting to avoid severe purple/green tint on vo_gpu.
-        val canLightUp = !isDovi && (isPq || isHlg)
-        val hdr = allowHdrLighting && canLightUp
+        _hdrFormat.value = format.label
+        _isHdr.value = target.isHdr
+        appliedTarget = target
 
-        if (_isHdr.value != hdr || _hdrFormat.value != format) {
-            _isHdr.value = hdr
-            _hdrFormat.value = format
-            bridge.setPropertyString("hdr-output", if (hdr) "yes" else "no")
-            if (hdr) {
-                bridge.setPropertyString("target-trc", "pq")
-                bridge.setPropertyString("target-prim", "bt.2020")
-            } else {
-                bridge.setPropertyString("target-trc", "auto")
-                bridge.setPropertyString("target-prim", "auto")
-            }
-            SwitchTrace.log("HDR_STATE", "isHdr=$hdr, format=$format, gamma=$gamma, colormatrix=$colormatrix")
+        // Native reads this to pick the window surface colours space, which must equal the curve
+        // mpv is about to encode into it.
+        bridge.setPropertyString("hdr-output", if (target.isHdr) target.transfer.mpvTrc else "no")
+        bridge.setPropertyString("target-trc", target.transfer.mpvTrc)
+        bridge.setPropertyString("target-prim", target.primaries)
+        // Without a peak mpv cannot tell a 1000-nit panel from a 400-nit one and tone maps the
+        // source before encoding PQ, flattening contrast.
+        if (target.peakNits > 0f) {
+            bridge.setPropertyDouble("target-peak", target.peakNits.toDouble())
+        } else {
+            bridge.setPropertyString("target-peak", "auto")
         }
+        bridge.setPropertyString("gamut-clipping", if (target.gamutClipping) "yes" else "no")
+        applyToneMapping()
+
+        SwitchTrace.log(
+            "HDR_STATE",
+            "format=${format.label}, transfer=${target.transfer.mpvTrc}, prim=${target.primaries}, " +
+                "peak=${target.peakNits}, fold=${target.foldsToSdr}, reason=${target.reason}"
+        )
+    }
+
+    /** Returns the colour pipeline to SDR defaults, including the state tracking in front of it. */
+    private fun resetHdrPipeline() {
+        appliedTarget = null
+        appliedToneMapping = null
+        bridge.setPropertyString("hdr-output", "no")
+        bridge.setPropertyString("target-trc", "auto")
+        bridge.setPropertyString("target-prim", "auto")
+        bridge.setPropertyString("target-peak", "auto")
+        bridge.setPropertyString("gamut-clipping", "no")
     }
 
     /**
@@ -413,7 +461,20 @@ class VideoGeometryCoordinator(
 
     override fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
         store.update { it.copy(toneMappingAlgorithm = algorithm) }
+        applyToneMapping()
+    }
+
+    /**
+     * Pushes the curve mpv should use. [ToneMappingAlgorithm.AUTO] means "whatever the engine
+     * configures at init", which is `hable` — the HDR path deliberately does not silently swap in
+     * a different curve, because that changed the look of every SDR-folded file without the user
+     * touching a setting. `bt.2446a` and `spline` remain available as explicit choices.
+     */
+    private fun applyToneMapping() {
+        val algorithm = store.current.toneMappingAlgorithm
         val effective = if (algorithm == ToneMappingAlgorithm.AUTO) "hable" else algorithm.persistedKey
+        if (effective == appliedToneMapping) return
+        appliedToneMapping = effective
         bridge.setPropertyString("tone-mapping", effective)
     }
 

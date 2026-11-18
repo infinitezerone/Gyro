@@ -20,6 +20,7 @@ import dev.gyro.engine.media.DefaultMediaResourceResolver
 import dev.gyro.engine.media.MediaInfoExtractor
 import dev.gyro.engine.api.media.MediaItem
 import dev.gyro.engine.media.MediaResourceResolver
+import dev.gyro.engine.model.HdrDisplayCapabilities
 import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.SessionPhase
@@ -177,8 +178,8 @@ class GyroPlayerEngine(
         override fun updateDisplayRefreshRate(rate: Float) =
             geometry.updateDisplayRefreshRate(rate)
 
-        override fun setDisplayHdrCapable(capable: Boolean) =
-            geometry.setDisplayHdrCapable(capable)
+        override fun setDisplayCapabilities(capabilities: HdrDisplayCapabilities) =
+            geometry.setDisplayCapabilities(capabilities)
     }
     val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
 

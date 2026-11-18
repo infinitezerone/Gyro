@@ -42,6 +42,42 @@ const EGL_GL_COLORSPACE_KHR: EGLint = 0x309D;
 /// `EGL_GL_COLORSPACE_BT2020_PQ_EXT`: HDR10 (PQ/BT.2020) window colours.
 #[cfg(target_os = "android")]
 const EGL_GL_COLORSPACE_BT2020_PQ_EXT: EGLint = 0x3340;
+/// `EGL_GL_COLORSPACE_BT2020_HLG_EXT`: BT.2100 HLG window colours.
+#[cfg(target_os = "android")]
+const EGL_GL_COLORSPACE_BT2020_HLG_EXT: EGLint = 0x3540;
+
+/// 扩展名：EGL 实现声明它才能把 window surface 标成 BT.2020/PQ。
+#[cfg(target_os = "android")]
+const EGL_PQ_COLORSPACE_EXTENSION: &str = "EGL_EXT_gl_colorspace_bt2020_pq";
+/// 扩展名：同上，BT.2020/HLG。
+#[cfg(target_os = "android")]
+const EGL_HLG_COLORSPACE_EXTENSION: &str = "EGL_EXT_gl_colorspace_bt2020_hlg";
+/// 扩展名：`EGL_GL_COLORSPACE_KHR` 这个属性本身由它引入，上面两个扩展只负责追加取值。
+#[cfg(target_os = "android")]
+const EGL_GL_COLORSPACE_EXTENSION: &str = "EGL_KHR_gl_colorspace";
+
+/// 查询 EGL 能创建哪些 BT.2020 window surface，返回 `(pq, hlg)`。
+///
+/// 缺失时 `eglCreateWindowSurface` 会直接失败并退回默认 colorspace —— PQ/HLG 码值进 SDR buffer
+/// 就是整屏惨白的成因，因此必须在申请前就问清楚，而不是靠创建失败来发现。
+#[cfg(target_os = "android")]
+pub unsafe fn probe_hdr_colorspace(display: EGLDisplay) -> (bool, bool) {
+    let raw = eglQueryString(display, EGL_EXTENSIONS);
+    if raw.is_null() {
+        return (false, false);
+    }
+    let extensions = std::ffi::CStr::from_ptr(raw).to_string_lossy();
+    let mut has_pq = false;
+    let mut has_hlg = false;
+    let mut has_base = false;
+    for extension in extensions.split_whitespace() {
+        has_pq |= extension == EGL_PQ_COLORSPACE_EXTENSION;
+        has_hlg |= extension == EGL_HLG_COLORSPACE_EXTENSION;
+        has_base |= extension == EGL_GL_COLORSPACE_EXTENSION;
+    }
+    // Both HDR variants build on EGL_KHR_gl_colorspace; without it the attribute is meaningless.
+    (has_base && has_pq, has_base && has_hlg)
+}
 
 pub fn egl_error_name(code: EGLint) -> &'static str {
     match code {
@@ -418,6 +454,13 @@ pub struct SurfaceSlot {
     pub surface: EGLSurface,
     pub window: *mut ANativeWindow,
     pub dummy_pbuffer: EGLSurface,
+    /// 当前 window surface 实际使用的输出色彩空间（`OUTPUT_COLORSPACE_*`）。
+    ///
+    /// colorspace 是创建期属性，改它只能重建 surface。记住实际值，渲染循环才能在 PQ <-> HLG
+    /// 这种「buffer 格式不变、colorspace 变了」的切换里发现不一致并自行重建。
+    colorspace: u8,
+    /// 创建该 surface 时 window 的 buffer 格式，用于识别「重建请求但什么都没变」的重复调用。
+    window_format: i32,
 }
 
 impl SurfaceSlot {
@@ -428,6 +471,8 @@ impl SurfaceSlot {
             surface: EGL_NO_SURFACE,
             window: std::ptr::null_mut(),
             dummy_pbuffer: EGL_NO_SURFACE,
+            colorspace: super::OUTPUT_COLORSPACE_SDR,
+            window_format: 0,
         }
     }
 
@@ -439,29 +484,52 @@ impl SurfaceSlot {
         self.surface
     }
 
-    /// Creates the window surface, asking for BT.2020/PQ scanout when the current file is HDR.
+    /// 当前 surface 实际使用的色彩空间，供渲染循环与目标值比对。
+    pub fn colorspace(&self) -> u8 {
+        self.colorspace
+    }
+
+    /// 创建该 surface 时 window 的 buffer 格式。
+    pub fn window_format(&self) -> i32 {
+        self.window_format
+    }
+
+    /// Creates the window surface, asking for the BT.2020 colours space the current target needs.
     ///
-    /// The colourspace is a per-surface attribute, so every creation path (first attach, rebuild
-    /// after the buffer format changed, recovery) must go through here. Requesting PQ against a
-    /// config without 10-bit components fails and falls back to the default colourspace, which is
-    /// also what an SDR panel gets.
+    /// The colours space is a per-surface attribute, so every creation path (first attach, rebuild
+    /// after the buffer format changed, recovery) must go through here. A request against a config
+    /// or driver that cannot serve it is skipped up front — see `probe_hdr_colorspace` — instead of
+    /// failing and silently landing in the default colours space with HDR data inside.
     #[cfg(target_os = "android")]
-    unsafe fn create_window_surface(&self, window: *mut ANativeWindow) -> EGLSurface {
-        if super::is_hdr_output() {
-            let hdr_attribs = [
-                EGL_GL_COLORSPACE_KHR,
-                EGL_GL_COLORSPACE_BT2020_PQ_EXT,
-                EGL_NONE,
-            ];
-            let surface = eglCreateWindowSurface(self.display, self.config, window, hdr_attribs.as_ptr());
-            if surface != EGL_NO_SURFACE {
-                nlog("EGL: 成功创建 BT2020_PQ HDR Window Surface ✨");
-                return surface;
+    unsafe fn create_window_surface(&self, window: *mut ANativeWindow) -> (EGLSurface, u8) {
+        let requested = super::output_colorspace();
+        let supported = super::hdr_colorspace_support();
+        let colorspace = match requested {
+            super::OUTPUT_COLORSPACE_PQ if supported.map(|(pq, _)| pq) != Some(false) => {
+                Some((EGL_GL_COLORSPACE_BT2020_PQ_EXT, "BT2020_PQ"))
             }
-            nlog("EGL: BT2020_PQ colorspace 失败，回退默认 colorspace");
+            super::OUTPUT_COLORSPACE_HLG if supported.map(|(_, hlg)| hlg) == Some(true) => {
+                Some((EGL_GL_COLORSPACE_BT2020_HLG_EXT, "BT2020_HLG"))
+            }
+            super::OUTPUT_COLORSPACE_PQ | super::OUTPUT_COLORSPACE_HLG => {
+                nlog("EGL: 目标 colorspace 不受支持，退回默认（Kotlin 侧应已降级）");
+                None
+            }
+            _ => None,
+        };
+
+        if let Some((attribute, name)) = colorspace {
+            let attribs = [EGL_GL_COLORSPACE_KHR, attribute, EGL_NONE];
+            let surface = eglCreateWindowSurface(self.display, self.config, window, attribs.as_ptr());
+            if surface != EGL_NO_SURFACE {
+                nlog(&format!("EGL: 成功创建 {name} HDR Window Surface ✨"));
+                return (surface, requested);
+            }
+            nlog(&format!("EGL: {name} colorspace 失败，回退默认 colorspace"));
         }
         let attribs = [EGL_NONE];
-        eglCreateWindowSurface(self.display, self.config, window, attribs.as_ptr())
+        let surface = eglCreateWindowSurface(self.display, self.config, window, attribs.as_ptr());
+        (surface, super::OUTPUT_COLORSPACE_SDR)
     }
 
     pub unsafe fn attach(
@@ -491,7 +559,7 @@ impl SurfaceSlot {
 
             self.detach_with_context(context);
 
-            let surface = self.create_window_surface(new_window);
+            let (surface, colorspace) = self.create_window_surface(new_window);
             if surface == EGL_NO_SURFACE {
                 let err = egl_failure("eglCreateWindowSurface");
                 window_ref(-2, "attach(createSurface failed) release handoff");
@@ -514,6 +582,8 @@ impl SurfaceSlot {
 
             self.surface = surface;
             self.window = new_window;
+            self.colorspace = colorspace;
+            self.window_format = ANativeWindow_getFormat(new_window);
             window_ref(-1, "attach(success) release handoff, slot keeps 1");
             ANativeWindow_release(new_window);
             Ok(())
@@ -549,6 +619,8 @@ impl SurfaceSlot {
                     egl_failure("eglDestroySurface");
                 }
                 self.surface = EGL_NO_SURFACE;
+                self.colorspace = super::OUTPUT_COLORSPACE_SDR;
+                self.window_format = 0;
             }
             if !self.window.is_null() {
                 window_ref(-1, "detach release slot reference");
@@ -570,6 +642,8 @@ impl SurfaceSlot {
                 eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
                 let _ = eglDestroySurface(self.display, self.surface);
                 self.surface = EGL_NO_SURFACE;
+                self.colorspace = super::OUTPUT_COLORSPACE_SDR;
+                self.window_format = 0;
             }
         }
     }
@@ -586,7 +660,7 @@ impl SurfaceSlot {
                 return Ok(());
             }
             self.drop_surface();
-            let surface = self.create_window_surface(self.window);
+            let (surface, colorspace) = self.create_window_surface(self.window);
             if surface == EGL_NO_SURFACE {
                 let err = egl_failure("eglCreateWindowSurface(rebuild)");
                 return Err(err);
@@ -599,6 +673,8 @@ impl SurfaceSlot {
             eglSwapInterval(self.display, 1);
             clear_window_surface(self.display, surface, context_major);
             self.surface = surface;
+            self.colorspace = colorspace;
+            self.window_format = ANativeWindow_getFormat(self.window);
             Ok(())
         }
         #[cfg(not(target_os = "android"))]
@@ -614,6 +690,8 @@ impl SurfaceSlot {
 pub struct EglRenderStrategy {
     pub(crate) core: EglCore,
     pub(crate) slot: SurfaceSlot,
+    /// 已经为「等待 10-bit buffer」打过日志，避免每帧刷同一条。
+    deferred_colorspace_logged: bool,
 }
 
 unsafe impl Send for EglRenderStrategy {}
@@ -621,7 +699,7 @@ unsafe impl Sync for EglRenderStrategy {}
 
 impl EglRenderStrategy {
     pub(crate) fn new(core: EglCore, slot: SurfaceSlot) -> Self {
-        Self { core, slot }
+        Self { core, slot, deferred_colorspace_logged: false }
     }
 }
 
@@ -644,6 +722,19 @@ impl RenderStrategy for EglRenderStrategy {
     }
 
     fn rebuild_surface(&mut self) -> Result<(), i32> {
+        #[cfg(target_os = "android")]
+        if !self.slot.window.is_null() {
+            // Two independent things ask for a rebuild around the same file switch: the view's
+            // format change and the render loop's colours-space self-heal. When both the colours
+            // space and the window format already match what this surface was built with, the call
+            // is a pure no-op — rebuilding anyway just burns a buffer allocation per request.
+            let same_colorspace = self.slot.colorspace() == super::output_colorspace();
+            let same_format = unsafe { ANativeWindow_getFormat(self.slot.window) } == self.slot.window_format();
+            if same_colorspace && same_format {
+                nlog("EGL: colorspace 与 buffer 格式均未变化，跳过重复重建");
+                return Ok(());
+            }
+        }
         unsafe {
             self.slot.drop_surface();
             self.slot.rebuild_surface(self.core.context, self.core.context_major)
@@ -666,6 +757,40 @@ impl RenderStrategy for EglRenderStrategy {
     fn draw_frame(&mut self, mpv_render_ctx: *mut c_void, force: bool) -> DrawOutcome {
         if !self.slot.is_ready() || mpv_render_ctx.is_null() {
             return DrawOutcome::Skipped;
+        }
+        // The surface colours space is fixed at creation, and a PQ <-> HLG switch keeps the 10-bit
+        // buffer format, so neither `surfaceChanged` nor the format check can notice it. Compare
+        // against the requested one here and rebuild once, rather than trusting a Kotlin callback
+        // that has no way to see this distinction.
+        #[cfg(target_os = "android")]
+        if self.slot.colorspace() != super::output_colorspace() {
+            // Going HDR before the window carries a deep buffer would only build a PQ-tagged 8-bit
+            // surface, which the format change already in flight is about to replace. Wait for it.
+            let requested = super::output_colorspace();
+            let deep_buffer = !self.slot.window.is_null()
+                && matches!(
+                    unsafe { ANativeWindow_getFormat(self.slot.window) },
+                    WINDOW_FORMAT_RGBA_1010102 | WINDOW_FORMAT_RGBA_FP16
+                );
+            if requested != super::OUTPUT_COLORSPACE_SDR && !deep_buffer {
+                if !self.deferred_colorspace_logged {
+                    self.deferred_colorspace_logged = true;
+                    nlog("EGL: 已请求 HDR colorspace，等待 window 切到 10-bit 后再重建 surface");
+                }
+            } else {
+                self.deferred_colorspace_logged = false;
+                nlog(&format!(
+                    "EGL: colorspace 由 {} 改为 {}，重建 window surface",
+                    self.slot.colorspace(),
+                    requested
+                ));
+                unsafe {
+                    let _ = self.slot.rebuild_surface(self.core.context, self.core.context_major);
+                }
+                if !self.slot.is_ready() {
+                    return DrawOutcome::Skipped;
+                }
+            }
         }
         if G_SESSION.render_dead.load(Ordering::Acquire) {
             return DrawOutcome::Skipped;
@@ -711,6 +836,12 @@ pub(crate) unsafe fn init_egl_strategy() -> Result<EglRenderStrategy, String> {
             return Err("eglInitialize".into());
         }
         nlog(&format!("EGL: 初始化完成 version={major}.{minor}"));
+
+        let (pq_colorspace, hlg_colorspace) = probe_hdr_colorspace(display);
+        super::set_hdr_colorspace_support(pq_colorspace, hlg_colorspace);
+        nlog(&format!(
+            "EGL: colorspace support pq={pq_colorspace} hlg={hlg_colorspace}"
+        ));
 
         let prefer_10bit = super::is_hdr_capable();
         let chosen = match choose_egl_config(display, prefer_10bit) {

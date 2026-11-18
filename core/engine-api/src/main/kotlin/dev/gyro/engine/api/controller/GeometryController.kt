@@ -3,6 +3,7 @@ package dev.gyro.engine.api.controller
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.VideoScale
+import dev.gyro.engine.model.HdrDisplayCapabilities
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +21,8 @@ interface GeometryController {
     val geometryReady: StateFlow<Boolean>
     val firstFrameRendered: StateFlow<Boolean>
 
-    fun setDisplayHdrCapable(capable: Boolean)
+    /** Whole-panel capability table; see [RenderController.setDisplayCapabilities]. */
+    fun setDisplayCapabilities(capabilities: HdrDisplayCapabilities) {}
     fun updateDisplayRefreshRate(rate: Float)
     fun setResizeMode(mode: ResizeMode)
     fun setHdrOutputMode(mode: HdrOutputMode)

@@ -122,6 +122,18 @@ fn jstr_to_cstring(env: &mut JNIEnv, s: &JString) -> Result<CString, String> {
     CString::new(jstr.to_bytes()).map_err(|_| "interior nul".into())
 }
 
+/// 把 `hdr-output` 伪选项映射成输出色彩空间。
+///
+/// 取值与 Kotlin 写入的 `target-trc` 是同一套 token，这样 EGL surface 的 colorspace 与 mpv
+/// 编码进去的曲线不可能指向不同目标。`yes`/`auto` 保留给旧调用点，等价于 PQ。
+fn parse_output_colorspace(value: &str) -> u8 {
+    match value {
+        "pq" | "yes" | "auto" | "true" | "1" => crate::render::OUTPUT_COLORSPACE_PQ,
+        "hlg" => crate::render::OUTPUT_COLORSPACE_HLG,
+        _ => crate::render::OUTPUT_COLORSPACE_SDR,
+    }
+}
+
 #[inline]
 fn catch_jni_panic<R, F>(func_name: &'static str, default: R, f: F) -> R
 where
@@ -256,6 +268,11 @@ fn register_gyro_natives(env: &mut JNIEnv, class: &JClass) -> Result<(), jni::er
             name: "observeProperty".into(),
             sig: "(Ljava/lang/String;I)V".into(),
             fn_ptr: native_observe_property as *mut c_void,
+        },
+        jni::NativeMethod {
+            name: "hdrColorSpaceSupport".into(),
+            sig: "()I".into(),
+            fn_ptr: native_hdr_colorspace_support as *mut c_void,
         },
         jni::NativeMethod {
             name: "isZeroCopySafe".into(),
@@ -603,8 +620,7 @@ jni_fn! {
             let n_str = n.to_str().unwrap_or("");
             let v_str = v.to_str().unwrap_or("");
             if n_str == "hdr-output" {
-                let enable_hdr = v_str == "yes" || v_str == "auto" || v_str == "true" || v_str == "1";
-                crate::render::set_hdr_output(enable_hdr);
+                crate::render::set_output_colorspace(parse_output_colorspace(v_str));
                 return Ok(0);
             }
             if n_str == "hdr-capable" {
@@ -777,8 +793,7 @@ jni_fn! {
             if let Ok(ref n_str) = n_str_res {
                 if n_str == "hdr-output" {
                     let v_str = v.to_str().unwrap_or("");
-                    let enable_hdr = v_str == "yes" || v_str == "auto" || v_str == "true" || v_str == "1";
-                    crate::render::set_hdr_output(enable_hdr);
+                    crate::render::set_output_colorspace(parse_output_colorspace(v_str));
                 }
             }
             with_property_cstr(&mut env, &name, |n| {
@@ -814,6 +829,16 @@ jni_fn! {
         _class: JClass
     ) -> jboolean, default = 0; {
         G_ZERO_COPY_SAFE.load(Ordering::Acquire) as jboolean
+    }
+}
+
+jni_fn! {
+    /// EGL 能创建哪些 BT.2020 window surface：`-1` 未探测，否则 bit0 = PQ、bit1 = HLG。
+    fn native_hdr_colorspace_support(
+        _env: JNIEnv,
+        _class: JClass
+    ) -> jint, default = -1; {
+        crate::render::hdr_colorspace_support_mask()
     }
 }
 

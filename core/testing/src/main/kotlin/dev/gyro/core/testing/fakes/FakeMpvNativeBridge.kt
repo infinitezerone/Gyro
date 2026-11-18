@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.Surface
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
+import dev.gyro.engine.video.HdrColorSpaceSupport
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -179,6 +180,12 @@ class FakeMpvNativeBridge(
     override fun isZeroCopySafe(): Boolean = isZeroCopySafeResult
 
     override fun getGpuRenderer(): String = gpuRendererResult
+
+    /** `Unknown` mimics a render thread that has not probed EGL yet. */
+    @Volatile
+    var hdrColorSpaceSupportResult: HdrColorSpaceSupport = HdrColorSpaceSupport.Unknown
+
+    override fun hdrColorSpaceSupport(): HdrColorSpaceSupport = hdrColorSpaceSupportResult
 
     // ---------- Test Simulation & Emulation Helpers ----------
 
