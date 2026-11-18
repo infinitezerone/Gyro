@@ -62,13 +62,14 @@ class DefaultMediaRepository @Inject constructor(
             MediaStore.Video.Media.MIME_TYPE,
         )
 
+        val selection = "${MediaStore.Video.Media.IS_PENDING} = 0"
         val sortOrder = "${MediaStore.Video.Media.DATE_MODIFIED} DESC"
 
         try {
             context.contentResolver.query(
                 collection,
                 projection,
-                null,
+                selection,
                 null,
                 sortOrder,
             )?.use { cursor ->
@@ -123,9 +124,13 @@ class DefaultMediaRepository @Inject constructor(
 
         try {
             val customVideos = customFolderRepository.scanCustomFolders()
-            val existingNames = videoList.map { it.displayName to it.sizeBytes }.toSet()
+            val seenUris = videoList.mapTo(HashSet()) { it.uriString }
+            val seenNameSizes = videoList.mapTo(HashSet()) { it.displayName to it.sizeBytes }
             for (item in customVideos) {
-                if ((item.displayName to item.sizeBytes) !in existingNames) {
+                val nameSize = item.displayName to item.sizeBytes
+                if (item.uriString !in seenUris && nameSize !in seenNameSizes) {
+                    seenUris.add(item.uriString)
+                    seenNameSizes.add(nameSize)
                     videoList.add(item)
                 }
             }

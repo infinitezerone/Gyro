@@ -114,7 +114,7 @@ class DefaultCustomFolderRepository @Inject constructor(
                 Log.w(TAG, "Failed scanning folder $treeUri", e)
             }
         }
-        result
+        result.distinctBy { it.uriString }
     }
 
     private fun parseUri(raw: String): Uri? = try {

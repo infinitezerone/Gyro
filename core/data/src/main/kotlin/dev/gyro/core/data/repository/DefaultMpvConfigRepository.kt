@@ -6,10 +6,20 @@ import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
 import dev.gyro.core.model.MpvConfig
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,12 +35,19 @@ class DefaultMpvConfigRepository @Inject constructor(
 ) : MpvConfigRepository {
 
     private val configFile: File get() = context.filesDir.resolve("mpv.conf")
+    private val tmpConfigFile: File get() = context.filesDir.resolve("mpv.conf.tmp")
 
     /**
      * `writeText` is not atomic: two concurrent writes interleave bytes and leave a file that
      * parses as garbage. The mutex is a lock, not state — it does not make this class stateful.
      */
     private val writeMutex = Mutex()
+    private val configVersion = MutableStateFlow(0L)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override val parsedOptions: Flow<Map<String, String>> = configVersion
+        .flatMapLatest { flow { emit(getParsedOptions()) } }
+        .distinctUntilChanged()
 
     override suspend fun loadConfig(): String = withContext(ioDispatcher) {
         readFile() ?: writeMutex.withLock {
@@ -43,13 +60,16 @@ class DefaultMpvConfigRepository @Inject constructor(
 
     override suspend fun saveConfig(content: String) = withContext(ioDispatcher) {
         writeMutex.withLock {
-            configFile.parentFile?.mkdirs()
-            configFile.writeText(content, Charsets.UTF_8)
+            writeAtomically(content)
+            configVersion.update { it + 1 }
         }
     }
 
     override suspend fun resetToDefault(): String = withContext(ioDispatcher) {
-        writeMutex.withLock { writeDefaultTemplate() }
+        writeMutex.withLock {
+            writeDefaultTemplate()
+            configVersion.update { it + 1 }
+        }
         MpvConfig.DEFAULT_TEMPLATE
     }
 
@@ -70,8 +90,27 @@ class DefaultMpvConfigRepository @Inject constructor(
 
     private fun writeDefaultTemplate() {
         runCatching {
-            configFile.parentFile?.mkdirs()
-            configFile.writeText(MpvConfig.DEFAULT_TEMPLATE, Charsets.UTF_8)
+            writeAtomically(MpvConfig.DEFAULT_TEMPLATE)
+        }
+    }
+
+    private fun writeAtomically(content: String) {
+        configFile.parentFile?.mkdirs()
+        val tmpFile = tmpConfigFile
+        try {
+            FileOutputStream(tmpFile).use { fos ->
+                fos.write(content.toByteArray(Charsets.UTF_8))
+                fos.flush()
+                fos.fd.sync()
+            }
+            Files.move(
+                tmpFile.toPath(),
+                configFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (t: Throwable) {
+            runCatching { tmpFile.delete() }
+            throw t
         }
     }
 }

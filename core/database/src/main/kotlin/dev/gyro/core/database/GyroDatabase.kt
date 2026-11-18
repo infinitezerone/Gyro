@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room3.Database
 import androidx.room3.Room
 import androidx.room3.RoomDatabase
+import androidx.room3.migration.Migration
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import androidx.sqlite.execSQL
 import dev.gyro.core.database.dao.PlaybackHistoryDao
 import dev.gyro.core.database.entity.PlaybackHistoryEntity
 
@@ -11,7 +14,7 @@ import dev.gyro.core.database.entity.PlaybackHistoryEntity
     entities = [
         PlaybackHistoryEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class GyroDatabase : RoomDatabase() {
@@ -20,12 +23,21 @@ abstract class GyroDatabase : RoomDatabase() {
     companion object {
         private const val DB_NAME = "gyro.db"
 
+        val MIGRATION_1_2: Migration = Migration(1, 2) { connection ->
+            connection.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_playback_history_updatedAt ON playback_history(updatedAt)"
+            )
+        }
+
         fun create(context: Context): GyroDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 GyroDatabase::class.java,
                 DB_NAME
-            ).fallbackToDestructiveMigration(dropAllTables = true)
+            )
+                .addMigrations(MIGRATION_1_2)
+                .setDriver(BundledSQLiteDriver())
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
     }
 }

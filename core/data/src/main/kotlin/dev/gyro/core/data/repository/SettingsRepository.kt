@@ -1,7 +1,11 @@
 package dev.gyro.core.data.repository
 
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.PlayerGestureConfig
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
+import dev.gyro.core.model.VideoScale
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -22,9 +26,14 @@ interface SettingsRepository {
     suspend fun setBackgroundPlayMode(mode: String): UserSettings
     suspend fun setSeekStepSeconds(seconds: Int): UserSettings
     suspend fun setDefaultHwdec(hwdec: String): UserSettings
+    suspend fun setDefaultHwdec(mode: HwdecMode): UserSettings = setDefaultHwdec(mode.persistedKey)
     suspend fun setHdrOutputMode(mode: String): UserSettings
+    suspend fun setHdrOutputMode(mode: HdrOutputMode): UserSettings = setHdrOutputMode(mode.persistedKey)
     suspend fun setToneMappingAlgorithm(algorithm: String): UserSettings
+    suspend fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm): UserSettings =
+        setToneMappingAlgorithm(algorithm.persistedKey)
     suspend fun setVideoScale(scale: String): UserSettings
+    suspend fun setVideoScale(scale: VideoScale): UserSettings = setVideoScale(scale.persistedKey)
     suspend fun setInterpolation(enabled: Boolean): UserSettings
     suspend fun setAudioPassthrough(enabled: Boolean): UserSettings
     suspend fun setSubAutoLoad(enabled: Boolean): UserSettings

@@ -30,8 +30,9 @@ import kotlin.coroutines.coroutineContext
 
 private const val THUMBNAIL_WIDTH = 240
 private const val THUMBNAIL_HEIGHT = 136
-private const val MAX_CACHE_ENTRIES = 256
-private const val MAX_ARTWORK_ENTRIES = 16
+private const val MAX_CACHE_KB = 16 * 1024
+private const val MAX_ARTWORK_CACHE_KB = 24 * 1024
+private const val MAX_PALETTE_ENTRIES = 16
 
 /**
  * Thread-safe, main-safe implementation of [ThumbnailRepository] using injected
@@ -49,19 +50,31 @@ class DefaultThumbnailRepository @Inject constructor(
     private var currentUri: Uri? = null
     private var retriever: MediaMetadataRetriever? = null
 
-    private val cache = LruCache<String, Bitmap>(MAX_CACHE_ENTRIES)
-    private val artworkCache = LruCache<String, Bitmap>(MAX_ARTWORK_ENTRIES)
-    private val paletteCache = LruCache<Int, MediaPalette>(MAX_ARTWORK_ENTRIES)
+    private val cache = object : LruCache<String, Bitmap>(MAX_CACHE_KB) {
+        override fun sizeOf(key: String, value: Bitmap): Int =
+            (if (value.isRecycled) 0 else value.allocationByteCount / 1024).coerceAtLeast(1)
+    }
+
+    private val artworkCache = object : LruCache<String, Bitmap>(MAX_ARTWORK_CACHE_KB) {
+        override fun sizeOf(key: String, value: Bitmap): Int =
+            (if (value.isRecycled) 0 else value.allocationByteCount / 1024).coerceAtLeast(1)
+    }
+
+    private val paletteCache = LruCache<Int, MediaPalette>(MAX_PALETTE_ENTRIES)
 
     override suspend fun getThumbnail(uri: Uri?, timeMs: Long): Bitmap? {
         if (uri == null) return null
-        val key = "${uri}_$timeMs"
-        cache.get(key)?.let { return it }
+        val bucketedMs = (timeMs.coerceAtLeast(0L) / 1000L) * 1000L
+        val key = "${uri}_$bucketedMs"
+        cache.get(key)?.let { cached ->
+            if (!cached.isRecycled) return cached
+            cache.remove(key)
+        }
 
         return withContext(ioDispatcher) {
             mutex.withLock {
                 coroutineContext.ensureActive()
-                cache.get(key)?.let { return@withLock it }
+                cache.get(key)?.takeIf { !it.isRecycled }?.let { return@withLock it }
 
                 runCatching {
                     if (currentUri != uri || retriever == null) {
@@ -81,7 +94,7 @@ class DefaultThumbnailRepository @Inject constructor(
                     }
                     val mmr = retriever ?: return@withLock null
                     coroutineContext.ensureActive()
-                    val timeUs = (timeMs * 1000L).coerceAtLeast(0L)
+                    val timeUs = bucketedMs * 1000L
                     val bitmap = mmr.getScaledFrameAtTime(
                         timeUs,
                         MediaMetadataRetriever.OPTION_PREVIOUS_SYNC,
@@ -118,22 +131,23 @@ class DefaultThumbnailRepository @Inject constructor(
                 val targetSize = Size(width, height)
                 when {
                     uri.scheme == ContentResolver.SCHEME_CONTENT -> {
-                        context.contentResolver.loadThumbnail(uri, targetSize, null)
+                        val thumbnail = try {
+                            context.contentResolver.loadThumbnail(uri, targetSize, null)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        thumbnail ?: retrieveArtworkFrame(uri, width, height)
                     }
                     else -> {
                         val path = uri.path
                         if (path != null && File(path).exists()) {
-                            ThumbnailUtils.createVideoThumbnail(File(path), targetSize, null)
+                            runCatching {
+                                ThumbnailUtils.createVideoThumbnail(File(path), targetSize, null)
+                            }.getOrNull() ?: retrieveArtworkFrame(uri, width, height)
                         } else {
-                            MediaMetadataRetriever().use { mmr ->
-                                configureDataSource(mmr, uri)
-                                mmr.getScaledFrameAtTime(
-                                    0L,
-                                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                    width,
-                                    height,
-                                )
-                            }
+                            retrieveArtworkFrame(uri, width, height)
                         }
                     }
                 }
@@ -143,10 +157,26 @@ class DefaultThumbnailRepository @Inject constructor(
                 null
             }
 
+            coroutineContext.ensureActive()
             if (decoded != null) {
                 artworkCache.put(key, decoded)
             }
             decoded
+        }
+    }
+
+    private fun retrieveArtworkFrame(uri: Uri, width: Int, height: Int): Bitmap? {
+        val mmr = MediaMetadataRetriever()
+        return try {
+            configureDataSource(mmr, uri)
+            mmr.getScaledFrameAtTime(
+                0L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                width,
+                height,
+            )
+        } finally {
+            runCatching { mmr.release() }
         }
     }
 

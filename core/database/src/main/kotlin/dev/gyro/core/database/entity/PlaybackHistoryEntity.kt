@@ -1,10 +1,14 @@
 package dev.gyro.core.database.entity
 
 import androidx.room3.Entity
+import androidx.room3.Index
 import androidx.room3.PrimaryKey
 import dev.gyro.core.model.PlaybackProgress
 
-@Entity(tableName = "playback_history")
+@Entity(
+    tableName = "playback_history",
+    indices = [Index(value = ["updatedAt"])],
+)
 data class PlaybackHistoryEntity(
     @PrimaryKey val uriString: String,
     val positionMs: Long,

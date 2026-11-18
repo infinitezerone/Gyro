@@ -3,9 +3,13 @@ package dev.gyro.core.data.repository
 import dev.gyro.core.testing.fakes.FakeContext
 import dev.gyro.core.model.MpvConfig
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -55,6 +59,7 @@ class MpvConfigRepositoryTest {
     @Test
     fun testSaveConfigUpdatesDisk() = runTest(testDispatcher) {
         val configFile = File(tempFolder.root, "mpv.conf")
+        val tmpFile = File(tempFolder.root, "mpv.conf.tmp")
         val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
 
         val newContent = "scale=ewa_lanczos\nblend-subtitles=yes\n"
@@ -62,6 +67,7 @@ class MpvConfigRepositoryTest {
 
         assertEquals(newContent, repository.loadConfig())
         assertEquals(newContent, configFile.readText(Charsets.UTF_8))
+        assertFalse("Atomic move must not leave sibling temp file behind", tmpFile.exists())
 
         val options = repository.getParsedOptions()
         assertEquals("ewa_lanczos", options["scale"])
@@ -82,5 +88,41 @@ class MpvConfigRepositoryTest {
         assertEquals(MpvConfig.DEFAULT_TEMPLATE, repository.loadConfig())
         assertEquals(MpvConfig.DEFAULT_TEMPLATE, configFile.readText(Charsets.UTF_8))
         assertEquals("libmpv", repository.getParsedOptions()["vo"])
+    }
+
+    @Test
+    fun testParsedOptionsEmitsInitiallyAndOnSaveAndReset() = runTest(testDispatcher) {
+        val repository = DefaultMpvConfigRepository(FakeContext(tempFolder.root), testDispatcher)
+        val emissions = mutableListOf<Map<String, String>>()
+
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            repository.parsedOptions.collect { emissions.add(it) }
+        }
+        try {
+            advanceUntilIdle()
+
+            assertEquals(1, emissions.size)
+            assertEquals(MpvConfig.parse(MpvConfig.DEFAULT_TEMPLATE), emissions[0])
+
+            repository.saveConfig("speed=1.75\ndeband=yes\n")
+            advanceUntilIdle()
+
+            assertEquals(2, emissions.size)
+            assertEquals(mapOf("speed" to "1.75", "deband" to "yes"), emissions[1])
+
+            // Comment-only change with identical parsed options is deduplicated via distinctUntilChanged
+            repository.saveConfig("# comment\nspeed=1.75\ndeband=yes\n")
+            advanceUntilIdle()
+
+            assertEquals(2, emissions.size)
+
+            repository.resetToDefault()
+            advanceUntilIdle()
+
+            assertEquals(3, emissions.size)
+            assertEquals(MpvConfig.parse(MpvConfig.DEFAULT_TEMPLATE), emissions[2])
+        } finally {
+            job.cancel()
+        }
     }
 }

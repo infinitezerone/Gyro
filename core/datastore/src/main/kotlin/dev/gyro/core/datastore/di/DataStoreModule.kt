@@ -15,6 +15,8 @@ import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
@@ -38,7 +40,7 @@ object DataStoreModule {
         @ApplicationScope scope: CoroutineScope,
     ): DataStore<UserSettings> = UserSettingsDataStoreFactory.create(
         context = context,
-        scope = CoroutineScope(scope.coroutineContext + ioDispatcher),
+        scope = CoroutineScope(SupervisorJob(scope.coroutineContext[Job]) + ioDispatcher),
     )
 
     @Provides
@@ -50,6 +52,6 @@ object DataStoreModule {
         @ApplicationScope scope: CoroutineScope,
     ): DataStore<List<String>> = CustomFolderDataStoreFactory.create(
         context = context,
-        scope = CoroutineScope(scope.coroutineContext + ioDispatcher),
+        scope = CoroutineScope(SupervisorJob(scope.coroutineContext[Job]) + ioDispatcher),
     )
 }
