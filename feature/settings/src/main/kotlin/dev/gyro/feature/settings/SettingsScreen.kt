@@ -34,7 +34,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,9 +45,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gyro.core.designsystem.theme.GyroColors
-import dev.gyro.core.model.HWDEC_HARDWARE
-import dev.gyro.core.model.HWDEC_SOFTWARE
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.UserSettings
 
 @Composable
@@ -60,7 +60,7 @@ fun SettingsScreen(
     onNavigateToGestures: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val settings by viewModel.settings.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     SettingsContent(
         settings = settings,
         onBack = onBack,
@@ -93,8 +93,8 @@ fun SettingsContent(
     onUpdateBackgroundAudio: (Boolean) -> Unit = {},
     onUpdateBgPlay: (String) -> Unit = {},
     onUpdateSeekStep: (Int) -> Unit,
-    onUpdateHwdec: (String) -> Unit,
-    onUpdateHdrOutput: (String) -> Unit = {},
+    onUpdateHwdec: (HwdecMode) -> Unit,
+    onUpdateHdrOutput: (HdrOutputMode) -> Unit = {},
     onUpdateSubAutoLoad: (Boolean) -> Unit,
     onUpdateGestures: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -173,12 +173,12 @@ fun SettingsContent(
             // 2. 解码与视频渲染
             item {
                 PreferenceGroup(title = stringResource(R.string.settings_group_decoder)) {
-                    val (hwdecLabel, hwdecDesc) = when (settings.defaultHwdec) {
-                        "mediacodec" ->
+                    val (hwdecLabel, hwdecDesc) = when (settings.defaultHwdecMode) {
+                        HwdecMode.HARDWARE_DIRECT ->
                             "MediaCodec 硬解" to stringResource(R.string.settings_hwdec_active_mediacodec)
-                        "mediacodec-copy" ->
+                        HwdecMode.HARDWARE_COPY ->
                             "MediaCodec-Copy" to stringResource(R.string.settings_hwdec_active_copy)
-                        else ->
+                        HwdecMode.SOFTWARE ->
                             "CPU 软解" to stringResource(R.string.settings_hwdec_active_sw)
                     }
                     PreferenceClickItem(
@@ -187,8 +187,8 @@ fun SettingsContent(
                         description = hwdecDesc,
                         onClick = { showHwdecDialog = true }
                     )
-                    val (hdrLabel, hdrDesc) = when (settings.hdrOutputMode) {
-                        dev.gyro.core.model.HDR_OUTPUT_SDR ->
+                    val (hdrLabel, hdrDesc) = when (settings.hdrOutput) {
+                        HdrOutputMode.SDR ->
                             "色调映射 (SDR)" to stringResource(R.string.settings_hdr_active_sdr)
                         else ->
                             "自适应点亮 (真 HDR)" to stringResource(R.string.settings_hdr_active_auto)
@@ -288,7 +288,11 @@ fun SettingsContent(
 
     // 单选弹窗: 默认解码器
     if (showHwdecDialog) {
-        val hwdecModes = listOf(HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE)
+        val hwdecModes = listOf(
+            HwdecMode.HARDWARE_DIRECT,
+            HwdecMode.HARDWARE_COPY,
+            HwdecMode.SOFTWARE
+        )
         val options = listOf(
             DialogOption(
                 title = stringResource(R.string.settings_hwdec_mediacodec),
@@ -306,7 +310,7 @@ fun SettingsContent(
         SingleChoiceDialog(
             title = stringResource(R.string.settings_default_hwdec),
             options = options,
-            selectedIndex = hwdecModes.indexOf(settings.defaultHwdec).coerceAtLeast(0),
+            selectedIndex = hwdecModes.indexOf(settings.defaultHwdecMode).coerceAtLeast(0),
             onSelect = { idx ->
                 onUpdateHwdec(hwdecModes[idx])
                 showHwdecDialog = false
@@ -317,7 +321,7 @@ fun SettingsContent(
 
     // 单选弹窗: HDR 输出模式
     if (showHdrDialog) {
-        val modes = listOf(dev.gyro.core.model.HDR_OUTPUT_AUTO, dev.gyro.core.model.HDR_OUTPUT_SDR)
+        val modes = listOf(HdrOutputMode.AUTO, HdrOutputMode.SDR)
         val options = listOf(
             DialogOption(
                 title = stringResource(R.string.settings_hdr_output_auto),
@@ -331,7 +335,7 @@ fun SettingsContent(
         SingleChoiceDialog(
             title = stringResource(R.string.settings_hdr_output),
             options = options,
-            selectedIndex = modes.indexOf(settings.hdrOutputMode).coerceAtLeast(0),
+            selectedIndex = modes.indexOf(settings.hdrOutput).coerceAtLeast(0),
             onSelect = { idx ->
                 onUpdateHdrOutput(modes[idx])
                 showHdrDialog = false

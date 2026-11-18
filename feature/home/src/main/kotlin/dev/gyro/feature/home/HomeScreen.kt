@@ -63,8 +63,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
@@ -88,7 +89,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Android Photo & Video Picker (PickVisualMedia)
@@ -318,7 +319,7 @@ fun HomeContent(
                         ) {
                             items(
                                 items = uiState.filteredVideos,
-                                key = { it.id }
+                                key = { it.uriString }
                             ) { videoItem ->
                                 val progress = uiState.playbackMap[videoItem.uriString]
                                 VideoCard(
@@ -344,6 +345,7 @@ private fun FolderFilterBar(
     onSelectFolder: (String?) -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val folderCounts = remember(rawVideos) { rawVideos.groupingBy { it.folderName }.eachCount() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -372,7 +374,7 @@ private fun FolderFilterBar(
         )
 
         folders.forEach { folderName ->
-            val count = rawVideos.count { it.folderName == folderName }
+            val count = folderCounts[folderName] ?: 0
             FilterChip(
                 selected = selectedFolder == folderName,
                 onClick = { onSelectFolder(folderName) },
@@ -430,8 +432,9 @@ private fun VideoCard(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF222634))
             ) {
+                val thumbnailUri = remember(item.uriString) { Uri.parse(item.uriString) }
                 VideoThumbnail(
-                    uri = Uri.parse(item.uriString),
+                    uri = thumbnailUri,
                     modifier = Modifier.fillMaxSize()
                 )
 

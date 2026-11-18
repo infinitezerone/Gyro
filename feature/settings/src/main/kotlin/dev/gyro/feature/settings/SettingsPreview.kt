@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.UserSettings
 
 @Preview(
@@ -28,7 +29,7 @@ fun SettingsScreenPreview() {
             backgroundAudio = false,
             backgroundPlayMode = "pip",
             seekStepSeconds = 10,
-            defaultHwdec = "mediacodec",
+            defaultHwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
             subAutoLoad = true,
             gesturesEnabled = true
         )

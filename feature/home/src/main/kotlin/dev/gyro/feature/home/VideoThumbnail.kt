@@ -25,6 +25,8 @@ import coil3.request.crossfade
 import coil3.video.VideoFrameDecoder
 import dev.gyro.core.designsystem.theme.GyroColors
 
+private val SharedVideoFrameDecoderFactory = VideoFrameDecoder.Factory()
+
 @Composable
 fun VideoThumbnail(
     uri: Uri,
@@ -33,10 +35,11 @@ fun VideoThumbnail(
     val context = LocalContext.current
     var isLoaded by remember(uri) { mutableStateOf(false) }
 
-    val request = remember(uri) {
+    val request = remember(uri, context) {
         ImageRequest.Builder(context)
             .data(uri)
-            .decoderFactory(VideoFrameDecoder.Factory())
+            .size(320, 180)
+            .decoderFactory(SharedVideoFrameDecoderFactory)
             .crossfade(true)
             .build()
     }

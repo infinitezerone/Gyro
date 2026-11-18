@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.SettingsRepository
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.UserSettings
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,9 +56,21 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setHdrOutputMode(mode: HdrOutputMode) {
+        viewModelScope.launch {
+            repository.setHdrOutputMode(mode)
+        }
+    }
+
     fun setDefaultHwdec(hwdec: String) {
         viewModelScope.launch {
             repository.setDefaultHwdec(hwdec)
+        }
+    }
+
+    fun setDefaultHwdec(mode: HwdecMode) {
+        viewModelScope.launch {
+            repository.setDefaultHwdec(mode)
         }
     }
 
