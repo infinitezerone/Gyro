@@ -2,12 +2,12 @@ package dev.gyro.engine.model
 
 import android.net.Uri
 import dev.gyro.core.model.ChapterInfo
+import dev.gyro.core.model.EQUALIZER_BANDS
 import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.VideoScale
-import dev.gyro.engine.api.session.PlaybackSessionState
 
 /**
  * One consistent view of every slow-moving playback fact the UI renders.
@@ -65,11 +65,12 @@ data class PlaybackSnapshot(
     val audioDelaySec: Double = 0.0,
     val subtitleScale: Double = 1.0,
     val subtitlePositionPercent: Long = 100L,
+    val subAssOverride: Boolean = false,
 
     // Fields owned by controllers that were not part of the original UI snapshot
     val softwareVolume: Double = 100.0,
+    val equalizerGains: List<Double> = List(EQUALIZER_BANDS.size) { 0.0 },
     val displayRefreshRate: Float = 0f,
-    val sessionState: PlaybackSessionState = PlaybackSessionState.Idle,
 
     // Our own orchestration state, not a mirror of mpv
     val session: SessionPhase = SessionPhase.Idle,

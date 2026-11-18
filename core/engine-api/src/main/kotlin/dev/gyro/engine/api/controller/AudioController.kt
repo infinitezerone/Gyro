@@ -1,5 +1,7 @@
 package dev.gyro.engine.api.controller
 
+import dev.gyro.core.model.EQUALIZER_BANDS as MODEL_EQUALIZER_BANDS
+import dev.gyro.core.model.EQUALIZER_GAIN_LIMIT_DB as MODEL_EQUALIZER_GAIN_LIMIT_DB
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -28,7 +30,7 @@ interface AudioController {
 
     companion object {
         /** Centre frequencies in Hz for [equalizerGains]. */
-        val EQUALIZER_BANDS = listOf(60.0, 230.0, 910.0, 3600.0, 14000.0)
-        const val EQUALIZER_GAIN_LIMIT_DB = 12.0
+        val EQUALIZER_BANDS = MODEL_EQUALIZER_BANDS
+        const val EQUALIZER_GAIN_LIMIT_DB = MODEL_EQUALIZER_GAIN_LIMIT_DB
     }
 }

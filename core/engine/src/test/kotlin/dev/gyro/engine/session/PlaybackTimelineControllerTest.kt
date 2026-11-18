@@ -1,8 +1,8 @@
 package dev.gyro.engine.session
 
 import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
-import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.tracks.TrackAndChapterManager
+import dev.gyro.engine.video.GeometrySessionState
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +46,7 @@ class PlaybackTimelineControllerTest {
         geometry.onSwitchStarted("test://video", 0L)
         assertFalse(timeline.isFileLoaded)
         fileLoaded()
-        assertTrue(geometry.sessionState.value is PlaybackSessionState.Demuxed)
+        assertTrue(geometry.sessionState.value is GeometrySessionState.Demuxed)
         assertTrue(timeline.isFileLoaded)
         geometry.onFirstFramePresented()
         assertTrue(timeline.isFileLoaded)

@@ -23,6 +23,7 @@ import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -244,7 +245,7 @@ class GyroPlayerEngineTest {
     }
 
     @Test
-    fun testTimelineProperties_updatePublicFlowsAndMediaInfo() {
+    fun testTimelineProperties_updatePublicFlowsAndMediaInfo() = runTest {
         fakeBridge.emitPropertyDouble("time-pos", 12.5)
         fakeBridge.emitPropertyDouble("duration", 180.25)
         fakeBridge.emitPropertyDouble("demuxer-cache-time", 30.0)
@@ -678,5 +679,33 @@ class GyroPlayerEngineTest {
             localEngine.release()
             unmockkStatic(Uri::class)
         }
+    }
+
+    @Test
+    fun testStop_resetsSnapshotToIdleClearsUriAndDisarmsBackgroundPlayback() {
+        engine.attachSurface(Any())
+        val uri = TestUri("file:///tmp/stop_test.mp4")
+        engine.load(uri, displayTitle = "Stop Me")
+        fakeBridge.emitFileLoaded(mediaTitle = "Stop Me")
+        fakeBridge.emitPropertyDouble("duration", 95.0)
+        engine.setBackgroundPlaybackAllowed(true)
+
+        assertEquals(uri, engine.currentUri.value)
+        assertEquals(PlaybackState.READY, engine.playbackState.value)
+        assertTrue(engine.state.value.session is SessionPhase.Loaded)
+        assertTrue(engine.isBackgroundPlaybackAllowed)
+
+        engine.stop()
+
+        val after = engine.state.value
+        assertNull(after.currentUri)
+        assertEquals(SessionPhase.Idle, after.session)
+        assertEquals(PlaybackState.IDLE, after.playbackState)
+        assertFalse(after.isPlaying)
+        assertEquals("", after.mediaTitle)
+        assertEquals(0L, after.durationMs)
+        assertFalse(engine.isBackgroundPlaybackAllowed)
+        assertFalse(engine.isSurfaceAttached)
+        assertTrue(fakeBridge.hasCommand("stop"))
     }
 }

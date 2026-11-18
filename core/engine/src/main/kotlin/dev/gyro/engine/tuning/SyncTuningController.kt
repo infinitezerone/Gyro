@@ -8,10 +8,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -46,7 +44,7 @@ class SyncTuningController(
     private val _subtitlePositionPercent = store.property({ it.subtitlePositionPercent }) { s, v -> s.copy(subtitlePositionPercent = v) }
     override val subtitlePositionPercent: StateFlow<Long> = _subtitlePositionPercent.asStateFlow()
 
-    private val _subAssOverride = MutableStateFlow(false)
+    private val _subAssOverride = store.property({ it.subAssOverride }) { s, v -> s.copy(subAssOverride = v) }
     override val subAssOverride: StateFlow<Boolean> = _subAssOverride.asStateFlow()
 
     override fun registerObservers() {

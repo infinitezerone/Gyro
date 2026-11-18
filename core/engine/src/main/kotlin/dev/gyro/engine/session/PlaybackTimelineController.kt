@@ -3,11 +3,11 @@ package dev.gyro.engine.session
 import dev.gyro.engine.EngineSubsystem
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
-import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.model.SessionPhase
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.EngineLog
 import dev.gyro.engine.tracks.TrackAndChapterManager
+import dev.gyro.engine.video.GeometrySessionState
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -54,7 +54,7 @@ open class PlaybackTimelineController internal constructor(
     private var fileLoaded = false
 
     @Volatile
-    private var loadedAtGeometryState: PlaybackSessionState? = null
+    private var loadedAtGeometryState: GeometrySessionState? = null
 
     val isFileLoaded: Boolean
         get() = when (store.current.session) {
@@ -69,7 +69,7 @@ open class PlaybackTimelineController internal constructor(
                     fileLoaded
                 } else {
                     when (val geomState = geom.sessionState.value) {
-                        is PlaybackSessionState.Demuxed, is PlaybackSessionState.Presenting -> true
+                        is GeometrySessionState.Demuxed, is GeometrySessionState.Presenting -> true
                         else -> if (fileLoaded && geomState == loadedAtGeometryState) {
                             true
                         } else {

@@ -9,10 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -42,9 +40,7 @@ class AudioEffectsController(
     private val _stereoDownmix = store.property({ it.stereoDownmix }) { s, v -> s.copy(stereoDownmix = v) }
     override val stereoDownmix: StateFlow<Boolean> = _stereoDownmix.asStateFlow()
 
-    private val _equalizerGains = MutableStateFlow(
-        List(dev.gyro.engine.api.controller.AudioController.EQUALIZER_BANDS.size) { 0.0 }
-    )
+    private val _equalizerGains = store.property({ it.equalizerGains }) { s, v -> s.copy(equalizerGains = v) }
     override val equalizerGains: StateFlow<List<Double>> = _equalizerGains.asStateFlow()
 
     @Volatile

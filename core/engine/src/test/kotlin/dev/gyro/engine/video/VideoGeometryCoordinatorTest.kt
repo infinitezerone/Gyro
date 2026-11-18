@@ -4,7 +4,6 @@ import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.MpvEvent
 import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.VideoDimensions
-import dev.gyro.engine.api.session.PlaybackSessionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,7 +23,7 @@ class VideoGeometryCoordinatorTest {
 
     @Test
     fun testInitialState() {
-        assertEquals(PlaybackSessionState.Idle, coordinator.sessionState.value)
+        assertEquals(GeometrySessionState.Idle, coordinator.sessionState.value)
         assertFalse(coordinator.firstFrameRendered.value)
         assertFalse(coordinator.geometryReady.value)
         assertEquals(VideoDimensions(0, 0), coordinator.videoDimensions.value)
@@ -38,7 +37,7 @@ class VideoGeometryCoordinatorTest {
 
         // When switch starts to a new video
         coordinator.onSwitchStarted("test://video2.mp4", 0L)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Switching)
         assertFalse(coordinator.firstFrameRendered.value)
         assertFalse(coordinator.geometryReady.value)
 
@@ -69,7 +68,7 @@ class VideoGeometryCoordinatorTest {
         coordinator.onFileLoaded("test://vertical.mp4", hasVideo = true)
 
         // Then demux dimensions are prioritized!
-        val state = coordinator.sessionState.value as PlaybackSessionState.Demuxed
+        val state = coordinator.sessionState.value as GeometrySessionState.Demuxed
         assertEquals(720, state.dimensions.width)
         assertEquals(1570, state.dimensions.height)
         assertEquals(VideoDimensions(720, 1570), coordinator.videoDimensions.value)
@@ -89,7 +88,7 @@ class VideoGeometryCoordinatorTest {
 
         coordinator.onFirstFramePresented()
 
-        val state = coordinator.sessionState.value as PlaybackSessionState.Presenting
+        val state = coordinator.sessionState.value as GeometrySessionState.Presenting
         assertEquals(VideoDimensions(1280, 720), state.dimensions)
         assertTrue(coordinator.firstFrameRendered.value)
         assertTrue(coordinator.geometryReady.value)
@@ -122,7 +121,7 @@ class VideoGeometryCoordinatorTest {
 
         assertTrue(coordinator.firstFrameRendered.value)
         assertTrue(coordinator.geometryReady.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Presenting)
     }
 
     @Test
@@ -138,14 +137,14 @@ class VideoGeometryCoordinatorTest {
 
         // Must be silently dropped, firstFrameRendered remains false!
         assertFalse(coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Switching)
 
         // Valid event from epoch 10 arrives
         coordinator.onEvent(dev.gyro.engine.MpvEvent.Lifecycle(dev.gyro.engine.MpvNativeBridge.Event.FIRST_FRAME, epoch = 10L))
 
         // Now firstFrameRendered is true and state is Presenting!
         assertTrue(coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Presenting)
     }
 
     @Test
@@ -155,14 +154,14 @@ class VideoGeometryCoordinatorTest {
         coordinator.onFileLoaded("test://video1.mp4", hasVideo = true)
         coordinator.onFirstFramePresented()
         assertTrue(coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Presenting)
 
         // Switching to video 2 must pull the first-frame flag back down IMMEDIATELY, before any
         // event of the new session arrives - otherwise the UI shutter would open over video 2
         // with video 1's stale buffer (the "corner jump" class).
         coordinator.onSwitchStarted("test://video2.mp4", 0L)
         assertFalse(coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Switching)
     }
 
     @Test
@@ -176,7 +175,7 @@ class VideoGeometryCoordinatorTest {
         assertEquals(VideoDimensions(1920, 1080), coordinator.videoDimensions.value)
         assertEquals(1920f / 1080f, coordinator.videoAspect.value, 0.001f)
         assertFalse(coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Switching)
     }
 
     @Test
@@ -192,7 +191,7 @@ class VideoGeometryCoordinatorTest {
 
         assertEquals(VideoDimensions(1920, 1080), coordinator.videoDimensions.value)
         assertTrue(coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Presenting)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Presenting)
 
         // 2. 切换到新视频（竖屏 720x1280），触发 START_FILE / onSwitchStarted
         bridge.nextEpoch()
@@ -202,7 +201,7 @@ class VideoGeometryCoordinatorTest {
         // 时序不变量 1：首帧标记与尺寸就绪状态必须立即拉低，严防旧视频首帧残影泄露
         assertFalse("换片开始必须立即拉低首帧状态", coordinator.firstFrameRendered.value)
         assertFalse("换片开始必须重置几何就绪状态", coordinator.geometryReady.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Switching)
 
         // 3. 乱序到达场景：上一部残留的 VO 属性在 T+5ms 到达
         bridge.properties["video-out-params/dw"] = 1920L
@@ -222,7 +221,7 @@ class VideoGeometryCoordinatorTest {
         coordinator.onFileLoaded("test://vertical_reel.mp4", hasVideo = true)
 
         // 时序不变量 3：Demux 尺寸确立，状态机进入 Demuxed，但首帧必须仍在等待解码
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Demuxed)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Demuxed)
         assertEquals(VideoDimensions(720, 1280), coordinator.videoDimensions.value)
         assertTrue(coordinator.geometryReady.value)
         assertFalse("首帧仍未绘制，不得提前置 true", coordinator.firstFrameRendered.value)
@@ -234,7 +233,7 @@ class VideoGeometryCoordinatorTest {
         ))
         // 时序不变量 4：过期纪元事件必须被丢弃
         assertFalse("过期纪元事件不得放行首帧", coordinator.firstFrameRendered.value)
-        assertTrue(coordinator.sessionState.value is PlaybackSessionState.Demuxed)
+        assertTrue(coordinator.sessionState.value is GeometrySessionState.Demuxed)
 
         // 6. 真实首帧在新 epoch 完成绘制并上屏
         coordinator.onEvent(dev.gyro.engine.MpvEvent.Lifecycle(
@@ -244,7 +243,7 @@ class VideoGeometryCoordinatorTest {
 
         // 时序不变量 5：状态机进入 Presenting，首帧已呈现，几何完备且为新尺寸
         assertTrue("新纪元首帧成功放行", coordinator.firstFrameRendered.value)
-        val presentingState = coordinator.sessionState.value as PlaybackSessionState.Presenting
+        val presentingState = coordinator.sessionState.value as GeometrySessionState.Presenting
         assertEquals(VideoDimensions(720, 1280), presentingState.dimensions)
     }
 

@@ -14,5 +14,6 @@ interface ShaderExtension {
     fun setShader(shader: GlslShader, customPath: String? = null, customName: String? = null)
     fun clearShader()
     fun getCustomShaders(): List<File> = emptyList()
+    suspend fun listCustomShaders(): List<File> = getCustomShaders()
     suspend fun importAndSetCustomShader(uri: Uri): Result<String> = Result.failure(UnsupportedOperationException())
 }

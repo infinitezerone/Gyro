@@ -4,7 +4,7 @@ import dev.gyro.core.testing.fakes.FakeMpvNativeBridge
 import dev.gyro.engine.audio.AudioEffectsController
 import dev.gyro.engine.video.VideoEffectsController
 import dev.gyro.engine.model.VideoDimensions
-import dev.gyro.engine.api.session.PlaybackSessionState
+import dev.gyro.engine.video.GeometrySessionState
 import dev.gyro.engine.video.VideoGeometryCoordinator
 import dev.gyro.engine.tracks.TrackAndChapterManager
 import kotlinx.coroutines.CoroutineScope
@@ -216,13 +216,13 @@ class DomainEventSubscriptionTest {
         fake.properties["container-fps"] = 25.0
         geometry.onSwitchStarted("test://portrait.mp4", 3000L)
         fake.emitFileLoaded()
-        assertEquals(PlaybackSessionState.Switching("test://portrait.mp4", 3000L), geometry.sessionState.value)
+        assertEquals(GeometrySessionState.Switching("test://portrait.mp4", 3000L), geometry.sessionState.value)
 
         val scope = eventScope()
         val subscription = geometry.observeEvents(scope)
-        assertTrue(geometry.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(geometry.sessionState.value is GeometrySessionState.Switching)
         fake.emitFileLoaded()
-        val loaded = geometry.sessionState.value as PlaybackSessionState.Demuxed
+        val loaded = geometry.sessionState.value as GeometrySessionState.Demuxed
         assertEquals("test://portrait.mp4", loaded.url)
         assertEquals(VideoDimensions(720, 1280), loaded.dimensions)
         assertTrue(geometry.geometryReady.value)
@@ -230,10 +230,10 @@ class DomainEventSubscriptionTest {
         assertEquals(25f, geometry.videoFrameRate.value, 0f)
         fake.emitEvent(MpvNativeBridge.Event.FIRST_FRAME)
         assertTrue(geometry.firstFrameRendered.value)
-        assertEquals("test://portrait.mp4", (geometry.sessionState.value as PlaybackSessionState.Presenting).url)
+        assertEquals("test://portrait.mp4", (geometry.sessionState.value as GeometrySessionState.Presenting).url)
 
         fake.emitEndFile()
-        assertEquals(PlaybackSessionState.Ended, geometry.sessionState.value)
+        assertEquals(GeometrySessionState.Ended, geometry.sessionState.value)
         assertFalse(geometry.firstFrameRendered.value)
         assertFalse(geometry.geometryReady.value)
         assertEquals(0f, geometry.videoFrameRate.value, 0f)
@@ -242,19 +242,19 @@ class DomainEventSubscriptionTest {
         fake.properties["video"] = "no"
         fake.emitFileLoaded()
         assertEquals(
-            PlaybackSessionState.Presenting("test://audio.mp3", VideoDimensions(0, 0), 1f),
+            GeometrySessionState.Presenting("test://audio.mp3", VideoDimensions(0, 0), 1f),
             geometry.sessionState.value
         )
         assertTrue(geometry.firstFrameRendered.value)
         assertTrue(geometry.geometryReady.value)
         fake.emitShutdown()
-        assertEquals(PlaybackSessionState.Ended, geometry.sessionState.value)
+        assertEquals(GeometrySessionState.Ended, geometry.sessionState.value)
         assertFalse(geometry.firstFrameRendered.value)
         assertFalse(geometry.geometryReady.value)
 
         geometry.reset()
         fake.emitFileLoaded()
-        assertEquals("", (geometry.sessionState.value as PlaybackSessionState.Presenting).url)
+        assertEquals("", (geometry.sessionState.value as GeometrySessionState.Presenting).url)
         geometry.onSwitchStarted("test://next.mp4")
         fake.properties["video"] = "1"
         scope.cancel()
@@ -265,7 +265,7 @@ class DomainEventSubscriptionTest {
         fake.emitPropertyDouble("container-fps", 60.0)
         fake.emitEndFile()
         fake.emitShutdown()
-        assertEquals(PlaybackSessionState.Switching("test://next.mp4"), geometry.sessionState.value)
+        assertEquals(GeometrySessionState.Switching("test://next.mp4"), geometry.sessionState.value)
         assertFalse(geometry.firstFrameRendered.value)
         assertFalse(geometry.geometryReady.value)
         assertEquals(0f, geometry.videoFrameRate.value, 0f)
@@ -273,9 +273,9 @@ class DomainEventSubscriptionTest {
 
         geometry.observeEvents(eventScope())
         assertTrue(bridge.delivered.isEmpty())
-        assertTrue(geometry.sessionState.value is PlaybackSessionState.Switching)
+        assertTrue(geometry.sessionState.value is GeometrySessionState.Switching)
         fake.emitFileLoaded()
-        assertEquals("test://next.mp4", (geometry.sessionState.value as PlaybackSessionState.Demuxed).url)
+        assertEquals("test://next.mp4", (geometry.sessionState.value as GeometrySessionState.Demuxed).url)
         assertEquals(listOf(MpvEvent.Lifecycle(MpvNativeBridge.Event.FILE_LOADED)), bridge.delivered)
     }
 

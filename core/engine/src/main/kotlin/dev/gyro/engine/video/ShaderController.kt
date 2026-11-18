@@ -231,4 +231,7 @@ class ShaderController(
     }
 
     override fun getCustomShaders(): List<File> = shaderManager.listCustomShaders()
+
+    override suspend fun listCustomShaders(): List<File> =
+        withContext(ioDispatcher) { shaderManager.listCustomShaders() }
 }

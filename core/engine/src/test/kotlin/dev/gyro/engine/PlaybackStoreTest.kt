@@ -144,7 +144,7 @@ class PlaybackStoreTest {
             resolver = FakeMediaResourceResolver()
         )
         engine.warmUp()
-        engine.isHeadlessMode = true
+        engine.setBackgroundPlaybackAllowed(true)
 
         engine.load("file:///tmp/audio.mp3")
         assertTrue(engine.state.value.session is SessionPhase.Submitting)

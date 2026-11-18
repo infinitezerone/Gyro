@@ -8,30 +8,42 @@ import dev.gyro.engine.MpvNativeBridge
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
 import dev.gyro.engine.model.normalizeContentFps
-import dev.gyro.engine.api.session.PlaybackSessionState
 import dev.gyro.engine.state.PlaybackStore
 import dev.gyro.engine.trace.SwitchTrace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
+ * Internal algebraic state tracking geometry availability across file switches to filter stale
+ * video-output dimension updates before the new container headers / first frame arrive.
+ */
+internal sealed interface GeometrySessionState {
+    data object Idle : GeometrySessionState
+    data class Switching(val url: String, val startPositionMs: Long = 0L) : GeometrySessionState
+    data class Demuxed(val url: String, val dimensions: VideoDimensions, val aspect: Float) : GeometrySessionState
+    data class Presenting(val url: String, val dimensions: VideoDimensions, val aspect: Float) : GeometrySessionState
+    data object Ended : GeometrySessionState
+}
+
+/**
  * Coordinates video dimensions, aspect ratio negotiation, and switch lifecycle transitions.
- * Guarantees that container layout adapts immediately on [PlaybackSessionState.Demuxed]
- * without waiting for decoder warmup, while isolating stale VO properties during [PlaybackSessionState.Switching].
+ * Guarantees that container layout adapts immediately on [GeometrySessionState.Demuxed]
+ * without waiting for decoder warmup, while isolating stale VO properties during [GeometrySessionState.Switching].
  */
 class VideoGeometryCoordinator(
     private val bridge: MpvNativeBridge,
     private val store: PlaybackStore = PlaybackStore()
 ) : dev.gyro.engine.EngineSubsystem, dev.gyro.engine.api.controller.GeometryController {
 
-    private val _sessionState = store.property({ it.sessionState }) { s, v -> s.copy(sessionState = v) }
-    val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
+    private val _sessionState = MutableStateFlow<GeometrySessionState>(GeometrySessionState.Idle)
+    internal val sessionState: StateFlow<GeometrySessionState> = _sessionState.asStateFlow()
 
     private val _videoDimensions = store.property({ it.videoDimensions }) { s, v -> s.copy(videoDimensions = v) }
     override val videoDimensions: StateFlow<VideoDimensions> = _videoDimensions.asStateFlow()
@@ -154,7 +166,7 @@ class VideoGeometryCoordinator(
     ) {
         currentUrl = url
         cachedIsDoviTrack = null
-        _sessionState.value = PlaybackSessionState.Switching(url, startPositionMs)
+        _sessionState.value = GeometrySessionState.Switching(url, startPositionMs)
         _firstFrameRendered.value = false
         _videoFrameRate.value = 0f
         _isHdr.value = false
@@ -179,7 +191,7 @@ class VideoGeometryCoordinator(
     fun onFileLoaded(url: String, hasVideo: Boolean) {
         if (!hasVideo) {
             cachedIsDoviTrack = false
-            _sessionState.value = PlaybackSessionState.Presenting(url, VideoDimensions(0, 0), 1.0f)
+            _sessionState.value = GeometrySessionState.Presenting(url, VideoDimensions(0, 0), 1.0f)
             _firstFrameRendered.value = true
             _geometryReady.value = true
             _isHdr.value = false
@@ -192,7 +204,7 @@ class VideoGeometryCoordinator(
         val (w, h) = targetDims ?: Pair(0, 0)
         val aspect = if (w > 0 && h > 0) w.toFloat() / h else 0f
         val dims = VideoDimensions(w, h)
-        _sessionState.value = PlaybackSessionState.Demuxed(url, dims, aspect)
+        _sessionState.value = GeometrySessionState.Demuxed(url, dims, aspect)
         if (w > 0 && h > 0) {
             _videoDimensions.value = dims
             _videoAspect.value = aspect
@@ -224,9 +236,9 @@ class VideoGeometryCoordinator(
         var dims = _videoDimensions.value
         var aspect = _videoAspect.value
         val url = when (current) {
-            is PlaybackSessionState.Switching -> current.url
-            is PlaybackSessionState.Demuxed -> current.url
-            is PlaybackSessionState.Presenting -> current.url
+            is GeometrySessionState.Switching -> current.url
+            is GeometrySessionState.Demuxed -> current.url
+            is GeometrySessionState.Presenting -> current.url
             else -> ""
         }
         if (dims.width <= 0 || dims.height <= 0) {
@@ -238,18 +250,18 @@ class VideoGeometryCoordinator(
                 _videoAspect.value = aspect
             }
         }
-        _sessionState.value = PlaybackSessionState.Presenting(url, dims, aspect)
+        _sessionState.value = GeometrySessionState.Presenting(url, dims, aspect)
         _firstFrameRendered.value = true
         _geometryReady.value = true
     }
     fun onVoParamsChanged() {
         when (val state = _sessionState.value) {
-            is PlaybackSessionState.Switching -> {
+            is GeometrySessionState.Switching -> {
                 // VO still reports previous video's parameters during switch; suppress completely
                 SwitchTrace.log("DIMS_IGNORED_SWITCH_PENDING", "")
                 return
             }
-            is PlaybackSessionState.Demuxed -> {
+            is GeometrySessionState.Demuxed -> {
                 // If demux dims were not found (0x0), fallback to VO when it becomes available
                 if (_videoDimensions.value.width == 0 || _videoDimensions.value.height == 0) {
                     val voDims = getVoDimensions() ?: return
@@ -260,12 +272,12 @@ class VideoGeometryCoordinator(
                         _videoDimensions.value = dims
                         _videoAspect.value = aspect
                         _geometryReady.value = true
-                        _sessionState.value = PlaybackSessionState.Demuxed(state.url, dims, aspect)
+                        _sessionState.value = GeometrySessionState.Demuxed(state.url, dims, aspect)
                         SwitchTrace.log("DIMS_PUBLISHED", "${w}x${h}, aspect=$aspect, source=vo_fallback")
                     }
                 }
             }
-            is PlaybackSessionState.Presenting, is PlaybackSessionState.Idle, is PlaybackSessionState.Ended -> {
+            is GeometrySessionState.Presenting, is GeometrySessionState.Idle, is GeometrySessionState.Ended -> {
                 // Normal active playback, or pre-playback property configuration:
                 val voDims = getVoDimensions() ?: return
                 val (w, h) = voDims
@@ -278,8 +290,8 @@ class VideoGeometryCoordinator(
                     _videoDimensions.value = dims
                     _videoAspect.value = aspect
                     _geometryReady.value = true
-                    if (state is PlaybackSessionState.Presenting) {
-                        _sessionState.value = PlaybackSessionState.Presenting(state.url, dims, aspect)
+                    if (state is GeometrySessionState.Presenting) {
+                        _sessionState.value = GeometrySessionState.Presenting(state.url, dims, aspect)
                     }
                     SwitchTrace.log("DIMS_PUBLISHED", "${w}x${h}, aspect=$aspect, source=vo_params")
                 }
@@ -289,7 +301,7 @@ class VideoGeometryCoordinator(
     }
     fun onSessionEnded() {
         cachedIsDoviTrack = null
-        _sessionState.value = PlaybackSessionState.Ended
+        _sessionState.value = GeometrySessionState.Ended
         _firstFrameRendered.value = false
         _geometryReady.value = false
         _videoFrameRate.value = 0f
@@ -303,7 +315,7 @@ class VideoGeometryCoordinator(
     override fun reset() {
         currentUrl = ""
         cachedIsDoviTrack = null
-        _sessionState.value = PlaybackSessionState.Idle
+        _sessionState.value = GeometrySessionState.Idle
         _firstFrameRendered.value = false
         _geometryReady.value = false
         _videoFrameRate.value = 0f
@@ -337,7 +349,7 @@ class VideoGeometryCoordinator(
     }
 
     private fun updateHdrState() {
-        if (_sessionState.value is PlaybackSessionState.Switching) {
+        if (_sessionState.value is GeometrySessionState.Switching) {
             return
         }
         val gamma = bridge.getPropertyString("video-params/gamma")?.lowercase()?.trim() ?: ""
@@ -394,18 +406,18 @@ class VideoGeometryCoordinator(
         bridge.setPropertyDouble("display-fps", rate.toDouble())
     }
 
-    fun setHdrOutputMode(mode: HdrOutputMode) {
+    override fun setHdrOutputMode(mode: HdrOutputMode) {
         store.update { it.copy(hdrOutputMode = mode) }
         updateHdrState()
     }
 
-    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
+    override fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
         store.update { it.copy(toneMappingAlgorithm = algorithm) }
         val effective = if (algorithm == ToneMappingAlgorithm.AUTO) "hable" else algorithm.persistedKey
         bridge.setPropertyString("tone-mapping", effective)
     }
 
-    fun setVideoScale(scale: VideoScale) {
+    override fun setVideoScale(scale: VideoScale) {
         store.update { it.copy(videoScale = scale) }
         val effective = when (scale) {
             VideoScale.BILINEAR -> "bilinear"
@@ -416,7 +428,7 @@ class VideoGeometryCoordinator(
         bridge.setPropertyString("dscale", if (effective == "bilinear") "bilinear" else "mitchell")
     }
 
-    fun setInterpolation(enabled: Boolean) {
+    override fun setInterpolation(enabled: Boolean) {
         store.update { it.copy(interpolation = enabled) }
         if (enabled) {
             bridge.setPropertyString("video-sync", "display-resample")

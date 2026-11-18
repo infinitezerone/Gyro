@@ -1,5 +1,8 @@
 package dev.gyro.engine.api.controller
 
+import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.ToneMappingAlgorithm
+import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.VideoDimensions
 import kotlinx.coroutines.flow.StateFlow
@@ -20,5 +23,9 @@ interface GeometryController {
     fun setDisplayHdrCapable(capable: Boolean)
     fun updateDisplayRefreshRate(rate: Float)
     fun setResizeMode(mode: ResizeMode)
+    fun setHdrOutputMode(mode: HdrOutputMode)
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm)
+    fun setVideoScale(scale: VideoScale)
+    fun setInterpolation(enabled: Boolean)
     fun resetZoomAndPan()
 }

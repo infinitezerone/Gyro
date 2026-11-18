@@ -41,6 +41,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 typealias MpvLoadException = dev.gyro.engine.session.MpvLoadException
 
@@ -130,30 +131,6 @@ class GyroPlayerEngine(
     )
 
     /**
-     * The queue is engine state, not caller state: only this module can move the cursor, and the
-     * public surface is the read-only [dev.gyro.engine.api.media.Playlist] plus the advance
-     * commands below.
-     */
-    internal val playlistManager = dev.gyro.engine.playlist.PlaylistManager()
-    override val playlist: dev.gyro.engine.api.media.Playlist get() = playlistManager
-
-    val playlistItems: StateFlow<List<dev.gyro.core.model.VideoMediaItem>> get() = playlistManager.items
-    val currentPlaylistIndex: StateFlow<Int> get() = playlistManager.currentIndex
-    val currentMediaItem: dev.gyro.core.model.VideoMediaItem? get() = playlistManager.currentItem
-
-    override fun advanceToNextItem(): dev.gyro.core.model.VideoMediaItem? = playlistManager.playNext()
-
-    override fun advanceToPreviousItem(): dev.gyro.core.model.VideoMediaItem? = playlistManager.playPrevious()
-
-    override fun selectItemAt(index: Int): dev.gyro.core.model.VideoMediaItem? = playlistManager.playAtIndex(index)
-
-    override fun setPlaylist(items: List<dev.gyro.core.model.VideoMediaItem>, startIndex: Int) =
-        playlistManager.setPlaylist(items, startIndex)
-
-    override fun setSingleItem(uri: Uri, displayName: String) =
-        playlistManager.setSingle(uri, displayName)
-
-    /**
      * Managed domain subsystems: observers, event dispatch, and state reset are orchestrated uniformly.
      */
     private val subsystems: List<EngineSubsystem> by lazy {
@@ -179,6 +156,9 @@ class GyroPlayerEngine(
         override val isSurfaceAttached: Boolean
             get() = loadCoordinator.isSurfaceAttached
 
+        override val isFirstFrameRendered: Boolean
+            get() = geometry.firstFrameRendered.value
+
         override fun attachSurface(surface: Surface) =
             this@GyroPlayerEngine.attachSurface(surface)
 
@@ -193,10 +173,16 @@ class GyroPlayerEngine(
 
         override fun requestSurfaceRebuild() =
             this@GyroPlayerEngine.requestSurfaceRebuild()
-    }
-    override val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
 
-    override fun addSubtitle(path: String) = trackManager.addSubtitle(path)
+        override fun updateDisplayRefreshRate(rate: Float) =
+            geometry.updateDisplayRefreshRate(rate)
+
+        override fun setDisplayHdrCapable(capable: Boolean) =
+            geometry.setDisplayHdrCapable(capable)
+    }
+    val isSurfaceAttached: Boolean get() = loadCoordinator.isSurfaceAttached
+
+    fun addSubtitle(path: String) = trackManager.addSubtitle(path)
 
     // =========================================================================
     // Core Engine Lifecycle & Native Initialization
@@ -207,9 +193,9 @@ class GyroPlayerEngine(
      * If native engine is not started yet, updates configuration memory and applies them when
      * playback or surface starts. If native engine is already started, applies runtime updates.
      */
-    fun configure(
-        userOptions: Map<String, String> = configurator.currentState.userOptions,
-        settings: UserSettings = configurator.currentState.settings,
+    override fun configure(
+        userOptions: Map<String, String>,
+        settings: UserSettings,
     ) {
         val hdrOutput = settings.hdrOutput
         val toneMapping = settings.toneMapping
@@ -302,7 +288,25 @@ class GyroPlayerEngine(
     override fun stop() {
         playback.pause()
         playback.abandonAudioFocus()
-        detachSurface()
+        loadCoordinator.stop(sendStopCommand = isInitialized.get())
+        store.batch {
+            store.update {
+                it.copy(
+                    session = SessionPhase.Idle,
+                    error = null,
+                    playbackState = PlaybackState.IDLE,
+                    isPlaying = false,
+                    currentUri = null,
+                    mediaTitle = "",
+                    durationMs = 0L,
+                )
+            }
+            subsystems.forEach { subsystem ->
+                if (subsystem !== playback) {
+                    subsystem.reset()
+                }
+            }
+        }
     }
     override fun togglePlayPause() = playback.togglePlayPause()
     override fun setSpeed(speed: Float) = playback.setSpeed(speed)
@@ -320,15 +324,15 @@ class GyroPlayerEngine(
     override fun frameStep() = playback.frameStep()
     override fun frameBackStep() = playback.frameBackStep()
 
-    override fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
-    override fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())
+    fun setResizeMode(mode: dev.gyro.engine.model.ResizeMode) = geometry.setResizeMode(mode)
+    fun setVolume(volume: Int) = audio.setSoftwareVolume(volume.toDouble())
 
-    override fun setHdrOutputMode(mode: HdrOutputMode) = geometry.setHdrOutputMode(mode)
-    override fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) =
+    fun setHdrOutputMode(mode: HdrOutputMode) = geometry.setHdrOutputMode(mode)
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) =
         geometry.setToneMappingAlgorithm(algorithm)
-    override fun setVideoScale(scale: VideoScale) = geometry.setVideoScale(scale)
-    override fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
-    override fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
+    fun setVideoScale(scale: VideoScale) = geometry.setVideoScale(scale)
+    fun setInterpolation(enabled: Boolean) = geometry.setInterpolation(enabled)
+    fun setAudioPassthrough(enabled: Boolean) = audio.setAudioPassthrough(enabled)
 
     // =========================================================================
     // Media Loading & Surface Lifecycle
@@ -372,11 +376,13 @@ class GyroPlayerEngine(
         )
     )
 
-    override var isHeadlessMode: Boolean
-        get() = loadCoordinator.isHeadlessMode
-        set(value) { loadCoordinator.isHeadlessMode = value }
+    override val isBackgroundPlaybackAllowed: Boolean
+        get() = loadCoordinator.isBackgroundPlaybackAllowed
 
-    override fun attachSurface(surface: Surface) {
+    override fun setBackgroundPlaybackAllowed(allowed: Boolean) =
+        loadCoordinator.setBackgroundPlaybackAllowed(allowed)
+
+    fun attachSurface(surface: Surface) {
         ensureNativeInitialized()
         loadCoordinator.attachSurface(surface)
     }
@@ -384,12 +390,12 @@ class GyroPlayerEngine(
         ensureNativeInitialized()
         loadCoordinator.attachSurface(surfaceToken)
     }
-    override fun detachSurface() {
+    fun detachSurface() {
         loadCoordinator.detachSurface(null)
     }
-    override fun detachSurface(surface: Surface?) = loadCoordinator.detachSurface(surface)
+    fun detachSurface(surface: Surface?) = loadCoordinator.detachSurface(surface)
     fun detachSurface(surface: Any? = null) = loadCoordinator.detachSurface(surface)
-    override fun redraw() = loadCoordinator.redraw()
+    fun redraw() = loadCoordinator.redraw()
 
     /**
      * Rebuilds the render surface after the view switched its buffer format (8-bit <-> 10-bit).
@@ -397,33 +403,25 @@ class GyroPlayerEngine(
      * HDR is decided per file, long after the surface was first attached, so the PQ colourspace
      * can only be applied by recreating the window surface once the new format is in effect.
      */
-    override fun requestSurfaceRebuild() {
+    fun requestSurfaceRebuild() {
         if (isInitialized.get()) bridge.rebuildSurface()
     }
 
-    override fun queryLiveBitrate(): Pair<Long, Long> {
-        val v = bridge.getPropertyLong("video-bitrate")?.takeIf { it > 0 }
-            ?: bridge.getPropertyLong("packet-video-bitrate")?.takeIf { it > 0 }
-            ?: 0L
-        val a = bridge.getPropertyLong("audio-bitrate")?.takeIf { it > 0 }
-            ?: bridge.getPropertyLong("packet-audio-bitrate")?.takeIf { it > 0 }
-            ?: 0L
-        return v to a
-    }
-
-    override fun queryMediaInfo(
+    override suspend fun queryMediaInfo(
         fallbackTitle: String,
         fallbackUri: String,
         fallbackSize: Long
-    ): MediaInfo = MediaInfoExtractor.extract(
-        bridge = bridge,
-        store = store,
-        videoDimensions = geometry.videoDimensions.value,
-        durationMs = durationMs.value,
-        fallbackTitle = fallbackTitle,
-        fallbackUri = fallbackUri,
-        fallbackSize = fallbackSize
-    )
+    ): MediaInfo = withContext(ioDispatcher) {
+        MediaInfoExtractor.extract(
+            bridge = bridge,
+            store = store,
+            videoDimensions = geometry.videoDimensions.value,
+            durationMs = durationMs.value,
+            fallbackTitle = fallbackTitle,
+            fallbackUri = fallbackUri,
+            fallbackSize = fallbackSize
+        )
+    }
 
     override fun release() {
         engineJob.cancel()

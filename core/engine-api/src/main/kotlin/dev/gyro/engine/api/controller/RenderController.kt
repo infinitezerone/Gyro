@@ -10,10 +10,14 @@ import android.view.Surface
  */
 interface RenderController {
     val isSurfaceAttached: Boolean
+    val isFirstFrameRendered: Boolean
+        get() = false
 
     fun attachSurface(surface: Surface)
     fun detachSurface()
     fun detachSurface(surface: Surface?)
     fun redraw()
     fun requestSurfaceRebuild()
+    fun updateDisplayRefreshRate(rate: Float) {}
+    fun setDisplayHdrCapable(capable: Boolean) {}
 }

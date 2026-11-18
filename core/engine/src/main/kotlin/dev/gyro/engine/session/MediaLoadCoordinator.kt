@@ -202,14 +202,17 @@ class MediaLoadCoordinator(
     }
 
     @Volatile
-    var isHeadlessMode: Boolean = false
-        set(value) {
-            field = value
-            // Entering headless (background) mode must submit a load queued while awaiting a surface,
-            // mirroring attachSurface — otherwise a load queued in the detach->service-start window
-            // would stall until the user returns to the foreground.
-            if (value) flushPendingSourceOnSurfaceReady()
+    var isBackgroundPlaybackAllowed: Boolean = false
+        private set
+
+    fun setBackgroundPlaybackAllowed(allowed: Boolean) {
+        synchronized(surfaceLock) {
+            isBackgroundPlaybackAllowed = allowed
+            if (allowed) {
+                flushPendingSourceOnSurfaceReady()
+            }
         }
+    }
 
     private fun submitOrQueue(
         source: ResolvedMediaSource,
@@ -223,7 +226,7 @@ class MediaLoadCoordinator(
                 source.close()
                 return
             }
-            if (!isSurfaceAttached && !isHeadlessMode) {
+            if (!isSurfaceAttached && !isBackgroundPlaybackAllowed) {
                 EngineLog.i(TAG, "load: surface not attached yet, queueing $label (epoch=$epoch)")
                 discardPending()
                 pendingSource = source
@@ -281,7 +284,7 @@ class MediaLoadCoordinator(
         synchronized(surfaceLock) {
             attachedSurfaceRef = surface
             isSurfaceAttached = true
-            isHeadlessMode = false
+            isBackgroundPlaybackAllowed = false
             bridge.attachSurface(surface)
             flushPendingSourceOnSurfaceReady()
         }
@@ -295,7 +298,7 @@ class MediaLoadCoordinator(
             }
             attachedSurfaceRef = surfaceToken
             isSurfaceAttached = true
-            isHeadlessMode = false
+            isBackgroundPlaybackAllowed = false
             flushPendingSourceOnSurfaceReady()
         }
     }
@@ -337,6 +340,21 @@ class MediaLoadCoordinator(
         SwitchTrace.log("REDRAW_REQUESTED", "surfaceAttached=$isSurfaceAttached")
         if (isSurfaceAttached) {
             bridge.redraw()
+        }
+    }
+
+    fun stop(sendStopCommand: Boolean) {
+        bridge.nextEpoch()
+        currentLoadJob?.cancel()
+        currentLoadJob = null
+        discardPending()
+        synchronized(surfaceLock) {
+            isBackgroundPlaybackAllowed = false
+            requestedTitle = ""
+        }
+        detachSurface(null)
+        if (sendStopCommand) {
+            bridge.command(arrayOf("stop"))
         }
     }
 

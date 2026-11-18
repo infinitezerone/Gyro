@@ -10,4 +10,7 @@ sealed interface SessionPhase {
     data class Submitting(val target: String, val startPositionMs: Long = 0L) : SessionPhase
     data class Loaded(val target: String) : SessionPhase
     data class Failed(val target: String?, val cause: Throwable) : SessionPhase
+
+    val isSwitching: Boolean
+        get() = this is Resolving || this is AwaitingSurface || this is Submitting
 }
