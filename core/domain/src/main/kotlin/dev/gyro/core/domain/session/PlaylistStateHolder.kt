@@ -23,6 +23,21 @@ class PlaylistStateHolder @Inject constructor() : Playlist {
     private val _currentIndex = MutableStateFlow(-1)
     override val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
 
+    private val _repeatMode = MutableStateFlow(PlaylistRepeatMode.SEQUENTIAL)
+    override val repeatMode: StateFlow<PlaylistRepeatMode> = _repeatMode.asStateFlow()
+
+    @Synchronized
+    internal fun setRepeatMode(mode: PlaylistRepeatMode) {
+        _repeatMode.value = mode
+    }
+
+    override val hasAutoAdvanceTarget: Boolean
+        @Synchronized get() = when (_repeatMode.value) {
+            PlaylistRepeatMode.SEQUENTIAL -> hasNext
+            PlaylistRepeatMode.LOOP_ALL -> currentItem != null
+            PlaylistRepeatMode.LOOP_ONE -> currentItem != null
+        }
+
     @Synchronized
     internal fun setPlaylist(newItems: List<VideoMediaItem>, startIndex: Int) {
         _items.value = newItems
@@ -48,10 +63,25 @@ class PlaylistStateHolder @Inject constructor() : Playlist {
 
     @Synchronized
     internal fun playNext(): VideoMediaItem? {
-        if (!hasNext) return null
-        _currentIndex.value += 1
-        return currentItem
+        val list = _items.value
+        val idx = _currentIndex.value
+        if (list.isEmpty() || idx < 0) return null
+        if (idx < list.size - 1) {
+            _currentIndex.value = idx + 1
+            return currentItem
+        }
+        // 手动“下一个”在列表循环时回到开头；单集循环仍然进入下一集。
+        if (_repeatMode.value == PlaylistRepeatMode.LOOP_ALL) {
+            _currentIndex.value = 0
+            return currentItem
+        }
+        return null
     }
+
+    /** 播完后的自动跳转：单集循环重播当前，其余走 playNext。 */
+    @Synchronized
+    internal fun autoAdvance(): VideoMediaItem? =
+        if (_repeatMode.value == PlaylistRepeatMode.LOOP_ONE) currentItem else playNext()
 
     @Synchronized
     internal fun playPrevious(): VideoMediaItem? {

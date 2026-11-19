@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.common.toUri
+import dev.gyro.core.domain.session.PlaylistRepeatMode
 import dev.gyro.engine.model.PlaybackState
 import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.surface.GyroSurfaceView
@@ -160,8 +161,11 @@ fun PlayerScreen(
     val playlistMgr = viewModel.playlistManager
     val playlist by playlistMgr.items.collectAsStateWithLifecycle()
     val currentPlaylistIndex by playlistMgr.currentIndex.collectAsStateWithLifecycle()
+    val playlistRepeatMode by viewModel.playlistRepeatMode.collectAsStateWithLifecycle()
     val hasPrevious = playlistMgr.hasPrevious
-    val hasNext = playlistMgr.hasNext
+    // 列表循环时最后一集也有“下一个”（回到第一集），否则按钮会在循环开启后莫名消失。
+    val hasNext = playlistMgr.hasNext ||
+        (playlistRepeatMode == PlaylistRepeatMode.LOOP_ALL && playlist.size > 1)
 
     val loadPosterForUriString: suspend (String) -> android.graphics.Bitmap? = remember(viewModel) {
         { uriStr ->

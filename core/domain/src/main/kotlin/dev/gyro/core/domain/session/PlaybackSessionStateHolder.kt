@@ -211,7 +211,7 @@ class PlaybackSessionStateHolder @Inject constructor() {
                 // 2. Auto-advance when video ends
                 launch {
                     engine.playbackState.collect { state ->
-                        if (state == PlaybackState.ENDED && playlist.hasNext) {
+                        if (state == PlaybackState.ENDED && playlist.hasAutoAdvanceTarget) {
                             val endedIndex = playlist.currentIndex.value
                             advanceJob?.cancel()
                             advanceJob = launch {
@@ -219,7 +219,7 @@ class PlaybackSessionStateHolder @Inject constructor() {
                                 if (!_sessionActive.value ||
                                     engine.isPlaying.value ||
                                     playlist.currentIndex.value != endedIndex ||
-                                    !playlist.hasNext
+                                    !playlist.hasAutoAdvanceTarget
                                 ) {
                                     return@launch
                                 }

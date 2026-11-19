@@ -16,4 +16,7 @@ interface Playlist {
     val currentItem: VideoMediaItem?
     val hasNext: Boolean
     val hasPrevious: Boolean
+    val repeatMode: StateFlow<PlaylistRepeatMode>
+    /** 播完后是否有下一个动作（含单集循环/列表循环）。 */
+    val hasAutoAdvanceTarget: Boolean
 }

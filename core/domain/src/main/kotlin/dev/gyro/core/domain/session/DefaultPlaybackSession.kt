@@ -117,6 +117,10 @@ class DefaultPlaybackSession @Inject constructor(
         }
     }
 
+    override fun setPlaylistRepeatMode(mode: PlaylistRepeatMode) {
+        playlistStateHolder.setRepeatMode(mode)
+    }
+
     override fun play() = engine.play()
     override fun pause() = engine.pause()
     override fun togglePlayPause() = engine.togglePlayPause()

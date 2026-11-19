@@ -53,6 +53,7 @@ interface PlaybackSession {
     fun handleAppBackground(isPip: Boolean): Job?
     fun endSession(reason: SessionEndReason = SessionEndReason.USER_EXIT)
     fun setSleepTimer(minutes: Int)
+    fun setPlaylistRepeatMode(mode: PlaylistRepeatMode)
 
     fun play()
     fun pause()

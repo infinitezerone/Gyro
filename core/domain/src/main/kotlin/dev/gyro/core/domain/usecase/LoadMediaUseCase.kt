@@ -203,7 +203,7 @@ class LoadMediaUseCase @Inject constructor(
             defaultHwdecFlow = settingsRepository.settings.map { it.defaultHwdecMode }.distinctUntilChanged(),
             onSaveProgress = { saveProgressUseCase() },
             onAutoAdvanceNext = {
-                val next = playlistStateHolder.playNext() ?: return@ensureSessionMonitor
+                val next = playlistStateHolder.autoAdvance() ?: return@ensureSessionMonitor
                 invoke(
                     PlaybackSource.UriItem(
                         uri = next.contentUri,

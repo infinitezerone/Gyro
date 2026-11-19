@@ -15,6 +15,7 @@ import dev.gyro.core.domain.model.SessionEndReason
 import dev.gyro.core.domain.model.contentUri
 import dev.gyro.core.domain.session.PlaybackSession
 import dev.gyro.core.domain.session.Playlist
+import dev.gyro.core.domain.session.PlaylistRepeatMode
 import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.HwdecMode
@@ -75,6 +76,7 @@ class PlayerViewModel @Inject constructor(
     val timePosMs: StateFlow<Long> get() = session.timePosMs
     val bufferedPosMs: StateFlow<Long> get() = session.bufferedPosMs
     val playlistManager: Playlist get() = session.playlist
+    val playlistRepeatMode: StateFlow<PlaylistRepeatMode> get() = session.playlist.repeatMode
     val renderController: RenderController get() = session.render
     val failureReason: StateFlow<PlaybackFailureReason?> get() = session.failureReason
     val sleepTimerSecondsRemaining: StateFlow<Long> get() = session.sleepTimerSecondsRemaining
@@ -295,6 +297,8 @@ class PlayerViewModel @Inject constructor(
     fun clearAbLoop() = session.clearAbLoop()
 
     fun setSleepTimer(minutes: Int) = session.setSleepTimer(minutes)
+
+    fun setPlaylistRepeatMode(mode: PlaylistRepeatMode) = session.setPlaylistRepeatMode(mode)
 
     private var pendingPreciseSeekJob: Job? = null
     private var lastPreciseSeekTimestamp = 0L
