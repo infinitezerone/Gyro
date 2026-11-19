@@ -2,6 +2,7 @@ package dev.gyro.core.data.repository
 
 import android.content.Context
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,6 +33,16 @@ class DefaultCustomFolderRepository @Inject constructor(
     @CustomFolderUris private val dataStore: DataStore<List<String>>,
     @Dispatcher(GyroDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : CustomFolderRepository {
+
+    private data class CachedMetadata(
+        val lastModified: Long,
+        val sizeBytes: Long,
+        val durationMs: Long,
+        val width: Int,
+        val height: Int,
+    )
+
+    private val metadataCache = ConcurrentHashMap<String, CachedMetadata>()
 
     override val savedFolderUris: Flow<Set<Uri>> = dataStore.data
         .catch { cause -> if (cause is IOException) emit(emptyList()) else throw cause }
@@ -80,7 +92,7 @@ class DefaultCustomFolderRepository @Inject constructor(
                 val folderName = getDocDisplayName(treeUri) ?: "自定义目录"
                 val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
                 val items = mutableListOf<VideoMediaItem>()
-                scanFolderBfs(treeUri, rootDocId, folderName, items)
+                scanFolderBfs(treeUri, rootDocId, folderName, items, extractMetadata = false)
                 val totalSize = items.sumOf { it.sizeBytes }
                 result.add(
                     CustomFolderDetail(
@@ -130,6 +142,7 @@ class DefaultCustomFolderRepository @Inject constructor(
         rootDocId: String,
         rootFolderName: String,
         outList: MutableList<VideoMediaItem>,
+        extractMetadata: Boolean = true,
     ) {
         val queue = ArrayDeque<QueueNode>()
         val visitedDocIds = HashSet<String>()
@@ -177,15 +190,33 @@ class DefaultCustomFolderRepository @Inject constructor(
                             }
                         } else if (mimeType.startsWith("video/") || isVideoFile(displayName)) {
                             val fileDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId)
+                            val cached = metadataCache[childDocId]
+                            val (durationMs, width, height) = when {
+                                !extractMetadata -> Triple(0L, 0, 0)
+                                cached != null && cached.lastModified == lastModified && cached.sizeBytes == sizeBytes ->
+                                    Triple(cached.durationMs, cached.width, cached.height)
+                                else -> {
+                                    val extracted = extractMetadata(fileDocUri)
+                                    metadataCache[childDocId] = CachedMetadata(
+                                        lastModified = lastModified,
+                                        sizeBytes = sizeBytes,
+                                        durationMs = extracted.first,
+                                        width = extracted.second,
+                                        height = extracted.third,
+                                    )
+                                    extracted
+                                }
+                            }
+
                             outList.add(
                                 VideoMediaItem(
                                     id = childDocId.hashCode().toLong(),
                                     uriString = fileDocUri.toString(),
                                     displayName = displayName,
-                                    durationMs = 0L,
+                                    durationMs = durationMs,
                                     sizeBytes = sizeBytes,
-                                    width = 0,
-                                    height = 0,
+                                    width = width,
+                                    height = height,
                                     dateModified = lastModified / 1000L,
                                     folderName = currentFolderName,
                                     mimeType = mimeType,
@@ -205,6 +236,26 @@ class DefaultCustomFolderRepository @Inject constructor(
     private fun isVideoFile(fileName: String): Boolean {
         val ext = fileName.substringAfterLast('.', "").lowercase()
         return ext in VIDEO_EXTENSIONS
+    }
+
+    private fun extractMetadata(fileDocUri: Uri): Triple<Long, Int, Int> {
+        val mmr = MediaMetadataRetriever()
+        return try {
+            context.contentResolver.openFileDescriptor(fileDocUri, "r")?.use { pfd ->
+                mmr.setDataSource(pfd.fileDescriptor)
+                val durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                val widthStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val heightStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                val durationMs = durationStr?.toLongOrNull() ?: 0L
+                val width = widthStr?.toIntOrNull() ?: 0
+                val height = heightStr?.toIntOrNull() ?: 0
+                Triple(durationMs, width, height)
+            } ?: Triple(0L, 0, 0)
+        } catch (_: Throwable) {
+            Triple(0L, 0, 0)
+        } finally {
+            runCatching { mmr.release() }
+        }
     }
 
     private fun getDocDisplayName(treeUri: Uri): String? {
