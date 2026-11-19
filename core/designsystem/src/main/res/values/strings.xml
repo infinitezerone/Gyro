@@ -325,7 +325,7 @@
     <string name="aspect_mode_crop_full">填充</string>
     <string name="aspect_mode_stretch_full">拉伸</string>
     <string name="aspect_mode_16_9_full">16:9</string>
-    <string name="aspect_mode_21_9_full">21:9</string>
+    <string name="aspect_mode_4_3_full">4:3</string>
     <string name="video_aspect_section">画面比例与填充</string>
 
     <!-- R8: Color calibration -->

@@ -37,5 +37,5 @@ enum class ResizeMode {
     CROP,
     STRETCH,
     ASPECT_16_9,
-    ASPECT_21_9
+    ASPECT_4_3
 }

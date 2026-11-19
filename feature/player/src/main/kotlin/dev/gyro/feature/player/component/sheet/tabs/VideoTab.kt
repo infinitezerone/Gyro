@@ -201,7 +201,7 @@ internal fun VideoTabContent(
                     ResizeMode.CROP to stringResource(R.string.resize_crop),
                     ResizeMode.STRETCH to stringResource(R.string.resize_stretch),
                     ResizeMode.ASPECT_16_9 to "16:9",
-                    ResizeMode.ASPECT_21_9 to "21:9"
+                    ResizeMode.ASPECT_4_3 to "4:3"
                 ).forEach { (mode, label) ->
                     SheetChip(
                         selected = state.currentResizeMode == mode,

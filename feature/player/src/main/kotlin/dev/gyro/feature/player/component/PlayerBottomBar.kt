@@ -265,7 +265,7 @@ fun PlayerBottomBar(
                         ResizeMode.CROP -> stringResource(R.string.resize_crop)
                         ResizeMode.STRETCH -> stringResource(R.string.resize_stretch)
                         ResizeMode.ASPECT_16_9 -> "16:9"
-                        ResizeMode.ASPECT_21_9 -> "21:9"
+                        ResizeMode.ASPECT_4_3 -> "4:3"
                     }
                     PlayerTextActionButton(
                         text = aspectLabel,

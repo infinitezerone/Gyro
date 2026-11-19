@@ -102,7 +102,7 @@ fun calculateVideoSourceRect(
     val videoRatio = when (resizeMode) {
         ResizeMode.FIT -> aspectRatio.numerator.toFloat() / aspectRatio.denominator.toFloat().coerceAtLeast(1f)
         ResizeMode.ASPECT_16_9 -> 16f / 9f
-        ResizeMode.ASPECT_21_9 -> 21f / 9f
+        ResizeMode.ASPECT_4_3 -> 4f / 3f
         ResizeMode.CROP, ResizeMode.STRETCH -> return containerBounds
     }
     return calculateVideoSourceRect(

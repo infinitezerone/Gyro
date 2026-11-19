@@ -109,7 +109,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     val videoContainerModifier = when (effectiveResizeMode) {
         ResizeMode.FIT -> if (videoAspect > 0f) Modifier.aspectRatio(videoAspect) else Modifier.fillMaxSize()
         ResizeMode.ASPECT_16_9 -> Modifier.aspectRatio(16f / 9f)
-        ResizeMode.ASPECT_21_9 -> Modifier.aspectRatio(21f / 9f)
+        ResizeMode.ASPECT_4_3 -> Modifier.aspectRatio(4f / 3f)
         ResizeMode.CROP -> videoCoverSize?.let { sz ->
             with(density) { Modifier.size(sz.width.toDp(), sz.height.toDp()) }
         } ?: Modifier.fillMaxSize()
@@ -127,7 +127,7 @@ internal fun BoxScope.PlayerVideoFeedLayer(
         ResizeMode.CROP -> videoCoverSize?.height?.toFloat() ?: screenH
         ResizeMode.STRETCH -> screenH
         ResizeMode.ASPECT_16_9 -> minOf(screenH, screenW / (16f / 9f))
-        ResizeMode.ASPECT_21_9 -> minOf(screenH, screenW / (21f / 9f))
+        ResizeMode.ASPECT_4_3 -> minOf(screenH, screenW / (4f / 3f))
         ResizeMode.FIT -> if (videoAspect > 0f) minOf(screenH, screenW / videoAspect) else screenH
     }
     val sheetFitActive = isSheetFitActive(

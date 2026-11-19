@@ -16,5 +16,5 @@ fun ResizeMode.displayLabel(): String = when (this) {
     ResizeMode.CROP -> stringResource(R.string.aspect_mode_crop_full)
     ResizeMode.STRETCH -> stringResource(R.string.aspect_mode_stretch_full)
     ResizeMode.ASPECT_16_9 -> stringResource(R.string.aspect_mode_16_9_full)
-    ResizeMode.ASPECT_21_9 -> stringResource(R.string.aspect_mode_21_9_full)
+    ResizeMode.ASPECT_4_3 -> stringResource(R.string.aspect_mode_4_3_full)
 }

@@ -46,8 +46,8 @@ class PlayerPipSourceRectTest {
     }
 
     @Test
-    fun twentyOneNineModeStripsWithForcedRatio() {
-        // ASPECT_21_9 must strip against 21:9 regardless of the video's real aspect.
+    fun twentyOneNineRatioStripsWithForcedRatio() {
+        // A forced 21:9 container must strip against 21:9 regardless of the video's real aspect.
         val rect = calculateVideoSourceRect(
             left = 0, top = 0, right = 1272, bottom = 2772,
             videoRatio = 21f / 9f

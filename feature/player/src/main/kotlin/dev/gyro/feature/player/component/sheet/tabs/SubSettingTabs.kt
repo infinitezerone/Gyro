@@ -215,7 +215,7 @@ internal fun AspectSubTabContent(
         ResizeMode.CROP to stringResource(R.string.aspect_mode_crop_full),
         ResizeMode.STRETCH to stringResource(R.string.aspect_mode_stretch_full),
         ResizeMode.ASPECT_16_9 to stringResource(R.string.aspect_mode_16_9_full),
-        ResizeMode.ASPECT_21_9 to stringResource(R.string.aspect_mode_21_9_full)
+        ResizeMode.ASPECT_4_3 to stringResource(R.string.aspect_mode_4_3_full)
     )
 
     Column(
