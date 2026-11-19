@@ -2,6 +2,7 @@ package dev.gyro.engine.config
 
 import dev.gyro.core.model.HWDEC_HARDWARE
 import dev.gyro.core.model.HdrOutputMode
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.MpvNativeBridge
@@ -146,7 +147,24 @@ class MpvOptionConfigurator {
         bridge.setPropertyString("sub-auto", subAuto)
 
         if (!userOptions.containsKey("tone-mapping")) {
-            bridge.setPropertyString("tone-mapping", "hable")
+            val toneAlgorithm = settings.toneMapping
+            val toneValue = when {
+                toneAlgorithm != ToneMappingAlgorithm.AUTO -> toneAlgorithm.persistedKey
+                settings.highQualityRendering -> "hable"
+                else -> "auto"
+            }
+            bridge.setPropertyString("tone-mapping", toneValue)
+        }
+        if (!userOptions.containsKey("scale")) {
+            val scaleFilter = when (settings.videoScalePreset) {
+                VideoScale.BILINEAR -> if (settings.highQualityRendering) "spline36" else "bilinear"
+                VideoScale.LANCZOS -> "lanczos"
+                VideoScale.SPLINE36 -> "spline36"
+            }
+            bridge.setPropertyString("scale", scaleFilter)
+        }
+        if (!userOptions.containsKey("cscale")) {
+            bridge.setPropertyString("cscale", if (settings.highQualityRendering) "spline36" else "bilinear")
         }
     }
 
@@ -177,7 +195,7 @@ class MpvOptionConfigurator {
             requestedHwdec
         }
         bridge.setOptionString("hwdec", hwdecConfig)
-        bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
+        bridge.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,mpeg1video,vc1,vp8,vp9,av1")
         bridge.setOptionString("hwdec-software-fallback", "3")
         bridge.setOptionString("framedrop", "vo")
 
@@ -196,63 +214,66 @@ class MpvOptionConfigurator {
         bridge.setOptionString("ao", "audiotrack,opensles")
         bridge.setOptionString("volume-max", "200.0")
 
+        val hq = settings.highQualityRendering
         val scaleFilter = when (settings.videoScalePreset) {
-            VideoScale.BILINEAR -> "bilinear"
+            VideoScale.BILINEAR -> if (hq) "spline36" else "bilinear"
             VideoScale.LANCZOS -> "lanczos"
-            VideoScale.SPLINE36 -> "spline36" // 对齐系统相册级别的高清晰样条重采样
+            VideoScale.SPLINE36 -> "spline36"
         }
         if (!userOptions.containsKey("scale")) {
             bridge.setOptionString("scale", scaleFilter)
         }
         if (!userOptions.containsKey("cscale")) {
-            bridge.setOptionString("cscale", "spline36")
+            bridge.setOptionString("cscale", if (hq) "spline36" else "bilinear")
         }
         if (!userOptions.containsKey("dscale")) {
-            bridge.setOptionString("dscale", if (scaleFilter == "bilinear") "bilinear" else "mitchell")
+            bridge.setOptionString("dscale", if (hq) "mitchell" else "bilinear")
         }
         if (!userOptions.containsKey("correct-downscaling")) {
-            bridge.setOptionString("correct-downscaling", "yes")
+            bridge.setOptionString("correct-downscaling", if (hq) "yes" else "no")
         }
         if (!userOptions.containsKey("linear-downscaling")) {
-            bridge.setOptionString("linear-downscaling", "yes")
+            bridge.setOptionString("linear-downscaling", if (hq) "yes" else "no")
         }
         if (!userOptions.containsKey("sigmoid-upscaling")) {
-            bridge.setOptionString("sigmoid-upscaling", "yes")
+            bridge.setOptionString("sigmoid-upscaling", if (hq) "yes" else "no")
         }
         if (!userOptions.containsKey("dither-depth")) {
-            bridge.setOptionString("dither-depth", "auto")
+            bridge.setOptionString("dither-depth", if (hq) "auto" else "no")
         }
 
         if (!userOptions.containsKey("video-sync")) {
             bridge.setOptionString("video-sync", "audio")
         }
-        // Changing speed shifts the audio clock; mpv's default tolerance then declares an A/V
-        // desync and resets the filter chain, which shows as a visible+audible hiccup on every
-        // speed tap. An unlimited tolerance lets it glide through the transition instead.
-        bridge.setOptionString("video-sync-max-audio-change", "inf")
         if (!userOptions.containsKey("demuxer-max-bytes")) {
-            bridge.setOptionString("demuxer-max-bytes", "${32 * 1024 * 1024}")
+            bridge.setOptionString("demuxer-max-bytes", "${8 * 1024 * 1024}")
         }
         if (!userOptions.containsKey("demuxer-max-back-bytes")) {
-            bridge.setOptionString("demuxer-max-back-bytes", "${16 * 1024 * 1024}")
+            bridge.setOptionString("demuxer-max-back-bytes", "${4 * 1024 * 1024}")
         }
         if (!userOptions.containsKey("demuxer-readahead-secs")) {
-            bridge.setOptionString("demuxer-readahead-secs", "15")
+            bridge.setOptionString("demuxer-readahead-secs", "5")
         }
         if (!userOptions.containsKey("demuxer-seekable-cache")) {
             bridge.setOptionString("demuxer-seekable-cache", "yes")
         }
         if (!userOptions.containsKey("tone-mapping")) {
-            bridge.setOptionString("tone-mapping", "hable")
+            val toneAlgorithm = settings.toneMapping
+            val toneValue = when {
+                toneAlgorithm != ToneMappingAlgorithm.AUTO -> toneAlgorithm.persistedKey
+                hq -> "hable"
+                else -> "auto"
+            }
+            bridge.setOptionString("tone-mapping", toneValue)
         }
         if (!userOptions.containsKey("hdr-compute-peak")) {
-            bridge.setOptionString("hdr-compute-peak", "yes")
+            bridge.setOptionString("hdr-compute-peak", "no")
         }
         if (!userOptions.containsKey("tone-mapping-mode")) {
             bridge.setOptionString("tone-mapping-mode", "auto")
         }
         if (!userOptions.containsKey("gamut-clipping")) {
-            bridge.setOptionString("gamut-clipping", "no")
+            bridge.setOptionString("gamut-clipping", if (hq) "no" else "yes")
         }
         if (!userOptions.containsKey("sub-font-provider")) {
             bridge.setOptionString("sub-font-provider", "none")

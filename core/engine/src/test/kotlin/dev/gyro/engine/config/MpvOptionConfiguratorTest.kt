@@ -57,7 +57,7 @@ class MpvOptionConfiguratorTest {
         assertEquals("display-resample", bridge.options["video-sync"])
         assertEquals("8MiB", bridge.options["demuxer-max-bytes"])
         // Defaults still fill every key the user did not provide.
-        assertEquals("${16 * 1024 * 1024}", bridge.options["demuxer-max-back-bytes"])
+        assertEquals("${4 * 1024 * 1024}", bridge.options["demuxer-max-back-bytes"])
     }
 
     @Test
@@ -70,6 +70,10 @@ class MpvOptionConfiguratorTest {
         assertEquals("no", bridge.options["blend-subtitles"])
         assertEquals("audiotrack,opensles", bridge.options["ao"])
         assertEquals("200.0", bridge.options["volume-max"])
+        assertEquals("no", bridge.options["hdr-compute-peak"])
+        assertEquals("5", bridge.options["demuxer-readahead-secs"])
+        assertEquals("${8 * 1024 * 1024}", bridge.options["demuxer-max-bytes"])
+        assertEquals("${4 * 1024 * 1024}", bridge.options["demuxer-max-back-bytes"])
     }
 
     @Test
@@ -128,8 +132,32 @@ class MpvOptionConfiguratorTest {
         // libmpv's render API runs vo=libmpv with opengl and auto fbo format
         assertEquals("opengl", bridge.options["gpu-api"])
         assertEquals("libmpv", bridge.options["vo"])
-        assertEquals("hable", bridge.options["tone-mapping"])
+        assertEquals("auto", bridge.options["tone-mapping"])
+        assertEquals("bilinear", bridge.options["scale"])
+        assertEquals("bilinear", bridge.options["cscale"])
         assertEquals("mediacodec,mediacodec-copy", bridge.options["hwdec"])
+    }
+
+    @Test
+    fun highQualityModeEnablesSpline36AndAdvancedRendering() {
+        val configurator = MpvOptionConfigurator()
+        val bridge = FakeMpvNativeBridge()
+
+        configurator.apply(
+            bridge,
+            emptyMap(),
+            UserSettings(highQualityRendering = true)
+        )
+
+        assertEquals("spline36", bridge.options["scale"])
+        assertEquals("spline36", bridge.options["cscale"])
+        assertEquals("mitchell", bridge.options["dscale"])
+        assertEquals("yes", bridge.options["correct-downscaling"])
+        assertEquals("yes", bridge.options["linear-downscaling"])
+        assertEquals("yes", bridge.options["sigmoid-upscaling"])
+        assertEquals("auto", bridge.options["dither-depth"])
+        assertEquals("no", bridge.options["gamut-clipping"])
+        assertEquals("hable", bridge.options["tone-mapping"])
     }
 
     @Test

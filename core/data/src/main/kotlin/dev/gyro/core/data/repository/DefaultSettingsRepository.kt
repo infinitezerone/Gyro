@@ -63,6 +63,9 @@ class DefaultSettingsRepository @Inject constructor(
     override suspend fun setVideoScale(scale: String) =
         updateSettings { it.copy(videoScale = scale) }
 
+    override suspend fun setHighQualityRendering(enabled: Boolean) =
+        updateSettings { it.copy(highQualityRendering = enabled) }
+
     override suspend fun setInterpolation(enabled: Boolean) =
         updateSettings { it.copy(interpolation = enabled) }
 

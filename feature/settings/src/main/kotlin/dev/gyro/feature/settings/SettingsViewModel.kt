@@ -6,7 +6,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.SettingsRepository
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
+import dev.gyro.core.model.VideoScale
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -65,6 +67,30 @@ class SettingsViewModel @Inject constructor(
     fun setDefaultHwdec(mode: HwdecMode) {
         viewModelScope.launch {
             repository.setDefaultHwdec(mode)
+        }
+    }
+
+    fun setHighQualityRendering(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setHighQualityRendering(enabled)
+        }
+    }
+
+    fun setVideoScale(scale: VideoScale) {
+        viewModelScope.launch {
+            repository.setVideoScale(scale)
+        }
+    }
+
+    fun setToneMappingAlgorithm(algorithm: ToneMappingAlgorithm) {
+        viewModelScope.launch {
+            repository.setToneMappingAlgorithm(algorithm)
+        }
+    }
+
+    fun setInterpolation(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setInterpolation(enabled)
         }
     }
 

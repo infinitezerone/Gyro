@@ -337,8 +337,8 @@ class VideoGeometryCoordinatorTest {
         assertEquals("HLG", coordinator.hdrFormat.value)
         assertEquals("no", bridge.properties["hdr-output"])
         assertEquals("auto", bridge.properties["target-trc"])
-        // AUTO keeps the engine's configured curve; the fold must not silently swap in another one.
-        assertEquals("hable", bridge.properties["tone-mapping"])
+        // AUTO keeps the engine's configured curve; in standard mode it is "auto".
+        assertEquals("auto", bridge.properties["tone-mapping"])
         // And it must not hand the panel's HDR peak to an SDR tone mapper.
         assertEquals("auto", bridge.properties["target-peak"])
     }

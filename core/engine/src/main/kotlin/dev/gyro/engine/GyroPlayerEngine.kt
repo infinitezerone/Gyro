@@ -201,11 +201,13 @@ class GyroPlayerEngine(
         val hdrOutput = settings.hdrOutput
         val toneMapping = settings.toneMapping
         val videoScale = settings.videoScalePreset
+        val highQuality = settings.highQualityRendering
         store.update {
             it.copy(
                 hdrOutputMode = hdrOutput,
                 toneMappingAlgorithm = toneMapping,
                 videoScale = videoScale,
+                highQualityRendering = highQuality,
                 interpolation = settings.interpolation,
                 audioPassthrough = settings.audioPassthrough
             )

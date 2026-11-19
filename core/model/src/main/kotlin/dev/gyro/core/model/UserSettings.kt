@@ -31,7 +31,7 @@ const val TONE_MAPPING_REINHARD = "reinhard"
 const val SCALE_SPLINE36 = "spline36"
 const val SCALE_LANCZOS = "lanczos"
 const val SCALE_BILINEAR = "bilinear"
-const val SCALE_AUTO = "spline36"
+const val SCALE_AUTO = "bilinear"
 const val SCALE_OFF = "bilinear"
 
 @Serializable
@@ -43,7 +43,8 @@ data class UserSettings(
     val defaultHwdec: String = HWDEC_HARDWARE, // HWDEC_HARDWARE, "mediacodec-copy", HWDEC_SOFTWARE
     val hdrOutputMode: String = HDR_OUTPUT_AUTO, // HDR_OUTPUT_AUTO, HDR_OUTPUT_PQ, HDR_OUTPUT_HLG, HDR_OUTPUT_SDR
     val toneMappingAlgorithm: String = TONE_MAPPING_AUTO,
-    val videoScale: String = SCALE_SPLINE36,
+    val videoScale: String = SCALE_BILINEAR,
+    val highQualityRendering: Boolean = false,
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
     val subAutoLoad: Boolean = true,

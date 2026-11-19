@@ -62,7 +62,7 @@ data class PlayerSheetUiState(
     val hdrFormat: String = "",
     val hdrOutputMode: HdrOutputMode = HdrOutputMode.AUTO,
     val toneMappingAlgorithm: ToneMappingAlgorithm = ToneMappingAlgorithm.AUTO,
-    val videoScale: VideoScale = VideoScale.SPLINE36,
+    val videoScale: VideoScale = VideoScale.BILINEAR,
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
     val abLoopASeconds: Double = -1.0,

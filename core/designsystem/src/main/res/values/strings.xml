@@ -141,6 +141,16 @@
     <string name="settings_hdr_output_sdr_desc">映射为标准 SDR</string>
     <string name="settings_hdr_active_auto">HDR 点亮</string>
     <string name="settings_hdr_active_sdr">色调映射</string>
+    <string name="settings_high_quality_rendering">高保真渲染模式</string>
+    <string name="settings_high_quality_rendering_desc">开启样条色度插值(Spline36)、Sigmoid抗振铃、线性光混合与防色带抖动；关闭时使用低发热的标准双线性渲染</string>
+    <string name="settings_advanced_rendering">画质与色彩高级选项</string>
+    <string name="settings_advanced_rendering_desc">微调缩放滤镜、色调映射曲线与插帧</string>
+    <string name="settings_video_scale_bilinear_item">双线性 Bilinear (标准默认，省电流畅)</string>
+    <string name="settings_video_scale_lanczos_item">Lanczos (锐利清晰)</string>
+    <string name="settings_video_scale_spline36_item">Spline36 (高保真样条插值)</string>
+    <string name="settings_interpolation">运动插帧平滑</string>
+    <string name="settings_interpolation_desc">提升低帧率视频播放平滑度</string>
+    <string name="settings_custom_options_hint">可在「高级配置 (mpv.conf)」中编辑全部底层自定义渲染参数</string>
 
     <!-- Settings: Audio & Subtitles -->
     <string name="settings_group_subtitles">字幕与音频</string>
@@ -196,7 +206,7 @@
     <string name="mpv_config_saved_toast">配置已保存并生效</string>
     <string name="mpv_config_reset_dialog_title">恢复默认 mpv.conf？</string>
     <string name="mpv_config_reset_dialog_desc">此操作将清除所有自定义参数并还原为官方默认推荐配置。</string>
-    <string name="mpv_config_hint">每行一个 mpv 参数，如：\nscale=spline36\nhdr-compute-peak=yes\n# vo / wid / idle / keep-open / gpu-context 由引擎接管，写入也会被忽略\n# GUI 设置具有最高优先级，覆盖配置文件中的同名选项</string>
+    <string name="mpv_config_hint">每行一个 mpv 参数，如：\nscale=spline36\ndeband=yes\n# vo / wid / idle / keep-open / gpu-context 由引擎接管，写入也会被忽略\n# GUI 设置具有最高优先级，覆盖配置文件中的同名选项</string>
     <string name="mpv_config_help_title">配置指南</string>
     <string name="mpv_config_help_desc">支持 mpv 原生语法（key=value 或 key）。播放器 GUI 设置（如硬件加速、画面比例、色彩滤镜）将在运行时保持最高优先级。</string>
 

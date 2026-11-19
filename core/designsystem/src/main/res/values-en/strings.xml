@@ -132,6 +132,16 @@
     <string name="settings_hdr_output_sdr_desc">Map to standard SDR</string>
     <string name="settings_hdr_active_auto">HDR on</string>
     <string name="settings_hdr_active_sdr">Tone map</string>
+    <string name="settings_high_quality_rendering">High Quality Rendering</string>
+    <string name="settings_high_quality_rendering_desc">Enables Spline36 chroma, Sigmoid upscaling, linear downscaling, and dithering. Off uses balanced standard bilinear.</string>
+    <string name="settings_advanced_rendering">Advanced Quality &amp; Color</string>
+    <string name="settings_advanced_rendering_desc">Tune scalers, tone mapping, and motion interpolation</string>
+    <string name="settings_video_scale_bilinear_item">Bilinear (Standard / Low power)</string>
+    <string name="settings_video_scale_lanczos_item">Lanczos (Sharp resampling)</string>
+    <string name="settings_video_scale_spline36_item">Spline36 (High fidelity spline)</string>
+    <string name="settings_interpolation">Motion Interpolation</string>
+    <string name="settings_interpolation_desc">Smoother motion on high refresh rate displays</string>
+    <string name="settings_custom_options_hint">Full low-level control is available in mpv.conf below</string>
     <!-- Settings: Audio & Subtitles -->
     <string name="settings_group_subtitles">Subtitles &amp; Audio</string>
     <string name="settings_sub_autoload">Auto-load Subtitles</string>
@@ -183,7 +193,7 @@
     <string name="mpv_config_saved_toast">Configuration saved successfully</string>
     <string name="mpv_config_reset_dialog_title">Reset mpv.conf to Default?</string>
     <string name="mpv_config_reset_dialog_desc">This will discard all custom parameters and restore default settings.</string>
-    <string name="mpv_config_hint">One option per line, e.g.:\nscale=spline36\nhdr-compute-peak=yes\n# vo / wid / idle / keep-open / gpu-context are owned by the engine and ignored here\n# GUI settings have highest priority and override matching options</string>
+    <string name="mpv_config_hint">One option per line, e.g.:\nscale=spline36\ndeband=yes\n# vo / wid / idle / keep-open / gpu-context are owned by the engine and ignored here\n# GUI settings have highest priority and override matching options</string>
     <string name="mpv_config_help_title">Configuration Guide</string>
     <string name="mpv_config_help_desc">Supports standard mpv syntax (key=value or key). GUI settings (such as hardware decoding, aspect ratio, and color filters) always maintain highest priority at runtime.</string>
 

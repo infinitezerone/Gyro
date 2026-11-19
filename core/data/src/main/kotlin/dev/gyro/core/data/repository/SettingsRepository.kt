@@ -33,6 +33,7 @@ interface SettingsRepository {
         setToneMappingAlgorithm(algorithm.persistedKey)
     suspend fun setVideoScale(scale: String): UserSettings
     suspend fun setVideoScale(scale: VideoScale): UserSettings = setVideoScale(scale.persistedKey)
+    suspend fun setHighQualityRendering(enabled: Boolean): UserSettings
     suspend fun setInterpolation(enabled: Boolean): UserSettings
     suspend fun setAudioPassthrough(enabled: Boolean): UserSettings
     suspend fun setSubAutoLoad(enabled: Boolean): UserSettings

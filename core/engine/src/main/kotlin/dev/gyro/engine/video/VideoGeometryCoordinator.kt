@@ -465,14 +465,16 @@ class VideoGeometryCoordinator(
     }
 
     /**
-     * Pushes the curve mpv should use. [ToneMappingAlgorithm.AUTO] means "whatever the engine
-     * configures at init", which is `hable` — the HDR path deliberately does not silently swap in
-     * a different curve, because that changed the look of every SDR-folded file without the user
-     * touching a setting. `bt.2446a` and `spline` remain available as explicit choices.
+     * Pushes the curve mpv should use. [ToneMappingAlgorithm.AUTO] follows highQualityRendering:
+     * `hable` when high quality is on, or standard `auto` when off.
      */
     private fun applyToneMapping() {
         val algorithm = store.current.toneMappingAlgorithm
-        val effective = if (algorithm == ToneMappingAlgorithm.AUTO) "hable" else algorithm.persistedKey
+        val effective = when {
+            algorithm != ToneMappingAlgorithm.AUTO -> algorithm.persistedKey
+            store.current.highQualityRendering -> "hable"
+            else -> "auto"
+        }
         if (effective == appliedToneMapping) return
         appliedToneMapping = effective
         bridge.setPropertyString("tone-mapping", effective)
@@ -481,7 +483,7 @@ class VideoGeometryCoordinator(
     override fun setVideoScale(scale: VideoScale) {
         store.update { it.copy(videoScale = scale) }
         val effective = when (scale) {
-            VideoScale.BILINEAR -> "bilinear"
+            VideoScale.BILINEAR -> if (store.current.highQualityRendering) "spline36" else "bilinear"
             VideoScale.LANCZOS -> "lanczos"
             VideoScale.SPLINE36 -> "spline36"
         }

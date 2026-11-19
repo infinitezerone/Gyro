@@ -50,7 +50,7 @@ class PlaybackConfigModelsTest {
         assertEquals(VideoScale.BILINEAR, VideoScale.fromKey("off"))
         assertEquals(VideoScale.LANCZOS, VideoScale.fromKey(SCALE_LANCZOS))
         assertEquals(VideoScale.SPLINE36, VideoScale.fromKey(SCALE_SPLINE36))
-        assertEquals(VideoScale.SPLINE36, VideoScale.fromKey("unknown"))
+        assertEquals(VideoScale.BILINEAR, VideoScale.fromKey("unknown"))
     }
 
     @Test

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,13 +44,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
+import dev.gyro.core.model.VideoScale
 
 @Composable
 fun SettingsScreen(
@@ -73,6 +77,10 @@ fun SettingsScreen(
         onUpdateSeekStep = { viewModel.setSeekStepSeconds(it) },
         onUpdateHwdec = { viewModel.setDefaultHwdec(it) },
         onUpdateHdrOutput = { viewModel.setHdrOutputMode(it) },
+        onUpdateHighQuality = { viewModel.setHighQualityRendering(it) },
+        onUpdateVideoScale = { viewModel.setVideoScale(it) },
+        onUpdateToneMapping = { viewModel.setToneMappingAlgorithm(it) },
+        onUpdateInterpolation = { viewModel.setInterpolation(it) },
         onUpdateSubAutoLoad = { viewModel.setSubAutoLoad(it) },
         onUpdateGestures = { viewModel.setGesturesEnabled(it) },
         modifier = modifier
@@ -93,6 +101,10 @@ fun SettingsContent(
     onUpdateSeekStep: (Int) -> Unit,
     onUpdateHwdec: (HwdecMode) -> Unit,
     onUpdateHdrOutput: (HdrOutputMode) -> Unit = {},
+    onUpdateHighQuality: (Boolean) -> Unit = {},
+    onUpdateVideoScale: (VideoScale) -> Unit = {},
+    onUpdateToneMapping: (ToneMappingAlgorithm) -> Unit = {},
+    onUpdateInterpolation: (Boolean) -> Unit = {},
     onUpdateSubAutoLoad: (Boolean) -> Unit,
     onUpdateGestures: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -100,6 +112,8 @@ fun SettingsContent(
     var showSeekStepDialog by remember { mutableStateOf(false) }
     var showHwdecDialog by remember { mutableStateOf(false) }
     var showHdrDialog by remember { mutableStateOf(false) }
+    var showScaleDialog by remember { mutableStateOf(false) }
+    var showToneMappingDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -196,6 +210,40 @@ fun SettingsContent(
                         value = hdrLabel,
                         description = hdrDesc,
                         onClick = { showHdrDialog = true }
+                    )
+                    PreferenceSwitchItem(
+                        title = stringResource(R.string.settings_high_quality_rendering),
+                        description = stringResource(R.string.settings_high_quality_rendering_desc),
+                        checked = settings.highQualityRendering,
+                        onCheckedChange = onUpdateHighQuality
+                    )
+                    val scaleLabel = when (settings.videoScalePreset) {
+                        VideoScale.BILINEAR -> stringResource(R.string.settings_video_scale_bilinear_item)
+                        VideoScale.LANCZOS -> stringResource(R.string.settings_video_scale_lanczos_item)
+                        VideoScale.SPLINE36 -> stringResource(R.string.settings_video_scale_spline36_item)
+                    }
+                    PreferenceClickItem(
+                        title = stringResource(R.string.settings_video_scale),
+                        value = scaleLabel,
+                        onClick = { showScaleDialog = true }
+                    )
+                    val toneLabel = when (settings.toneMapping) {
+                        ToneMappingAlgorithm.AUTO -> stringResource(R.string.tone_map_auto)
+                        ToneMappingAlgorithm.HABLE -> stringResource(R.string.tone_map_hable)
+                        ToneMappingAlgorithm.BT_2446A -> stringResource(R.string.tone_map_bt2446a)
+                        ToneMappingAlgorithm.SPLINE -> stringResource(R.string.tone_map_spline)
+                        ToneMappingAlgorithm.REINHARD -> stringResource(R.string.tone_map_reinhard)
+                    }
+                    PreferenceClickItem(
+                        title = stringResource(R.string.stats_tone_mapping),
+                        value = toneLabel,
+                        onClick = { showToneMappingDialog = true }
+                    )
+                    PreferenceSwitchItem(
+                        title = stringResource(R.string.settings_interpolation),
+                        description = stringResource(R.string.settings_interpolation_desc),
+                        checked = settings.interpolation,
+                        onCheckedChange = onUpdateInterpolation
                     )
                 }
             }
@@ -341,6 +389,78 @@ fun SettingsContent(
             onDismiss = { showHdrDialog = false }
         )
     }
+
+    // 单选弹窗: 缩放插值算法
+    if (showScaleDialog) {
+        val scales = listOf(VideoScale.BILINEAR, VideoScale.LANCZOS, VideoScale.SPLINE36)
+        val options = listOf(
+            DialogOption(
+                title = stringResource(R.string.settings_video_scale_bilinear_item),
+                description = stringResource(R.string.video_scale_bilinear_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.settings_video_scale_lanczos_item),
+                description = stringResource(R.string.video_scale_lanczos_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.settings_video_scale_spline36_item),
+                description = stringResource(R.string.video_scale_spline36_desc)
+            )
+        )
+        SingleChoiceDialog(
+            title = stringResource(R.string.settings_video_scale),
+            options = options,
+            selectedIndex = scales.indexOf(settings.videoScalePreset).coerceAtLeast(0),
+            onSelect = { idx ->
+                onUpdateVideoScale(scales[idx])
+                showScaleDialog = false
+            },
+            onDismiss = { showScaleDialog = false }
+        )
+    }
+
+    // 单选弹窗: HDR 色调映射曲线
+    if (showToneMappingDialog) {
+        val algorithms = listOf(
+            ToneMappingAlgorithm.AUTO,
+            ToneMappingAlgorithm.HABLE,
+            ToneMappingAlgorithm.BT_2446A,
+            ToneMappingAlgorithm.SPLINE,
+            ToneMappingAlgorithm.REINHARD
+        )
+        val options = listOf(
+            DialogOption(
+                title = stringResource(R.string.tone_map_auto),
+                description = stringResource(R.string.tone_map_auto_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.tone_map_hable),
+                description = stringResource(R.string.tone_map_hable_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.tone_map_bt2446a),
+                description = stringResource(R.string.tone_map_bt2446a_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.tone_map_spline),
+                description = stringResource(R.string.tone_map_spline_desc)
+            ),
+            DialogOption(
+                title = stringResource(R.string.tone_map_reinhard),
+                description = stringResource(R.string.tone_map_reinhard_desc)
+            )
+        )
+        SingleChoiceDialog(
+            title = stringResource(R.string.stats_tone_mapping),
+            options = options,
+            selectedIndex = algorithms.indexOf(settings.toneMapping).coerceAtLeast(0),
+            onSelect = { idx ->
+                onUpdateToneMapping(algorithms[idx])
+                showToneMappingDialog = false
+            },
+            onDismiss = { showToneMappingDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -416,14 +536,34 @@ private fun PreferenceClickItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = GyroColors.TextPrimary)
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = GyroColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             if (description != null) {
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(text = description, fontSize = 12.sp, color = GyroColors.TextSecondary)
+                Text(
+                    text = description,
+                    fontSize = 12.sp,
+                    color = GyroColors.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
         if (value != null) {
-            Text(text = value, fontSize = 13.sp, color = GyroColors.TextSecondary)
+            Text(
+                text = value,
+                fontSize = 13.sp,
+                color = GyroColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 160.dp)
+            )
             Spacer(modifier = Modifier.width(6.dp))
         }
         Icon(
@@ -444,11 +584,26 @@ private fun PreferenceInfoItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = GyroColors.TextPrimary)
-        Text(text = value, fontSize = 13.sp, color = GyroColors.TextSecondary)
+        Text(
+            text = title,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = GyroColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            color = GyroColors.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 160.dp)
+        )
     }
 }
 

@@ -99,7 +99,8 @@ enum class VideoScale(val persistedKey: String) {
             return when (raw.trim().lowercase()) {
                 SCALE_BILINEAR, "off" -> BILINEAR
                 SCALE_LANCZOS -> LANCZOS
-                else -> SPLINE36
+                SCALE_SPLINE36 -> SPLINE36
+                else -> BILINEAR
             }
         }
     }
