@@ -26,9 +26,6 @@
     <string name="home_empty_search_title">No Matching Videos</string>
     <string name="home_empty_search_desc">Try searching with different keywords</string>
     <!-- Player Bottom Bar & Controls -->
-    <string name="resize_fit">Fit</string>
-    <string name="resize_crop">Crop</string>
-    <string name="resize_stretch">Stretch</string>
     <!-- Player Overlay & Top Bar -->
     <string name="player_default_title">Gyro Player</string>
     <string name="player_empty_title">No Content Playing</string>
@@ -331,7 +328,6 @@
     <string name="action_switch_sw">Switch to software</string>
     <string name="action_enable_hw">Enable hardware decoding</string>
     <string name="hdr_10bit_output">10-bit HDR output</string>
-    <string name="resize_fit_short">Fit</string>
 
     <!-- Colour calibration -->
     <string name="color_preset_section">Colour presets</string>

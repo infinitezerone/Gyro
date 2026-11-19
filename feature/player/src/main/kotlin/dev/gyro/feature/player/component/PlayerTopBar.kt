@@ -22,13 +22,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,7 +66,7 @@ import java.util.Locale
  *
  * - 沉浸式通透顶栏：置于顶部渐变遮罩中，摒弃生硬的悬浮胶囊框；
  * - 竖屏：返回 + 标题（自适应居中、中间省略）+ 解码胶囊 + 画中画 + 设置；
- * - 横屏：返回 + 标题 + 画中画 + 音轨 + 设置。
+ * - 横屏：返回 + 标题 + 系统状态 + 画中画 + 设置（音轨不占顶栏）。
  */
 @Composable
 fun PlayerTopBar(
@@ -90,8 +85,6 @@ fun PlayerTopBar(
             .displayCutoutPadding()
             .padding(horizontal = 12.dp, vertical = 4.dp)
     ) {
-        var menuExpanded by remember { mutableStateOf(false) }
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -146,7 +139,11 @@ fun PlayerTopBar(
                 SystemStatusIndicator()
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // 横屏：纯播放器快捷操作 (画中画 -> 音轨 -> 设置)
+                // 横屏：系统状态 + 画中画 + 设置。音轨属于媒体轨道选择，
+                // 统一收在“更多播放设置 > 音轨”和底栏字幕入口里，不再占用顶栏。
+                SystemStatusIndicator()
+                Spacer(modifier = Modifier.width(8.dp))
+
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
                     icon = Icons.Default.PictureInPictureAlt,
@@ -157,18 +154,7 @@ fun PlayerTopBar(
                     contentColor = Color.White,
                     border = null
                 )
-                Spacer(modifier = Modifier.width(2.dp))
-                GyroCircleActionButton(
-                    onClick = { onOpenSheetTab(PlayerSheetRoute.AUDIO_TRACKS) },
-                    icon = Icons.Default.Audiotrack,
-                    contentDescription = stringResource(R.string.sheet_tab_audio),
-                    size = 38.dp,
-                    iconSize = 22.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    border = null
-                )
-                Spacer(modifier = Modifier.width(2.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 GyroCircleActionButton(
                     onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
                     icon = Icons.Default.Settings,

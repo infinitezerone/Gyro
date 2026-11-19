@@ -13,11 +13,9 @@ import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
@@ -36,7 +34,6 @@ import dev.gyro.core.designsystem.R
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
-import dev.gyro.core.designsystem.component.GyroPillButton
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
@@ -106,7 +103,7 @@ fun BoxScope.PlayerControlsOverlay(
         // 1. 顶部与底部沉浸式非线性暗角渐变（零动画，随控制层瞬时显隐）
         if (!isLocked) {
             val topScrimHeight = if (isLandscape) 100.dp else 70.dp
-            val bottomScrimHeight = if (isLandscape) 120.dp else 80.dp
+            val bottomScrimHeight = if (isLandscape) 120.dp else 168.dp
 
             if (showOtherControls) {
                 // 顶部向下淡出暗角
@@ -192,24 +189,8 @@ fun BoxScope.PlayerControlsOverlay(
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
 
-        // 2. 竖屏模式下的全屏胶囊按键（以屏幕为基准固定，绝不随视频比例或尺寸忽上忽下跳动）
-        if (!isLandscape && showOtherControls) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = 140.dp)
-            ) {
-                GyroPillButton(
-                    text = stringResource(R.string.cd_enter_fullscreen),
-                    icon = Icons.Default.Fullscreen,
-                    onClick = onToggleOrientation,
-                    height = 36.dp,
-                    containerColor = Color.Black.copy(alpha = 0.50f),
-                    contentColor = Color.White,
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f))
-                )
-            }
-        }
+        // 2. 竖屏全屏入口统一为进度条右上方的悬浮按钮（见 PlayerBottomBar），
+        //    不再在画面中央放重复的“进入全屏”胶囊。
 
         // 3. 顶部操作栏（零动画，瞬时响应；拖动进度或精准微调时隐藏）
         if (showOtherControls) {

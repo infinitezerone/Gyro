@@ -3,10 +3,12 @@ package dev.gyro.feature.player.component
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -14,15 +16,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,13 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +55,7 @@ import dev.gyro.core.model.time.formatDuration
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
+import dev.gyro.feature.player.component.sheet.common.displayLabel
 
 /**
  * 主流沉浸式底部控制栏 (PlayerBottomBar)
@@ -91,12 +97,19 @@ fun PlayerBottomBar(
     onEnterPreciseSeeking: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    // 竖屏手指更好按，整体放大并抬高；横屏本来空间充足，保持紧凑避免遮挡画面。
+    val barBottomPadding = if (isLandscape) 6.dp else 20.dp
+    val controlRowHeight = if (isLandscape) 44.dp else 48.dp
+    val actionSize = if (isLandscape) 38.dp else 42.dp
+    val actionIconSize = if (isLandscape) 22.dp else 26.dp
+    val timeFontSize = if (isLandscape) 14.sp else 15.sp
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .displayCutoutPadding()
             .navigationBarsPadding()
-            .padding(bottom = 6.dp)
+            .padding(bottom = barBottomPadding)
             .then(
                 if (ambientColor != Color.Transparent) {
                     Modifier.background(
@@ -119,12 +132,53 @@ fun PlayerBottomBar(
             rawPos
         }
 
-        // 行 1：通栏自适应长进度条 (大触控热区，左右边距 14dp)
-        Box(
+        // 竖屏：全屏切换悬浮在进度条右上方（类似抖音侧边按钮），不占底部操作行。
+        if (!isLandscape && isVisible) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 14.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FloatingFullscreenButton(
+                    onClick = onToggleOrientation,
+                    contentDescription = stringResource(R.string.cd_enter_fullscreen)
+                )
+            }
+        }
+
+        // 时间放在进度条左右两端，两侧等宽，进度条保持视觉居中。
+        var showRemainingTime by remember { mutableStateOf(false) }
+        val timeLabelWidth = if (totalMs >= 3_600_000L) 64.dp else 46.dp
+        val rightTimeText = if (showRemainingTime && totalMs > 0L) {
+            "-" + formatDuration((totalMs - displayPos).coerceAtLeast(0L), padHours = true)
+        } else {
+            formatDuration(totalMs, padHours = true)
+        }
+
+        // 行 1：时间 + 通栏进度条 + 时间
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Text(
+                text = formatDuration(displayPos, padHours = true),
+                style = TextStyle(
+                    fontSize = timeFontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontFeatureSettings = "tnum",
+                    shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
+                ),
+                maxLines = 1,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.width(timeLabelWidth)
+            )
+
             PlayerScrubBar(
                 timePosMs = displayPos,
                 durationMs = totalMs,
@@ -135,69 +189,41 @@ fun PlayerBottomBar(
                 abLoopASeconds = abLoopASeconds,
                 abLoopBSeconds = abLoopBSeconds,
                 onEnterPreciseSeeking = onEnterPreciseSeeking,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp)
+            )
+
+            Text(
+                text = rightTimeText,
+                style = TextStyle(
+                    fontSize = timeFontSize,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontFeatureSettings = "tnum",
+                    shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
+                ),
+                maxLines = 1,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .width(timeLabelWidth)
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { showRemainingTime = !showRemainingTime }
+                    .padding(vertical = 2.dp)
             )
         }
 
-        // 时间显示 [05:20 / 45:30] 或 [05:20 / -40:10]（点击切换总时长/剩余时间）
-        var showRemainingTime by remember { mutableStateOf(false) }
-        val secondaryTimeText = if (showRemainingTime && totalMs > 0L) {
-            val remainingMs = (totalMs - displayPos).coerceAtLeast(0L)
-            " / -${formatDuration(remainingMs, padHours = true)}"
-        } else {
-            " / ${formatDuration(totalMs, padHours = true)}"
-        }
-
-        val timeHubContent: @Composable () -> Unit = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .clickable { showRemainingTime = !showRemainingTime }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = formatDuration(displayPos, padHours = true),
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontFeatureSettings = "tnum",
-                        shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
-                    )
-                )
-                Text(
-                    text = secondaryTimeText,
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.65f),
-                        fontFeatureSettings = "tnum",
-                        shadow = Shadow(color = Color.Black.copy(alpha = 0.85f), blurRadius = 6f)
-                    )
-                )
-            }
-        }
-
         // 行 2：操作控制行
-        // 拖拽进度条时：仅显示进度条与左侧时间；
+        // 拖拽进度条时：保留操作行高度占位，进度条不会上下跳动；
         // 控制层可见时：展示完整的核心操作行；
-        // 其余情况（不可见且非拖动）：44dp 占位保证尺寸稳定不发生下坠位移。
-        if (scrubState.isActive) {
+        // 其余情况（不可见且非拖动）：同样占位保持尺寸稳定。
+        if (!isVisible) {
+            Spacer(modifier = Modifier.height(controlRowHeight))
+        } else {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                timeHubContent()
-            }
-        } else if (isVisible) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
+                    .height(controlRowHeight)
                     .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -211,36 +237,32 @@ fun PlayerBottomBar(
                         else -> Icons.Default.PlayArrow
                     },
                     contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
-                    size = 38.dp,
-                    iconSize = 24.dp,
+                    size = actionSize,
+                    iconSize = actionIconSize,
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     border = null
                 )
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // 2. 时间显示（时间hub）
-                timeHubContent()
-
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 3. A-B 循环指示与快速循环 (A-B Loop)
+                // 3. A-B 循环：常驻入口，点击依次设 A → 设 B → 清除，长按直接清除。
+                // 抽屉里的 AB 页已移除，精细设点统一走精准选帧面板。
+                val abLoopActive = abLoopASeconds >= 0.0
                 val abLoopLabel = when {
                     abLoopASeconds >= 0.0 && abLoopBSeconds >= 0.0 -> "A-B"
                     abLoopASeconds >= 0.0 -> "A-"
-                    else -> null
+                    else -> "A-B"
                 }
-                if (abLoopLabel != null) {
-                    PlayerTextActionButton(
-                        text = abLoopLabel,
-                        onClick = onCycleAbLoop,
-                        onLongClick = onClearAbLoop,
-                        color = Color(0xFFFFB74D),
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
+                PlayerTextActionButton(
+                    text = abLoopLabel,
+                    onClick = onCycleAbLoop,
+                    onLongClick = onClearAbLoop,
+                    color = if (abLoopActive) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.65f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(2.dp))
 
                 // 4. 字幕快开钮（横屏展示；长按打开字幕设置面板）
                 if (isLandscape) {
@@ -249,8 +271,8 @@ fun PlayerBottomBar(
                         onLongClick = { onOpenSheetTab(PlayerSheetRoute.SUBTITLE_TRACKS) },
                         icon = Icons.Default.ClosedCaption,
                         contentDescription = stringResource(R.string.sheet_tab_subtitles),
-                        size = 38.dp,
-                        iconSize = 22.dp,
+                        size = actionSize,
+                        iconSize = actionIconSize,
                         containerColor = Color.Transparent,
                         contentColor = if (subtitleEnabled) GyroColors.PrimaryLight else Color.White.copy(alpha = 0.50f),
                         border = null
@@ -260,13 +282,7 @@ fun PlayerBottomBar(
 
                 // 5. 画面比例（横屏展示）
                 if (isLandscape) {
-                    val aspectLabel = when (resizeMode) {
-                        ResizeMode.FIT -> stringResource(R.string.resize_fit_short)
-                        ResizeMode.CROP -> stringResource(R.string.resize_crop)
-                        ResizeMode.STRETCH -> stringResource(R.string.resize_stretch)
-                        ResizeMode.ASPECT_16_9 -> "16:9"
-                        ResizeMode.ASPECT_4_3 -> "4:3"
-                    }
+                    val aspectLabel = resizeMode.displayLabel()
                     PlayerTextActionButton(
                         text = aspectLabel,
                         onClick = { onOpenSheetTab(PlayerSheetRoute.ASPECT) }
@@ -274,12 +290,18 @@ fun PlayerBottomBar(
                     Spacer(modifier = Modifier.width(6.dp))
                 }
 
-                // 6. 选集快捷入口 (Playlist)
-                PlayerTextActionButton(
-                    text = stringResource(R.string.cd_playlist),
-                    onClick = { onOpenSheetTab(PlayerSheetRoute.PLAYLIST) }
+                // 6. 选集快捷入口 (Playlist) —— 竖屏用图标，避免“播放列表”四个字挤占时间轴空间
+                GyroCircleActionButton(
+                    onClick = { onOpenSheetTab(PlayerSheetRoute.PLAYLIST) },
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    contentDescription = stringResource(R.string.cd_playlist),
+                    size = actionSize,
+                    iconSize = actionIconSize,
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    border = null
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(2.dp))
 
                 // 7. 倍速（竖屏横屏均保留）
                 val speedLabel = if (speed == 1.0f) "1.0x" else "${speed}x"
@@ -288,24 +310,46 @@ fun PlayerBottomBar(
                     onClick = { onOpenSheetTab(PlayerSheetRoute.SPEED) }
                 )
 
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(2.dp))
 
-                // 8. 全屏 / 退出全屏（方向切换）
-                GyroCircleActionButton(
-                    onClick = onToggleOrientation,
-                    icon = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                    contentDescription = stringResource(if (isLandscape) R.string.cd_exit_fullscreen else R.string.cd_enter_fullscreen),
-                    size = 38.dp,
-                    iconSize = 24.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    border = null
-                )
+                // 8. 全屏 / 退出全屏：竖屏已移到进度条右上方悬浮；横屏保留在操作行
+                if (isLandscape) {
+                    GyroCircleActionButton(
+                        onClick = onToggleOrientation,
+                        icon = Icons.Default.FullscreenExit,
+                        contentDescription = stringResource(R.string.cd_exit_fullscreen),
+                        size = actionSize,
+                        iconSize = actionIconSize,
+                        containerColor = Color.Transparent,
+                        contentColor = Color.White,
+                        border = null
+                    )
+                }
             }
-        } else {
-            // 44dp 占位保持底部栏整体高度不变，使进度条垂直位置与控制层进度条严丝合缝一致
-            Spacer(modifier = Modifier.height(44.dp))
         }
+    }
+}
+
+/**
+ * 悬浮全屏按钮：只保留图标本身，不画圆形底。
+ */
+@Composable
+private fun FloatingFullscreenButton(
+    onClick: () -> Unit,
+    contentDescription: String
+) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Fullscreen,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(26.dp)
+        )
     }
 }
 
@@ -349,7 +393,9 @@ private fun PlayerTextActionButton(
                     color = Color.Black.copy(alpha = 0.85f),
                     blurRadius = 6f
                 )
-            )
+            ),
+            maxLines = 1,
+            softWrap = false
         )
     }
 }

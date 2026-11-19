@@ -28,9 +28,6 @@
     <string name="home_empty_search_desc">请尝试其他关键词</string>
 
     <!-- Player Bottom Bar & Controls -->
-    <string name="resize_fit">适应</string>
-    <string name="resize_crop">填充</string>
-    <string name="resize_stretch">拉伸</string>
 
     <!-- Player Overlay & Top Bar -->
     <string name="player_default_title">Gyro Player</string>
@@ -472,7 +469,6 @@
     <string name="action_switch_sw">切换软解</string>
     <string name="action_enable_hw">开启硬解</string>
     <string name="hdr_10bit_output">10-bit 高动态范围输出</string>
-    <string name="resize_fit_short">适屏</string>
     <string name="shaders_section_title">GLSL 画质渲染滤镜</string>
     <string name="shader_disable">关闭滤镜</string>
     <string name="shader_builtin_desc">画质超分与线条锐化</string>
