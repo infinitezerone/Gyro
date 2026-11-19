@@ -74,9 +74,14 @@ class AudioEffectsController(
     @Synchronized
     override fun setSoftwareVolume(gain: Double) {
         val clamped = gain.coerceIn(100.0, 200.0)
+        if (clamped == _softwareVolume.value) return
+        val limiterWasActive = needsLimiter()
         _softwareVolume.value = clamped
         bridge.setPropertyDouble("volume", clamped)
-        updateAudioFilters()
+        // Rebuilding the filter graph tears down and re-creates every libavfilter node. Doing that
+        // on every slider tick is what made dragging audibly and visually stutter: the limiter only
+        // needs to appear/disappear at the 100% boundary, not on each intermediate gain.
+        if (needsLimiter() != limiterWasActive) updateAudioFilters()
     }
 
     @Synchronized
@@ -147,7 +152,7 @@ class AudioEffectsController(
         }
 
         // Pipeline Stage 4: Brickwall Anti-Clipping Limiter (alimiter)
-        if (_softwareVolume.value > 100.0 || hasEqualizerBoost()) {
+        if (needsLimiter()) {
             activeFilters.add(FILTER_ALIMITER)
         }
 
@@ -156,6 +161,8 @@ class AudioEffectsController(
     }
 
     private fun hasEqualizerBoost(): Boolean = _equalizerGains.value.any { it > 0.1 }
+
+    private fun needsLimiter(): Boolean = _softwareVolume.value > 100.0 || hasEqualizerBoost()
 
     /**
      * One `equalizer` node per non-flat band, joined into a single lavfi graph.
