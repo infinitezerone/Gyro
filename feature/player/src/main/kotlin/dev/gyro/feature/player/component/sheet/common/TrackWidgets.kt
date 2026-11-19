@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -37,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import java.util.Locale
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 紧凑型轨道选择行项 (TrackItem)
@@ -101,7 +100,7 @@ internal fun TrackItem(
             }
             if (isSelected) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = GyroIcons.Check,
                     contentDescription = "Selected",
                     tint = accentColor,
                     modifier = Modifier.size(18.dp)

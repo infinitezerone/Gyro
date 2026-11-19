@@ -20,10 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,13 +56,14 @@ import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 顶部导航与快捷入口栏 (PlayerTopBar)。
  *
  * - 沉浸式通透顶栏：置于顶部渐变遮罩中，摒弃生硬的悬浮胶囊框；
- * - 竖屏：返回 + 标题（自适应居中、中间省略）+ 解码胶囊 + 画中画 + 设置；
- * - 横屏：返回 + 标题 + 系统状态 + 画中画 + 设置（音轨不占顶栏）。
+ * - 竖屏：返回 + 标题（自适应、中间省略）+ 竖三点更多菜单（极简收口，无 PiP）；
+ * - 横屏：返回 + 标题 + 系统状态 + 画中画 + 横三点更多菜单。
  */
 @Composable
 fun PlayerTopBar(
@@ -83,7 +80,7 @@ fun PlayerTopBar(
             .fillMaxWidth()
             .statusBarsPadding()
             .displayCutoutPadding()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .padding(horizontal = if (isLandscape) 12.dp else 4.dp, vertical = 4.dp)
     ) {
         Row(
             modifier = Modifier
@@ -91,10 +88,10 @@ fun PlayerTopBar(
                 .height(44.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 返回键：38dp 触控靶心，纯白微发光
+            // 返回键：触控靶心 ≥ 48dp，纯白微发光
             GyroCircleActionButton(
                 onClick = onBack,
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                icon = GyroIcons.Back,
                 contentDescription = stringResource(R.string.action_back),
                 size = 38.dp,
                 iconSize = 22.dp,
@@ -103,7 +100,9 @@ fun PlayerTopBar(
                 border = null
             )
 
-            Spacer(modifier = Modifier.width(6.dp))
+            if (isLandscape) {
+                Spacer(modifier = Modifier.width(6.dp))
+            }
 
             // 视频标题（垂直居中，带文字阴影保证背景可读性；中间省略保留剧集尾部信息）
             Row(
@@ -135,18 +134,13 @@ fun PlayerTopBar(
             Spacer(modifier = Modifier.width(8.dp))
 
             if (isLandscape) {
-                // 横屏专属：系统时间与电池电量状态（主流专业播放器标配，沉浸全屏下无需下拉通知栏）
-                SystemStatusIndicator()
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // 横屏：系统状态 + 画中画 + 设置。音轨属于媒体轨道选择，
-                // 统一收在“更多播放设置 > 音轨”和底栏字幕入口里，不再占用顶栏。
+                // 横屏：系统状态 + 画中画 + 横三点更多菜单。
                 SystemStatusIndicator()
                 Spacer(modifier = Modifier.width(8.dp))
 
                 GyroCircleActionButton(
                     onClick = onEnterPiP,
-                    icon = Icons.Default.PictureInPictureAlt,
+                    icon = GyroIcons.Pip,
                     contentDescription = stringResource(R.string.cd_pip),
                     size = 38.dp,
                     iconSize = 22.dp,
@@ -157,7 +151,7 @@ fun PlayerTopBar(
                 Spacer(modifier = Modifier.width(4.dp))
                 GyroCircleActionButton(
                     onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
-                    icon = Icons.Default.Settings,
+                    icon = GyroIcons.More,
                     contentDescription = stringResource(R.string.cd_settings),
                     size = 38.dp,
                     iconSize = 22.dp,
@@ -167,19 +161,8 @@ fun PlayerTopBar(
                 )
             } else {
                 GyroCircleActionButton(
-                    onClick = onEnterPiP,
-                    icon = Icons.Default.PictureInPictureAlt,
-                    contentDescription = stringResource(R.string.cd_pip),
-                    size = 38.dp,
-                    iconSize = 22.dp,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    border = null
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                GyroCircleActionButton(
                     onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
-                    icon = Icons.Default.Settings,
+                    icon = GyroIcons.MoreVert,
                     contentDescription = stringResource(R.string.cd_settings),
                     size = 38.dp,
                     iconSize = 22.dp,

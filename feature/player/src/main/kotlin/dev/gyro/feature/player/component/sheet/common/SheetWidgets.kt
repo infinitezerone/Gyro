@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -41,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 // —— 统一深色高质感设计规范（与播放器悬浮层、全局设置和暗色沉浸主题完全统一） ——
 internal val SheetBgColor = Color(0xFF14161D)
@@ -159,7 +158,7 @@ internal fun SettingsItemRow(
                 // that just cycles a value in place (AB loop) would be lying.
                 if (onClick != null) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        imageVector = GyroIcons.ChevronRight,
                         contentDescription = null,
                         tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
                         modifier = Modifier.size(12.dp)
@@ -169,7 +168,7 @@ internal fun SettingsItemRow(
         } else if (showChevron && onClick != null) {
             // 没有状态值、但会进入下一级页面的入口行（如“更多”）。
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                imageVector = GyroIcons.ChevronRight,
                 contentDescription = null,
                 tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
                 modifier = Modifier.size(12.dp)
@@ -363,7 +362,7 @@ internal fun SettingsHubItem(
             }
 
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                imageVector = GyroIcons.ChevronRight,
                 contentDescription = null,
                 tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
                 modifier = Modifier.size(11.dp)

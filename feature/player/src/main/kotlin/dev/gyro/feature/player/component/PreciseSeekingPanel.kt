@@ -32,9 +32,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -71,6 +68,7 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.time.formatDuration
 import dev.gyro.feature.player.PlayerScrubState
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * YouTube 风格精准选帧胶片微调面板 (PreciseSeekingPanel)
@@ -276,7 +274,7 @@ fun PreciseSeekingPanel(
                     modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = GyroIcons.Close,
                         contentDescription = stringResource(R.string.action_cancel),
                         tint = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.size(18.dp)
@@ -485,7 +483,7 @@ private fun FilmstripThumbnailCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Movie,
+                    imageVector = GyroIcons.Movie,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.35f),
                     modifier = Modifier.size(20.dp)

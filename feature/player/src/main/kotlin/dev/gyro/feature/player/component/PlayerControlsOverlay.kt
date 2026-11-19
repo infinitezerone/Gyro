@@ -5,24 +5,14 @@ import dev.gyro.feature.player.PlayerScrubState
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,13 +27,14 @@ import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 主流现代化播放器控制遮罩骨架 (PlayerControlsOverlay)
- * - 沉浸式暗角渐变（顶部与底部平滑非线性过渡，取代生硬浮岛，保护白字与图标可读性）；
- * - 锁屏按键悬浮于左侧中央边缘 (Alignment.CenterStart)；
- * - 顶部栏：极简沉浸式返回、标题、杜比/HDR标签、字幕/画中画/设置；
- * - 底部栏：通栏长进度条 + 播放/上一集/下一集/时间/字幕/倍速/【右下角标准全屏切换】。
+ * - 沉浸式暗角渐变（顶部与底部平滑非线性过渡，保护纯白无底图标可读性）；
+ * - 竖屏将锁屏/截图下沉至下半区（仅锁屏态保留左下角琥珀色解锁按键）；横屏维持两侧无底纯白图标；
+ * - 顶部栏：极简返回、标题、杜比/HDR标签；竖屏仅留竖三点，横屏保留系统状态 + 画中画 + 横三点；
+ * - 底部栏：进度条左右同行显示时间 + 核心操作行。
  */
 @Composable
 fun BoxScope.PlayerControlsOverlay(
@@ -85,7 +76,6 @@ fun BoxScope.PlayerControlsOverlay(
     val onToggleOrientation = actions.onToggleOrientation
     val onBack = actions.onBack
     val onToggleSubtitle = actions.onToggleSubtitle
-    val onCycleAbLoop = actions.onCycleAbLoop
     val onSetAbLoopA = actions.onSetAbLoopA
     val onSetAbLoopB = actions.onSetAbLoopB
     val onClearAbLoop = actions.onClearAbLoop
@@ -103,7 +93,7 @@ fun BoxScope.PlayerControlsOverlay(
         // 1. 顶部与底部沉浸式非线性暗角渐变（零动画，随控制层瞬时显隐）
         if (!isLocked) {
             val topScrimHeight = if (isLandscape) 100.dp else 70.dp
-            val bottomScrimHeight = if (isLandscape) 120.dp else 168.dp
+            val bottomScrimHeight = if (isLandscape) 120.dp else 260.dp
 
             if (showOtherControls) {
                 // 顶部向下淡出暗角
@@ -144,53 +134,75 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 2. 锁屏浮动悬浮按键（零动画，瞬时响应；拖动进度或精准微调时隐藏）
-        if (showOtherControls) {
+        // 2. 锁屏 / 截图悬浮按键：
+        // - 横屏保持画面左右中线（无圆形底框纯白图标）；
+        // - 竖屏未锁屏态下沉至下半区（见 PlayerBottomBar），仅锁屏态保留左下角琥珀色解锁入口。
+        if (isLandscape) {
+            if (showOtherControls) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .displayCutoutPadding()
+                        .padding(start = 14.dp)
+                ) {
+                    GyroCircleActionButton(
+                        onClick = onToggleLock,
+                        icon = if (isLocked) GyroIcons.Lock else GyroIcons.LockOpen,
+                        contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
+                        containerColor = Color.Transparent,
+                        contentColor = if (isLocked) Color(0xFFFFB74D) else Color.White,
+                        border = null,
+                        size = 40.dp,
+                        iconSize = 24.dp
+                    )
+                }
+            }
+
+            if (showOtherControls && !isLocked) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .displayCutoutPadding()
+                        .padding(end = 14.dp)
+                ) {
+                    GyroCircleActionButton(
+                        onClick = onScreenshot,
+                        icon = GyroIcons.Screenshot,
+                        contentDescription = stringResource(R.string.cd_screenshot),
+                        containerColor = Color.Transparent,
+                        contentColor = Color.White,
+                        border = null,
+                        size = 40.dp,
+                        iconSize = 24.dp
+                    )
+                }
+            }
+        } else if (isLocked && showOtherControls) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
+                    .align(Alignment.BottomStart)
                     .displayCutoutPadding()
-                    .padding(start = 14.dp)
+                    .navigationBarsPadding()
+                    .padding(
+                        start = 10.dp,
+                        bottom = 172.dp
+                    )
             ) {
                 GyroCircleActionButton(
                     onClick = onToggleLock,
-                    icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
-                    containerColor = if (isLocked) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.45f),
-                    contentColor = if (isLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.90f),
-                    border = BorderStroke(0.5.dp, if (isLocked) Color(0xFFFFB74D).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.20f)),
-                    size = 40.dp,
-                    iconSize = 20.dp
-                )
-            }
-        }
-
-        // 2.5. 截图浮动悬浮按键（零动画，瞬时响应；拖动进度或精准微调时隐藏）
-        if (showOtherControls && !isLocked) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .displayCutoutPadding()
-                    .padding(end = 14.dp)
-            ) {
-                GyroCircleActionButton(
-                    onClick = onScreenshot,
-                    icon = Icons.Default.PhotoCamera,
-                    contentDescription = stringResource(R.string.cd_screenshot),
-                    containerColor = Color.Black.copy(alpha = 0.45f),
-                    contentColor = Color.White.copy(alpha = 0.90f),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
-                    size = 40.dp,
-                    iconSize = 20.dp
+                    icon = GyroIcons.Lock,
+                    contentDescription = stringResource(R.string.cd_unlock),
+                    containerColor = Color.Black.copy(alpha = 0.55f),
+                    contentColor = Color(0xFFFFB74D),
+                    border = BorderStroke(0.5.dp, Color(0xFFFFB74D).copy(alpha = 0.45f)),
+                    size = 42.dp,
+                    iconSize = 22.dp
                 )
             }
         }
 
         // 锁定状态下，直接拦截隐藏所有其它控制元素
         if (isLocked) return@Box
-
-        // 2. 竖屏全屏入口统一为进度条右上方的悬浮按钮（见 PlayerBottomBar），
-        //    不再在画面中央放重复的“进入全屏”胶囊。
 
         // 3. 顶部操作栏（零动画，瞬时响应；拖动进度或精准微调时隐藏）
         if (showOtherControls) {
@@ -206,7 +218,7 @@ fun BoxScope.PlayerControlsOverlay(
             }
         }
 
-        // 4. 底部控制栏（支持拖拽进度或屏幕水平滑动快进，仅显进度条与底部时间；平时显全套控制行）
+        // 4. 底部控制栏（统一下半区：左锁屏 / 右截图、全宽进度条、底部两端时间、底部核心操作行）
         if (showBottomBar && !scrubState.isPreciseSeeking) {
             Box(modifier = Modifier.align(Alignment.BottomCenter)) {
                 PlayerBottomBar(
@@ -222,6 +234,8 @@ fun BoxScope.PlayerControlsOverlay(
                     hasPrevious = hasPrevious,
                     hasNext = hasNext,
                     onTogglePlayPause = onTogglePlayPause,
+                    onToggleLock = onToggleLock,
+                    onScreenshot = onScreenshot,
                     onPlayPrevious = onPlayPrevious,
                     onPlayNext = onPlayNext,
                     onSeekToFraction = onSeekToFraction,
@@ -229,8 +243,6 @@ fun BoxScope.PlayerControlsOverlay(
                     onToggleSubtitle = onToggleSubtitle,
                     abLoopASeconds = abLoopASeconds,
                     abLoopBSeconds = abLoopBSeconds,
-                    onCycleAbLoop = onCycleAbLoop,
-                    onClearAbLoop = onClearAbLoop,
                     onOpenSheetTab = onOpenSheetTab,
                     onToggleOrientation = onToggleOrientation,
                     chapters = chapters,

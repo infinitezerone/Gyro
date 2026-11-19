@@ -5,8 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +23,7 @@ import coil3.request.crossfade
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.feature.home.thumbnail.ContentThumbnailFetcher
 import dev.gyro.feature.home.thumbnail.VideoThumbnailLoader
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * High-performance video thumbnail component powered by Coil 3.
@@ -63,7 +62,7 @@ fun VideoThumbnail(
                 placeholder()
             } else {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = GyroIcons.Play,
                     contentDescription = null,
                     tint = GyroColors.TextMuted,
                     modifier = Modifier.size(28.dp)

@@ -17,9 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,6 +51,7 @@ import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.ToneMappingAlgorithm
 import dev.gyro.core.model.UserSettings
 import dev.gyro.core.model.VideoScale
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 @Composable
 fun SettingsScreen(
@@ -131,7 +129,7 @@ fun SettingsContent(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = GyroIcons.Back,
                             contentDescription = stringResource(R.string.action_back),
                             tint = GyroColors.TextPrimary
                         )
@@ -567,7 +565,7 @@ private fun PreferenceClickItem(
             Spacer(modifier = Modifier.width(6.dp))
         }
         Icon(
-            imageVector = Icons.Default.ChevronRight,
+            imageVector = GyroIcons.ChevronRight,
             contentDescription = null,
             tint = GyroColors.TextMuted,
             modifier = Modifier.size(18.dp)

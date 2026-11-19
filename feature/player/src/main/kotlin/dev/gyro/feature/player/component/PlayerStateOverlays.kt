@@ -14,12 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +39,7 @@ import dev.gyro.core.model.HwdecMode
 import dev.gyro.engine.model.PlaybackDiagnostics
 import dev.gyro.engine.model.VideoDimensions
 import kotlinx.coroutines.flow.StateFlow
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * Full-screen state cards that sit above the video surface: load failure, empty library, and the
@@ -83,7 +78,7 @@ fun PlayerPlaybackErrorCard(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.ErrorOutline,
+                imageVector = GyroIcons.Error,
                 contentDescription = null,
                 tint = Color(0xFFE57373),
                 modifier = Modifier.size(54.dp)
@@ -107,7 +102,7 @@ fun PlayerPlaybackErrorCard(
                     onClick = onRetry,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(GyroIcons.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.action_retry))
                 }
@@ -117,7 +112,7 @@ fun PlayerPlaybackErrorCard(
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(GyroIcons.SkipNext, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.action_skip_next))
                     }
@@ -152,7 +147,7 @@ fun PlayerEmptyStateCard(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.VideoLibrary,
+                imageVector = GyroIcons.VideoLibrary,
                 contentDescription = null,
                 tint = Color(0xFF64B5F6),
                 modifier = Modifier.size(54.dp)
@@ -172,7 +167,7 @@ fun PlayerEmptyStateCard(
                 onClick = onOpenFile,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
             ) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(GyroIcons.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(stringResource(R.string.action_open_file))
             }

@@ -35,20 +35,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -96,6 +82,7 @@ import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.domain.model.MediaFeedState
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 @Composable
 fun HomeScreen(
@@ -249,7 +236,7 @@ fun HomeContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { onToggleSearch(false) }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_close_search), tint = GyroColors.TextPrimary)
+                            Icon(GyroIcons.Back, contentDescription = stringResource(R.string.cd_close_search), tint = GyroColors.TextPrimary)
                         }
                         OutlinedTextField(
                             value = uiState.searchQuery,
@@ -265,7 +252,7 @@ fun HomeContent(
                             trailingIcon = {
                                 if (uiState.searchQuery.isNotEmpty()) {
                                     IconButton(onClick = { onSearchQueryChange("") }) {
-                                        Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.action_clear), tint = GyroColors.TextSecondary)
+                                        Icon(GyroIcons.Close, contentDescription = stringResource(R.string.action_clear), tint = GyroColors.TextSecondary)
                                     }
                                 }
                             },
@@ -299,11 +286,11 @@ fun HomeContent(
                     ),
                     actions = {
                         IconButton(onClick = { onToggleSearch(true) }) {
-                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search), tint = GyroColors.TextPrimary)
+                            Icon(GyroIcons.Search, contentDescription = stringResource(R.string.action_search), tint = GyroColors.TextPrimary)
                         }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序", tint = GyroColors.TextPrimary)
+                                Icon(GyroIcons.Sort, contentDescription = "排序", tint = GyroColors.TextPrimary)
                             }
                             DropdownMenu(
                                 expanded = showSortMenu,
@@ -322,7 +309,7 @@ fun HomeContent(
                                         text = { Text(label) },
                                         trailingIcon = {
                                             if (uiState.sortOrder == order) {
-                                                Icon(Icons.Default.Check, contentDescription = null, tint = GyroColors.Primary)
+                                                Icon(GyroIcons.Check, contentDescription = null, tint = GyroColors.Primary)
                                             }
                                         },
                                         onClick = {
@@ -334,16 +321,16 @@ fun HomeContent(
                             }
                         }
                         IconButton(onClick = onPickFolder) {
-                            Icon(Icons.Default.CreateNewFolder, contentDescription = stringResource(R.string.action_add_folder), tint = GyroColors.TextPrimary)
+                            Icon(GyroIcons.CreateNewFolder, contentDescription = stringResource(R.string.action_add_folder), tint = GyroColors.TextPrimary)
                         }
                         IconButton(onClick = onOpenFile) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = stringResource(R.string.action_open_file), tint = GyroColors.TextPrimary)
+                            Icon(GyroIcons.FolderOpen, contentDescription = stringResource(R.string.action_open_file), tint = GyroColors.TextPrimary)
                         }
                         IconButton(onClick = onRefresh) {
-                            Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_refresh), tint = GyroColors.TextPrimary)
+                            Icon(GyroIcons.Refresh, contentDescription = stringResource(R.string.action_refresh), tint = GyroColors.TextPrimary)
                         }
                         IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.cd_settings), tint = GyroColors.TextPrimary)
+                            Icon(GyroIcons.Settings, contentDescription = stringResource(R.string.cd_settings), tint = GyroColors.TextPrimary)
                         }
                     }
                 )
@@ -355,7 +342,7 @@ fun HomeContent(
                 containerColor = GyroColors.Primary,
                 contentColor = Color.White
             ) {
-                Icon(Icons.Default.FolderOpen, contentDescription = stringResource(R.string.action_open_file))
+                Icon(GyroIcons.FolderOpen, contentDescription = stringResource(R.string.action_open_file))
             }
         }
     ) { innerPadding ->
@@ -485,7 +472,7 @@ private fun FolderFilterBar(
                 },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Folder,
+                        imageVector = GyroIcons.Folder,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = if (selectedFolder == folderName) Color.White else GyroColors.PrimaryLight
@@ -662,7 +649,7 @@ private fun VideoCard(
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
-                        imageVector = Icons.Default.MoreVert,
+                        imageVector = GyroIcons.MoreVert,
                         contentDescription = "更多操作",
                         tint = GyroColors.TextMuted
                     )
@@ -675,7 +662,7 @@ private fun VideoCard(
                         text = { Text("删除", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = {
                             Icon(
-                                Icons.Default.Delete,
+                                GyroIcons.Delete,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.error
                             )
@@ -705,7 +692,7 @@ private fun PermissionRequiredView(
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Default.Folder,
+            imageVector = GyroIcons.Folder,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
             tint = GyroColors.Primary
@@ -755,7 +742,7 @@ private fun EmptyVideosView(
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Default.VideoLibrary,
+            imageVector = GyroIcons.VideoLibrary,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
             tint = GyroColors.TextMuted
@@ -803,7 +790,7 @@ private fun EmptySearchView(
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Default.Search,
+            imageVector = GyroIcons.Search,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
             tint = GyroColors.TextMuted

@@ -1,17 +1,18 @@
 package dev.gyro.feature.player.component
 
+import android.graphics.BlurMaskFilter
+import android.os.SystemClock
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
-import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.HwdecMode
 
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -22,6 +23,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,54 +32,112 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeMute
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.BrightnessMedium
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.time.formatDuration
+import dev.gyro.core.designsystem.icon.GyroIcons
+
+private val HudPillFillDark = Color.Black.copy(alpha = 0.58f)
+private val HudPillBorderColor = Color.White.copy(alpha = 0.18f)
+private val HudPillInvertedInk = Color(0xFF141414)
+private val LevelHudWidth = 168.dp
+private val LevelHudExpandedHeight = 34.dp
+private val LevelHudCompactHeight = 8.dp
+internal const val LEVEL_HUD_COLLAPSE_MIN_ELAPSED_MS = 380L
+internal const val LEVEL_HUD_COLLAPSE_MIN_DELTA = 0.05f
+
+internal enum class LevelHudKind { NONE, BRIGHTNESS, VOLUME }
+
+internal data class LevelHudMorphState(
+    val activeKind: LevelHudKind = LevelHudKind.NONE,
+    val sessionStartMs: Long = 0L,
+    val lastRatio: Float = 0f,
+    val cumulativeDelta: Float = 0f,
+    val isCompact: Boolean = false
+) {
+    fun onHudUpdate(kind: LevelHudKind, ratio: Float, nowMs: Long): LevelHudMorphState {
+        if (kind == LevelHudKind.NONE) {
+            // Keep isCompact during AnimatedVisibility exit fade-out so the pill never pops back open.
+            return if (activeKind == LevelHudKind.NONE) this else copy(activeKind = LevelHudKind.NONE)
+        }
+        if (kind != activeKind) {
+            return LevelHudMorphState(
+                activeKind = kind,
+                sessionStartMs = nowMs,
+                lastRatio = ratio,
+                cumulativeDelta = 0f,
+                isCompact = false
+            )
+        }
+        val delta = abs(ratio - lastRatio)
+        if (delta == 0f) return this
+        val updatedDelta = cumulativeDelta + delta
+        val elapsedMs = (nowMs - sessionStartMs).coerceAtLeast(0L)
+        val shouldCollapse = isCompact || (
+            elapsedMs >= LEVEL_HUD_COLLAPSE_MIN_ELAPSED_MS &&
+                updatedDelta >= LEVEL_HUD_COLLAPSE_MIN_DELTA
+            )
+        return copy(
+            lastRatio = ratio,
+            cumulativeDelta = updatedDelta,
+            isCompact = shouldCollapse
+        )
+    }
+}
 
 /**
  * Clean, lightweight HUD overlay:
@@ -126,9 +186,35 @@ fun BoxScope.PlayerHudOverlay(
             }
         }
 
-        // 1. 屏幕正上方浮动胶囊滑块（音量 / 亮度 HUD，位于顶部舒适可视区，下移至 64dp，避开挖孔与顶栏）
+        // 1. 屏幕正上方两段式形态收窄药丸（音量 / 亮度 HUD：初现为纯白一体胶囊带图标，持续滑动自动收窄成 8dp 极细白条）
+        var lastLevelHud by remember { mutableStateOf<GestureHudState?>(null) }
+        var levelMorphState by remember { mutableStateOf(LevelHudMorphState()) }
+        val currentLevelKind = when (hudState) {
+            is GestureHudState.Brightness -> LevelHudKind.BRIGHTNESS
+            is GestureHudState.Volume -> LevelHudKind.VOLUME
+            else -> LevelHudKind.NONE
+        }
+        val currentLevelRatio = when (hudState) {
+            is GestureHudState.Brightness -> hudState.brightnessRatio
+            is GestureHudState.Volume -> hudState.volumeRatio
+            else -> 0f
+        }
+        if (currentLevelKind != LevelHudKind.NONE) {
+            lastLevelHud = hudState
+        }
+        SideEffect {
+            val next = levelMorphState.onHudUpdate(
+                kind = currentLevelKind,
+                ratio = currentLevelRatio,
+                nowMs = SystemClock.uptimeMillis()
+            )
+            if (next != levelMorphState) {
+                levelMorphState = next
+            }
+        }
+
         AnimatedVisibility(
-            visible = hudState is GestureHudState.Brightness || hudState is GestureHudState.Volume,
+            visible = currentLevelKind != LevelHudKind.NONE,
             enter = fadeIn(animationSpec = tween(150)) + slideInVertically(animationSpec = tween(150)) { -it / 2 },
             exit = fadeOut(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(200)) { -it / 2 },
             modifier = Modifier
@@ -137,26 +223,26 @@ fun BoxScope.PlayerHudOverlay(
                 .statusBarsPadding()
                 .padding(top = 64.dp)
         ) {
-            when (hudState) {
+            when (val displayHud = lastLevelHud) {
                 is GestureHudState.Brightness -> {
-                    TopCapsuleSlider(
-                        icon = Icons.Default.BrightnessMedium,
+                    TopFillPillHud(
+                        icon = GyroIcons.Brightness,
                         contentDescription = stringResource(R.string.cd_brightness),
-                        ratio = hudState.brightnessRatio,
-                        activeColor = Color(0xFFFFB74D) // Warm Amber
+                        ratio = displayHud.brightnessRatio,
+                        isCompact = levelMorphState.isCompact
                     )
                 }
                 is GestureHudState.Volume -> {
-                    val icon = if (hudState.percent == 0) {
-                        Icons.AutoMirrored.Filled.VolumeMute
-                    } else {
-                        Icons.AutoMirrored.Filled.VolumeUp
+                    val icon = when {
+                        displayHud.percent <= 0 -> GyroIcons.VolumeMute
+                        displayHud.percent <= 50 -> GyroIcons.VolumeLow
+                        else -> GyroIcons.VolumeHigh
                     }
-                    TopCapsuleSlider(
+                    TopFillPillHud(
                         icon = icon,
                         contentDescription = stringResource(R.string.cd_volume),
-                        ratio = hudState.volumeRatio,
-                        activeColor = Color(0xFF64B5F6) // Material Blue for stream volume
+                        ratio = displayHud.volumeRatio,
+                        isCompact = levelMorphState.isCompact
                     )
                 }
                 else -> Unit
@@ -176,12 +262,14 @@ fun BoxScope.PlayerHudOverlay(
         ) {
             val speedState = hudState as? GestureHudState.Speed
             if (speedState != null) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.height(38.dp)
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .exteriorPillShadow()
+                        .clip(CircleShape)
+                        .background(HudPillFillDark)
+                        .border(0.5.dp, HudPillBorderColor, CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -189,9 +277,9 @@ fun BoxScope.PlayerHudOverlay(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FastForward,
+                            imageVector = GyroIcons.FastForward,
                             contentDescription = stringResource(R.string.speed_title),
-                            tint = Color(0xFF64B5F6),
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
@@ -220,12 +308,14 @@ fun BoxScope.PlayerHudOverlay(
         ) {
             val switchState = hudState as? GestureHudState.SwitchVideo
             if (switchState != null) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.75f),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.height(38.dp)
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .exteriorPillShadow()
+                        .clip(CircleShape)
+                        .background(HudPillFillDark)
+                        .border(0.5.dp, HudPillBorderColor, CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -233,9 +323,9 @@ fun BoxScope.PlayerHudOverlay(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = if (switchState.isNext) Icons.Default.SkipNext else Icons.Default.SkipPrevious,
+                            imageVector = if (switchState.isNext) GyroIcons.SkipNext else GyroIcons.SkipPrevious,
                             contentDescription = null,
-                            tint = GyroColors.PrimaryLight,
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
@@ -267,7 +357,7 @@ fun BoxScope.PlayerHudOverlay(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
-                        imageVector = if (isDoubleTapLeft) Icons.Default.FastRewind else Icons.Default.FastForward,
+                        imageVector = if (isDoubleTapLeft) GyroIcons.FastRewind else GyroIcons.FastForward,
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(32.dp)
@@ -510,75 +600,156 @@ private fun DiagnosticRow(label: String, value: String, spark: List<Float>? = nu
 }
 
 /**
- * 屏幕正上方浮动胶囊滑块 (TopCapsuleSlider)：
- * 居于屏幕正上方顶部中央 (Alignment.TopCenter)，彻底避免遮挡正中间画面核心与底部字幕区。
+ * 屏幕正上方一体式纯白填充药丸 HUD (TopFillPillHud)：
+ * 整颗药丸直接从左到右做纯白实心填充，利用像素级裁剪让图标在白底上自动反转为深墨色；
+ * 持续调节时平滑收窄为极细纯白胶囊条并淡出图标，减少观影遮挡。
  */
 @Composable
-private fun TopCapsuleSlider(
+internal fun TopFillPillHud(
     icon: ImageVector,
     contentDescription: String,
     ratio: Float,
-    activeColor: Color,
+    isCompact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Black.copy(alpha = 0.75f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
-        shadowElevation = 6.dp,
-        modifier = modifier
-            .width(200.dp)
-            .height(38.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = activeColor,
-                modifier = Modifier.size(18.dp)
-            )
+    val clampedRatio = ratio.coerceIn(0f, 1f)
+    val animatedRatio by animateFloatAsState(
+        targetValue = clampedRatio,
+        animationSpec = spring(stiffness = Spring.StiffnessHigh, dampingRatio = Spring.DampingRatioNoBouncy),
+        label = "hudRatio"
+    )
+    val animatedHeight by animateDpAsState(
+        targetValue = if (isCompact) LevelHudCompactHeight else LevelHudExpandedHeight,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        label = "hudHeight"
+    )
+    val iconAlpha by animateFloatAsState(
+        targetValue = if (isCompact) 0f else 1f,
+        animationSpec = tween(durationMillis = if (isCompact) 110 else 180),
+        label = "hudIconAlpha"
+    )
+    val a11yDescription = "$contentDescription ${(clampedRatio * 100f).roundToInt()}%"
 
-            // 水平进度条平滑物理插值
-            val animatedRatio by animateFloatAsState(
-                targetValue = ratio.coerceIn(0f, 1f),
-                animationSpec = spring(stiffness = Spring.StiffnessHigh, dampingRatio = Spring.DampingRatioNoBouncy),
-                label = "hudRatio"
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.22f)),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(animatedRatio)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(activeColor)
+    Box(
+        modifier = modifier
+            .width(LevelHudWidth)
+            .height(LevelHudExpandedHeight)
+            .semantics(mergeDescendants = true) {
+                this.contentDescription = a11yDescription
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(animatedHeight)
+                .exteriorPillShadow()
+                .clip(CircleShape)
+                .background(HudPillFillDark)
+        ) {
+            if (iconAlpha > 0.01f) {
+                PillHudIconOverlay(
+                    icon = icon,
+                    tint = Color.White,
+                    alpha = iconAlpha
                 )
             }
 
-            // 百分比数值跟随同一个动画值，避免数字逐格跳变
-            Text(
-                text = "${(animatedRatio * 100f).roundToInt()}%",
-                style = TextStyle(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontFeatureSettings = "tnum",
-                    textAlign = TextAlign.End
-                ),
-                modifier = Modifier.width(36.dp)
+            // 填充与反色层：按比例裁剪为纯白实心，内部的深墨色图标随进度条扫过自动无缝反色
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clearAndSetSemantics {}
+                    .drawWithContent {
+                        val fillWidth = size.width * animatedRatio
+                        if (fillWidth > 0f) {
+                            clipRect(right = fillWidth) {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
+                    }
+                    .background(Color.White)
+            ) {
+                if (iconAlpha > 0.01f) {
+                    PillHudIconOverlay(
+                        icon = icon,
+                        tint = HudPillInvertedInk,
+                        alpha = iconAlpha
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(0.5.dp, HudPillBorderColor, CircleShape)
             )
         }
+    }
+}
+
+private fun Modifier.exteriorPillShadow(
+    blurRadius: Dp = 10.dp,
+    offsetY: Dp = 2.dp,
+    color: Color = Color.Black.copy(alpha = 0.24f)
+): Modifier = drawWithCache {
+    val radius = size.height / 2f
+    val cornerRadius = CornerRadius(radius, radius)
+    val pillPath = Path().apply {
+        addRoundRect(RoundRect(Rect(Offset.Zero, size), cornerRadius))
+    }
+    val blurPx = blurRadius.toPx()
+    val offsetYPx = offsetY.toPx()
+    val paint = Paint().apply {
+        asFrameworkPaint().apply {
+            isAntiAlias = true
+            this.color = color.toArgb()
+            if (blurPx > 0f) {
+                maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
+            }
+        }
+    }
+    onDrawBehind {
+        clipPath(pillPath, clipOp = ClipOp.Difference) {
+            drawIntoCanvas { canvas ->
+                canvas.drawRoundRect(
+                    left = 0f,
+                    top = offsetYPx,
+                    right = size.width,
+                    bottom = size.height + offsetYPx,
+                    radiusX = radius,
+                    radiusY = radius,
+                    paint = paint
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PillHudIconOverlay(
+    icon: ImageVector,
+    tint: Color,
+    alpha: Float
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .requiredSize(18.dp)
+                .graphicsLayer {
+                    this.alpha = alpha
+                    val scale = 0.72f + 0.28f * alpha
+                    scaleX = scale
+                    scaleY = scale
+                }
+        )
     }
 }

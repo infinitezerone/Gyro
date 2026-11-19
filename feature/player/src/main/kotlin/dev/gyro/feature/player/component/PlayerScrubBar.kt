@@ -3,22 +3,23 @@ package dev.gyro.feature.player.component
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.component.rememberChapterHaptics
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,10 +27,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -39,11 +45,9 @@ import kotlin.math.abs
 
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
- * - 支持常规线性拖拽（无任何强制磁吸），保持线性丝滑手感；
- * - 支持 YouTube 风格按住进度条向上滑动触发精准微调模式；
- * - 尺寸恒定（20dp），避免手势过程中高度形变导致坐标突变与反复横跳；
- * - 浅白网络缓冲条与微光章节刻度；
- * - 进度读取与拖拽状态封装于叶子内，拖拽时仅自身局部重组。
+ * - 常态：纯白 3.5dp 细轨 + 无描边 10dp 纯白圆球；章节采用 2dp 断口分节；
+ * - 拖拽 / 精准微调态：圆球融隐、轨道弹簧胀大为 11dp 粗纯白长条胶囊；
+ * - 尺寸热区恒定（20dp），支持上滑进入 YouTube 风格精准选帧胶片模式。
  */
 @Composable
 fun PlayerScrubBar(
@@ -61,16 +65,17 @@ fun PlayerScrubBar(
 ) {
     val isHoveredOrScrubbing = scrubState.isActive
     val isPreciseSeeking = scrubState.isPreciseSeeking
+    val isExpanded = isHoveredOrScrubbing || isPreciseSeeking
 
     val barHeight by animateDpAsState(
-        targetValue = if (isPreciseSeeking) 6.dp else if (isHoveredOrScrubbing) 6.dp else 3.dp,
-        animationSpec = tween(150),
+        targetValue = if (isExpanded) 11.dp else 3.5.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
         label = "barHeight"
     )
-    val thumbSize by animateDpAsState(
-        targetValue = if (isPreciseSeeking) 16.dp else if (isHoveredOrScrubbing) 16.dp else 10.dp,
-        animationSpec = tween(150),
-        label = "thumbSize"
+    val thumbAlpha by animateFloatAsState(
+        targetValue = if (isExpanded) 0f else 1f,
+        animationSpec = tween(durationMillis = if (isExpanded) 110 else 160),
+        label = "thumbAlpha"
     )
 
     val chapterFractions = remember(chapters, durationMs) {
@@ -219,124 +224,166 @@ fun PlayerScrubBar(
         contentAlignment = Alignment.CenterStart
     ) {
         val totalWidth = maxWidth
+        val segments = remember(chapterFractions) { buildScrubBarSegments(chapterFractions) }
+        val segmentPath = remember { Path() }
+        val abFractions = remember(durationMs, abLoopASeconds, abLoopBSeconds) {
+            if (durationMs <= 0L) {
+                emptyList()
+            } else {
+                listOfNotNull(
+                    if (abLoopASeconds >= 0.0) (abLoopASeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f) else null,
+                    if (abLoopBSeconds >= 0.0) (abLoopBSeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f) else null
+                )
+            }
+        }
+        val abMinFrac = if (abFractions.size == 2) minOf(abFractions[0], abFractions[1]) else null
+        val abMaxFrac = if (abFractions.size == 2) maxOf(abFractions[0], abFractions[1]) else null
 
-        // 1. 底轨 (Background Track)
-        Box(
+        // 1. 分节胶囊纯白轨道：常态 3.5dp，拖拽时丝滑胀大为 11dp 粗胶囊矩形，章节处保留 2dp 断口
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(barHeight)
-                .clip(RoundedCornerShape(barHeight / 2))
-                .background(Color.White.copy(alpha = 0.22f))
-        )
+        ) {
+            val w = size.width
+            val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
 
-        // 2. 缓冲进度 (Buffered Track)
-        if (bufferedRatio > 0f) {
-            Box(
-                modifier = Modifier
-                    .width(totalWidth * bufferedRatio)
-                    .height(barHeight)
-                    .clip(RoundedCornerShape(barHeight / 2))
-                    .background(Color.White.copy(alpha = 0.45f))
-            )
-        }
+            val gapHalfPx = 1.dp.toPx()
+            val outerR = CornerRadius(h / 2f)
+            val innerR = CornerRadius(minOf(h / 2f, 1.5.dp.toPx()))
 
-        // 3. 播放进度 (Active Played Track)
-        if (playedRatio > 0f) {
-            Box(
-                modifier = Modifier
-                    .width(totalWidth * playedRatio)
-                    .height(barHeight)
-                    .clip(RoundedCornerShape(barHeight / 2))
-                    .background(Color(0xFF64B5F6))
-            )
-        }
+            for ((segIndex, segment) in segments.withIndex()) {
+                val (startFrac, endFrac) = segment
+                val leftPx = if (segIndex == 0) 0f else startFrac * w + gapHalfPx
+                val rightPx = if (segIndex == segments.lastIndex) w else endFrac * w - gapHalfPx
+                if (rightPx <= leftPx) continue
 
-        // 4. 微光章节刻度标线 (仅视觉区分章节，绝不进行物理磁吸)
-        if (chapterFractions.isNotEmpty()) {
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(barHeight + 2.dp)
-            ) {
-                val w = size.width
-                val h = size.height
-                if (w <= 0f) return@Canvas
-                val coreWidth = 2.dp.toPx()
-                val glowWidth = 4.dp.toPx()
+                val leftRadius = if (segIndex == 0) outerR else innerR
+                val rightRadius = if (segIndex == segments.lastIndex) outerR else innerR
 
-                for (frac in chapterFractions) {
-                    val x = frac * w
-                    drawLine(
-                        color = Color(0xFF64B5F6).copy(alpha = 0.55f),
-                        start = Offset(x, 0f),
-                        end = Offset(x, h),
-                        strokeWidth = glowWidth,
-                        cap = StrokeCap.Round
+                segmentPath.reset()
+                segmentPath.addRoundRect(
+                    RoundRect(
+                        left = leftPx,
+                        top = 0f,
+                        right = rightPx,
+                        bottom = h,
+                        topLeftCornerRadius = leftRadius,
+                        bottomLeftCornerRadius = leftRadius,
+                        topRightCornerRadius = rightRadius,
+                        bottomRightCornerRadius = rightRadius
                     )
-                    drawLine(
-                        color = Color.White,
-                        start = Offset(x, 0f),
-                        end = Offset(x, h),
-                        strokeWidth = coreWidth,
-                        cap = StrokeCap.Round
+                )
+
+                clipPath(segmentPath) {
+                    // 底槽
+                    drawRect(
+                        color = Color.White.copy(alpha = 0.24f),
+                        topLeft = Offset(leftPx, 0f),
+                        size = Size(rightPx - leftPx, h)
                     )
+
+                    // 网络缓冲进度
+                    val bufRight = (w * bufferedRatio).coerceIn(leftPx, rightPx)
+                    if (bufRight > leftPx) {
+                        drawRect(
+                            color = Color.White.copy(alpha = 0.44f),
+                            topLeft = Offset(leftPx, 0f),
+                            size = Size(bufRight - leftPx, h)
+                        )
+                    }
+
+                    // 纯白已播进度（在胶囊内保持平直垂直前沿，配合拖拽粗条感）
+                    val playRight = (w * playedRatio).coerceIn(leftPx, rightPx)
+                    if (playRight > leftPx) {
+                        drawRect(
+                            color = Color.White,
+                            topLeft = Offset(leftPx, 0f),
+                            size = Size(playRight - leftPx, h)
+                        )
+                    }
+
+                    // A-B 循环高亮区间（保持克制琥珀色）
+                    if (abMinFrac != null && abMaxFrac != null) {
+                        val abLeft = (w * abMinFrac).coerceIn(leftPx, rightPx)
+                        val abRight = (w * abMaxFrac).coerceIn(leftPx, rightPx)
+                        if (abRight > abLeft) {
+                            drawRect(
+                                color = Color(0xFFFFB74D).copy(alpha = 0.35f),
+                                topLeft = Offset(abLeft, 0f),
+                                size = Size(abRight - abLeft, h)
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // 5. 动态滑块 (Thumb)
-        if (thumbSize > 0.dp && totalWidth > thumbSize) {
-            val halfThumb = thumbSize / 2
-            val thumbOffset = totalWidth * playedRatio - halfThumb
-            Surface(
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 4.dp,
-                border = BorderStroke(2.dp, Color(0xFF1976D2)),
-                modifier = Modifier
-                    .offset(x = thumbOffset)
-                    .size(thumbSize)
-            ) {}
-        }
-
-        // 6. A-B 循环标记与循环区间高亮（琥珀色，与章节刻度区分）
-        if (durationMs > 0L && (abLoopASeconds >= 0.0 || abLoopBSeconds >= 0.0)) {
-            val aFraction = if (abLoopASeconds >= 0.0) {
-                (abLoopASeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f)
-            } else {
-                null
-            }
-            val bFraction = if (abLoopBSeconds >= 0.0) {
-                (abLoopBSeconds * 1000.0 / durationMs).toFloat().coerceIn(0f, 1f)
-            } else {
-                null
-            }
-            if (aFraction != null && bFraction != null) {
-                Box(
-                    modifier = Modifier
-                        .offset(x = totalWidth * minOf(aFraction, bFraction))
-                        .width(totalWidth * kotlin.math.abs(aFraction - bFraction))
-                        .height(barHeight)
-                        .clip(RoundedCornerShape(barHeight / 2))
-                        .background(Color(0xFFFFB74D).copy(alpha = 0.30f))
-                )
-            }
-            listOfNotNull(aFraction, bFraction).forEach { frac ->
+        // 2. A-B 循环端点琥珀标记
+        if (abFractions.isNotEmpty() && totalWidth > 2.5.dp) {
+            abFractions.forEach { frac ->
+                val tickOffset = (totalWidth * frac - 1.25.dp)
+                    .coerceIn(0.dp, (totalWidth - 2.5.dp).coerceAtLeast(0.dp))
                 Canvas(
                     modifier = Modifier
-                        .offset(x = totalWidth * frac)
-                        .width(3.dp)
+                        .offset(x = tickOffset)
+                        .width(2.5.dp)
                         .height(barHeight + 4.dp)
                 ) {
                     drawLine(
                         color = Color(0xFFFFB74D),
-                        start = Offset(size.width / 2, 0f),
-                        end = Offset(size.width / 2, size.height),
-                        strokeWidth = 3.dp.toPx(),
+                        start = Offset(size.width / 2f, 0f),
+                        end = Offset(size.width / 2f, size.height),
+                        strokeWidth = 2.5.dp.toPx(),
                         cap = StrokeCap.Round
                     )
                 }
             }
         }
+
+        // 3. 无描边纯白小圆球（仅常态显示，拖拽胀大时微缩融隐进粗胶囊条中）
+        val thumbDiameter = 10.dp
+        if (thumbAlpha > 0.01f && totalWidth > thumbDiameter) {
+            val thumbOffset = (totalWidth * playedRatio - thumbDiameter / 2)
+                .coerceIn(0.dp, (totalWidth - thumbDiameter).coerceAtLeast(0.dp))
+            Box(
+                modifier = Modifier
+                    .offset(x = thumbOffset)
+                    .size(thumbDiameter)
+                    .graphicsLayer {
+                        alpha = thumbAlpha
+                        val scale = 0.55f + 0.45f * thumbAlpha
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.White,
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.fillMaxSize()
+                ) {}
+            }
+        }
+    }
+}
+
+internal fun buildScrubBarSegments(chapterFractions: List<Float>): List<Pair<Float, Float>> {
+    val splits = mutableListOf<Float>()
+    for (frac in chapterFractions.sorted()) {
+        if (frac <= 0.001f || frac >= 0.999f) continue
+        if (splits.isEmpty() || frac - splits.last() >= 0.005f) {
+            splits.add(frac)
+        }
+    }
+    if (splits.isEmpty()) return listOf(0f to 1f)
+    return buildList(splits.size + 1) {
+        var prev = 0f
+        for (split in splits) {
+            add(prev to split)
+            prev = split
+        }
+        add(prev to 1f)
     }
 }

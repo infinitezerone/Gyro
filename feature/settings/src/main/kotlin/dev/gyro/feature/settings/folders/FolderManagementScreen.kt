@@ -20,13 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOff
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.CustomFolderDetail
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 @Composable
 fun FolderManagementScreen(
@@ -112,7 +106,7 @@ fun FolderManagementContent(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = GyroIcons.Back,
                             contentDescription = stringResource(R.string.action_back),
                             tint = GyroColors.TextPrimary
                         )
@@ -121,7 +115,7 @@ fun FolderManagementContent(
                 actions = {
                     IconButton(onClick = onRefresh) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = GyroIcons.Refresh,
                             contentDescription = stringResource(R.string.action_refresh),
                             tint = GyroColors.TextPrimary
                         )
@@ -141,7 +135,7 @@ fun FolderManagementContent(
                     shape = CircleShape,
                     icon = {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = GyroIcons.Add,
                             contentDescription = stringResource(R.string.action_add_folder)
                         )
                     },
@@ -260,7 +254,7 @@ private fun FolderItemCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Folder,
+                    imageVector = GyroIcons.Folder,
                     contentDescription = null,
                     tint = GyroColors.PrimaryLight,
                     modifier = Modifier.size(24.dp)
@@ -290,7 +284,7 @@ private fun FolderItemCard(
 
             IconButton(onClick = onRevokeClick) {
                 Icon(
-                    imageVector = Icons.Default.DeleteOutline,
+                    imageVector = GyroIcons.Delete,
                     contentDescription = stringResource(R.string.folders_action_revoke),
                     tint = GyroColors.Error.copy(alpha = 0.8f)
                 )
@@ -312,7 +306,7 @@ private fun EmptyFoldersView(
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Default.FolderOff,
+            imageVector = GyroIcons.FolderOff,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
             tint = GyroColors.TextMuted
@@ -340,7 +334,7 @@ private fun EmptyFoldersView(
             shape = RoundedCornerShape(8.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Add,
+                imageVector = GyroIcons.Add,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp)
             )

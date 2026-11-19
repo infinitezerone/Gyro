@@ -11,10 +11,13 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.PlayerSettingsSheetContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -22,7 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.gyro.engine.model.ResizeMode
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 private val sampleChapters = listOf(
     dev.gyro.core.model.ChapterInfo(0, "Introduction", 0L),
@@ -434,7 +440,7 @@ fun PlayerDoubleTapHudPreview() {
 }
 
 @Preview(
-    name = "Player Volume Brightness HUD Preview",
+    name = "Player Volume HUD Preview (75%)",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
     backgroundColor = 0xFF101010
@@ -451,6 +457,109 @@ fun PlayerVolumeBrightnessHudPreview() {
             scrubState = remember { PlayerScrubState() },
             durationMs = { 45 * 60_000L }
         )
+    }
+}
+
+@Preview(
+    name = "Player Brightness HUD Preview (20%)",
+    device = "spec:width=411dp,height=891dp",
+    showBackground = true,
+    backgroundColor = 0xFFEAEAEA
+)
+@Composable
+fun PlayerBrightnessHudPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFEAEAEA))
+    ) {
+        PlayerHudOverlay(
+            hudState = GestureHudState.Brightness(brightnessRatio = 0.20f, percent = 20),
+            scrubState = remember { PlayerScrubState() },
+            durationMs = { 45 * 60_000L }
+        )
+    }
+}
+
+@Preview(
+    name = "Player HUD Compact Slim Preview",
+    device = "spec:width=411dp,height=260dp",
+    showBackground = true,
+    backgroundColor = 0xFF101010
+)
+@Composable
+fun PlayerHudCompactPreview() {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color(0xFF101010)),
+            contentAlignment = Alignment.Center
+        ) {
+            TopFillPillHud(
+                icon = GyroIcons.VolumeHigh,
+                contentDescription = "Volume",
+                ratio = 0.75f,
+                isCompact = true
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color(0xFFEAEAEA)),
+            contentAlignment = Alignment.Center
+        ) {
+            TopFillPillHud(
+                icon = GyroIcons.Brightness,
+                contentDescription = "Brightness",
+                ratio = 0.20f,
+                isCompact = true
+            )
+        }
+    }
+}
+
+@Preview(
+    name = "Player Scrub Bar Idle vs Dragging",
+    device = "spec:width=411dp,height=180dp",
+    showBackground = true,
+    backgroundColor = 0xFF141418
+)
+@Composable
+fun PlayerScrubBarStatesPreview() {
+    val idleState = remember { PlayerScrubState() }
+    val draggingState = remember { PlayerScrubState().apply { begin(0.54f) } }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF141418))
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp, Alignment.CenterVertically)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = "Idle", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+            PlayerScrubBar(
+                timePosMs = 325_000L,
+                durationMs = 600_000L,
+                bufferedPosMs = 450_000L,
+                scrubState = idleState,
+                onSeekToFraction = {},
+                chapters = sampleChapters
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = "Dragging", color = Color.White.copy(alpha = 0.65f), fontSize = 12.sp)
+            PlayerScrubBar(
+                timePosMs = 325_000L,
+                durationMs = 600_000L,
+                bufferedPosMs = 450_000L,
+                scrubState = draggingState,
+                onSeekToFraction = {},
+                chapters = sampleChapters
+            )
+        }
     }
 }
 

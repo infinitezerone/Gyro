@@ -15,9 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -44,6 +41,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetChip
 import dev.gyro.feature.player.component.sheet.common.SheetSwitch
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 字幕轨道选择二级页 (SubtitleTracksSubTab)
@@ -71,7 +69,7 @@ internal fun SubtitleTracksSubTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
+                    imageVector = GyroIcons.Add,
                     contentDescription = null,
                     tint = SheetAccentBlue,
                     modifier = Modifier.size(18.dp)
@@ -237,7 +235,7 @@ internal fun SubtitleStyleSubTabContent(
         // 4. ASS 样式覆盖开关 (mpv sub-ass-override)
         SettingsItemRow(
             title = stringResource(R.string.sub_ass_override_title),
-            icon = Icons.Default.ClosedCaption,
+            icon = GyroIcons.ClosedCaption,
             trailingContent = {
                 SheetSwitch(
                     checked = state.subAssOverride,

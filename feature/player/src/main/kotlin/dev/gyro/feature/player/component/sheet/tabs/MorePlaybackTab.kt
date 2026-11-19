@@ -7,18 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.Gradient
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Monitor
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -38,6 +26,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetSwitch
 import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import java.util.Locale
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 播放页的「更多播放设置」二级页。
@@ -69,7 +58,7 @@ internal fun MorePlaybackTabContent(
         }
         SettingsItemRow(
             title = stringResource(R.string.stats_decoder),
-            icon = Icons.Default.Memory,
+            icon = GyroIcons.Memory,
             currentValue = hwLabel,
             onClick = { onNavigate(PlayerSheetRoute.HWDEC) }
         )
@@ -82,14 +71,14 @@ internal fun MorePlaybackTabContent(
         }
         SettingsItemRow(
             title = stringResource(R.string.settings_upscale_title),
-            icon = Icons.Default.AutoAwesome,
+            icon = GyroIcons.AutoAwesome,
             currentValue = shaderLabel,
             onClick = { onNavigate(PlayerSheetRoute.SHADERS) }
         )
 
         SettingsItemRow(
             title = stringResource(R.string.settings_deband),
-            icon = Icons.Default.Gradient,
+            icon = GyroIcons.Gradient,
             trailingContent = {
                 SheetSwitch(checked = state.deband, onCheckedChange = callbacks.onSetDeband)
             }
@@ -99,7 +88,7 @@ internal fun MorePlaybackTabContent(
             state.brightness != 0 || state.contrast != 0 || state.saturation != 0
         SettingsItemRow(
             title = stringResource(R.string.settings_video_color_calibration),
-            icon = Icons.Default.ColorLens,
+            icon = GyroIcons.Palette,
             currentValue = if (hasColorModifications) {
                 stringResource(R.string.color_state_tuned)
             } else {
@@ -114,14 +103,14 @@ internal fun MorePlaybackTabContent(
         )
         SettingsItemRow(
             title = stringResource(R.string.audio_loudness_leveling),
-            icon = Icons.Default.GraphicEq,
+            icon = GyroIcons.GraphicEq,
             trailingContent = {
                 SheetSwitch(checked = state.nightMode, onCheckedChange = callbacks.onSetNightMode)
             }
         )
         SettingsItemRow(
             title = stringResource(R.string.sheet_tab_audio_effects),
-            icon = Icons.Default.Tune,
+            icon = GyroIcons.Tune,
             onClick = { onNavigate(PlayerSheetRoute.AUDIO_EFFECTS) }
         )
 
@@ -131,7 +120,7 @@ internal fun MorePlaybackTabContent(
         )
         SettingsItemRow(
             title = stringResource(R.string.settings_subtitle_style),
-            icon = Icons.Default.ClosedCaption,
+            icon = GyroIcons.ClosedCaption,
             onClick = { onNavigate(PlayerSheetRoute.SUBTITLE_STYLE) }
         )
 
@@ -141,13 +130,13 @@ internal fun MorePlaybackTabContent(
         )
         SettingsItemRow(
             title = stringResource(R.string.sync_audio_delay),
-            icon = Icons.Default.Schedule,
+            icon = GyroIcons.Timer,
             currentValue = delayLabel(state.audioDelaySec),
             onClick = { onNavigate(PlayerSheetRoute.AUDIO_DELAY) }
         )
         SettingsItemRow(
             title = stringResource(R.string.sync_sub_delay),
-            icon = Icons.Default.Schedule,
+            icon = GyroIcons.Timer,
             currentValue = delayLabel(state.subDelaySec),
             onClick = { onNavigate(PlayerSheetRoute.SUBTITLE_DELAY) }
         )
@@ -161,13 +150,13 @@ internal fun MorePlaybackTabContent(
         val mediaSummary = listOfNotNull(resolutionText, codecText).joinToString(" ")
         SettingsItemRow(
             title = stringResource(R.string.page_stats_info),
-            icon = Icons.Default.Assessment,
+            icon = GyroIcons.Analytics,
             currentValue = if (mediaSummary.isNotBlank()) mediaSummary else stringResource(R.string.action_view_details),
             onClick = { onNavigate(PlayerSheetRoute.STATS_INFO) }
         )
         SettingsItemRow(
             title = stringResource(R.string.hub_stats_overlay),
-            icon = Icons.Default.Monitor,
+            icon = GyroIcons.Monitor,
             trailingContent = {
                 SheetSwitch(
                     checked = state.statsOverlayEnabled,
@@ -182,7 +171,7 @@ internal fun MorePlaybackTabContent(
         )
         SettingsItemRow(
             title = stringResource(R.string.app_settings),
-            icon = Icons.Default.Settings,
+            icon = GyroIcons.Settings,
             currentValue = stringResource(R.string.app_settings_exit_hint),
             onClick = callbacks.onOpenFullSettings
         )

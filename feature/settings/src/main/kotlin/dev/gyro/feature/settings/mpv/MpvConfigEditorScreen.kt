@@ -18,13 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.theme.GyroColors
 import kotlinx.coroutines.launch
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 @Composable
 fun MpvConfigEditorScreen(
@@ -183,7 +177,7 @@ fun MpvConfigEditorContent(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = GyroIcons.Back,
                             contentDescription = stringResource(R.string.action_back),
                             tint = GyroColors.TextPrimary
                         )
@@ -192,21 +186,21 @@ fun MpvConfigEditorContent(
                 actions = {
                     IconButton(onClick = onCopy) {
                         Icon(
-                            imageVector = Icons.Default.ContentCopy,
+                            imageVector = GyroIcons.ContentCopy,
                             contentDescription = stringResource(R.string.mpv_config_copy),
                             tint = GyroColors.TextPrimary
                         )
                     }
                     IconButton(onClick = onReset) {
                         Icon(
-                            imageVector = Icons.Default.RestartAlt,
+                            imageVector = GyroIcons.RestartAlt,
                             contentDescription = stringResource(R.string.mpv_config_reset_default),
                             tint = GyroColors.TextPrimary
                         )
                     }
                     IconButton(onClick = onHelp) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                            imageVector = GyroIcons.Help,
                             contentDescription = stringResource(R.string.mpv_config_help_title),
                             tint = GyroColors.TextPrimary
                         )
@@ -233,7 +227,7 @@ fun MpvConfigEditorContent(
                         )
                     } else {
                         Icon(
-                            imageVector = Icons.Default.Save,
+                            imageVector = GyroIcons.Save,
                             contentDescription = stringResource(R.string.mpv_config_save)
                         )
                     }
@@ -281,7 +275,7 @@ fun MpvConfigEditorContent(
                         },
                         icon = {
                             Icon(
-                                imageVector = Icons.Default.Add,
+                                imageVector = GyroIcons.Add,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                                 tint = GyroColors.PrimaryLight

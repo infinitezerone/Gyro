@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -32,6 +30,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.tabs.ChaptersTabContent
 import dev.gyro.feature.player.component.sheet.tabs.PlaylistTabContent
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 独立的播放列表与选集抽屉 (PlayerPlaylistSheet)
@@ -167,7 +166,7 @@ private fun PlaylistSheetHeader(
             modifier = Modifier.size(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Close,
+                imageVector = GyroIcons.Close,
                 contentDescription = stringResource(R.string.action_cancel),
                 tint = SheetTextSecondaryColor,
                 modifier = Modifier.size(20.dp)

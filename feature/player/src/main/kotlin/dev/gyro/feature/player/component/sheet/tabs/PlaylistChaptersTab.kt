@@ -15,8 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,6 +38,7 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 播放列表选集 (PlaylistTab)
@@ -97,7 +96,7 @@ internal fun PlaylistTabContent(
                 ) {
                     if (isCurrent) {
                         Icon(
-                            Icons.Default.PlayArrow,
+                            GyroIcons.Play,
                             contentDescription = stringResource(R.string.playlist_current_playing),
                             tint = SheetAccentBlue,
                             modifier = Modifier.size(20.dp)
@@ -191,7 +190,7 @@ internal fun ChaptersTabContent(
                 ) {
                     if (isCurrent) {
                         Icon(
-                            imageVector = Icons.Default.PlayArrow,
+                            imageVector = GyroIcons.Play,
                             contentDescription = stringResource(R.string.chapter_current_badge),
                             tint = SheetAccentBlue,
                             modifier = Modifier.size(20.dp)

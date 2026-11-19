@@ -10,10 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -37,6 +33,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetSectionHeader
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.SheetTrackColor
 import java.util.Locale
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /** Short band labels; the raw frequencies are too wide for a row. */
 private val EqBandLabels = listOf("60", "230", "910", "3.6k", "14k")
@@ -75,7 +72,7 @@ internal fun AudioEffectsTabContent(
     ) {
         SettingsItemRow(
             title = stringResource(R.string.audio_loudness_leveling),
-            icon = Icons.Default.GraphicEq,
+            icon = GyroIcons.GraphicEq,
             trailingContent = {
                 SheetSwitch(checked = state.nightMode, onCheckedChange = callbacks.onSetNightMode)
             }
@@ -159,7 +156,7 @@ internal fun AudioEffectsTabContent(
 
         SettingsItemRow(
             title = stringResource(R.string.hub_stereo_downmix),
-            icon = Icons.Default.Tune,
+            icon = GyroIcons.Tune,
             trailingContent = {
                 SheetSwitch(checked = state.stereoDownmix, onCheckedChange = callbacks.onSetStereoDownmix)
             }
@@ -167,7 +164,7 @@ internal fun AudioEffectsTabContent(
 
         SettingsItemRow(
             title = stringResource(R.string.hub_audio_passthrough),
-            icon = Icons.Default.Speed,
+            icon = GyroIcons.Speed,
             trailingContent = {
                 SheetSwitch(checked = state.audioPassthrough, onCheckedChange = callbacks.onToggleAudioPassthrough)
             }

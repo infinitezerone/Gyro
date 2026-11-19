@@ -17,18 +17,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.FitScreen
-import androidx.compose.material.icons.filled.Monitor
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.PictureInPicture
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -65,6 +53,7 @@ import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
 import dev.gyro.feature.player.component.sheet.common.displayLabel
 import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import java.util.Locale
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 主播放设置菜单 (SettingsHubTab)
@@ -93,7 +82,7 @@ internal fun SettingsHubTabContent(
         // 列表播放模式（顺序 / 列表循环 / 单集循环）
         SettingsItemRow(
             title = stringResource(R.string.playback_mode_title),
-            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+            icon = GyroIcons.PlaylistPlay,
             currentValue = stringResource(state.playlistRepeatMode.labelRes()),
             onClick = { onNavigate(PlayerSheetRoute.PLAYBACK_MODE) }
         )
@@ -101,7 +90,7 @@ internal fun SettingsHubTabContent(
         // 定时关闭只负责到点暂停，和循环互不相干
         SettingsItemRow(
             title = stringResource(R.string.sleep_timer_title),
-            icon = Icons.Default.Schedule,
+            icon = GyroIcons.Timer,
             currentValue = sleepTimerSummary(state),
             onClick = { onNavigate(PlayerSheetRoute.TIMER) }
         )
@@ -111,7 +100,7 @@ internal fun SettingsHubTabContent(
         // 倍速
         SettingsItemRow(
             title = stringResource(R.string.settings_playback_speed),
-            icon = Icons.Default.Speed,
+            icon = GyroIcons.Speed,
             currentValue = "${state.currentSpeed}x",
             onClick = { onNavigate(PlayerSheetRoute.SPEED) }
         )
@@ -152,7 +141,7 @@ internal fun SettingsHubTabContent(
         // 画面比例
         SettingsItemRow(
             title = stringResource(R.string.aspect_title),
-            icon = Icons.Default.FitScreen,
+            icon = GyroIcons.FitScreen,
             currentValue = state.currentResizeMode.displayLabel(),
             onClick = { onNavigate(PlayerSheetRoute.ASPECT) }
         )
@@ -164,7 +153,7 @@ internal fun SettingsHubTabContent(
             ?: stringResource(R.string.track_none_audio)
         SettingsItemRow(
             title = stringResource(R.string.settings_audio_track),
-            icon = Icons.AutoMirrored.Filled.VolumeUp,
+            icon = GyroIcons.VolumeHigh,
             currentValue = audioTrackName,
             onClick = { onNavigate(PlayerSheetRoute.AUDIO_TRACKS) }
         )
@@ -181,7 +170,7 @@ internal fun SettingsHubTabContent(
         }
         SettingsItemRow(
             title = stringResource(R.string.settings_subtitle_track),
-            icon = Icons.Default.ClosedCaption,
+            icon = GyroIcons.ClosedCaption,
             currentValue = subTrackDisplay,
             onClick = { onNavigate(PlayerSheetRoute.SUBTITLE_TRACKS) }
         )
@@ -190,7 +179,7 @@ internal fun SettingsHubTabContent(
         val roundedVolume = kotlin.math.round(state.softwareVolume).toInt()
         SettingsItemRow(
             title = stringResource(R.string.settings_audio_boost),
-            icon = Icons.AutoMirrored.Filled.VolumeUp,
+            icon = GyroIcons.VolumeHigh,
             currentValue = "$roundedVolume%",
             onClick = { onNavigate(PlayerSheetRoute.AUDIO_BOOST) }
         )
@@ -199,7 +188,7 @@ internal fun SettingsHubTabContent(
 
         SettingsItemRow(
             title = stringResource(R.string.more_entry),
-            icon = Icons.Default.AutoAwesome,
+            icon = GyroIcons.AutoAwesome,
             onClick = { onNavigate(PlayerSheetRoute.MORE_PLAYBACK) },
             showChevron = true
         )

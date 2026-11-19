@@ -13,10 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -49,6 +45,7 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.VerticalSwipeMode
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 @Composable
 fun GestureSettingsScreen(
@@ -121,7 +118,7 @@ fun GestureSettingsContent(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = GyroIcons.Back,
                             contentDescription = stringResource(R.string.action_back),
                             tint = GyroColors.TextPrimary
                         )
@@ -130,7 +127,7 @@ fun GestureSettingsContent(
                 actions = {
                     IconButton(onClick = { showResetConfirmDialog = true }) {
                         Icon(
-                            imageVector = Icons.Default.RestartAlt,
+                            imageVector = GyroIcons.RestartAlt,
                             contentDescription = stringResource(R.string.settings_gesture_reset_defaults),
                             tint = GyroColors.TextSecondary
                         )
@@ -261,7 +258,7 @@ fun GestureSettingsContent(
                 Spacer(modifier = Modifier.height(8.dp))
                 FloatingActionItem(
                     title = stringResource(R.string.settings_gesture_reset_defaults),
-                    icon = Icons.Default.RestartAlt,
+                    icon = GyroIcons.RestartAlt,
                     onClick = { showResetConfirmDialog = true }
                 )
             }
@@ -462,7 +459,7 @@ private fun FloatingPreferenceClickItem(
             Spacer(modifier = Modifier.width(6.dp))
         }
         Icon(
-            imageVector = Icons.Default.ChevronRight,
+            imageVector = GyroIcons.ChevronRight,
             contentDescription = null,
             tint = GyroColors.TextMuted,
             modifier = Modifier.size(18.dp)

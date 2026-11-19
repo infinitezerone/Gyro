@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
+import dev.gyro.core.designsystem.icon.GyroIcons
 
 /**
  * 紧凑单选行项
@@ -60,7 +59,7 @@ internal fun SettingRadioRow(
 
         if (isSelected) {
             Icon(
-                imageVector = Icons.Default.Check,
+                imageVector = GyroIcons.Check,
                 contentDescription = null,
                 tint = SheetAccentBlue,
                 modifier = Modifier.size(18.dp)
