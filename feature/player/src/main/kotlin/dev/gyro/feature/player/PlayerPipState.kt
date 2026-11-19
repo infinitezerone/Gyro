@@ -524,6 +524,16 @@ fun rememberPlayerPipState(
         act.addOnUserLeaveHintListener(hintListener)
         onDispose {
             act.removeOnUserLeaveHintListener(hintListener)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val disabledParams = PictureInPictureParams.Builder()
+                        .setAutoEnterEnabled(false)
+                        .build()
+                    act.setPictureInPictureParams(disabledParams)
+                } catch (e: Exception) {
+                    // Ignored if activity is finishing or destroyed
+                }
+            }
         }
     }
 
