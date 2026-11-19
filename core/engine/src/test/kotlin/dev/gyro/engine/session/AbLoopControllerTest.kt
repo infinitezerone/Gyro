@@ -73,11 +73,11 @@ class AbLoopControllerTest {
     fun explicitSetLoopAAndB_updatesMpvPropertiesAndState() {
         controller.setLoopA(12.34)
         assertEquals(12.34, controller.abLoopASeconds.value, 0.0001)
-        assertEquals("12.34", bridge.properties["ab-loop-a"])
+        assertEquals(12.34, bridge.getPropertyDouble("ab-loop-a") ?: Double.NaN, 0.0001)
 
         controller.setLoopB(56.78)
         assertEquals(56.78, controller.abLoopBSeconds.value, 0.0001)
-        assertEquals("56.78", bridge.properties["ab-loop-b"])
+        assertEquals(56.78, bridge.getPropertyDouble("ab-loop-b") ?: Double.NaN, 0.0001)
 
         controller.clearLoop()
         assertEquals(-1.0, controller.abLoopASeconds.value, 0.0001)

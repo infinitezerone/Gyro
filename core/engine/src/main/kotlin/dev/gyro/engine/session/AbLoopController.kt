@@ -82,15 +82,23 @@ class AbLoopController(
     }
 
     fun setLoopA(seconds: Double) {
-        bridge.setPropertyString("ab-loop-a", seconds.toString())
+        // ab-loop-a/b 是数值(time)属性，必须按 DOUBLE 写入；用字符串写入会被 mpv 拒绝，
+        // 而本地状态仍是“已设置”，表现为 UI 显示有 A/B 但实际不循环。
+        bridge.setPropertyDouble("ab-loop-a", seconds)
         _abLoopASeconds.value = seconds
-        EngineLog.i(TAG, "setLoopA: explicit A set to ${seconds}s")
+        EngineLog.i(
+            TAG,
+            "setLoopA: wrote ${seconds}s, readback=${bridge.getPropertyDouble("ab-loop-a")}"
+        )
     }
 
     fun setLoopB(seconds: Double) {
-        bridge.setPropertyString("ab-loop-b", seconds.toString())
+        bridge.setPropertyDouble("ab-loop-b", seconds)
         _abLoopBSeconds.value = seconds
-        EngineLog.i(TAG, "setLoopB: explicit B set to ${seconds}s")
+        EngineLog.i(
+            TAG,
+            "setLoopB: wrote ${seconds}s, readback=${bridge.getPropertyDouble("ab-loop-b")}"
+        )
     }
 
     fun clearLoop() {
