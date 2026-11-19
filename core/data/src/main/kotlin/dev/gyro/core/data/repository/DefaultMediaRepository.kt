@@ -1,11 +1,14 @@
 package dev.gyro.core.data.repository
 
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.Context
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
@@ -13,6 +16,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gyro.core.common.dispatcher.ApplicationScope
 import dev.gyro.core.common.dispatcher.Dispatcher
 import dev.gyro.core.common.dispatcher.GyroDispatchers
+import dev.gyro.core.data.model.MediaDeleteResult
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -242,6 +246,65 @@ class DefaultMediaRepository @Inject constructor(
         }
 
         videoList
+    }
+
+    override suspend fun deleteVideo(uri: Uri): MediaDeleteResult = withContext(ioDispatcher) {
+        try {
+            if (DocumentsContract.isDocumentUri(context, uri)) {
+                val deleted = DocumentsContract.deleteDocument(context.contentResolver, uri)
+                if (deleted) {
+                    requestRefresh()
+                    MediaDeleteResult.Deleted
+                } else {
+                    MediaDeleteResult.Failed("DocumentsContract.deleteDocument returned false")
+                }
+            } else {
+                when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                        try {
+                            val rows = context.contentResolver.delete(uri, null, null)
+                            if (rows > 0) {
+                                requestRefresh()
+                                MediaDeleteResult.Deleted
+                            } else {
+                                val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(uri))
+                                MediaDeleteResult.RequiresIntentSender(request.intentSender)
+                            }
+                        } catch (_: SecurityException) {
+                            val request = MediaStore.createDeleteRequest(context.contentResolver, listOf(uri))
+                            MediaDeleteResult.RequiresIntentSender(request.intentSender)
+                        }
+                    }
+                    Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> {
+                        try {
+                            val rows = context.contentResolver.delete(uri, null, null)
+                            if (rows > 0) {
+                                requestRefresh()
+                                MediaDeleteResult.Deleted
+                            } else {
+                                MediaDeleteResult.Failed("Delete returned 0 rows")
+                            }
+                        } catch (recoverable: RecoverableSecurityException) {
+                            MediaDeleteResult.RequiresIntentSender(recoverable.userAction.actionIntent.intentSender)
+                        }
+                    }
+                    else -> {
+                        val rows = context.contentResolver.delete(uri, null, null)
+                        if (rows > 0) {
+                            requestRefresh()
+                            MediaDeleteResult.Deleted
+                        } else {
+                            MediaDeleteResult.Failed("Delete returned 0 rows")
+                        }
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to delete video $uri", t)
+            MediaDeleteResult.Failed(t.message, t)
+        }
     }
 
     private companion object {

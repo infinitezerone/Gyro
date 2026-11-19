@@ -3,10 +3,12 @@ package dev.gyro.feature.home
 import dev.gyro.core.designsystem.R
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -39,12 +41,15 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,7 +66,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import dev.gyro.core.domain.model.VideoSortOrder
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -153,8 +161,33 @@ fun HomeScreen(
         viewModel.onPermissionResult(granted)
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val deleteConsentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewModel.refreshVideos()
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is HomeUiEvent.RequestDeleteConsent -> {
+                    deleteConsentLauncher.launch(
+                        IntentSenderRequest.Builder(event.intentSender).build()
+                    )
+                }
+                is HomeUiEvent.ShowMessage -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+            }
+        }
+    }
+
     HomeContent(
         uiState = uiState,
+        snackbarHostState = snackbarHostState,
         onPlayVideo = onPlayVideo,
         onOpenFile = {
             if (ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)) {
@@ -171,6 +204,7 @@ fun HomeScreen(
         onRefresh = { viewModel.refreshVideos() },
         onSelectFolder = { viewModel.selectFolder(it) },
         onSetSortOrder = { viewModel.setSortOrder(it) },
+        onDeleteVideo = { viewModel.deleteVideo(it) },
         onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
         onToggleSearch = { viewModel.toggleSearch(it) },
         modifier = modifier
@@ -181,6 +215,7 @@ fun HomeScreen(
 @Composable
 fun HomeContent(
     uiState: HomeUiState,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onPlayVideo: (VideoMediaItem, List<VideoMediaItem>) -> Unit,
     onOpenFile: () -> Unit,
     onPickFolder: () -> Unit,
@@ -189,6 +224,7 @@ fun HomeContent(
     onRefresh: () -> Unit,
     onSelectFolder: (String?) -> Unit,
     onSetSortOrder: (VideoSortOrder) -> Unit = {},
+    onDeleteVideo: (VideoMediaItem) -> Unit = {},
     onSearchQueryChange: (String) -> Unit,
     onToggleSearch: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -198,6 +234,7 @@ fun HomeContent(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = GyroColors.Background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (uiState.isSearching) {
                 Surface(
@@ -384,7 +421,8 @@ fun HomeContent(
                                         VideoCard(
                                             item = videoItem,
                                             playbackProgress = progress,
-                                            onClick = { onPlayVideo(videoItem, feed.filteredVideos) }
+                                            onClick = { onPlayVideo(videoItem, feed.filteredVideos) },
+                                            onDelete = { onDeleteVideo(videoItem) }
                                         )
                                     }
                                 }
@@ -470,8 +508,35 @@ private fun FolderFilterBar(
 private fun VideoCard(
     item: VideoMediaItem,
     playbackProgress: PlaybackProgress?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit = {}
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var showConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = { Text("删除视频") },
+            text = { Text("确定要删除 \"${item.displayName}\" 吗？此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConfirmDialog = false
+                        onDelete()
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -590,6 +655,36 @@ private fun VideoCard(
                             fontWeight = FontWeight.Medium
                         )
                     }
+                }
+            }
+
+            // 更多操作按钮
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "更多操作",
+                        tint = GyroColors.TextMuted
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            showConfirmDialog = true
+                        }
+                    )
                 }
             }
         }

@@ -741,6 +741,25 @@ class DomainUseCasesTest {
     }
 
     @Test
+    fun testDeleteMediaUseCase_delegatesToRepository() = runCaseTest {
+        var deletedUri: Uri? = null
+        val repo = object : MediaRepository {
+            override suspend fun getVideos(): List<VideoMediaItem> = emptyList()
+            override suspend fun getDisplayName(uri: Uri): String? = null
+            override suspend fun deleteVideo(uri: Uri): dev.gyro.core.data.model.MediaDeleteResult {
+                deletedUri = uri
+                return dev.gyro.core.data.model.MediaDeleteResult.Deleted
+            }
+        }
+        val deleteUseCase = DeleteMediaUseCase(repo)
+        val target = TestUri("content://media/external/video/media/42")
+
+        val result = deleteUseCase(target)
+        assertEquals(dev.gyro.core.data.model.MediaDeleteResult.Deleted, result)
+        assertEquals(target, deletedUri)
+    }
+
+    @Test
     fun testHandleAppBackgroundWithAudioEnabled_permitsHeadlessAutoAdvanceWithoutSurface() = runCaseTest {
         settingsRepo.setBackgroundAudio(true)
         runCurrent()

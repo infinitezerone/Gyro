@@ -1,6 +1,7 @@
 package dev.gyro.core.data.repository
 
 import android.net.Uri
+import dev.gyro.core.data.model.MediaDeleteResult
 import dev.gyro.core.model.VideoMediaItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,4 +38,11 @@ interface MediaRepository {
 
     /** Starts a scan if the library has never been read on this process. */
     fun ensureLoaded() {}
+
+    /**
+     * Attempts to delete a video.
+     *
+     * Handles Scoped Storage consent dialogs on Android 10+ via [MediaDeleteResult.RequiresIntentSender].
+     */
+    suspend fun deleteVideo(uri: Uri): MediaDeleteResult = MediaDeleteResult.Failed("Not implemented")
 }
