@@ -2,7 +2,7 @@ package dev.gyro.feature.player
 
 import android.app.Activity
 import android.os.SystemClock
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import dev.gyro.feature.player.gesture.rememberPlayerZoomState
@@ -44,7 +44,7 @@ class PlayerState(
 
     var isLocked by mutableStateOf(false)
 
-    var activeSheetTab by mutableStateOf<PlayerSheetTab?>(null)
+    var activeSheetTab by mutableStateOf<PlayerSheetRoute?>(null)
 
     /**
      * Measured height of the portrait bottom sheet, in pixels. The video surface is fitted into the

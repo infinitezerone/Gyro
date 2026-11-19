@@ -1,6 +1,6 @@
 package dev.gyro.feature.player
 
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -48,7 +48,7 @@ class PlayerStateTest {
         assertFalse("locked", subject.canAutoHide(isScrubbing = false, isPipLayout = false))
         subject.isLocked = false
 
-        subject.activeSheetTab = PlayerSheetTab.STATS
+        subject.activeSheetTab = PlayerSheetRoute.STATS_INFO
         assertFalse("sheet open", subject.canAutoHide(isScrubbing = false, isPipLayout = false))
     }
 

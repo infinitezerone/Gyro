@@ -87,6 +87,7 @@ internal fun SettingsItemRow(
     currentValue: String? = null,
     iconTint: Color = SheetTextSecondaryColor,
     onClick: (() -> Unit)? = null,
+    showChevron: Boolean = false,
     trailingContent: (@Composable () -> Unit)? = null
 ) {
     val rowModifier = if (onClick != null) {
@@ -165,6 +166,14 @@ internal fun SettingsItemRow(
                     )
                 }
             }
+        } else if (showChevron && onClick != null) {
+            // 没有状态值、但会进入下一级页面的入口行（如“更多”）。
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
+                modifier = Modifier.size(12.dp)
+            )
         }
     }
 }
@@ -268,7 +277,10 @@ internal fun SheetChip(
                 text = label,
                 fontSize = 12.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = if (selected) SheetAccentBlue else SheetTextColor
+                color = if (selected) SheetAccentBlue else SheetTextColor,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

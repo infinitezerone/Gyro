@@ -7,7 +7,7 @@ import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.PlayerSettingsSheetContent
 import androidx.compose.foundation.background
@@ -155,7 +155,7 @@ fun PlayerMediaInfoSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.INFO,
+            initialTab = PlayerSheetRoute.STATS_INFO,
             state = PlayerSheetUiState(
                 hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
                 hwdecMode = HwdecMode.HARDWARE_DIRECT,
@@ -183,7 +183,7 @@ fun PlayerAudiovisualSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.AUDIOVISUAL,
+            initialTab = PlayerSheetRoute.MORE_PLAYBACK,
             state = PlayerSheetUiState(
                 deband = true,
                 brightness = 15,
@@ -211,7 +211,7 @@ fun PlayerSettingsHubPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.SETTINGS_HUB,
+            initialTab = PlayerSheetRoute.SETTINGS_HUB,
             state = PlayerSheetUiState(
                 hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
                 hwdecMode = HwdecMode.HARDWARE_DIRECT,
@@ -238,7 +238,7 @@ fun PlayerPlaylistSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.PLAYLIST,
+            initialTab = PlayerSheetRoute.PLAYLIST,
             state = PlayerSheetUiState(
                 playlist = listOf(
                     dev.gyro.core.model.VideoMediaItem(1L, "content://1", "Episode 01 - The Beginning", 1440000L, 500000000L, 1920, 1080, 0L, "Season 1"),
@@ -275,7 +275,7 @@ fun PlayerSubtitlesSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.SUBTITLES,
+            initialTab = PlayerSheetRoute.SUBTITLE_TRACKS,
             state = PlayerSheetUiState(
                 tracks = sampleTracks,
                 subDelaySec = 0.5,
@@ -306,7 +306,7 @@ fun PlayerAudioSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.AUDIO,
+            initialTab = PlayerSheetRoute.AUDIO_TRACKS,
             state = PlayerSheetUiState(
                 tracks = sampleTracks,
                 audioDelaySec = -0.2
@@ -330,7 +330,7 @@ fun PlayerSpeedSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.SPEED,
+            initialTab = PlayerSheetRoute.SPEED,
             state = PlayerSheetUiState(currentSpeed = 1.25f),
             callbacks = PlayerSheetCallbacks()
         )
@@ -351,7 +351,7 @@ fun PlayerAspectSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.ASPECT,
+            initialTab = PlayerSheetRoute.ASPECT,
             state = PlayerSheetUiState(),
             callbacks = PlayerSheetCallbacks()
         )
@@ -372,7 +372,7 @@ fun PlayerStatsSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.STATS,
+            initialTab = PlayerSheetRoute.STATS_INFO,
             state = PlayerSheetUiState(
                 hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
                 hwdecMode = HwdecMode.HARDWARE_DIRECT,
@@ -400,7 +400,7 @@ fun PlayerShadersSheetPreview() {
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetTab.SHADERS,
+            initialTab = PlayerSheetRoute.SHADERS,
             state = PlayerSheetUiState(
                 shaderState = dev.gyro.core.model.GlslShaderState(
                     activeShader = dev.gyro.core.model.GlslShader.ANIME4K,

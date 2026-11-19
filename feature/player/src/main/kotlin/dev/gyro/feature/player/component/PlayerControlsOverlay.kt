@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.component.GyroPillButton
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
 

@@ -59,7 +59,7 @@ import dev.gyro.core.designsystem.component.GyroCapsuleContainer
 import dev.gyro.core.designsystem.component.GyroCircleActionButton
 import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
@@ -79,7 +79,7 @@ fun PlayerTopBar(
     isLandscape: Boolean,
     onBack: () -> Unit,
     onEnterPiP: () -> Unit,
-    onOpenSheetTab: (PlayerSheetTab) -> Unit,
+    onOpenSheetTab: (PlayerSheetRoute) -> Unit,
     hdrFormat: String = "",
     modifier: Modifier = Modifier
 ) {
@@ -159,7 +159,7 @@ fun PlayerTopBar(
                 )
                 Spacer(modifier = Modifier.width(2.dp))
                 GyroCircleActionButton(
-                    onClick = { onOpenSheetTab(PlayerSheetTab.AUDIO) },
+                    onClick = { onOpenSheetTab(PlayerSheetRoute.AUDIO_TRACKS) },
                     icon = Icons.Default.Audiotrack,
                     contentDescription = stringResource(R.string.sheet_tab_audio),
                     size = 38.dp,
@@ -170,7 +170,7 @@ fun PlayerTopBar(
                 )
                 Spacer(modifier = Modifier.width(2.dp))
                 GyroCircleActionButton(
-                    onClick = { onOpenSheetTab(PlayerSheetTab.SETTINGS_HUB) },
+                    onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
                     icon = Icons.Default.Settings,
                     contentDescription = stringResource(R.string.cd_settings),
                     size = 38.dp,
@@ -192,7 +192,7 @@ fun PlayerTopBar(
                 )
                 Spacer(modifier = Modifier.width(2.dp))
                 GyroCircleActionButton(
-                    onClick = { onOpenSheetTab(PlayerSheetTab.SETTINGS_HUB) },
+                    onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
                     icon = Icons.Default.Settings,
                     contentDescription = stringResource(R.string.cd_settings),
                     size = 38.dp,

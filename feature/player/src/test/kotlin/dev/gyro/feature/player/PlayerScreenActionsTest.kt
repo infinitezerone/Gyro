@@ -40,7 +40,7 @@ import dev.gyro.core.testing.rules.MockUriRule
 import dev.gyro.engine.GyroPlayerEngine
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.engine.model.TrackType
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -245,7 +245,7 @@ class PlayerScreenActionsTest {
         actions.onEnterPiP()
         assertEquals(3, timeoutResetCount)
 
-        actions.onOpenSheetTab(PlayerSheetTab.AUDIO)
+        actions.onOpenSheetTab(PlayerSheetRoute.AUDIO_TRACKS)
         assertEquals(4, timeoutResetCount)
 
         actions.onToggleOrientation()
@@ -476,9 +476,9 @@ class PlayerScreenActionsTest {
             lastSubTrackId = 1,
         )
 
-        actions.onOpenSheetTab(PlayerSheetTab.SUBTITLES)
+        actions.onOpenSheetTab(PlayerSheetRoute.SUBTITLE_TRACKS)
         assertFalse(playerState.showControls)
-        assertEquals(PlayerSheetTab.SUBTITLES, playerState.activeSheetTab)
+        assertEquals(PlayerSheetRoute.SUBTITLE_TRACKS, playerState.activeSheetTab)
     }
 
     @Test
@@ -630,7 +630,7 @@ class PlayerScreenActionsTest {
             }
         }
 
-        playerState.activeSheetTab = PlayerSheetTab.AUDIO
+        playerState.activeSheetTab = PlayerSheetRoute.AUDIO_TRACKS
         val callbacks = createPlayerSheetCallbacks(
             viewModel = buildViewModel(fakeSession),
             playerState = playerState,

@@ -1,19 +1,19 @@
 package dev.gyro.feature.player
 
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 
 /**
  * Returns true when the video canvas should shrink/shift to fit above the portrait settings sheet.
- * Excludes [PlayerSheetTab.PLAYLIST] and [PlayerSheetTab.CHAPTERS], which render via
+ * Excludes [PlayerSheetRoute.PLAYLIST] and [PlayerSheetRoute.CHAPTERS], which render via
  * `PlayerPlaylistSheet` without measuring `sheetHeightPx` (avoiding stale Settings sheet height).
  */
 internal fun isSheetFitActive(
-    activeSheetTab: PlayerSheetTab?,
+    activeSheetTab: PlayerSheetRoute?,
     isLandscape: Boolean,
     isPipLayout: Boolean,
 ): Boolean = activeSheetTab != null &&
-    activeSheetTab != PlayerSheetTab.PLAYLIST &&
-    activeSheetTab != PlayerSheetTab.CHAPTERS &&
+    activeSheetTab != PlayerSheetRoute.PLAYLIST &&
+    activeSheetTab != PlayerSheetRoute.CHAPTERS &&
     !isLandscape &&
     !isPipLayout
 

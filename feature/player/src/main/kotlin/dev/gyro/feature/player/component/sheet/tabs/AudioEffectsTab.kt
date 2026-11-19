@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Slider
@@ -29,7 +28,6 @@ import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.EQUALIZER_BANDS
 import dev.gyro.core.model.EQUALIZER_GAIN_LIMIT_DB
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 import dev.gyro.feature.player.component.sheet.common.SettingsItemRow
 import dev.gyro.feature.player.component.sheet.common.SheetSwitch
@@ -67,8 +65,7 @@ private val EqPresets: List<Pair<Int, List<Double>>> = listOf(
 @Composable
 internal fun AudioEffectsTabContent(
     state: PlayerSheetUiState,
-    callbacks: PlayerSheetCallbacks,
-    onNavigate: (PlayerSheetTab) -> Unit
+    callbacks: PlayerSheetCallbacks
 ) {
     Column(
         modifier = Modifier
@@ -89,41 +86,6 @@ internal fun AudioEffectsTabContent(
             color = SheetTextSecondaryColor,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
         )
-
-        SheetSectionHeader(
-            stringResource(R.string.settings_audio_boost),
-            modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 4.dp)
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(100.0 to "100%", 125.0 to "125%", 150.0 to "150%", 200.0 to "200%").forEach { (v, label) ->
-                SheetChip(
-                    selected = kotlin.math.abs(state.softwareVolume - v) < 2.0,
-                    onClick = { callbacks.onSetSoftwareVolume(v) },
-                    label = label,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-        Slider(
-            value = state.softwareVolume.toFloat(),
-            onValueChange = { callbacks.onSetSoftwareVolume(it.toDouble()) },
-            valueRange = 100f..200f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(36.dp)
-                .padding(horizontal = 16.dp),
-            colors = SliderDefaults.colors(
-                thumbColor = SheetAccentBlue,
-                activeTrackColor = SheetAccentBlue,
-                inactiveTrackColor = SheetTrackColor
-            )
-        )
-        Spacer(modifier = Modifier.height(4.dp))
 
         SheetSectionHeader(
             stringResource(R.string.audio_equalizer),
@@ -209,18 +171,6 @@ internal fun AudioEffectsTabContent(
             trailingContent = {
                 SheetSwitch(checked = state.audioPassthrough, onCheckedChange = callbacks.onToggleAudioPassthrough)
             }
-        )
-
-        val audioDelayText = if (Math.abs(state.audioDelaySec) > 0.01) {
-            "${String.format(Locale.US, "%.1f", state.audioDelaySec)}s"
-        } else {
-            stringResource(R.string.delay_synced_label)
-        }
-        SettingsItemRow(
-            title = stringResource(R.string.hub_audio_delay_sync),
-            icon = Icons.Default.Schedule,
-            currentValue = audioDelayText,
-            onClick = { onNavigate(PlayerSheetTab.AUDIO_DELAY) }
         )
     }
 }

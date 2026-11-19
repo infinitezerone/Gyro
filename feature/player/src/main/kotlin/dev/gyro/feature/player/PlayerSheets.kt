@@ -14,7 +14,7 @@ import dev.gyro.engine.model.PlaybackSnapshot
 import dev.gyro.feature.player.component.sheet.PlayerPlaylistSheet
 import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
 
 /**
@@ -26,7 +26,7 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
  */
 @Composable
 internal fun PlayerSheetsHost(
-    tab: PlayerSheetTab,
+    tab: PlayerSheetRoute,
     isLandscape: Boolean,
     viewModel: PlayerViewModel,
     playerState: PlayerState,
@@ -46,8 +46,10 @@ internal fun PlayerSheetsHost(
     val timePosMs by viewModel.timePosMs.collectAsStateWithLifecycle()
     val telemetry by viewModel.diagnostics.collectAsStateWithLifecycle()
     val sleepTimerSec by viewModel.sleepTimerSecondsRemaining.collectAsStateWithLifecycle()
+    val playlistRepeatMode by viewModel.playlistRepeatMode.collectAsStateWithLifecycle()
     val mediaInfo by viewModel.mediaInfo.collectAsStateWithLifecycle()
     val customShaders by viewModel.customShaders.collectAsStateWithLifecycle()
+    val liveSettings by viewModel.settings.collectAsStateWithLifecycle()
 
     LaunchedEffect(activeUri, mediaTitle) {
         viewModel.refreshMediaInfo(
@@ -70,12 +72,14 @@ internal fun PlayerSheetsHost(
     val sheetUiState = PlayerSheetUiState(
         playlist = playlist,
         currentPlaylistIndex = currentPlaylistIndex,
+        playlistRepeatMode = playlistRepeatMode,
         chapters = snapshot.chapters,
         currentChapterIndex = snapshot.currentChapter,
         currentTimePosMs = timePosMs,
         tracks = snapshot.tracks,
         secondarySubId = snapshot.secondarySubId,
         statsOverlayEnabled = playerState.statsOverlayEnabled,
+        backgroundAudio = liveSettings.backgroundAudio,
         currentResizeMode = snapshot.resizeMode,
         currentSpeed = snapshot.speed,
         subDelaySec = snapshot.subtitleDelaySec,
@@ -110,8 +114,6 @@ internal fun PlayerSheetsHost(
         videoScale = snapshot.videoScale,
         interpolation = snapshot.interpolation,
         audioPassthrough = snapshot.audioPassthrough,
-        abLoopASeconds = snapshot.abLoopASeconds,
-        abLoopBSeconds = snapshot.abLoopBSeconds,
         sleepTimerSecondsRemaining = sleepTimerSec,
         subAssOverride = snapshot.subAssOverride
     )
@@ -134,7 +136,7 @@ internal fun PlayerSheetsHost(
         )
     }
 
-    val isPlaylistScene = tab == PlayerSheetTab.PLAYLIST || tab == PlayerSheetTab.CHAPTERS
+    val isPlaylistScene = tab == PlayerSheetRoute.PLAYLIST || tab == PlayerSheetRoute.CHAPTERS
     if (isPlaylistScene) {
         PlayerPlaylistSheet(
             state = sheetUiState,
@@ -216,6 +218,7 @@ internal fun createPlayerSheetCallbacks(
     onToggleHwdec = { viewModel.toggleHwdec() },
     onSetHwdec = { mode -> viewModel.setHwdec(mode) },
     onToggleStatsOverlay = { playerState.statsOverlayEnabled = it },
+    onToggleBackgroundAudio = { enabled -> viewModel.setBackgroundAudio(enabled) },
     onAddExternalSubtitle = onAddExternalSubtitle,
     onSetHdrOutputMode = { mode -> viewModel.setHdrOutputMode(mode) },
     onSetToneMappingAlgorithm = { algo -> viewModel.setToneMappingAlgorithm(algo) },
@@ -239,4 +242,5 @@ internal fun createPlayerSheetCallbacks(
     onFrameStep = { viewModel.frameStep() },
     onFrameBackStep = { viewModel.frameBackStep() },
     onSetSleepTimer = { minutes -> viewModel.setSleepTimer(minutes) },
+    onSetPlaylistRepeatMode = { mode -> viewModel.setPlaylistRepeatMode(mode) },
 )

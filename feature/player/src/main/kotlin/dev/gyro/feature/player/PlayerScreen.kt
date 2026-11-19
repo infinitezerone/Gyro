@@ -58,7 +58,7 @@ import dev.gyro.feature.player.component.PlayerPipLifecycleEffects
 import dev.gyro.feature.player.component.PlayerStatsOverlay
 import dev.gyro.feature.player.component.PlayerSystemEffects
 import dev.gyro.feature.player.component.PlayerVideoFeedLayer
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.event.PlaybackTriggerSource
 import dev.gyro.feature.player.event.PlayerEvent
 import dev.gyro.feature.player.util.rememberPlayerPalette
@@ -138,7 +138,7 @@ fun PlayerScreen(
     val isLifecycleStarted = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
 
     // Telemetry & power sampling states (active strictly when stats UI is open and screen is started)
-    val isPowerSheetActive = isLifecycleStarted && playerState.activeSheetTab == PlayerSheetTab.STATS
+    val isPowerSheetActive = isLifecycleStarted && playerState.activeSheetTab == PlayerSheetRoute.STATS_INFO
     val isStatsActive = isLifecycleStarted && (playerState.statsOverlayEnabled || isPowerSheetActive)
     val telemetryState = rememberPlayerTelemetryState(
         diagnosticsFlow = viewModel.diagnostics,

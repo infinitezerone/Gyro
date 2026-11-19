@@ -223,6 +223,10 @@
     <!-- R7: MX Player Style Custom Gestures -->
     <string name="settings_group_gestures_detail">手势与操控设置</string>
     <string name="settings_group_gestures_detail_desc">滑动、双击与长按倍速</string>
+    <string name="more_playback_settings">更多播放设置</string>
+    <string name="more_entry">更多</string>
+    <string name="app_settings">应用设置</string>
+    <string name="app_settings_exit_hint">离开播放器</string>
     <string name="gesture_settings_title">手势与操控设置</string>
     <string name="settings_gesture_vertical_mode">垂直滑动功能</string>
     <string name="settings_gesture_vertical_mode_vol_bright">音量与亮度</string>
@@ -484,11 +488,9 @@
     <string name="downmix_desc">多声道转为立体声</string>
     <string name="ab_loop_clear">清除 AB 循环</string>
     <string name="settings_more">更多设置</string>
-    <string name="ab_loop_title">AB 循环播放</string>
     <string name="ab_loop_running">循环中</string>
     <string name="ab_loop_set_a">设 A</string>
     <string name="ab_loop_set_b">设 B</string>
-    <string name="ab_loop_set_b_short">A✓ 设B</string>
     <string name="subtitle_track_section_fmt">主字幕轨道 (%1$d)</string>
     <string name="audio_track_section_fmt">音频轨道 (%1$d)</string>
     <string name="track_builtin_subtitle_fmt">内置字幕 #%1$d</string>
@@ -506,7 +508,7 @@
 
     <!-- Quick Action Matrix & Loop -->
     <string name="action_bg_play">后台播放</string>
-    <string name="action_loop_mode">循环播放</string>
+    <string name="playback_mode_title">播放模式</string>
     <string name="loop_mode_single">单片循环</string>
     <string name="loop_mode_all">列表循环</string>
     <string name="loop_mode_none">顺序播放</string>

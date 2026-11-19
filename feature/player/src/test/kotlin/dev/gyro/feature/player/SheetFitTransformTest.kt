@@ -1,6 +1,6 @@
 package dev.gyro.feature.player
 
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -66,13 +66,13 @@ class SheetFitTransformTest {
     @Test
     fun isSheetFitActive_excludesPlaylistAndChaptersAndNonPortraitPipStates() {
         assertFalse(isSheetFitActive(null, isLandscape = false, isPipLayout = false))
-        assertFalse(isSheetFitActive(PlayerSheetTab.PLAYLIST, isLandscape = false, isPipLayout = false))
-        assertFalse(isSheetFitActive(PlayerSheetTab.CHAPTERS, isLandscape = false, isPipLayout = false))
-        assertFalse(isSheetFitActive(PlayerSheetTab.SETTINGS_HUB, isLandscape = true, isPipLayout = false))
-        assertFalse(isSheetFitActive(PlayerSheetTab.SETTINGS_HUB, isLandscape = false, isPipLayout = true))
+        assertFalse(isSheetFitActive(PlayerSheetRoute.PLAYLIST, isLandscape = false, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetRoute.CHAPTERS, isLandscape = false, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetRoute.SETTINGS_HUB, isLandscape = true, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetRoute.SETTINGS_HUB, isLandscape = false, isPipLayout = true))
 
-        assertTrue(isSheetFitActive(PlayerSheetTab.SETTINGS_HUB, isLandscape = false, isPipLayout = false))
-        assertTrue(isSheetFitActive(PlayerSheetTab.ASPECT, isLandscape = false, isPipLayout = false))
-        assertTrue(isSheetFitActive(PlayerSheetTab.STATS, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetRoute.SETTINGS_HUB, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetRoute.ASPECT, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetRoute.STATS_INFO, isLandscape = false, isPipLayout = false))
     }
 }

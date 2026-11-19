@@ -210,6 +210,10 @@
     <!-- R7: MX Player Style Custom Gestures -->
     <string name="settings_group_gestures_detail">Gestures &amp; Controls</string>
     <string name="settings_group_gestures_detail_desc">Swipe, double-tap, long-press speed</string>
+    <string name="more_playback_settings">More playback settings</string>
+    <string name="more_entry">More</string>
+    <string name="app_settings">App settings</string>
+    <string name="app_settings_exit_hint">Leaves player</string>
     <string name="gesture_settings_title">Gesture Settings</string>
     <string name="settings_gesture_vertical_mode">Vertical Swipe Action</string>
     <string name="settings_gesture_vertical_mode_vol_bright">Volume &amp; brightness</string>
@@ -473,11 +477,9 @@
     <!-- Dynamic track and chapter labels -->
     <string name="ab_loop_clear">Clear A-B loop</string>
     <string name="settings_more">More settings</string>
-    <string name="ab_loop_title">A-B Loop</string>
     <string name="ab_loop_running">Looping</string>
     <string name="ab_loop_set_a">Set A</string>
     <string name="ab_loop_set_b">Set B</string>
-    <string name="ab_loop_set_b_short">A set / set B</string>
     <string name="subtitle_track_section_fmt">Primary subtitles (%1$d)</string>
     <string name="audio_track_section_fmt">Audio tracks (%1$d)</string>
     <string name="track_builtin_subtitle_fmt">Embedded subtitle #%1$d</string>
@@ -495,7 +497,7 @@
 
     <!-- Quick Action Matrix & Loop -->
     <string name="action_bg_play">Background play</string>
-    <string name="action_loop_mode">Loop mode</string>
+    <string name="playback_mode_title">Playback mode</string>
     <string name="loop_mode_single">Single loop</string>
     <string name="loop_mode_all">Loop playlist</string>
     <string name="loop_mode_none">Normal</string>

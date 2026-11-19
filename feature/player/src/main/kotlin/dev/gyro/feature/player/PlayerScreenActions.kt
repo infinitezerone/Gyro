@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import dev.gyro.feature.player.component.PlayerOverlayActions
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.surface.GyroSurfaceView
 
 /**
@@ -109,7 +109,7 @@ fun createPlayerOverlayActions(
         onEnterPiP = {
             onEnterPiP()
         },
-        onOpenSheetTab = { tab: PlayerSheetTab ->
+        onOpenSheetTab = { tab: PlayerSheetRoute ->
             onResetControlsTimeout()
             playerState.hideControls()
             playerState.activeSheetTab = tab

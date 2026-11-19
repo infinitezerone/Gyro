@@ -49,7 +49,7 @@ import dev.gyro.core.model.ChapterInfo
 import dev.gyro.core.model.time.formatDuration
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.PlayerScrubState
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 
 /**
  * 主流沉浸式底部控制栏 (PlayerBottomBar)
@@ -84,7 +84,7 @@ fun PlayerBottomBar(
     onPlayPrevious: () -> Unit = {},
     onPlayNext: () -> Unit = {},
     onSeekToFraction: (Float) -> Unit,
-    onOpenSheetTab: (PlayerSheetTab) -> Unit,
+    onOpenSheetTab: (PlayerSheetRoute) -> Unit,
     onToggleOrientation: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
     ambientColor: Color = Color.Transparent,
@@ -246,7 +246,7 @@ fun PlayerBottomBar(
                 if (isLandscape) {
                     GyroCircleActionButton(
                         onClick = onToggleSubtitle,
-                        onLongClick = { onOpenSheetTab(PlayerSheetTab.SUBTITLES) },
+                        onLongClick = { onOpenSheetTab(PlayerSheetRoute.SUBTITLE_TRACKS) },
                         icon = Icons.Default.ClosedCaption,
                         contentDescription = stringResource(R.string.sheet_tab_subtitles),
                         size = 38.dp,
@@ -269,7 +269,7 @@ fun PlayerBottomBar(
                     }
                     PlayerTextActionButton(
                         text = aspectLabel,
-                        onClick = { onOpenSheetTab(PlayerSheetTab.ASPECT) }
+                        onClick = { onOpenSheetTab(PlayerSheetRoute.ASPECT) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                 }
@@ -277,7 +277,7 @@ fun PlayerBottomBar(
                 // 6. 选集快捷入口 (Playlist)
                 PlayerTextActionButton(
                     text = stringResource(R.string.cd_playlist),
-                    onClick = { onOpenSheetTab(PlayerSheetTab.PLAYLIST) }
+                    onClick = { onOpenSheetTab(PlayerSheetRoute.PLAYLIST) }
                 )
                 Spacer(modifier = Modifier.width(6.dp))
 
@@ -285,7 +285,7 @@ fun PlayerBottomBar(
                 val speedLabel = if (speed == 1.0f) "1.0x" else "${speed}x"
                 PlayerTextActionButton(
                     text = speedLabel,
-                    onClick = { onOpenSheetTab(PlayerSheetTab.SPEED) }
+                    onClick = { onOpenSheetTab(PlayerSheetRoute.SPEED) }
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))

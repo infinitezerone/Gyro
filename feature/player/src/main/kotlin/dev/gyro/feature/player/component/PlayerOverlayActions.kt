@@ -1,6 +1,6 @@
 package dev.gyro.feature.player.component
 
-import dev.gyro.feature.player.component.sheet.PlayerSheetTab
+import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 
 /**
  * The single contract between [PlayerScreen] and the controls overlay: every user intent the
@@ -13,7 +13,7 @@ data class PlayerOverlayActions(
     val onToggleLock: () -> Unit,
     val onSeekToFraction: (Float) -> Unit,
     val onEnterPiP: () -> Unit,
-    val onOpenSheetTab: (PlayerSheetTab) -> Unit,
+    val onOpenSheetTab: (PlayerSheetRoute) -> Unit,
     val onToggleOrientation: () -> Unit,
     val onBack: () -> Unit,
     val onPlayPrevious: () -> Unit = {},

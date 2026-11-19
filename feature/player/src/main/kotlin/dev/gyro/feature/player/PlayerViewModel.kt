@@ -62,7 +62,7 @@ import kotlin.math.abs
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     val session: PlaybackSession,
-    settingsRepository: SettingsRepository,
+    private val settingsRepository: SettingsRepository,
     private val thumbnailRepository: ThumbnailRepository,
     private val screenshotRepository: ScreenshotRepository,
     private val powerRepository: PowerRepository,
@@ -91,6 +91,12 @@ class PlayerViewModel @Inject constructor(
             started = SharingStarted.Eagerly,
             initialValue = settings.value.gestureConfig,
         )
+
+    fun setBackgroundAudio(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setBackgroundAudio(enabled)
+        }
+    }
 
     private val _events = MutableSharedFlow<PlayerEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<PlayerEvent> = _events.asSharedFlow()

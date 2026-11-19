@@ -9,6 +9,7 @@ import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.ToneMappingAlgorithm
+import dev.gyro.core.domain.session.PlaylistRepeatMode
 import dev.gyro.core.model.VideoMediaItem
 import dev.gyro.core.model.VideoScale
 import dev.gyro.engine.model.ResizeMode
@@ -24,12 +25,14 @@ import java.io.File
 data class PlayerSheetUiState(
     val playlist: List<VideoMediaItem> = emptyList(),
     val currentPlaylistIndex: Int = -1,
+    val playlistRepeatMode: PlaylistRepeatMode = PlaylistRepeatMode.SEQUENTIAL,
     val chapters: List<ChapterInfo> = emptyList(),
     val currentChapterIndex: Int = -1,
     val currentTimePosMs: Long = 0L,
     val tracks: List<TrackInfo> = emptyList(),
     val secondarySubId: Int = 0,
     val statsOverlayEnabled: Boolean = false,
+    val backgroundAudio: Boolean = false,
     val currentResizeMode: ResizeMode = ResizeMode.FIT,
     val currentSpeed: Float = 1.0f,
     val subDelaySec: Double = 0.0,
@@ -65,8 +68,6 @@ data class PlayerSheetUiState(
     val videoScale: VideoScale = VideoScale.BILINEAR,
     val interpolation: Boolean = false,
     val audioPassthrough: Boolean = false,
-    val abLoopASeconds: Double = -1.0,
-    val abLoopBSeconds: Double = -1.0,
     val sleepTimerSecondsRemaining: Long = 0L,
     val subAssOverride: Boolean = false
 ) {
@@ -105,6 +106,7 @@ class PlayerSheetCallbacks(
     val onToggleHwdec: () -> Unit = {},
     val onSetHwdec: (HwdecMode) -> Unit = {},
     val onToggleStatsOverlay: (Boolean) -> Unit = {},
+    val onToggleBackgroundAudio: (Boolean) -> Unit = {},
     val onAddExternalSubtitle: () -> Unit = {},
     val onSetHdrOutputMode: (HdrOutputMode) -> Unit = {},
     val onSetToneMappingAlgorithm: (ToneMappingAlgorithm) -> Unit = {},
@@ -119,5 +121,6 @@ class PlayerSheetCallbacks(
     val onSetSubAssOverride: (Boolean) -> Unit = {},
     val onFrameStep: () -> Unit = {},
     val onFrameBackStep: () -> Unit = {},
-    val onSetSleepTimer: (Int) -> Unit = {}
+    val onSetSleepTimer: (Int) -> Unit = {},
+    val onSetPlaylistRepeatMode: (PlaylistRepeatMode) -> Unit = {}
 )
