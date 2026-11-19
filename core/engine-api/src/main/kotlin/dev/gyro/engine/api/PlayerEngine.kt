@@ -92,6 +92,8 @@ interface PlayerEngine {
     fun setSpeed(speed: Float)
 
     fun cycleAbLoop()
+    fun setAbLoopA(seconds: Double)
+    fun setAbLoopB(seconds: Double)
     fun clearAbLoop()
     fun frameStep() {}
     fun frameBackStep() {}

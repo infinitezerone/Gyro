@@ -96,6 +96,9 @@ fun PreciseSeekingPanel(
     videoAspectRatio: Float = 16f / 9f,
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
+    onSetAbLoopA: (Long) -> Unit = {},
+    onSetAbLoopB: (Long) -> Unit = {},
+    onClearAbLoop: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -283,6 +286,47 @@ fun PreciseSeekingPanel(
 
             Spacer(modifier = Modifier.height(2.dp))
 
+            // 1.5 A-B 快捷标记：胶卷拖到目标帧后直接点 A / B，和逐帧微调同一套操作节奏。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AbLoopMarkChip(
+                    label = if (abLoopASeconds >= 0) {
+                        "A " + formatDuration((abLoopASeconds * 1000).toLong())
+                    } else {
+                        stringResource(R.string.ab_loop_set_a)
+                    },
+                    active = abLoopASeconds >= 0,
+                    onClick = { onSetAbLoopA(effectiveTimeMs) }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                AbLoopMarkChip(
+                    label = if (abLoopBSeconds >= 0) {
+                        "B " + formatDuration((abLoopBSeconds * 1000).toLong())
+                    } else {
+                        stringResource(R.string.ab_loop_set_b)
+                    },
+                    active = abLoopBSeconds >= 0,
+                    onClick = { onSetAbLoopB(effectiveTimeMs) }
+                )
+                if (abLoopASeconds >= 0 || abLoopBSeconds >= 0) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.ab_loop_clear),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .clickable(onClick = onClearAbLoop)
+                            .padding(horizontal = 6.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
             // 2. 进度条直接位于缩略图胶卷的正上方（0 间距紧贴胶卷）
             Box(
                 modifier = Modifier
@@ -362,6 +406,40 @@ fun PreciseSeekingPanel(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * A/B 标记按钮：未设置时显示“设 A / 设 B”，设置后显示时间并高亮。
+ */
+@Composable
+private fun AbLoopMarkChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (active) Color(0xFFFFB74D).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.12f),
+        border = BorderStroke(
+            width = 0.5.dp,
+            color = if (active) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.18f)
+        ),
+        modifier = Modifier.height(30.dp)
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                color = if (active) Color(0xFFFFB74D) else Color.White,
+                maxLines = 1
+            )
         }
     }
 }

@@ -288,6 +288,10 @@ class PlayerViewModel @Inject constructor(
 
     fun cycleAbLoop() = session.cycleAbLoop()
 
+    fun setAbLoopA(seconds: Double) = session.setAbLoopA(seconds)
+
+    fun setAbLoopB(seconds: Double) = session.setAbLoopB(seconds)
+
     fun clearAbLoop() = session.clearAbLoop()
 
     fun setSleepTimer(minutes: Int) = session.setSleepTimer(minutes)

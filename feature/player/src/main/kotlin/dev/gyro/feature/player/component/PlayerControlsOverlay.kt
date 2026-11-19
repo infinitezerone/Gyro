@@ -89,6 +89,8 @@ fun BoxScope.PlayerControlsOverlay(
     val onBack = actions.onBack
     val onToggleSubtitle = actions.onToggleSubtitle
     val onCycleAbLoop = actions.onCycleAbLoop
+    val onSetAbLoopA = actions.onSetAbLoopA
+    val onSetAbLoopB = actions.onSetAbLoopB
     val onClearAbLoop = actions.onClearAbLoop
     val onPausePlayback = actions.onPausePlayback
     val onResumePlayback = actions.onResumePlayback
@@ -294,6 +296,9 @@ fun BoxScope.PlayerControlsOverlay(
             videoAspectRatio = videoAspectRatio,
             abLoopASeconds = abLoopASeconds,
             abLoopBSeconds = abLoopBSeconds,
+            onSetAbLoopA = onSetAbLoopA,
+            onSetAbLoopB = onSetAbLoopB,
+            onClearAbLoop = onClearAbLoop,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }

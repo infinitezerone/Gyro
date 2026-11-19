@@ -323,6 +323,8 @@ class GyroPlayerEngine(
     override fun seekToChapter(index: Int) = timeline.seekToChapter(index)
 
     override fun cycleAbLoop() = abLoop.cycleLoopPoint()
+    override fun setAbLoopA(seconds: Double) = abLoop.setLoopA(seconds)
+    override fun setAbLoopB(seconds: Double) = abLoop.setLoopB(seconds)
     override fun clearAbLoop() = abLoop.clearLoop()
     override fun frameStep() = playback.frameStep()
     override fun frameBackStep() = playback.frameBackStep()

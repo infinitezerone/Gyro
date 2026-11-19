@@ -486,6 +486,8 @@
     <string name="settings_more">更多设置</string>
     <string name="ab_loop_title">AB 循环播放</string>
     <string name="ab_loop_running">循环中</string>
+    <string name="ab_loop_set_a">设 A</string>
+    <string name="ab_loop_set_b">设 B</string>
     <string name="ab_loop_set_b_short">A✓ 设B</string>
     <string name="subtitle_track_section_fmt">主字幕轨道 (%1$d)</string>
     <string name="audio_track_section_fmt">音频轨道 (%1$d)</string>

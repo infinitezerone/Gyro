@@ -127,6 +127,31 @@ class DefaultPlaybackSession @Inject constructor(
     override fun frameStep() = engine.frameStep()
     override fun frameBackStep() = engine.frameBackStep()
     override fun cycleAbLoop() = engine.cycleAbLoop()
+
+    override fun setAbLoopA(seconds: Double) {
+        // mpv 只在 A < B 时才会循环。把 A 放到已有 B 之后时交换两点，而不是留下无效区间。
+        val bSeconds = engine.state.value.abLoopBSeconds
+        if (bSeconds >= 0.0 && seconds >= bSeconds) {
+            engine.clearAbLoop()
+            engine.setAbLoopA(bSeconds)
+            engine.setAbLoopB(seconds)
+        } else {
+            engine.setAbLoopA(seconds)
+        }
+    }
+
+    override fun setAbLoopB(seconds: Double) {
+        // B 落在 A 之前时同样交换，保证区间始终有效。
+        val aSeconds = engine.state.value.abLoopASeconds
+        if (aSeconds >= 0.0 && seconds <= aSeconds) {
+            engine.clearAbLoop()
+            engine.setAbLoopA(seconds)
+            engine.setAbLoopB(aSeconds)
+        } else {
+            engine.setAbLoopB(seconds)
+        }
+    }
+
     override fun clearAbLoop() = engine.clearAbLoop()
 
     override fun toggleHwdec() {

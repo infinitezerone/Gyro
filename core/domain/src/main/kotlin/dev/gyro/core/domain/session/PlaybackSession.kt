@@ -64,6 +64,8 @@ interface PlaybackSession {
     fun frameStep()
     fun frameBackStep()
     fun cycleAbLoop()
+    fun setAbLoopA(seconds: Double)
+    fun setAbLoopB(seconds: Double)
     fun clearAbLoop()
 
     fun toggleHwdec()

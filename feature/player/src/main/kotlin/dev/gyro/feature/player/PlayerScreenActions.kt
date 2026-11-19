@@ -164,6 +164,14 @@ fun createPlayerOverlayActions(
             onResetControlsTimeout()
             viewModel.cycleAbLoop()
         },
+        onSetAbLoopA = { positionMs ->
+            onResetControlsTimeout()
+            viewModel.setAbLoopA(positionMs / 1000.0)
+        },
+        onSetAbLoopB = { positionMs ->
+            onResetControlsTimeout()
+            viewModel.setAbLoopB(positionMs / 1000.0)
+        },
         onClearAbLoop = {
             onResetControlsTimeout()
             viewModel.clearAbLoop()
