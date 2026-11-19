@@ -1,15 +1,17 @@
 package dev.gyro.feature.player.component.sheet
 
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -29,13 +31,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -52,14 +54,27 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import dev.gyro.feature.player.component.sheet.common.SheetBgColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+/** 抽屉的两个锚点：0 为完全展开，Closed 处的位移即抽屉自身的宽（横屏）或高（竖屏）。 */
+private val SHEET_SETTLE_SPEC = tween<Float>(durationMillis = 220)
+private enum class DragAnchor { Open, Closed }
 
 /**
  * 抽屉外壳：蒙层、横竖屏尺寸、拖拽跟手、下拉/右滑关闭、高度测量。
  *
  * 内容与路由状态留在调用方，这个 composable 只负责“怎么把一个面板拖出来 / 收回去”。
+ *
+ * 位移判定统一交给 [AnchoredDraggableState]（Material3 内部同款）：位置阈值、速度阈值、
+ * fling 吸附和目标动画都由它负责，三个输入路径（可滚动内容的 nested scroll、非滚动区域的
+ * 拖动、横屏的水平拖动）只调用 dispatchRawDelta / settle，不再各自维护阈值与回弹逻辑。
+ *
+ * 注意 1.12 的 [AnchoredDraggableState.positionalThreshold] 与 velocityThreshold 是可变字段，
+ * 必须在构造后赋值——单参构造时它们是 null，调用 settle(velocity) 会直接抛异常。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SheetDragScaffold(
     isLandscape: Boolean,
@@ -73,43 +88,46 @@ internal fun SheetDragScaffold(
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
 
-    // 拖拽手势状态：横屏右滑距离，竖屏下滑距离
     val density = LocalDensity.current
-    // 阈值对齐 BgmPlus（BgmBottomSheet）：位移 96dp、速度 500dp/s。
-    // M3 默认 125dp/s 过低，任何轻微下划在抬手瞬间都会达到，面板轻轻一碰就误关。
-    val dismissThresholdPx = with(density) { 96.dp.toPx() }
-    val flingDismissVelocityPx = with(density) { 500.dp.toPx() }
-    // 速度参与判定前必须已经产生的拖动距离，作用等同 M3「速度只作用于已拖动的抽屉」。
-    val flingMinDragPx = with(density) { 24.dp.toPx() }
-    var dragOffsetX by remember { mutableFloatStateOf(0f) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    // 一旦判定关闭就冻结位移驱动，避免退出动画与回弹动画同时写 offset。
-    var dismissing by remember { mutableStateOf(false) }
+    // 关闭所需位移：竖屏取抽屉高度，横屏取抽屉宽度，测量后写入。
+    var dismissDistancePx by remember { mutableFloatStateOf(0f) }
     val dragScope = rememberCoroutineScope()
-    val currentDismissThreshold by rememberUpdatedState(dismissThresholdPx)
-    val currentFlingVelocity by rememberUpdatedState(flingDismissVelocityPx)
-    val currentFlingMinDrag by rememberUpdatedState(flingMinDragPx)
 
-    // Scrolling the content to the top and pulling further has to keep dragging the sheet itself,
-    // otherwise the list swallows the rest of the dismiss gesture and the sheet cannot be closed
-    // from content that is already at its top.
-    //
-    // The two callbacks split the gesture by ownership: onPostScroll picks up the pull that the
-    // content could not consume (list already at its top), and once the sheet has started moving
-    // onPreScroll claims every further downward pull so the list stops scrolling underneath a sheet
-    // that is being dragged away - otherwise both move at once after the handover.
+    val dragState = remember { AnchoredDraggableState(initialValue = DragAnchor.Open) }
+
+    LaunchedEffect(dismissDistancePx) {
+        if (dismissDistancePx <= 0f) return@LaunchedEffect
+        dragState.updateAnchors(
+            DraggableAnchors {
+                DragAnchor.Open at 0f
+                DragAnchor.Closed at dismissDistancePx
+            }
+        )
+    }
+
+    // 吸附到 Closed 即关闭；落回 Open 时由 AnchoredDraggable 自己弹回。
+    LaunchedEffect(dragState) {
+        snapshotFlow { dragState.settledValue }
+            .filter { it == DragAnchor.Closed }
+            .collect { onDismiss() }
+    }
+
+    // 视频层靠这个位移把画面回填到抽屉让出的空间里。
+    LaunchedEffect(dragState) {
+        snapshotFlow { dragState.offset }
+            .filter { !it.isNaN() }
+            .collect { onSheetDragOffsetChanged(it) }
+    }
+
+    // 只有竖屏内容可滚动时需要分流：列表吃剩的下拉量交给抽屉。横屏横向拖动与列表的
+    // 纵向滚动不冲突，直接由 pointerInput 接管。
     val verticalDismissConnection = remember(isLandscape) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (isLandscape || dismissing || dragOffsetY <= 0f) return Offset.Zero
-                // Momentum belongs to the list. Only a finger moves the sheet.
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                // Already dragging: the sheet owns the vertical axis until it is back at rest.
-                // Pulling up first returns the sheet to open, and only the remainder reaches the list.
-                val delta = if (available.y > 0f) available.y else (-dragOffsetY).coerceAtLeast(available.y)
-                dragOffsetY = (dragOffsetY + delta).coerceAtLeast(0f)
-                onSheetDragOffsetChanged(dragOffsetY)
-                return Offset(0f, delta)
+                if (isLandscape || source != NestedScrollSource.UserInput) return Offset.Zero
+                // 抽屉还没被拖起来时纵向手势全归列表。
+                if (dragState.offset.isNaN() || dragState.offset <= 0f) return Offset.Zero
+                return Offset(0f, dragState.dispatchRawDelta(available.y))
             }
 
             override fun onPostScroll(
@@ -117,46 +135,18 @@ internal fun SheetDragScaffold(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                if (isLandscape || dismissing || available.y <= 0f) return Offset.Zero
-                // Same rule for the handover: a fling that runs out of list must not tug the sheet
-                // down by itself, otherwise tossing the list to the top ends in a half-dismissed
-                // sheet. The sheet starts following only when the finger keeps pulling.
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                dragOffsetY = (dragOffsetY + available.y).coerceAtLeast(0f)
-                onSheetDragOffsetChanged(dragOffsetY)
-                return Offset(0f, available.y)
-            }
-
-            /**
-             * 关闭判定放在 onPreFling：onPostFling 要等列表惯性跑完才回调，快速下滑会先停住
-             * 几百毫秒才收面板。速度必须配合位移——没有拖动过时，向下的剩余速度只是列表
-             * 到顶的残余，不能据此关闭，否则「上滑到顶再快速下滑」会把面板直接关掉。
-             */
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (isLandscape || dismissing) return Velocity.Zero
-                if (dragOffsetY < currentFlingMinDrag) return Velocity.Zero
-                if (available.y <= currentFlingVelocity) return Velocity.Zero
-                dismissing = true
-                onDismiss()
-                return available
+                if (isLandscape || source != NestedScrollSource.UserInput) return Offset.Zero
+                // available.y > 0 才是列表到顶后继续下拉的余量。
+                if (available.y <= 0f || dragState.offset.isNaN()) return Offset.Zero
+                return Offset(0f, dragState.dispatchRawDelta(available.y))
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (isLandscape || dismissing || dragOffsetY <= 0f) return Velocity.Zero
-                if (dragOffsetY > currentDismissThreshold) {
-                    dismissing = true
-                    onDismiss()
-                } else {
-                    val from = dragOffsetY
-                    animate(
-                        initialValue = from,
-                        targetValue = 0f,
-                        animationSpec = tween(200),
-                    ) { value, _ ->
-                        dragOffsetY = value
-                        onSheetDragOffsetChanged(value)
-                    }
-                }
+                if (isLandscape) return Velocity.Zero
+                val offset = dragState.offset
+                // 抽屉没被拖动时，速度只是列表到顶的残余，不能据此关闭。
+                if (offset.isNaN() || offset <= 0f) return Velocity.Zero
+                dragState.settle(SHEET_SETTLE_SPEC)
                 return Velocity.Zero
             }
         }
@@ -213,90 +203,40 @@ internal fun SheetDragScaffold(
 
         val dragModifier = Modifier
             .offset {
+                val dragged = dragState.offset.takeUnless { it.isNaN() } ?: 0f
                 if (isLandscape) {
-                    IntOffset(dragOffsetX.roundToInt(), 0)
+                    IntOffset(dragged.roundToInt(), 0)
                 } else {
-                    IntOffset(0, dragOffsetY.roundToInt())
+                    IntOffset(0, dragged.roundToInt())
                 }
             }
             .nestedScroll(verticalDismissConnection)
             .pointerInput(isLandscape) {
                 if (isLandscape) {
                     detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (dismissing) return@detectHorizontalDragGestures
-                            if (dragOffsetX > currentDismissThreshold) {
-                                // 保留偏移让退出动画从当前位置滑出，归零会先跳回原位。
-                                dismissing = true
-                                onDismiss()
-                            } else {
-                                // 未过阈值时平滑回弹，直接归零会「啪」地跳回。
-                                val from = dragOffsetX
-                                dragScope.launch {
-                                    animate(
-                                        initialValue = from,
-                                        targetValue = 0f,
-                                        animationSpec = tween(200),
-                                    ) { value, _ -> dragOffsetX = value }
-                                }
-                            }
-                        },
-                        onDragCancel = {
-                            val from = dragOffsetX
-                            dragScope.launch {
-                                animate(
-                                    initialValue = from,
-                                    targetValue = 0f,
-                                    animationSpec = tween(200),
-                                ) { value, _ -> dragOffsetX = value }
-                            }
-                        },
+                        onDragEnd = { dragScope.launch { dragState.settle(SHEET_SETTLE_SPEC) } },
+                        onDragCancel = { dragScope.launch { dragState.settle(SHEET_SETTLE_SPEC) } },
                         onHorizontalDrag = { change, dragAmount ->
-                            if (dismissing) return@detectHorizontalDragGestures
-                            if (dragAmount > 0 || dragOffsetX > 0) {
-                                change.consume()
-                                dragOffsetX = (dragOffsetX + dragAmount).coerceAtLeast(0f)
+                            if (dragState.offset.isNaN()) return@detectHorizontalDragGestures
+                            // 只允许向右拖（抽屉在右侧），左拖交给内容。
+                            if (dragAmount > 0f || dragState.offset > 0f) {
+                                val consumed = dragState.dispatchRawDelta(dragAmount)
+                                if (consumed != 0f) change.consume()
                             }
                         }
                     )
                 }
-                // The header and other non-scrolling parts of the sheet never reach the nested
-                // scroll, so they keep their own detector. It cannot double-count with
-                // verticalDismissConnection: a scrollable child consumes the pointer events first,
-                // and a consumed drag never reaches this detector.
+                // 标题栏、把手等非滚动区域不会进入 nested scroll，保留独立检测器；
+                // 可滚动内容会先消费指针事件，两者不会重复计数。
                 else {
                     detectVerticalDragGestures(
-                        onDragEnd = {
-                            if (dismissing) return@detectVerticalDragGestures
-                            if (dragOffsetY > currentDismissThreshold) {
-                                dismissing = true
-                                // Keep both offsets: resetting here snaps the sheet back to fully
-                                // open for a frame before the slide-out starts, reading as a bounce.
-                                onDismiss()
-                            } else {
-                                val from = dragOffsetY
-                                dragScope.launch {
-                                    animate(
-                                        initialValue = from,
-                                        targetValue = 0f,
-                                        animationSpec = tween(200),
-                                    ) { value, _ ->
-                                        dragOffsetY = value
-                                        onSheetDragOffsetChanged(value)
-                                    }
-                                }
-                            }
-                        },
-                        onDragCancel = {
-                            onSheetDragOffsetChanged(0f)
-                            dragOffsetY = 0f
-                        },
+                        onDragEnd = { dragScope.launch { dragState.settle(SHEET_SETTLE_SPEC) } },
+                        onDragCancel = { dragScope.launch { dragState.settle(SHEET_SETTLE_SPEC) } },
                         onVerticalDrag = { change, dragAmount ->
-                            if (dismissing) return@detectVerticalDragGestures
-                            if (dragAmount > 0 || dragOffsetY > 0) {
-                                change.consume()
-                                dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
-                                onSheetDragOffsetChanged(dragOffsetY)
+                            if (dragState.offset.isNaN()) return@detectVerticalDragGestures
+                            if (dragAmount > 0f || dragState.offset > 0f) {
+                                val consumed = dragState.dispatchRawDelta(dragAmount)
+                                if (consumed != 0f) change.consume()
                             }
                         }
                     )
@@ -308,7 +248,10 @@ internal fun SheetDragScaffold(
                 .align(if (isLandscape) Alignment.CenterEnd else Alignment.BottomCenter)
                 .then(animationModifier)
                 .then(dragModifier)
-                .onSizeChanged { if (!isLandscape) onSheetHeightChanged(it.height) }
+                .onSizeChanged {
+                    dismissDistancePx = if (isLandscape) it.width.toFloat() else it.height.toFloat()
+                    if (!isLandscape) onSheetHeightChanged(it.height)
+                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
