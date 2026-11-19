@@ -22,24 +22,34 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import coil3.video.VideoFrameDecoder
 import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.feature.home.thumbnail.ContentThumbnailFetcher
+import dev.gyro.feature.home.thumbnail.VideoThumbnailLoader
 
-private val SharedVideoFrameDecoderFactory = VideoFrameDecoder.Factory()
-
+/**
+ * High-performance video thumbnail component powered by Coil 3.
+ *
+ * Uses [VideoThumbnailLoader] to automatically prioritize hardware-accelerated system thumbnails
+ * via [ContentThumbnailFetcher], and throttles fallback frame extractions to protect UI responsiveness.
+ */
 @Composable
 fun VideoThumbnail(
     uri: Uri,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    targetWidth: Int = ContentThumbnailFetcher.DEFAULT_WIDTH,
+    targetHeight: Int = ContentThumbnailFetcher.DEFAULT_HEIGHT,
+    contentScale: ContentScale = ContentScale.Crop,
+    contentDescription: String? = null,
+    placeholder: @Composable (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var isLoaded by remember(uri) { mutableStateOf(false) }
 
-    val request = remember(uri, context) {
+    val imageLoader = remember(context) { VideoThumbnailLoader.get(context) }
+    val request = remember(uri, context, targetWidth, targetHeight) {
         ImageRequest.Builder(context)
             .data(uri)
-            .size(320, 180)
-            .decoderFactory(SharedVideoFrameDecoderFactory)
+            .size(targetWidth, targetHeight)
             .crossfade(true)
             .build()
     }
@@ -49,17 +59,22 @@ fun VideoThumbnail(
         contentAlignment = Alignment.Center
     ) {
         if (!isLoaded) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = GyroColors.TextMuted,
-                modifier = Modifier.size(28.dp)
-            )
+            if (placeholder != null) {
+                placeholder()
+            } else {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = GyroColors.TextMuted,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         }
         AsyncImage(
             model = request,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+            imageLoader = imageLoader,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
             modifier = Modifier.fillMaxSize(),
             onSuccess = { isLoaded = true },
             onError = { isLoaded = false }
