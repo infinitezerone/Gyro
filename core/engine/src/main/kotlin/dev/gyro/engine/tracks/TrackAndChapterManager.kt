@@ -98,7 +98,6 @@ class TrackAndChapterManager(
                     "video" -> TrackType.VIDEO
                     "audio" -> TrackType.AUDIO
                     "sub" -> TrackType.SUBTITLE
-                    "secondary-sub" -> TrackType.SECONDARY_SUBTITLE
                     else -> TrackType.UNKNOWN
                 }
                 val title = bridge.getPropertyString("track-list/$i/title")
@@ -107,6 +106,13 @@ class TrackAndChapterManager(
                 trackList.add(TrackInfo(id, type, title, lang, selected))
             }
             _tracks.value = trackList
+            // 次字幕指向的轨道可能随换片/轨道刷新消失，必须同步清掉，否则 UI 会显示一个不存在的次字幕。
+            val subtitleIds = trackList
+                .filter { it.type == TrackType.SUBTITLE }
+                .mapTo(mutableSetOf()) { it.id }
+            if (_secondarySubId.value > 0 && _secondarySubId.value !in subtitleIds) {
+                bridge.setPropertyString("secondary-sid", "no")
+            }
             EngineLog.i(TAG, "Refreshed tracks: count=$count, tracks=$trackList")
         } catch (t: Throwable) {
             EngineLog.w(TAG, "Failed to refresh tracks: ${t.message}")
@@ -123,10 +129,18 @@ class TrackAndChapterManager(
             }
             TrackType.SUBTITLE -> {
                 bridge.setPropertyString("sid", if (id <= 0) "no" else "$id")
+                // 主字幕切到当前次字幕轨时清掉次字幕，避免同一条字幕被渲染两次。
+                if (id > 0 && id == _secondarySubId.value) {
+                    bridge.setPropertyString("secondary-sid", "no")
+                }
             }
             TrackType.SECONDARY_SUBTITLE -> {
-                // 次字幕（双语同屏）：id <= 0 关闭；主字幕轨不会被次字幕抢占
-                bridge.setPropertyString("secondary-sid", if (id <= 0) "no" else "$id")
+                // 次字幕（双语同屏）：id <= 0 关闭；主字幕轨不会被次字幕抢占。
+                val primaryId = _tracks.value
+                    .firstOrNull { it.type == TrackType.SUBTITLE && it.isSelected }
+                    ?.id ?: 0
+                val effectiveId = if (id > 0 && id == primaryId) 0 else id
+                bridge.setPropertyString("secondary-sid", if (effectiveId <= 0) "no" else "$effectiveId")
             }
             TrackType.UNKNOWN -> return
         }
