@@ -116,24 +116,35 @@ fun HomeScreen(
         treeUri?.let { viewModel.addCustomFolder(it) }
     }
 
-    // Permission Launcher
-    val requiredPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        Manifest.permission.READ_MEDIA_VIDEO
-    } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
+    // Permission Launcher (supports Android 14+ partial media access via READ_MEDIA_VISUAL_USER_SELECTED)
+    val requiredPermissions = remember {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                arrayOf(
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                )
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                arrayOf(Manifest.permission.READ_MEDIA_VIDEO)
+            }
+            else -> {
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val isGranted = results.values.any { it }
         viewModel.onPermissionResult(isGranted)
     }
 
     LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            requiredPermission
-        ) == PackageManager.PERMISSION_GRANTED
+        val granted = requiredPermissions.any { perm ->
+            ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+        }
         viewModel.onPermissionResult(granted)
     }
 
@@ -151,7 +162,7 @@ fun HomeScreen(
         },
         onPickFolder = { openFolderLauncher.launch(null) },
         onOpenSettings = onOpenSettings,
-        onRequestPermission = { permissionLauncher.launch(requiredPermission) },
+        onRequestPermission = { permissionLauncher.launch(requiredPermissions) },
         onRefresh = { viewModel.refreshVideos() },
         onSelectFolder = { viewModel.selectFolder(it) },
         onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
