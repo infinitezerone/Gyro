@@ -338,7 +338,7 @@ class PlayerGestureNode(
                         DragMode.VERTICAL_VOLUME -> {
                             pointer.consume()
                             // 垂直音量滑动手势行程校准：
-                            // 一段行程 (100% 满额) 约需 160-220dp 划程，单次大幅向上滑即可自然跨入二段软件超驱动 (101%~200%)
+                            // 一段行程 (100% 满额) 约需 160-220dp 划程，只调节系统媒体音量，不进入软件增益。
                             val dragSpan = if (size.width > size.height) {
                                 (size.height * 0.40f).coerceAtLeast(100f)
                             } else {

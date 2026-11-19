@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlin.math.roundToInt
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.model.time.formatDuration
@@ -142,9 +143,7 @@ fun BoxScope.PlayerHudOverlay(
                         icon = Icons.Default.BrightnessMedium,
                         contentDescription = stringResource(R.string.cd_brightness),
                         ratio = hudState.brightnessRatio,
-                        percentage = hudState.percent,
-                        activeColor = Color(0xFFFFB74D), // Warm Amber
-                        isOverdrive = false
+                        activeColor = Color(0xFFFFB74D) // Warm Amber
                     )
                 }
                 is GestureHudState.Volume -> {
@@ -153,18 +152,11 @@ fun BoxScope.PlayerHudOverlay(
                     } else {
                         Icons.AutoMirrored.Filled.VolumeUp
                     }
-                    val activeColor = if (hudState.isOverdrive) {
-                        Color(0xFFFF9800) // Warm Amber #FF9800 for overdrive
-                    } else {
-                        Color(0xFF64B5F6) // Material Blue for normal stream volume
-                    }
                     TopCapsuleSlider(
                         icon = icon,
                         contentDescription = stringResource(R.string.cd_volume),
                         ratio = hudState.volumeRatio,
-                        percentage = hudState.percent,
-                        activeColor = activeColor,
-                        isOverdrive = hudState.isOverdrive
+                        activeColor = Color(0xFF64B5F6) // Material Blue for stream volume
                     )
                 }
                 else -> Unit
@@ -526,25 +518,16 @@ private fun TopCapsuleSlider(
     icon: ImageVector,
     contentDescription: String,
     ratio: Float,
-    percentage: Int,
     activeColor: Color,
-    isOverdrive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val borderColor = if (isOverdrive) {
-        Color(0xFFFF9800).copy(alpha = 0.60f)
-    } else {
-        Color.White.copy(alpha = 0.15f)
-    }
-    val capsuleWidth = if (isOverdrive) 240.dp else 200.dp
-
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = Color.Black.copy(alpha = 0.75f),
-        border = BorderStroke(if (isOverdrive) 1.dp else 0.5.dp, borderColor),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f)),
         shadowElevation = 6.dp,
         modifier = modifier
-            .width(capsuleWidth)
+            .width(200.dp)
             .height(38.dp)
     ) {
         Row(
@@ -584,30 +567,18 @@ private fun TopCapsuleSlider(
                 )
             }
 
-            // 百分比数值
+            // 百分比数值跟随同一个动画值，避免数字逐格跳变
             Text(
-                text = "$percentage%",
+                text = "${(animatedRatio * 100f).roundToInt()}%",
                 style = TextStyle(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isOverdrive) activeColor else Color.White,
+                    color = Color.White,
                     fontFeatureSettings = "tnum",
                     textAlign = TextAlign.End
                 ),
                 modifier = Modifier.width(36.dp)
             )
-
-            // 超驱动指示
-            if (isOverdrive) {
-                Text(
-                    text = stringResource(R.string.hud_volume_overdrive_hint),
-                    style = TextStyle(
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFF9800)
-                    )
-                )
-            }
         }
     }
 }

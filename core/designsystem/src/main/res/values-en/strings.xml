@@ -202,11 +202,9 @@
     <string name="chapter_empty">No chapter markers found</string>
     <string name="chapter_current_badge">Current Chapter</string>
 
-    <!-- R4: Audiovisual Enhancements & Overdrive -->
+    <!-- R4: Audiovisual Enhancements -->
     <string name="sheet_tab_audiovisual">Audiovisual</string>
     <string name="sheet_tab_video">Video</string>
-    <string name="hud_volume_overdrive">Volume %d%%</string>
-    <string name="hud_volume_overdrive_hint">Up to 200%</string>
     <string name="effects_color_reset">Reset Colors</string>
 
     <!-- R7: MX Player Style Custom Gestures -->
@@ -217,7 +215,7 @@
     <string name="settings_gesture_vertical_mode_vol_bright">Volume &amp; brightness</string>
     <string name="settings_gesture_vertical_mode_switch_video">Switch video</string>
     <string name="settings_gesture_volume">Vertical Swipe Volume</string>
-    <string name="settings_gesture_volume_desc">Swipe vertically on right side to adjust volume (supports 200%% overdrive)</string>
+    <string name="settings_gesture_volume_desc">Swipe vertically on right side to adjust system volume</string>
     <string name="settings_gesture_brightness">Vertical Swipe Brightness</string>
     <string name="settings_gesture_brightness_desc">Swipe vertically on left side to adjust screen brightness</string>
     <string name="settings_gesture_seek">Horizontal Swipe Seek</string>

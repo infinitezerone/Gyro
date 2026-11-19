@@ -358,7 +358,6 @@ fun PlayerScreen(
         playerState = playerState,
         isPlaying = isPlaying,
         currentPosMsProvider = { timePosState.value },
-        softwareVolumeProvider = { snapshot.softwareVolume },
         durationMs = durationMs,
         speed = speed,
         scope = scope,

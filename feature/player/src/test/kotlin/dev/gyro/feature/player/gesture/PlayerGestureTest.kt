@@ -209,7 +209,7 @@ class PlayerGestureTest {
     }
 
     @Test
-    fun testDefaultPlayerGestureCallbacksOverdriveVolumeContinuesFromDragStartWithoutSlammingToZero() {
+    fun testDefaultPlayerGestureCallbacksVolumeGestureStopsAtSystemMaximum() {
         var systemVol = 15
         val audioManager = mockk<AudioManager>(relaxed = true)
         every { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) } returns 15
@@ -222,7 +222,6 @@ class PlayerGestureTest {
                 if (name == Context.AUDIO_SERVICE) audioManager else null
         }
 
-        var softwareVolume = 100.0
         var latestHud: GestureHudState = GestureHudState.Idle
         val callbacks = DefaultPlayerGestureCallbacks(
             context = fakeContext,
@@ -238,27 +237,25 @@ class PlayerGestureTest {
             onDoubleTapPlayPause = {},
             onFastForwardStart = {},
             onFastForwardEnd = {},
-            onHudStateChange = { latestHud = it },
-            onSoftwareVolumeChange = { softwareVolume = it },
-            getSoftwareVolume = { softwareVolume },
+            onHudStateChange = { latestHud = it }
         )
 
         callbacks.onVolumeStart()
-        assertEquals(GestureHudState.Volume(percent = 100, volumeRatio = 1.0f, isOverdrive = false), latestHud)
+        assertEquals(GestureHudState.Volume(percent = 100, volumeRatio = 1.0f), latestHud)
 
+        // Swiping past 100% must not reach for software gain: the stream stays at maximum.
         callbacks.onVolumeUpdate(0.5f)
-        assertEquals(150.0, softwareVolume, 0.001)
         assertEquals(15, systemVol)
-        assertEquals(GestureHudState.Volume(percent = 150, volumeRatio = 0.5f, isOverdrive = true), latestHud)
+        assertEquals(GestureHudState.Volume(percent = 100, volumeRatio = 1.0f), latestHud)
 
-        callbacks.onVolumeUpdate(0.4f)
-        assertEquals(140.0, softwareVolume, 0.001)
-        assertEquals(15, systemVol)
-        assertEquals(GestureHudState.Volume(percent = 140, volumeRatio = 0.4f, isOverdrive = true), latestHud)
+        callbacks.onVolumeUpdate(-0.4f)
+        assertEquals(9, systemVol)
+        val sixty = latestHud as GestureHudState.Volume
+        assertEquals(60, sixty.percent)
+        assertEquals(0.6f, sixty.volumeRatio, 0.001f)
 
-        callbacks.onVolumeUpdate(-0.2f)
-        assertEquals(100.0, softwareVolume, 0.001)
-        assertEquals(12, systemVol)
-        assertEquals(GestureHudState.Volume(percent = 80, volumeRatio = 0.8f, isOverdrive = false), latestHud)
+        callbacks.onVolumeUpdate(-1.0f)
+        assertEquals(0, systemVol)
+        assertEquals(GestureHudState.Volume(percent = 0, volumeRatio = 0.0f), latestHud)
     }
 }

@@ -7,7 +7,6 @@ import android.content.ContextWrapper
 import android.media.AudioManager
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.geometry.Offset
-import kotlin.math.roundToInt
 
 /**
  * Callbacks for player gesture events and dynamic state queries.
@@ -64,8 +63,6 @@ class DefaultPlayerGestureCallbacks(
     private val onFastForwardStart: (Float) -> Unit,
     private val onFastForwardEnd: () -> Unit,
     private val onHudStateChange: (GestureHudState) -> Unit,
-    private val onSoftwareVolumeChange: ((Double) -> Unit)? = null,
-    private val getSoftwareVolume: (() -> Double)? = null,
     private val onSeekTo: ((Long) -> Unit)? = null,
     private val onPlayPrevious: (() -> Unit)? = null,
     private val onPlayNext: (() -> Unit)? = null,
@@ -83,6 +80,13 @@ class DefaultPlayerGestureCallbacks(
 
     private var dragStartOverallVolume: Int = 0
     private var dragStartBrightness: Float = 0.5f
+
+    /**
+     * Last system volume actually pushed to AudioManager. A drag produces one callback per pointer
+     * event, but the stream only has a handful of integer steps: writing the same value again is
+     * pure binder work on the UI thread, which made the volume change feel sticky.
+     */
+    private var appliedSystemVolume: Int = -1
 
     /**
      * 手势触觉反馈（双击 seek / 长按倍速触发 / seek 落点），
@@ -196,13 +200,12 @@ class DefaultPlayerGestureCallbacks(
 
     override fun onVolumeStart() {
         val curSysVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
-        val curSoftGain = getSoftwareVolume?.invoke() ?: 100.0
-        dragStartOverallVolume = TwoStageVolumeCalculator.computeInitialPercent(
+        appliedSystemVolume = curSysVol
+        dragStartOverallVolume = VolumeGestureCalculator.computeInitialPercent(
             currentSystemVolume = curSysVol,
-            maxSystemVolume = maxVolume,
-            currentSoftwareVolume = curSoftGain
+            maxSystemVolume = maxVolume
         )
-        val initialResult = TwoStageVolumeCalculator.calculate(
+        val initialResult = VolumeGestureCalculator.calculate(
             dragStartPercent = dragStartOverallVolume,
             deltaRatio = 0f,
             maxSystemVolume = maxVolume
@@ -210,30 +213,25 @@ class DefaultPlayerGestureCallbacks(
         onHudStateChange.invoke(
             GestureHudState.Volume(
                 percent = initialResult.totalPercent,
-                volumeRatio = initialResult.volumeRatio,
-                isOverdrive = initialResult.isOverdrive
+                volumeRatio = initialResult.volumeRatio
             )
         )
     }
 
     override fun onVolumeUpdate(deltaRatio: Float) {
-        val result = TwoStageVolumeCalculator.calculate(
+        val result = VolumeGestureCalculator.calculate(
             dragStartPercent = dragStartOverallVolume,
             deltaRatio = deltaRatio,
             maxSystemVolume = maxVolume
         )
-        audioManager?.let { am ->
-            val curVol = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (result.systemVolume != curVol) {
-                am.setStreamVolume(AudioManager.STREAM_MUSIC, result.systemVolume, 0)
-            }
+        if (result.systemVolume != appliedSystemVolume) {
+            audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, result.systemVolume, 0)
+            appliedSystemVolume = result.systemVolume
         }
-        onSoftwareVolumeChange?.invoke(result.softwareVolume)
         onHudStateChange.invoke(
             GestureHudState.Volume(
                 percent = result.totalPercent,
-                volumeRatio = result.volumeRatio,
-                isOverdrive = result.isOverdrive
+                volumeRatio = result.volumeRatio
             )
         )
     }

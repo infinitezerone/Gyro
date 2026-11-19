@@ -447,7 +447,7 @@ fun PlayerVolumeBrightnessHudPreview() {
             .background(Color(0xFF101010))
     ) {
         PlayerHudOverlay(
-            hudState = GestureHudState.Volume(volumeRatio = 0.75f, percent = 75, isOverdrive = false),
+            hudState = GestureHudState.Volume(volumeRatio = 0.75f, percent = 75),
             scrubState = remember { PlayerScrubState() },
             durationMs = { 45 * 60_000L }
         )

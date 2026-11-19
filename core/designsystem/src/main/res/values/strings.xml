@@ -215,11 +215,9 @@
     <string name="chapter_empty">视频未包含章节标记</string>
     <string name="chapter_current_badge">当前章节</string>
 
-    <!-- R4: Audiovisual Enhancements & Overdrive -->
+    <!-- R4: Audiovisual Enhancements -->
     <string name="sheet_tab_audiovisual">视听调节</string>
     <string name="sheet_tab_video">画面</string>
-    <string name="hud_volume_overdrive">音量 %d%%</string>
-    <string name="hud_volume_overdrive_hint">最高 200%</string>
     <string name="effects_color_reset">重置色彩</string>
 
     <!-- R7: MX Player Style Custom Gestures -->

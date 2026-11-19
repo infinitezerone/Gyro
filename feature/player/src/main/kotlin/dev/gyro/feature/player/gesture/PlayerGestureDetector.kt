@@ -24,8 +24,7 @@ sealed class GestureHudState {
     data object Idle : GestureHudState()
     data class Volume(
         val percent: Int,
-        val volumeRatio: Float,
-        val isOverdrive: Boolean = percent > 100
+        val volumeRatio: Float
     ) : GestureHudState()
     data class Brightness(val percent: Int, val brightnessRatio: Float) : GestureHudState()
     data class Seek(val targetMs: Long, val deltaMs: Long, val totalMs: Long) : GestureHudState()
@@ -66,8 +65,6 @@ fun Modifier.playerGestures(
     onFastForwardStart: (Float) -> Unit,
     onFastForwardEnd: () -> Unit,
     onHudStateChange: (GestureHudState) -> Unit,
-    onSoftwareVolumeChange: ((Double) -> Unit)? = null,
-    getSoftwareVolume: (() -> Double)? = null,
     onSeekTo: ((Long) -> Unit)? = null,
     onPlayPrevious: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
@@ -108,8 +105,6 @@ fun Modifier.playerGestures(
     val currentOnFastForwardStart by rememberUpdatedState(onFastForwardStart)
     val currentOnFastForwardEnd by rememberUpdatedState(onFastForwardEnd)
     val currentOnHudStateChange by rememberUpdatedState(onHudStateChange)
-    val currentOnSoftwareVolumeChange by rememberUpdatedState(onSoftwareVolumeChange)
-    val currentGetSoftwareVolume by rememberUpdatedState(getSoftwareVolume)
     val currentOnSeekTo by rememberUpdatedState(onSeekTo)
     val currentOnPlayPrevious by rememberUpdatedState(onPlayPrevious)
     val currentOnPlayNext by rememberUpdatedState(onPlayNext)
@@ -118,8 +113,8 @@ fun Modifier.playerGestures(
     val currentOnVerticalSwitchDragUpdate by rememberUpdatedState(onVerticalSwitchDragUpdate)
     val currentOnVerticalSwitchDragEnd by rememberUpdatedState(onVerticalSwitchDragEnd)
 
-    // Key solely on (context, scrubState) so DefaultPlayerGestureCallbacks (and its dragStartOverallVolume /
-    // dragStartBrightness state) is never recreated mid-drag when snapshot.softwareVolume or HUD updates.
+    // Key solely on (context, scrubState) so DefaultPlayerGestureCallbacks (and its drag-start
+    // volume/brightness state) is never recreated mid-drag when HUD updates arrive.
     val callbacks = remember(context, scrubState) {
         DefaultPlayerGestureCallbacks(
             context = context,
@@ -138,8 +133,6 @@ fun Modifier.playerGestures(
             onFastForwardStart = { speed -> currentOnFastForwardStart(speed) },
             onFastForwardEnd = { currentOnFastForwardEnd() },
             onHudStateChange = { state -> currentOnHudStateChange(state) },
-            onSoftwareVolumeChange = { gain -> currentOnSoftwareVolumeChange?.invoke(gain) },
-            getSoftwareVolume = { currentGetSoftwareVolume?.invoke() ?: 100.0 },
             onSeekTo = { targetMs ->
                 val seek = currentOnSeekTo
                 if (seek != null) {

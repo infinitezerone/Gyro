@@ -1,9 +1,8 @@
 package dev.gyro.feature.player
 
 import dev.gyro.core.model.ChapterInfo
-import dev.gyro.feature.player.gesture.TwoStageVolumeCalculator
+import dev.gyro.feature.player.gesture.VolumeGestureCalculator
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.roundToInt
@@ -13,121 +12,87 @@ class AdversarialM4ChallengerTest {
     private val maxSysVolume = 15
 
     // =========================================================================
-    // 1. TwoStageVolumeCalculator: Exact Boundary States
+    // 1. VolumeGestureCalculator: Exact Boundary States
     // =========================================================================
 
     @Test
     fun testExactBoundary_0Percent() {
-        val result = TwoStageVolumeCalculator.calculate(
+        val result = VolumeGestureCalculator.calculate(
             dragStartPercent = 0,
             deltaRatio = 0f,
             maxSystemVolume = maxSysVolume
         )
         assertEquals(0, result.totalPercent)
         assertEquals(0, result.systemVolume)
-        assertEquals(100.0, result.softwareVolume, 0.0001)
         assertEquals(0.0f, result.volumeRatio, 0.0001f)
-        assertFalse(result.isOverdrive)
     }
 
     @Test
     fun testExactBoundary_100Percent() {
-        val result = TwoStageVolumeCalculator.calculate(
+        val result = VolumeGestureCalculator.calculate(
             dragStartPercent = 100,
             deltaRatio = 0f,
             maxSystemVolume = maxSysVolume
         )
         assertEquals(100, result.totalPercent)
         assertEquals(maxSysVolume, result.systemVolume)
-        assertEquals(100.0, result.softwareVolume, 0.0001)
         assertEquals(1.0f, result.volumeRatio, 0.0001f)
-        assertFalse(result.isOverdrive)
     }
 
     @Test
-    fun testExactBoundary_101Percent() {
-        val result = TwoStageVolumeCalculator.calculate(
+    fun testDeltaCannotExceedSystemMaximum() {
+        val result = VolumeGestureCalculator.calculate(
             dragStartPercent = 100,
-            deltaRatio = 0.01f, // +1%
+            deltaRatio = 1.0f,
             maxSystemVolume = maxSysVolume
         )
-        assertEquals(101, result.totalPercent)
+        assertEquals(100, result.totalPercent)
         assertEquals(maxSysVolume, result.systemVolume)
-        assertEquals(101.0, result.softwareVolume, 0.0001)
-        assertEquals(0.01f, result.volumeRatio, 0.0001f)
-        assertTrue(result.isOverdrive)
-    }
-
-    @Test
-    fun testExactBoundary_200Percent() {
-        val result = TwoStageVolumeCalculator.calculate(
-            dragStartPercent = 200,
-            deltaRatio = 0f,
-            maxSystemVolume = maxSysVolume
-        )
-        assertEquals(200, result.totalPercent)
-        assertEquals(maxSysVolume, result.systemVolume)
-        assertEquals(200.0, result.softwareVolume, 0.0001)
         assertEquals(1.0f, result.volumeRatio, 0.0001f)
-        assertTrue(result.isOverdrive)
     }
 
     // =========================================================================
-    // 2. System Volume Isolation Across 101%..200%
+    // 2. Linear Mapping Across Stream Volumes
     // =========================================================================
 
     @Test
-    fun testSystemVolumeIsolation_allOverdrivePercents() {
+    fun testSystemVolumeMapping_allPercentsAndMaxima() {
         val testMaxVolumes = listOf(1, 5, 10, 15, 25, 100)
         for (maxVol in testMaxVolumes) {
-            for (pct in 101..200) {
-                val result = TwoStageVolumeCalculator.calculate(
+            for (pct in 0..100) {
+                val result = VolumeGestureCalculator.calculate(
                     dragStartPercent = pct,
                     deltaRatio = 0f,
                     maxSystemVolume = maxVol
                 )
-                // System volume MUST be clamped at maxVol and NEVER change
-                assertEquals("System volume must remain at maxVol for $pct% (max=$maxVol)", maxVol, result.systemVolume)
-                assertTrue("isOverdrive must be true for $pct%", result.isOverdrive)
-                assertEquals("Software gain must be equal to pct", pct.toDouble(), result.softwareVolume, 0.0001)
-                val expectedRatio = (pct - 100) / 100f
-                assertEquals("Overdrive ratio must scale linearly", expectedRatio, result.volumeRatio, 0.0001f)
+                val expected = (pct / 100f * maxVol).roundToInt().coerceIn(0, maxVol)
+                assertEquals("System volume at $pct% (max=$maxVol)", expected, result.systemVolume)
+                assertEquals("Ratio at $pct%", pct / 100f, result.volumeRatio, 0.0001f)
             }
         }
     }
 
     // =========================================================================
-    // 3. Reverse Swipe: Continuous Sweep from 200% Down to 0%
+    // 3. Reverse Swipe: Continuous Sweep from 100% Down to 0%
     // =========================================================================
 
     @Test
-    fun testReverseSwipe_continuousDescentFrom200To0() {
+    fun testReverseSwipe_continuousDescentFrom100To0() {
         var lastSystemVolume = maxSysVolume
-        for (step in 0..200) {
-            val deltaRatio = -step / 100f
-            val result = TwoStageVolumeCalculator.calculate(
-                dragStartPercent = 200,
-                deltaRatio = deltaRatio,
+        for (step in 0..100) {
+            val result = VolumeGestureCalculator.calculate(
+                dragStartPercent = 100,
+                deltaRatio = -step / 100f,
                 maxSystemVolume = maxSysVolume
             )
-            val expectedPct = 200 - step
+            val expectedPct = 100 - step
             assertEquals("Total percent match at step $step", expectedPct, result.totalPercent)
-
-            if (expectedPct > 100) {
-                // In Overdrive: system volume strictly at maxSysVolume, software volume scales down
-                assertEquals(maxSysVolume, result.systemVolume)
-                assertEquals(expectedPct.toDouble(), result.softwareVolume, 0.0001)
-                assertTrue(result.isOverdrive)
-            } else {
-                // In Stage 1: software volume pinned at 100.0%, system volume monotonically non-increasing
-                assertEquals("Software volume must be 100.0% at $expectedPct%", 100.0, result.softwareVolume, 0.0001)
-                assertFalse("isOverdrive must be false at $expectedPct%", result.isOverdrive)
-                assertTrue(
-                    "System volume should monotonically non-increase: $result.systemVolume <= $lastSystemVolume",
-                    result.systemVolume <= lastSystemVolume
-                )
-                lastSystemVolume = result.systemVolume
-            }
+            assertTrue(
+                "System volume should monotonically non-increase: $result.systemVolume <= $lastSystemVolume",
+                result.systemVolume <= lastSystemVolume
+            )
+            assertEquals("Ratio must follow percent", expectedPct / 100f, result.volumeRatio, 0.0001f)
+            lastSystemVolume = result.systemVolume
         }
         assertEquals(0, lastSystemVolume)
     }
@@ -138,39 +103,27 @@ class AdversarialM4ChallengerTest {
 
     @Test
     fun testExtremeInputs_largeDeltas() {
-        // -100f delta from 100%
-        val resNeg100 = TwoStageVolumeCalculator.calculate(100, -100f, maxSysVolume)
-        assertEquals(0, resNeg100.totalPercent)
-        assertEquals(0, resNeg100.systemVolume)
-        assertEquals(100.0, resNeg100.softwareVolume, 0.0001)
-        assertFalse(resNeg100.isOverdrive)
+        val fullDown = VolumeGestureCalculator.calculate(100, -100f, maxSysVolume)
+        assertEquals(0, fullDown.totalPercent)
+        assertEquals(0, fullDown.systemVolume)
 
-        // +100f delta from 100%
-        val resPos100 = TwoStageVolumeCalculator.calculate(100, 100f, maxSysVolume)
-        assertEquals(200, resPos100.totalPercent)
-        assertEquals(maxSysVolume, resPos100.systemVolume)
-        assertEquals(200.0, resPos100.softwareVolume, 0.0001)
-        assertTrue(resPos100.isOverdrive)
+        val fullUp = VolumeGestureCalculator.calculate(0, 100f, maxSysVolume)
+        assertEquals(100, fullUp.totalPercent)
+        assertEquals(maxSysVolume, fullUp.systemVolume)
     }
 
     @Test
     fun testExtremeInputs_maxSystemVolumeZeroOrNegative() {
         val nonPositiveMax = listOf(0, -1, -15, -100)
         for (maxVol in nonPositiveMax) {
-            val res0 = TwoStageVolumeCalculator.calculate(0, 0f, maxVol)
+            val res0 = VolumeGestureCalculator.calculate(0, 0f, maxVol)
             assertEquals(0, res0.systemVolume)
-            assertFalse(res0.isOverdrive)
 
-            val res100 = TwoStageVolumeCalculator.calculate(100, 0f, maxVol)
+            val res100 = VolumeGestureCalculator.calculate(100, 0f, maxVol)
             // safeMax coerces to 1, so system volume clamps cleanly at 1
             assertEquals(1, res100.systemVolume)
-            assertFalse(res100.isOverdrive)
 
-            val res200 = TwoStageVolumeCalculator.calculate(200, 0f, maxVol)
-            assertEquals(1, res200.systemVolume)
-            assertTrue(res200.isOverdrive)
-
-            val initialPct = TwoStageVolumeCalculator.computeInitialPercent(0, maxVol, 100.0)
+            val initialPct = VolumeGestureCalculator.computeInitialPercent(0, maxVol)
             assertEquals(0, initialPct)
         }
     }
@@ -178,31 +131,28 @@ class AdversarialM4ChallengerTest {
     @Test
     fun testExtremeInputs_nanDeltaRatio() {
         // Defensive arithmetic handles Float.NaN safely without throwing, producing 0 delta
-        val result = TwoStageVolumeCalculator.calculate(
+        val result = VolumeGestureCalculator.calculate(
             dragStartPercent = 80,
             deltaRatio = Float.NaN,
             maxSystemVolume = maxSysVolume
         )
         assertEquals(80, result.totalPercent)
-
-        // computeInitialPercent with Double.NaN safely defaults to 100.0
-        val initialPct = TwoStageVolumeCalculator.computeInitialPercent(
-            currentSystemVolume = 15,
-            maxSystemVolume = maxSysVolume,
-            currentSoftwareVolume = Double.NaN
-        )
-        assertEquals(100, initialPct)
     }
 
     @Test
     fun testExtremeInputs_infinityDeltaRatio() {
-        // Defensive arithmetic clamps POSITIVE_INFINITY to max overdrive (200) without integer overflow
-        val posInf = TwoStageVolumeCalculator.calculate(100, Float.POSITIVE_INFINITY, maxSysVolume)
-        assertEquals(200, posInf.totalPercent)
+        val posInf = VolumeGestureCalculator.calculate(0, Float.POSITIVE_INFINITY, maxSysVolume)
+        assertEquals(100, posInf.totalPercent)
 
-        // NEGATIVE_INFINITY clamps to 0
-        val negInf = TwoStageVolumeCalculator.calculate(100, Float.NEGATIVE_INFINITY, maxSysVolume)
+        val negInf = VolumeGestureCalculator.calculate(100, Float.NEGATIVE_INFINITY, maxSysVolume)
         assertEquals(0, negInf.totalPercent)
+    }
+
+    @Test
+    fun testComputeInitialPercent_clampsOutOfRangeSystemVolume() {
+        assertEquals(0, VolumeGestureCalculator.computeInitialPercent(-5, maxSysVolume))
+        assertEquals(100, VolumeGestureCalculator.computeInitialPercent(99, maxSysVolume))
+        assertEquals(40, VolumeGestureCalculator.computeInitialPercent(6, maxSysVolume))
     }
 
     // =========================================================================

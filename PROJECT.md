@@ -29,7 +29,7 @@ Data Flow:
 - User Preferences & Configurations: `SettingsRepository` (DataStore) & `MpvConfigRepository` (file-backed) -> `UserSettings` / `MpvConfig` -> synchronized into `PlayerEngine.configure` via `DefaultPlaybackSession` (preserving active hwdec auto-fallback overrides) and observed by Feature ViewModels.
 - Playback & Audio Pipeline: domain controllers subscribe to `MpvNativeBridge.events` and own their mpv properties (`engine.audio` → `alimiter`/`dynaudnorm`/downmix, `engine.video` → color & deband, `engine.shaders` → `glsl-shaders`, `engine.trackManager` → tracks & chapters, `engine.tuning` → A/V delay & subtitle scale/position); `GyroPlayerEngine` keeps session lifecycle and core playback state only.
 - Playback Domain: focused single-method UseCases in `:core:domain` (`LoadMediaUseCase`, `NavigatePlaylistUseCase`, `SavePlaybackProgressUseCase`, `HandleAppBackgroundUseCase`, `EndPlaybackSessionUseCase`, `ObservePlaybackSessionUseCase`, `ObserveMediaFeedUseCase`) and `PlaybackSessionStateHolder`'s self-driven session monitor own queue seeding, playlist traversal, pause/10s progress checkpoints, auto-advance, session lifecycle, and reactive media feed aggregation; ViewModels hold only screen-scoped UI state.
-- Audio Overdrive Flow: Gestures split travel at 100%: 0~100% adjusts Android `AudioManager.STREAM_MUSIC`; 101~200% adjusts internal mpv software gain with dynamic `alimiter` anti-clipping filter and amber HUD. Auto-reset to 100% on track change/exit.
+- Volume Gesture & Software Gain: vertical swipe maps 0~100% to Android `AudioManager.STREAM_MUSIC` only; software 101~200% gain is adjusted from the audio sheet with dynamic `alimiter` anti-clipping filter. Software gain auto-resets to 100% on track change/exit.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
@@ -45,8 +45,8 @@ Data Flow:
 | 9 | Chapter List Parsing | Observe `chapter-list` and parse into `ChapterInfo` models in engine | M2 | R3 |
 | 10 | Glowing Chapter Markers | Render micro-glow tick marks at chapter fractions on `PlayerScrubBar` | M4 | R3 |
 | 11 | Chapter Selection Drawer | List chapters in bottom sheet with formatted time and click-to-seek | M4 | R3 |
-| 12 | 2-Stage Volume Gesture | 0-100% system volume, 101-200% software gain strictly isolated | M2, M4 | R4 |
-| 13 | Overdrive Amber HUD | Top capsule HUD switches to warm amber with overdrive indicator | M4 | R4 |
+| 12 | System Volume Gesture | Vertical swipe adjusts 0-100% system volume only; software gain is not reachable from gestures | M2, M4 | R4 |
+| 13 | Volume HUD | Top capsule HUD reflects the current system stream volume | M4 | R4 |
 | 14 | Software Gain Safety Reset | Auto-reset software gain to 100% (0dB) on video switch or player exit | M2, M4 | R4 |
 | 15 | Audio Limiter Protection | Dynamic `alimiter` filter in `af` to eliminate clipping at 200% volume | M2 | R4 |
 | 16 | Deband Filter Toggle | One-click deband filter toggle (`deband=yes`) | M2, M4 | R4 |
@@ -71,7 +71,7 @@ Data Flow:
 | M1 | Core Foundation: Models, Data, Settings & i18n Strings | `:core:model`, `:core:data`, `:core:navigation`, `:core:designsystem` (strings.xml & values-en) | none | DONE |
 | M2 | Engine Core & Audiovisual Infrastructure | `:core:engine`, `:core:testing` (`MpvNativeBridge`, shaders, mpv.conf injection & overrides, chapters, volume overdrive & limiter, deband, colors, audio filters) | M1 | DONE |
 | M3 | Settings & Configuration UI | `:feature:settings` (`MpvConfigEditorScreen`, `GestureSettingsScreen`, Navigation 3 wiring) | M1, M2 | DONE |
-| M4 | Player UI, Gestures & Audiovisual Controls | `:feature:player` (`PlayerTrackSelectionSheet` shaders/chapters/effects tabs, `PlayerScrubBar` chapter ticks, overdrive amber HUD, dynamic gestures, 16dp floating styling) | M1, M2, M3 | DONE |
+| M4 | Player UI, Gestures & Audiovisual Controls | `:feature:player` (`PlayerTrackSelectionSheet` shaders/chapters/effects tabs, `PlayerScrubBar` chapter ticks, volume HUD, dynamic gestures, 16dp floating styling) | M1, M2, M3 | DONE |
 | M5 | System Integration: Background Playback & MediaSession | `:app`, `:feature:player` (Manifest permissions, `PlaybackService`, `MediaSessionCompat`, notification card, headset controls, headless surface detachment, MainActivity navigation) | M2, M3, M4 | DONE |
 | M6 | Final Milestone: 100% E2E Test Pass & Adversarial Hardening | Phase 1: Pass 100% of E2E test suite (Tiers 1-4). Phase 2: Adversarial coverage hardening (Tier 5). | M1, M2, M3, M4, M5, TEST_READY | PLANNED |
 

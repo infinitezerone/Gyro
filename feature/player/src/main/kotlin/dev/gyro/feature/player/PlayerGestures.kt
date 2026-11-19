@@ -37,7 +37,6 @@ internal fun rememberPlayerGestureModifier(
     playerState: PlayerState,
     isPlaying: Boolean,
     currentPosMsProvider: () -> Long,
-    softwareVolumeProvider: () -> Double,
     durationMs: Long,
     speed: Float,
     scope: CoroutineScope,
@@ -136,10 +135,6 @@ internal fun rememberPlayerGestureModifier(
         onHudStateChange = { newState ->
             playerState.gestureHudState = newState
         },
-        onSoftwareVolumeChange = { gain ->
-            viewModel.setSoftwareVolume(gain)
-        },
-        getSoftwareVolume = softwareVolumeProvider,
         onSeekTo = { targetMs ->
             // Commit the gesture seek only. Control-layer visibility is owned by the
             // auto-hide timer in PlayerState, not by gesture callbacks.
