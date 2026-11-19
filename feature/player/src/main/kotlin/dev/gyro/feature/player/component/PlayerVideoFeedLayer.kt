@@ -158,12 +158,14 @@ internal fun BoxScope.PlayerVideoFeedLayer(
             easing = FastOutSlowInEasing,
         )
     }
-    val sheetFitScale by animateFloatAsState(
+    // state 不在组合期读取：graphicsLayer 里读 .value 属于绘制阶段，动画每帧只重绘这一层，
+    // 不会重组整个画面容器（含 SurfaceView 尺寸计算），否则抽屉滑出时会整段掉帧。
+    val sheetFitScaleState = animateFloatAsState(
         targetValue = targetSheetFit.scale,
         animationSpec = sheetFitSpec,
         label = "sheetFitScale"
     )
-    val sheetShiftY by animateFloatAsState(
+    val sheetShiftYState = animateFloatAsState(
         targetValue = targetSheetFit.shiftY,
         animationSpec = sheetFitSpec,
         label = "sheetSurfaceShiftY"
@@ -224,9 +226,9 @@ internal fun BoxScope.PlayerVideoFeedLayer(
             // picture about the container centre and lifts it into the gap above the sheet, without
             // re-deriving the zoom/origin arithmetic above.
             .graphicsLayer {
-                scaleX = sheetFitScale
-                scaleY = sheetFitScale
-                translationY = sheetShiftY
+                scaleX = sheetFitScaleState.value
+                scaleY = sheetFitScaleState.value
+                translationY = sheetShiftYState.value
             },
         renderController = renderController,
         isHdr = snapshot.isHdr,

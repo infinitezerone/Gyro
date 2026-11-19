@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -27,10 +28,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,10 +75,20 @@ internal fun SheetDragScaffold(
 
     // 拖拽手势状态：横屏右滑距离，竖屏下滑距离
     val density = LocalDensity.current
-    val dismissThresholdPx = with(density) { 70.dp.toPx() }
+    // 阈值对齐 BgmPlus（BgmBottomSheet）：位移 96dp、速度 500dp/s。
+    // M3 默认 125dp/s 过低，任何轻微下划在抬手瞬间都会达到，面板轻轻一碰就误关。
+    val dismissThresholdPx = with(density) { 96.dp.toPx() }
+    val flingDismissVelocityPx = with(density) { 500.dp.toPx() }
+    // 速度参与判定前必须已经产生的拖动距离，作用等同 M3「速度只作用于已拖动的抽屉」。
+    val flingMinDragPx = with(density) { 24.dp.toPx() }
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    // 一旦判定关闭就冻结位移驱动，避免退出动画与回弹动画同时写 offset。
+    var dismissing by remember { mutableStateOf(false) }
     val dragScope = rememberCoroutineScope()
+    val currentDismissThreshold by rememberUpdatedState(dismissThresholdPx)
+    val currentFlingVelocity by rememberUpdatedState(flingDismissVelocityPx)
+    val currentFlingMinDrag by rememberUpdatedState(flingMinDragPx)
 
     // Scrolling the content to the top and pulling further has to keep dragging the sheet itself,
     // otherwise the list swallows the rest of the dismiss gesture and the sheet cannot be closed
@@ -84,10 +98,10 @@ internal fun SheetDragScaffold(
     // content could not consume (list already at its top), and once the sheet has started moving
     // onPreScroll claims every further downward pull so the list stops scrolling underneath a sheet
     // that is being dragged away - otherwise both move at once after the handover.
-    val verticalDismissConnection = remember(isLandscape, dismissThresholdPx) {
+    val verticalDismissConnection = remember(isLandscape) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (isLandscape || dragOffsetY <= 0f) return Offset.Zero
+                if (isLandscape || dismissing || dragOffsetY <= 0f) return Offset.Zero
                 // Momentum belongs to the list. Only a finger moves the sheet.
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
                 // Already dragging: the sheet owns the vertical axis until it is back at rest.
@@ -103,7 +117,7 @@ internal fun SheetDragScaffold(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                if (isLandscape || available.y <= 0f) return Offset.Zero
+                if (isLandscape || dismissing || available.y <= 0f) return Offset.Zero
                 // Same rule for the handover: a fling that runs out of list must not tug the sheet
                 // down by itself, otherwise tossing the list to the top ends in a half-dismissed
                 // sheet. The sheet starts following only when the finger keeps pulling.
@@ -113,9 +127,24 @@ internal fun SheetDragScaffold(
                 return Offset(0f, available.y)
             }
 
+            /**
+             * 关闭判定放在 onPreFling：onPostFling 要等列表惯性跑完才回调，快速下滑会先停住
+             * 几百毫秒才收面板。速度必须配合位移——没有拖动过时，向下的剩余速度只是列表
+             * 到顶的残余，不能据此关闭，否则「上滑到顶再快速下滑」会把面板直接关掉。
+             */
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (isLandscape || dismissing) return Velocity.Zero
+                if (dragOffsetY < currentFlingMinDrag) return Velocity.Zero
+                if (available.y <= currentFlingVelocity) return Velocity.Zero
+                dismissing = true
+                onDismiss()
+                return available
+            }
+
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (isLandscape || dragOffsetY <= 0f) return Velocity.Zero
-                if (dragOffsetY > dismissThresholdPx) {
+                if (isLandscape || dismissing || dragOffsetY <= 0f) return Velocity.Zero
+                if (dragOffsetY > currentDismissThreshold) {
+                    dismissing = true
                     onDismiss()
                 } else {
                     val from = dragOffsetY
@@ -195,13 +224,35 @@ internal fun SheetDragScaffold(
                 if (isLandscape) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
-                            if (dragOffsetX > dismissThresholdPx) {
+                            if (dismissing) return@detectHorizontalDragGestures
+                            if (dragOffsetX > currentDismissThreshold) {
+                                // 保留偏移让退出动画从当前位置滑出，归零会先跳回原位。
+                                dismissing = true
                                 onDismiss()
+                            } else {
+                                // 未过阈值时平滑回弹，直接归零会「啪」地跳回。
+                                val from = dragOffsetX
+                                dragScope.launch {
+                                    animate(
+                                        initialValue = from,
+                                        targetValue = 0f,
+                                        animationSpec = tween(200),
+                                    ) { value, _ -> dragOffsetX = value }
+                                }
                             }
-                            dragOffsetX = 0f
                         },
-                        onDragCancel = { dragOffsetX = 0f },
+                        onDragCancel = {
+                            val from = dragOffsetX
+                            dragScope.launch {
+                                animate(
+                                    initialValue = from,
+                                    targetValue = 0f,
+                                    animationSpec = tween(200),
+                                ) { value, _ -> dragOffsetX = value }
+                            }
+                        },
                         onHorizontalDrag = { change, dragAmount ->
+                            if (dismissing) return@detectHorizontalDragGestures
                             if (dragAmount > 0 || dragOffsetX > 0) {
                                 change.consume()
                                 dragOffsetX = (dragOffsetX + dragAmount).coerceAtLeast(0f)
@@ -216,7 +267,9 @@ internal fun SheetDragScaffold(
                 else {
                     detectVerticalDragGestures(
                         onDragEnd = {
-                            if (dragOffsetY > dismissThresholdPx) {
+                            if (dismissing) return@detectVerticalDragGestures
+                            if (dragOffsetY > currentDismissThreshold) {
+                                dismissing = true
                                 // Keep both offsets: resetting here snaps the sheet back to fully
                                 // open for a frame before the slide-out starts, reading as a bounce.
                                 onDismiss()
@@ -239,6 +292,7 @@ internal fun SheetDragScaffold(
                             dragOffsetY = 0f
                         },
                         onVerticalDrag = { change, dragAmount ->
+                            if (dismissing) return@detectVerticalDragGestures
                             if (dragAmount > 0 || dragOffsetY > 0) {
                                 change.consume()
                                 dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
@@ -296,7 +350,11 @@ internal fun SheetDragScaffold(
                         )
                     }
                 }
-                content()
+                // 内容区关闭 overscroll：列表到顶后的继续下拉应直接进入 nested scroll 驱动抽屉，
+                // 而不是先被拉伸/回弹动画吃掉，否则视觉上先是内容动、抽屉滞后。
+                CompositionLocalProvider(LocalOverscrollFactory provides null) {
+                    content()
+                }
             }
         }
     }

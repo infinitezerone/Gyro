@@ -1,6 +1,7 @@
 package dev.gyro.feature.player.component
 
 import android.graphics.BlurMaskFilter
+import android.graphics.Paint as AndroidPaint
 import android.os.SystemClock
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.gesture.DoubleTapSide
@@ -63,13 +64,13 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -700,26 +701,27 @@ private fun Modifier.exteriorPillShadow(
     }
     val blurPx = blurRadius.toPx()
     val offsetYPx = offsetY.toPx()
-    val paint = Paint().apply {
-        asFrameworkPaint().apply {
-            isAntiAlias = true
-            this.color = color.toArgb()
-            if (blurPx > 0f) {
-                maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
-            }
+    // 模糊阴影只能落在平台 Paint 上（Compose 的 Paint 没有 maskFilter），
+    // 因此这里直接用框架 Paint 绘制，不再走 asFrameworkPaint 转换。
+    val shadowColorArgb = color.toArgb()
+    val shadowPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+        // 显式 this：不加会被解析成外层 Composable 参数里的 val color。
+        this.color = shadowColorArgb
+        if (blurPx > 0f) {
+            maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
         }
     }
     onDrawBehind {
         clipPath(pillPath, clipOp = ClipOp.Difference) {
             drawIntoCanvas { canvas ->
-                canvas.drawRoundRect(
-                    left = 0f,
-                    top = offsetYPx,
-                    right = size.width,
-                    bottom = size.height + offsetYPx,
-                    radiusX = radius,
-                    radiusY = radius,
-                    paint = paint
+                canvas.nativeCanvas.drawRoundRect(
+                    0f,
+                    offsetYPx,
+                    size.width,
+                    size.height + offsetYPx,
+                    radius,
+                    radius,
+                    shadowPaint
                 )
             }
         }
