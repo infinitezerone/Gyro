@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gyro.core.data.repository.CustomFolderRepository
 import dev.gyro.core.domain.model.MediaFeedQuery
 import dev.gyro.core.domain.model.MediaFeedState
+import dev.gyro.core.domain.model.VideoSortOrder
 import dev.gyro.core.domain.usecase.ObserveMediaFeedUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,6 +24,7 @@ data class HomeUiState(
     val hasPermission: Boolean = false,
     val searchQuery: String = "",
     val isSearching: Boolean = false,
+    val sortOrder: VideoSortOrder = VideoSortOrder.DATE_MODIFIED_DESC,
 )
 
 @HiltViewModel
@@ -44,6 +46,7 @@ class HomeViewModel @Inject constructor(
             hasPermission = query.hasPermission,
             searchQuery = query.searchQuery,
             isSearching = isSearching,
+            sortOrder = query.sortOrder,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -61,6 +64,10 @@ class HomeViewModel @Inject constructor(
 
     fun selectFolder(folder: String?) {
         _query.update { it.copy(selectedFolder = folder) }
+    }
+
+    fun setSortOrder(order: VideoSortOrder) {
+        _query.update { it.copy(sortOrder = order) }
     }
 
     fun onSearchQueryChange(query: String) {

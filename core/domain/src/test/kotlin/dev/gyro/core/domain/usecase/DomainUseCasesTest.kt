@@ -16,6 +16,7 @@ import dev.gyro.core.data.repository.ThumbnailRepository
 import dev.gyro.core.datastore.UserSettingsDataStoreFactory
 import dev.gyro.core.domain.model.MediaFeedQuery
 import dev.gyro.core.domain.model.MediaFeedState
+import dev.gyro.core.domain.model.VideoSortOrder
 import dev.gyro.core.domain.model.PlaybackFailureReason
 import dev.gyro.core.domain.model.PlaybackSessionEvent
 import dev.gyro.core.domain.model.PlaybackSource
@@ -694,6 +695,49 @@ class DomainUseCasesTest {
         runCurrent()
         assertEquals(scansAfterFirstLoad, mediaRepo.getVideosCalls)
         assertEquals(5_000L, feed1.value.ready().playbackMap["file:///a.mp4"]?.positionMs)
+    }
+
+    @Test
+    fun testObserveMediaFeedUseCase_sortsVideosAccordingToQueryOrder() = runCaseTest {
+        val customFoldersFlow = MutableStateFlow<Set<Uri>>(emptySet())
+        val fakeCustomFolderRepo = object : CustomFolderRepository {
+            override val savedFolderUris = customFoldersFlow
+            override suspend fun addFolder(treeUri: Uri) = true
+            override suspend fun removeFolder(treeUri: Uri) {}
+            override suspend fun getFolderDetails(): List<CustomFolderDetail> = emptyList()
+            override suspend fun scanCustomFolders(): List<VideoMediaItem> = emptyList()
+        }
+
+        val v1 = VideoMediaItem(1L, "file:///a.mp4", "Charlie.mp4", 10_000L, 500L, 0, 0, 100L, "Movies")
+        val v2 = VideoMediaItem(2L, "file:///b.mp4", "Alice.mp4", 50_000L, 100L, 0, 0, 300L, "Movies")
+        val v3 = VideoMediaItem(3L, "file:///c.mp4", "Bob.mp4", 20_000L, 900L, 0, 0, 200L, "Movies")
+        mediaRepo.videos = listOf(v1, v2, v3)
+
+        val observeFeed = ObserveMediaFeedUseCase(mediaRepo, fakeCustomFolderRepo, historyRepo)
+        val query = MutableStateFlow(MediaFeedQuery(hasPermission = true, sortOrder = VideoSortOrder.NAME_ASC))
+
+        val feed = observeFeed(query).stateIn(
+            scope = backgroundScope,
+            started = SharingStarted.Eagerly,
+            initialValue = MediaFeedState.Loading,
+        )
+        runCurrent()
+
+        // 1. 按名称升序 (Alice, Bob, Charlie)
+        val sortedByName = feed.value.ready().filteredVideos.map { it.displayName }
+        assertEquals(listOf("Alice.mp4", "Bob.mp4", "Charlie.mp4"), sortedByName)
+
+        // 2. 按文件大小降序 (Bob 900, Charlie 500, Alice 100)
+        query.value = query.value.copy(sortOrder = VideoSortOrder.SIZE_DESC)
+        runCurrent()
+        val sortedBySize = feed.value.ready().filteredVideos.map { it.displayName }
+        assertEquals(listOf("Bob.mp4", "Charlie.mp4", "Alice.mp4"), sortedBySize)
+
+        // 3. 按时长降序 (Alice 50s, Bob 20s, Charlie 10s)
+        query.value = query.value.copy(sortOrder = VideoSortOrder.DURATION_DESC)
+        runCurrent()
+        val sortedByDuration = feed.value.ready().filteredVideos.map { it.displayName }
+        assertEquals(listOf("Alice.mp4", "Bob.mp4", "Charlie.mp4"), sortedByDuration)
     }
 
     @Test

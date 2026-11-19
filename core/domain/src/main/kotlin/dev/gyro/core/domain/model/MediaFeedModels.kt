@@ -3,11 +3,24 @@ package dev.gyro.core.domain.model
 import dev.gyro.core.model.PlaybackProgress
 import dev.gyro.core.model.VideoMediaItem
 
+/**
+ * Sorting criteria for the media library list.
+ */
+enum class VideoSortOrder {
+    DATE_MODIFIED_DESC,
+    DATE_MODIFIED_ASC,
+    NAME_ASC,
+    NAME_DESC,
+    SIZE_DESC,
+    DURATION_DESC,
+}
+
 data class MediaFeedQuery(
     val hasPermission: Boolean = false,
     val refreshVersion: Int = 0,
     val selectedFolder: String? = null,
     val searchQuery: String = "",
+    val sortOrder: VideoSortOrder = VideoSortOrder.DATE_MODIFIED_DESC,
 )
 
 /**
@@ -32,6 +45,7 @@ sealed interface MediaFeedState {
         val folders: List<String> = emptyList(),
         val effectiveSelectedFolder: String? = null,
         val playbackMap: Map<String, PlaybackProgress> = emptyMap(),
+        val sortOrder: VideoSortOrder = VideoSortOrder.DATE_MODIFIED_DESC,
     ) : MediaFeedState
 
     /** Videos before filtering, `0` while nothing is known yet. */

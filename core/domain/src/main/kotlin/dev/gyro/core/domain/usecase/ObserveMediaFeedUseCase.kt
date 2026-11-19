@@ -5,6 +5,7 @@ import dev.gyro.core.data.repository.MediaRepository
 import dev.gyro.core.data.repository.PlaybackHistoryRepository
 import dev.gyro.core.domain.model.MediaFeedQuery
 import dev.gyro.core.domain.model.MediaFeedState
+import dev.gyro.core.domain.model.VideoSortOrder
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -49,8 +50,8 @@ class ObserveMediaFeedUseCase @Inject constructor(
 
             val filteredFlow = combine(
                 mediaRepository.observeVideos(),
-                queryFlow.map { it.selectedFolder to it.searchQuery }.distinctUntilChanged(),
-            ) { videos, (selectedFolder, searchQuery) ->
+                queryFlow.map { Triple(it.selectedFolder, it.searchQuery, it.sortOrder) }.distinctUntilChanged(),
+            ) { videos, (selectedFolder, searchQuery, sortOrder) ->
                 if (videos == null) {
                     // Nothing scanned yet: report "unknown" rather than an empty library.
                     null
@@ -63,11 +64,20 @@ class ObserveMediaFeedUseCase @Inject constructor(
                             video.displayName.contains(searchQuery, ignoreCase = true)
                         matchesFolder && matchesQuery
                     }
+                    val sorted = when (sortOrder) {
+                        VideoSortOrder.DATE_MODIFIED_DESC -> filtered.sortedByDescending { it.dateModified }
+                        VideoSortOrder.DATE_MODIFIED_ASC -> filtered.sortedBy { it.dateModified }
+                        VideoSortOrder.NAME_ASC -> filtered.sortedBy { it.displayName.lowercase() }
+                        VideoSortOrder.NAME_DESC -> filtered.sortedByDescending { it.displayName.lowercase() }
+                        VideoSortOrder.SIZE_DESC -> filtered.sortedByDescending { it.sizeBytes }
+                        VideoSortOrder.DURATION_DESC -> filtered.sortedByDescending { it.durationMs }
+                    }
                     MediaFeedState.Ready(
                         rawVideos = videos,
-                        filteredVideos = filtered,
+                        filteredVideos = sorted,
                         folders = folders,
                         effectiveSelectedFolder = effectiveFolder,
+                        sortOrder = sortOrder,
                     )
                 }
             }.distinctUntilChanged()

@@ -35,6 +35,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
@@ -46,6 +48,8 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -58,6 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import dev.gyro.core.domain.model.VideoSortOrder
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -165,6 +170,7 @@ fun HomeScreen(
         onRequestPermission = { permissionLauncher.launch(requiredPermissions) },
         onRefresh = { viewModel.refreshVideos() },
         onSelectFolder = { viewModel.selectFolder(it) },
+        onSetSortOrder = { viewModel.setSortOrder(it) },
         onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
         onToggleSearch = { viewModel.toggleSearch(it) },
         modifier = modifier
@@ -182,10 +188,13 @@ fun HomeContent(
     onRequestPermission: () -> Unit,
     onRefresh: () -> Unit,
     onSelectFolder: (String?) -> Unit,
+    onSetSortOrder: (VideoSortOrder) -> Unit = {},
     onSearchQueryChange: (String) -> Unit,
     onToggleSearch: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showSortMenu by remember { mutableStateOf(false) }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = GyroColors.Background,
@@ -254,6 +263,38 @@ fun HomeContent(
                     actions = {
                         IconButton(onClick = { onToggleSearch(true) }) {
                             Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search), tint = GyroColors.TextPrimary)
+                        }
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序", tint = GyroColors.TextPrimary)
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                val sortOptions = listOf(
+                                    VideoSortOrder.DATE_MODIFIED_DESC to "修改时间 (最新优先)",
+                                    VideoSortOrder.DATE_MODIFIED_ASC to "修改时间 (最早优先)",
+                                    VideoSortOrder.NAME_ASC to "视频名称 (A-Z)",
+                                    VideoSortOrder.NAME_DESC to "视频名称 (Z-A)",
+                                    VideoSortOrder.SIZE_DESC to "文件大小 (大到小)",
+                                    VideoSortOrder.DURATION_DESC to "视频时长 (长到短)",
+                                )
+                                sortOptions.forEach { (order, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        trailingIcon = {
+                                            if (uiState.sortOrder == order) {
+                                                Icon(Icons.Default.Check, contentDescription = null, tint = GyroColors.Primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            onSetSortOrder(order)
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                         IconButton(onClick = onPickFolder) {
                             Icon(Icons.Default.CreateNewFolder, contentDescription = stringResource(R.string.action_add_folder), tint = GyroColors.TextPrimary)
@@ -516,7 +557,11 @@ private fun VideoCard(
                             text = item.folderName,
                             fontSize = 12.sp,
                             color = GyroColors.PrimaryLight,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Text(
                             text = "·",
@@ -530,6 +575,21 @@ private fun VideoCard(
                         fontSize = 12.sp,
                         color = GyroColors.TextSecondary
                     )
+
+                    val badge = item.resolutionBadge
+                    if (!badge.isNullOrBlank()) {
+                        Text(
+                            text = "·",
+                            fontSize = 12.sp,
+                            color = GyroColors.TextMuted
+                        )
+                        Text(
+                            text = badge,
+                            fontSize = 11.sp,
+                            color = GyroColors.PrimaryLight,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
