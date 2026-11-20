@@ -53,4 +53,7 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object GestureSettings : Screen
+
+    @Serializable
+    data object VideoRenderingSettings : Screen
 }

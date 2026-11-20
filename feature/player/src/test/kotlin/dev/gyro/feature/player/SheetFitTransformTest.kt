@@ -64,15 +64,16 @@ class SheetFitTransformTest {
     }
 
     @Test
-    fun isSheetFitActive_excludesPlaylistAndChaptersAndNonPortraitPipStates() {
+    fun isSheetFitActive_coversAllPortraitNonPipSheets() {
         assertFalse(isSheetFitActive(null, isLandscape = false, isPipLayout = false))
-        assertFalse(isSheetFitActive(PlayerSheetRoute.PLAYLIST, isLandscape = false, isPipLayout = false))
-        assertFalse(isSheetFitActive(PlayerSheetRoute.CHAPTERS, isLandscape = false, isPipLayout = false))
         assertFalse(isSheetFitActive(PlayerSheetRoute.SETTINGS_HUB, isLandscape = true, isPipLayout = false))
+        assertFalse(isSheetFitActive(PlayerSheetRoute.PLAYLIST, isLandscape = true, isPipLayout = false))
         assertFalse(isSheetFitActive(PlayerSheetRoute.SETTINGS_HUB, isLandscape = false, isPipLayout = true))
 
+        assertTrue(isSheetFitActive(PlayerSheetRoute.PLAYLIST, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetRoute.CHAPTERS, isLandscape = false, isPipLayout = false))
         assertTrue(isSheetFitActive(PlayerSheetRoute.SETTINGS_HUB, isLandscape = false, isPipLayout = false))
-        assertTrue(isSheetFitActive(PlayerSheetRoute.ASPECT, isLandscape = false, isPipLayout = false))
+        assertTrue(isSheetFitActive(PlayerSheetRoute.VIDEO, isLandscape = false, isPipLayout = false))
         assertTrue(isSheetFitActive(PlayerSheetRoute.STATS_INFO, isLandscape = false, isPipLayout = false))
     }
 }

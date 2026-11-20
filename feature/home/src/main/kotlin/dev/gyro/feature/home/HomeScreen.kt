@@ -290,7 +290,7 @@ fun HomeContent(
                         }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
-                                Icon(GyroIcons.Sort, contentDescription = "排序", tint = GyroColors.TextPrimary)
+                                Icon(GyroIcons.Sort, contentDescription = stringResource(R.string.action_sort), tint = GyroColors.TextPrimary)
                             }
                             DropdownMenu(
                                 expanded = showSortMenu,

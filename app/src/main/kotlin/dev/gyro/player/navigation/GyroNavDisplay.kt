@@ -30,6 +30,7 @@ import dev.gyro.feature.home.HomeScreen
 import dev.gyro.feature.player.PlayerScreen
 import dev.gyro.feature.player.PlayerViewModel
 import dev.gyro.feature.settings.SettingsScreen
+import dev.gyro.feature.settings.VideoRenderingSettingsScreen
 import dev.gyro.feature.settings.folders.FolderManagementScreen
 import dev.gyro.feature.settings.gestures.GestureSettingsScreen
 import dev.gyro.feature.settings.mpv.MpvConfigEditorScreen
@@ -180,11 +181,23 @@ fun GyroNavDisplay(
                     onOpenFolderManagement = {
                         appState.navigateToFolderManagement()
                     },
-                    onNavigateToMpvConfig = {
-                        appState.navigateToMpvConfig()
-                    },
                     onNavigateToGestures = {
                         appState.navigateToGestureSettings()
+                    },
+                    onNavigateToVideoRendering = {
+                        appState.navigateToVideoRenderingSettings()
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            entry<Screen.VideoRenderingSettings> {
+                VideoRenderingSettingsScreen(
+                    viewModel = hiltViewModel(),
+                    onBack = {
+                        appState.popBack()
+                    },
+                    onNavigateToMpvConfig = {
+                        appState.navigateToMpvConfig()
                     },
                     modifier = Modifier.fillMaxSize()
                 )

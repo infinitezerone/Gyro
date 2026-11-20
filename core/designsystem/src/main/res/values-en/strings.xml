@@ -7,6 +7,7 @@
     <string name="action_reset">Reset</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_search">Search</string>
+    <string name="action_sort">Sort</string>
     <string name="action_clear">Clear</string>
     <string name="action_back">Back</string>
     <string name="action_confirm">Confirm</string>
@@ -232,7 +233,7 @@
     <string name="settings_gesture_swap_sides">Swap Volume &amp; Brightness Sides</string>
     <string name="settings_gesture_swap_sides_desc">Swap left/right controls</string>
     <string name="settings_gesture_seek_seconds">Double Tap Seek Step</string>
-    <string name="settings_gesture_seek_seconds_val">%d seconds</string>
+    <string name="settings_gesture_seek_seconds_val">%ds</string>
     <string name="settings_gesture_speed_multiplier">Long Press Speed Multiplier</string>
     <string name="settings_gesture_speed_multiplier_val">%.1fX</string>
     <string name="settings_gesture_reset_defaults">Reset Gesture Defaults</string>
@@ -520,5 +521,26 @@
     <string name="hub_group_subtitle_styling">Subtitles and typography</string>
     <string name="hub_group_info_advanced">Details and stats</string>
     <string name="custom_speed_slider">Continuous speed</string>
+
+    <!-- Player Sheet Progressive Disclosure -->
+    <string name="sheet_quick_timer">Timer</string>
+    <string name="sheet_quick_bg_audio">Background</string>
+    <string name="sheet_quick_pip">PiP</string>
+    <string name="sheet_section_picture_enhance">Picture enhance</string>
+    <string name="sheet_section_audio_effects">Effects &amp; EQ</string>
+    <string name="sheet_section_audio_sync_output">Sync &amp; output</string>
+    <string name="sheet_section_sub_style">Style &amp; position</string>
+    <string name="sheet_section_eq_custom">Custom 5-band EQ</string>
+    <string name="sheet_decoder_hint">Troubleshoot</string>
+    <string name="sheet_speed_fine_tune">Fine-tune</string>
+    <string name="sheet_status_default">Default</string>
+    <string name="sheet_status_custom">Custom</string>
+
+    <!-- Settings Screen Progressive Disclosure -->
+    <string name="settings_group_playback_library">Playback &amp; library</string>
+    <string name="settings_group_expert">Expert</string>
+    <string name="settings_gesture_summary_fmt">Double-tap %1$ds · Hold %2$.1fx</string>
+    <string name="settings_rendering_entry_title">Decoder &amp; Rendering</string>
+    <string name="settings_rendering_entry_desc">Decoder, HDR, and rendering</string>
 
 </resources>

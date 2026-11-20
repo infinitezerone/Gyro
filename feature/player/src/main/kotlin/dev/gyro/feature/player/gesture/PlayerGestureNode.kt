@@ -121,6 +121,7 @@ class PlayerGestureNode(
 
             // Only capture unconsumed touches so on-screen controls (scrub bar, buttons) take priority
             val down = awaitFirstDown(requireUnconsumed = true)
+            val downTimestamp = SystemClock.uptimeMillis()
             val downPosition = down.position
             val touchSlop = viewConfiguration.touchSlop
             val isEdgeExclusion = downPosition.x < config.edgeExclusionPx ||
@@ -138,6 +139,12 @@ class PlayerGestureNode(
             } else {
                 false
             }
+            val isInControlsBrightnessVolumeGuardZone = isInControlsBrightnessVolumeGuardZone(
+                downPosition = downPosition,
+                containerSize = size,
+                controlsVisible = callbacks.areControlsVisible(),
+                metrics = callbacks.getControlsGestureGuardMetrics()
+            )
 
             var isLongPressing = false
             var isPinnedToMultiTouch = false
@@ -150,10 +157,19 @@ class PlayerGestureNode(
             var lastSeekTargetMs = dragStartPosMs
 
             // Start long press detection
-            var longPressJob: Job? = if (config.isLongPressSpeedEnabled && !isOutsidePortraitActiveZone) {
+            var longPressJob: Job? = if (
+                config.isLongPressSpeedEnabled &&
+                !isOutsidePortraitActiveZone &&
+                callbacks.isPlaying()
+            ) {
                 coroutineScope.launch {
                     delay(config.longPressTimeoutMs)
-                    if (!hasPassedTouchSlop && !isPinnedToMultiTouch && callbacks.getZoomScale() <= 1.05f) {
+                    if (
+                        !hasPassedTouchSlop &&
+                        !isPinnedToMultiTouch &&
+                        callbacks.isPlaying() &&
+                        callbacks.getZoomScale() <= 1.05f
+                    ) {
                         isLongPressing = true
                         callbacks.onFastForwardStart(config.longPressSpeed)
                         callbacks.onHudStateChange(GestureHudState.Speed(config.longPressSpeed))
@@ -269,7 +285,7 @@ class PlayerGestureNode(
                                     longPressJob?.cancel()
                                     longPressJob = null
                                     return@awaitEachGesture
-                                } else {
+                                } else if (!isInControlsBrightnessVolumeGuardZone && !callbacks.isPreciseSeeking()) {
                                     val isLeft = downPosition.x < size.width / 2f
                                     val isBrightnessTarget = if (config.swapVolumeAndBrightness) !isLeft else isLeft
                                     if (isBrightnessTarget && config.isBrightnessEnabled) {
@@ -380,18 +396,24 @@ class PlayerGestureNode(
 
             if (hasPassedTouchSlop) {
                 cancelTapTimers()
-                if (drag?.mode == DragMode.HORIZONTAL_SEEK) {
-                    callbacks.onSeekEnd(lastSeekTargetMs)
-                }
-                coroutineScope.launch {
-                    delay(700L)
-                    callbacks.onHudStateChange(GestureHudState.Idle)
+                val committedDrag = drag
+                if (committedDrag != null) {
+                    if (committedDrag.mode == DragMode.HORIZONTAL_SEEK) {
+                        callbacks.onSeekEnd(lastSeekTargetMs)
+                    }
+                    coroutineScope.launch {
+                        delay(700L)
+                        callbacks.onHudStateChange(GestureHudState.Idle)
+                    }
                 }
                 return@awaitEachGesture
             }
 
             // Tap & Double-Tap Processing (Only for clean single-finger taps without movement)
             val now = SystemClock.uptimeMillis()
+            if (now - downTimestamp >= config.longPressTimeoutMs) {
+                return@awaitEachGesture
+            }
             val timeDelta = now - lastTapTimestamp
             val tapDist = hypot(downPosition.x - lastTapPosition.x, downPosition.y - lastTapPosition.y)
             val isDoubleTapAccumulating = doubleTapJob?.isActive == true && doubleTapSide != null

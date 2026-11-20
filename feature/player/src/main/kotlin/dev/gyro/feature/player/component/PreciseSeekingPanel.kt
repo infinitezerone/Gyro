@@ -1,5 +1,6 @@
 package dev.gyro.feature.player.component
 
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -17,18 +18,21 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,6 +82,7 @@ import dev.gyro.core.designsystem.icon.GyroIcons
  * - 拖动进度条或滑动缩略图胶卷时，派发 [onPreciseSeek] 事件给业务层（ViewModel）调度；
  * - 缩略图由业务层通过 [loadThumbnail] 提供。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PreciseSeekingPanel(
     scrubState: PlayerScrubState,
@@ -109,6 +114,9 @@ fun PreciseSeekingPanel(
         val coroutineScope = rememberCoroutineScope()
         val currentOnDismiss by rememberUpdatedState(onDismiss)
         val pullDownThresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
+        val configuration = LocalConfiguration.current
+        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val landscapeHorizontalInset = if (isLandscape) rememberLandscapeHorizontalInset() else 0.dp
 
         // 关键帧自适应分档：契合常规视频 3~5s 关键帧间隔，大幅减少相同重复帧并实现极速渲染
         val stepMs = remember(durationMs) {
@@ -219,9 +227,18 @@ fun PreciseSeekingPanel(
                         }
                     )
                 }
-                .displayCutoutPadding()
-                .navigationBarsPadding()
-                .padding(bottom = 44.dp)
+                .then(
+                    if (isLandscape) {
+                        Modifier
+                            .padding(horizontal = landscapeHorizontalInset)
+                            .padding(bottom = LandscapeBottomBarBottomPadding)
+                    } else {
+                        Modifier
+                            .displayCutoutPadding()
+                            .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                            .padding(bottom = 44.dp)
+                    }
+                )
         ) {
             // 1. 顶行：章节提示（若有） + 精准时间码 + 取消/关闭按钮
             Row(

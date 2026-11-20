@@ -181,7 +181,6 @@ class PlayerScreenActionsTest {
         viewModel = buildViewModel(baseSession)
 
         playerState = PlayerState(
-            scope = testScope,
             scrubState = PlayerScrubState(),
             zoomState = PlayerZoomState(),
             activity = null,
@@ -245,7 +244,7 @@ class PlayerScreenActionsTest {
         actions.onEnterPiP()
         assertEquals(3, timeoutResetCount)
 
-        actions.onOpenSheetTab(PlayerSheetRoute.AUDIO_TRACKS)
+        actions.onOpenSheetTab(PlayerSheetRoute.AUDIO)
         assertEquals(4, timeoutResetCount)
 
         actions.onToggleOrientation()
@@ -449,7 +448,7 @@ class PlayerScreenActionsTest {
 
         actions.onToggleLock()
         assertTrue(playerState.isLocked)
-        assertFalse(playerState.showControls)
+        assertTrue(playerState.showControls)
 
         actions.onToggleLock()
         assertFalse(playerState.isLocked)
@@ -476,9 +475,9 @@ class PlayerScreenActionsTest {
             lastSubTrackId = 1,
         )
 
-        actions.onOpenSheetTab(PlayerSheetRoute.SUBTITLE_TRACKS)
+        actions.onOpenSheetTab(PlayerSheetRoute.SUBTITLES)
         assertFalse(playerState.showControls)
-        assertEquals(PlayerSheetRoute.SUBTITLE_TRACKS, playerState.activeSheetTab)
+        assertEquals(PlayerSheetRoute.SUBTITLES, playerState.activeSheetTab)
     }
 
     @Test
@@ -630,7 +629,7 @@ class PlayerScreenActionsTest {
             }
         }
 
-        playerState.activeSheetTab = PlayerSheetRoute.AUDIO_TRACKS
+        playerState.activeSheetTab = PlayerSheetRoute.AUDIO
         val callbacks = createPlayerSheetCallbacks(
             viewModel = buildViewModel(fakeSession),
             playerState = playerState,

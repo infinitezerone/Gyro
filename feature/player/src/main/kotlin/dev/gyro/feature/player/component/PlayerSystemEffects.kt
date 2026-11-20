@@ -11,6 +11,9 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.gyro.feature.player.PlayerScrubState
 import dev.gyro.feature.player.PlayerState
 
@@ -21,7 +24,6 @@ import dev.gyro.feature.player.PlayerState
  * - Screen-on flag maintenance during playback
  * - Immersive sticky system bars lifecycle
  * - Controls auto-hide timer
- * - HDR format badge reveal/hide triggers
  * - Software audio gain cleanup on exit
  */
 @Composable
@@ -33,7 +35,6 @@ internal fun PlayerSystemEffects(
     isPipLayout: Boolean,
     isLandscape: Boolean,
     isHdr: Boolean,
-    hdrFormat: String,
     scrubState: PlayerScrubState,
     onBack: () -> Unit,
     onResetAudioGain: () -> Unit,
@@ -102,9 +103,21 @@ internal fun PlayerSystemEffects(
         }
     }
 
-    // 4. Sticky immersive system bars (Transient Swipe)
-    LaunchedEffect(playerState.showControls, isPipLayout, isLandscape) {
-        playerState.applySystemBars(isPipLayout = isPipLayout, isLandscape = isLandscape)
+    // 4. Sticky immersive system bars (Transient Swipe) — 横竖屏均常驻隐藏，不随控制层显隐跳动
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(isPipLayout, isLandscape) {
+        playerState.applySystemBars(isPipLayout = isPipLayout)
+    }
+    DisposableEffect(lifecycleOwner, isPipLayout) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                playerState.applySystemBars(isPipLayout = isPipLayout)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -133,23 +146,14 @@ internal fun PlayerSystemEffects(
         }
     }
 
-    // 6. Dolby Vision / HDR format badge trigger
-    LaunchedEffect(hdrFormat) {
-        if (hdrFormat.isNotBlank()) {
-            playerState.revealFormatBadge()
-        } else {
-            playerState.hideFormatBadge()
-        }
-    }
-
-    // 7. Clean up software gain on exit
+    // 6. Clean up software gain on exit
     DisposableEffect(Unit) {
         onDispose {
             onResetAudioGain()
         }
     }
 
-    // 8. Restore default screen orientation when PlayerScreen leaves composition (unless rotating)
+    // 7. Restore default screen orientation when PlayerScreen leaves composition (unless rotating)
     DisposableEffect(activity) {
         onDispose {
             val act = activity ?: return@onDispose

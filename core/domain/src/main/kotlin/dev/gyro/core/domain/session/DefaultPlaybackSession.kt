@@ -109,6 +109,8 @@ class DefaultPlaybackSession @Inject constructor(
 
     override fun handleAppBackground(isPip: Boolean): Job? = handleAppBackgroundUseCase(isPip)
 
+    override fun handlePipDismissed() = handleAppBackgroundUseCase.onPipDismissed()
+
     override fun endSession(reason: SessionEndReason) = endPlaybackSessionUseCase(reason)
 
     override fun setSleepTimer(minutes: Int) {

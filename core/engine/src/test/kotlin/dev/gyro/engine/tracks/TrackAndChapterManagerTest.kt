@@ -123,4 +123,128 @@ class TrackAndChapterManagerTest {
         assertTrue(manager.tracks.value.isEmpty())
         assertTrue(manager.chapters.value.isEmpty())
     }
+
+    // region 次字幕（双语）
+
+    private fun seedTwoSubtitleTracks(primaryId: Long = 1L) {
+        bridge.properties["track-list/count"] = 2L
+        bridge.properties["track-list/0/id"] = 1L
+        bridge.properties["track-list/0/type"] = "sub"
+        bridge.properties["track-list/0/title"] = "Chinese"
+        bridge.properties["track-list/0/selected"] = primaryId == 1L
+        bridge.properties["track-list/1/id"] = 2L
+        bridge.properties["track-list/1/type"] = "sub"
+        bridge.properties["track-list/1/title"] = "English"
+        bridge.properties["track-list/1/selected"] = primaryId == 2L
+        manager.refreshTracks()
+    }
+
+    @Test
+    fun selectSecondarySubtitle_setsIdAndMirrorsState() {
+        seedTwoSubtitleTracks()
+
+        manager.selectSecondarySubtitle(2)
+
+        assertEquals("2", bridge.properties["secondary-sid"])
+        assertEquals(2, manager.secondarySubId.value)
+
+        manager.selectSecondarySubtitle(0)
+
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun selectSecondarySubtitle_rejectsPrimaryTrack() {
+        seedTwoSubtitleTracks()
+
+        manager.selectSecondarySubtitle(1)
+
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun selectSecondarySubtitle_rejectsWhenPrimarySubtitleIsOff() {
+        seedTwoSubtitleTracks(primaryId = 0L)
+
+        manager.selectSecondarySubtitle(2)
+
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun selectPrimarySubtitleOff_clearsSecondary() {
+        seedTwoSubtitleTracks()
+        manager.selectSecondarySubtitle(2)
+
+        manager.selectTrack(TrackType.SUBTITLE, 0)
+
+        assertEquals("no", bridge.properties["sid"])
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun refreshTracks_clearsSecondaryWhenPrimarySubtitleIsOff() {
+        seedTwoSubtitleTracks()
+        manager.selectSecondarySubtitle(2)
+
+        bridge.properties["track-list/0/selected"] = false
+        bridge.properties["track-list/1/selected"] = false
+        manager.refreshTracks()
+
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun selectPrimarySubtitle_movesSecondaryOffTheSameTrack() {
+        seedTwoSubtitleTracks()
+        manager.selectSecondarySubtitle(2)
+
+        manager.selectTrack(TrackType.SUBTITLE, 2)
+
+        assertEquals("2", bridge.properties["sid"])
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun refreshTracks_clearsSecondaryThatBecamePrimaryOnNextFile() {
+        seedTwoSubtitleTracks()
+        manager.selectSecondarySubtitle(2)
+
+        // 新文件里同一条轨道号变成了主字幕（mpv 会复用 track id）。
+        bridge.properties["track-list/0/selected"] = false
+        bridge.properties["track-list/1/selected"] = true
+        manager.refreshTracks()
+
+        assertEquals("no", bridge.properties["secondary-sid"])
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun secondarySidPropertyWithoutValue_isTreatedAsOff() {
+        seedTwoSubtitleTracks()
+        manager.selectSecondarySubtitle(2)
+
+        // "no" 等非数值值会以 MPV_FORMAT_NONE（无数据）回调到 PropertyChanged。
+        manager.onEvent(dev.gyro.engine.MpvEvent.PropertyChanged("secondary-sid"))
+
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    @Test
+    fun reset_clearsSecondarySubtitleState() {
+        seedTwoSubtitleTracks()
+        manager.selectSecondarySubtitle(2)
+
+        manager.reset()
+
+        assertEquals(0, manager.secondarySubId.value)
+    }
+
+    // endregion
 }

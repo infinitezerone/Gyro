@@ -99,7 +99,7 @@ fun createPlayerOverlayActions(
         onToggleLock = {
             onResetControlsTimeout()
             playerState.isLocked = !playerState.isLocked
-            playerState.showControls = !playerState.isLocked
+            playerState.showControls = true
         },
         onSeekToFraction = { fraction ->
             onResetControlsTimeout()

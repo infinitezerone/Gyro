@@ -7,10 +7,6 @@ import android.util.Rational
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -52,16 +48,15 @@ import dev.gyro.feature.player.surface.GyroSurfaceView
 import dev.gyro.feature.player.component.PlayerBufferingSpinner
 import dev.gyro.feature.player.component.PlayerControlsOverlay
 import dev.gyro.feature.player.component.PlayerEmptyStateCard
-import dev.gyro.feature.player.component.PlayerFormatBadge
 import dev.gyro.feature.player.component.PlayerHudOverlay
 import dev.gyro.feature.player.component.PlayerPipLifecycleEffects
 import dev.gyro.feature.player.component.PlayerStatsOverlay
 import dev.gyro.feature.player.component.PlayerSystemEffects
 import dev.gyro.feature.player.component.PlayerVideoFeedLayer
+import dev.gyro.feature.player.component.rememberLandscapeHorizontalInset
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.event.PlaybackTriggerSource
 import dev.gyro.feature.player.event.PlayerEvent
-import dev.gyro.feature.player.util.rememberPlayerPalette
 
 /**
  * Top-level Player destination Composable.
@@ -84,7 +79,7 @@ fun PlayerScreen(
     val activity: Activity? = componentActivity
     val configuration = LocalConfiguration.current
     val scope = rememberCoroutineScope()
-    val playerState = rememberPlayerState(activity = activity, scope = scope)
+    val playerState = rememberPlayerState(activity = activity)
 
     // 1. Session & Playback States
     val snapshot by viewModel.state.collectAsStateWithLifecycle()
@@ -138,7 +133,8 @@ fun PlayerScreen(
     val isLifecycleStarted = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
 
     // Telemetry & power sampling states (active strictly when stats UI is open and screen is started)
-    val isPowerSheetActive = isLifecycleStarted && playerState.activeSheetTab == PlayerSheetRoute.STATS_INFO
+    val isPowerSheetActive =
+        isLifecycleStarted && playerState.sheetNav?.current == PlayerSheetRoute.STATS_INFO
     val isStatsActive = isLifecycleStarted && (playerState.statsOverlayEnabled || isPowerSheetActive)
     val telemetryState = rememberPlayerTelemetryState(
         diagnosticsFlow = viewModel.diagnostics,
@@ -204,10 +200,6 @@ fun PlayerScreen(
         }
     }
     val currentPosterBitmap = activeUri?.let { thumbnailCache[it.toString()] }
-    val dynamicPalette = rememberPlayerPalette(
-        bitmap = currentPosterBitmap,
-        extractPalette = viewModel::extractPalette,
-    )
 
     fun openUri(uri: Uri) {
         val item = playlist.firstOrNull { it.uriString == uri.toString() }
@@ -245,6 +237,7 @@ fun PlayerScreen(
     }
 
     // Picture-in-Picture State
+    var showControlsAfterPipDismiss by remember { mutableStateOf(false) }
     val pipState = rememberPlayerPipState(
         activity = componentActivity,
         isPlaying = isPlaying,
@@ -252,7 +245,10 @@ fun PlayerScreen(
         targetAspectRatio = targetAspectRatio,
         videoSourceRect = videoSourceRect,
         onControlsVisibilityChange = { playerState.showControls = it },
-        onPipDismissed = { viewModel.onUserExit() }
+        onPipDismissed = {
+            viewModel.onPipDismissed()
+            showControlsAfterPipDismiss = true
+        }
     )
     val isPipLayout = pipState.isPipLayout
     val hideChrome = pipState.shouldHideChrome
@@ -265,6 +261,7 @@ fun PlayerScreen(
     }
 
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val landscapeHorizontalInset = if (isLandscape) rememberLandscapeHorizontalInset() else 0.dp
     val overlayActions = rememberPlayerScreenActions(
         viewModel = viewModel,
         playerState = playerState,
@@ -431,7 +428,6 @@ fun PlayerScreen(
         isPipLayout = isPipLayout,
         isLandscape = isLandscape,
         isHdr = snapshot.isHdr,
-        hdrFormat = hdrFormat,
         scrubState = scrubState,
         onBack = onBack,
         onResetAudioGain = { viewModel.resetAudioSoftwareGain() }
@@ -447,7 +443,9 @@ fun PlayerScreen(
         isPipLayout = isPipLayout,
         hideChrome = hideChrome,
         isLandscape = isLandscape,
-        onTogglePlayPause = { overlayActions.onTogglePlayPause() }
+        onTogglePlayPause = { overlayActions.onTogglePlayPause() },
+        showControlsAfterPipDismiss = showControlsAfterPipDismiss,
+        onConsumeShowControlsAfterPipDismiss = { showControlsAfterPipDismiss = false },
     )
 
     // 4. Main Player Canvas Box
@@ -532,20 +530,7 @@ fun PlayerScreen(
             )
         }
 
-        // 5. Dolby Vision / HDR Format Entrance Badge
-        if (!isPipLayout && !hideChrome) {
-            PlayerFormatBadge(
-                visible = playerState.formatBadgeVisible,
-                hdrFormat = hdrFormat,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .displayCutoutPadding()
-                    .statusBarsPadding()
-                    .padding(top = 64.dp)
-            )
-        }
-
-        // 6. Diagnostics Telemetry Stats (when controls are hidden)
+        // 5. Diagnostics Telemetry Stats (when controls are hidden)
         if (!isPipLayout && !hideChrome && playerState.statsOverlayEnabled && !playerState.showControls) {
             PlayerStatsOverlay(
                 diagnosticsFlow = viewModel.diagnostics,
@@ -556,13 +541,22 @@ fun PlayerScreen(
                 hdrLabel = if (snapshot.isHdr) hdrFormat else null,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .displayCutoutPadding()
-                    .statusBarsPadding()
-                    .padding(start = 16.dp, top = 8.dp)
+                    .then(
+                        if (isLandscape) {
+                            Modifier
+                                .statusBarsPadding()
+                                .padding(start = landscapeHorizontalInset + 8.dp, top = 12.dp)
+                        } else {
+                            Modifier
+                                .displayCutoutPadding()
+                                .statusBarsPadding()
+                                .padding(start = 16.dp, top = 8.dp)
+                        }
+                    )
             )
         }
 
-        // 7. Top & Bottom Streamline Controls Overlay (hidden in PiP)
+        // 6. Top & Bottom Streamline Controls Overlay (hidden in PiP)
         if (!isPipLayout && !hideChrome) {
             PlayerControlsOverlay(
                 isVisible = playerState.showControls,
@@ -583,7 +577,6 @@ fun PlayerScreen(
                 abLoopBSeconds = snapshot.abLoopBSeconds,
                 chapters = chapters,
                 videoBottomDp = videoBottomDp,
-                ambientColor = dynamicPalette.darkMutedColor,
                 hdrFormat = hdrFormat,
                 activeUri = activeUri,
                 posterBitmap = currentPosterBitmap,
@@ -592,50 +585,51 @@ fun PlayerScreen(
             )
         }
 
-        // 8. Modal Tabbed Settings & Calibrator Bottom Sheet
-        // The exit transition animates the outgoing sheet, so its content has to outlive the flag
-        // that closes it: reading activeSheetTab inside the content made the lambda render nothing
-        // the moment it went null, and the slide-out played on an empty composition (reads as "no
-        // animation at all"). Keeping the last tab keeps the sheet on screen until it has slid away.
+        // 7. Modal Tabbed Settings & Playlist Bottom Sheet
+        // Keep the sheet mounted until AnchoredSheetScaffold finishes sliding to Hidden so exit
+        // springs and drag-dismiss settle cleanly without a second wrapper animation fighting them.
         val openSheetTab = playerState.activeSheetTab
-        var retainedSheetTab by remember { mutableStateOf(openSheetTab) }
-        if (openSheetTab != null) retainedSheetTab = openSheetTab
-
-        AnimatedVisibility(
-            visible = openSheetTab != null && !isPipLayout && !hideChrome,
-            enter = fadeIn(animationSpec = tween(180)),
-            exit = fadeOut(animationSpec = tween(140))
-        ) {
-            retainedSheetTab?.let { tab ->
-                if (!isPipLayout && !hideChrome) {
-                    PlayerSheetsHost(
-                        tab = tab,
-                        isLandscape = isLandscape,
-                        viewModel = viewModel,
-                        playerState = playerState,
-                        snapshot = snapshot,
-                        playlist = playlist,
-                        currentPlaylistIndex = currentPlaylistIndex,
-                        mediaTitle = mediaTitle,
-                        activeUri = activeUri,
-                        telemetryState = telemetryState,
-                        powerMetrics = powerState.metrics,
-                        onImportCustomShader = { shaderPicker.launch(arrayOf("*/*")) },
-                        onAddExternalSubtitle = {
-                            subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
-                        },
-                        onOpenFullSettings = onOpenSettings,
-                        onEnterPip = {
-                            playerState.activeSheetTab = null
-                            pipState.enterPip()
-                        },
-                        animatedVisibilityScope = this
-                    )
-                }
-            }
+        val isSheetVisible = openSheetTab != null && !isPipLayout && !hideChrome
+        var mountedSheetTab by remember { mutableStateOf<PlayerSheetRoute?>(null) }
+        if (isSheetVisible) {
+            mountedSheetTab = openSheetTab
+        } else if (isPipLayout || hideChrome) {
+            mountedSheetTab = null
         }
 
-        // 9. Instant camera shutter white flash feedback
+        mountedSheetTab?.let { tab ->
+            PlayerSheetsHost(
+                tab = tab,
+                visible = isSheetVisible,
+                isLandscape = isLandscape,
+                viewModel = viewModel,
+                playerState = playerState,
+                snapshot = snapshot,
+                playlist = playlist,
+                currentPlaylistIndex = currentPlaylistIndex,
+                mediaTitle = mediaTitle,
+                activeUri = activeUri,
+                telemetryState = telemetryState,
+                powerMetrics = powerState.metrics,
+                onImportCustomShader = { shaderPicker.launch(arrayOf("*/*")) },
+                onAddExternalSubtitle = {
+                    subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "application/*"))
+                },
+                onOpenFullSettings = onOpenSettings,
+                onEnterPip = {
+                    playerState.activeSheetTab = null
+                    mountedSheetTab = null
+                    pipState.enterPip()
+                },
+                onHidden = {
+                    if (!isSheetVisible) {
+                        mountedSheetTab = null
+                    }
+                },
+            )
+        }
+
+        // 8. Instant camera shutter white flash feedback
         PlayerShutterFlashOverlay(controller = screenshotController)
     }
 }

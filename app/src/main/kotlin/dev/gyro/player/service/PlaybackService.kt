@@ -55,7 +55,8 @@ class PlaybackService : MediaSessionService() {
 
         fun start(context: Context) {
             val intent = Intent(context, PlaybackService::class.java)
-            context.startService(intent)
+            runCatching { context.startService(intent) }
+                .onFailure { Log.w(TAG, "startService failed", it) }
         }
 
         fun stop(context: Context) {
@@ -93,9 +94,11 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        mediaSession = MediaSession.Builder(this, adapter)
+        val createdSession = MediaSession.Builder(this, adapter)
             .setSessionActivity(sessionActivityPendingIntent)
             .build()
+        mediaSession = createdSession
+        addSession(createdSession)
 
         scope.launch {
             session.currentUri.collectLatest { uri ->
@@ -172,6 +175,9 @@ class PlaybackService : MediaSessionService() {
             Log.i(TAG, "PlaybackService destroyed by the system; keeping the session so the player survives")
         }
         mediaSession?.let { activeSession ->
+            if (isSessionAdded(activeSession)) {
+                removeSession(activeSession)
+            }
             runCatching { activeSession.release() }
                 .onFailure { Log.w(TAG, "release MediaSession failed", it) }
         }

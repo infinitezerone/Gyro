@@ -31,6 +31,7 @@ import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.app.PictureInPictureUiStateCompat
 import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
+import dev.gyro.core.designsystem.icon.GyroIcons
 import dev.gyro.engine.model.ResizeMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -61,9 +62,9 @@ const val PIP_EXIT_SETTLE_MS = 300L
  */
 fun buildPipToggleAction(context: Context, isPlaying: Boolean): RemoteAction {
     val iconRes = if (isPlaying) {
-        android.R.drawable.ic_media_pause
+        GyroIcons.Res.Pause
     } else {
-        android.R.drawable.ic_media_play
+        GyroIcons.Res.Play
     }
     val label = context.getString(
         if (isPlaying) {
@@ -349,7 +350,6 @@ class PlayerPipState internal constructor(
     val isSettling: Boolean,
     val isLeavingForeground: Boolean,
     val pipRequested: Boolean,
-    val pipEntering: Boolean,
     /**
      * Whether leaving the foreground can start a PiP transition at all. Without it, a plain Home
      * press would hide the chrome on the way out even though nothing is shrinking into PiP.
@@ -361,16 +361,13 @@ class PlayerPipState internal constructor(
     val isPipLayout: Boolean get() = isPipWindow || isInPipMode
 
     /**
-     * True when in PiP layout or when entering PiP (transitioning gesture, manual request,
-     * leaving hint, or window focus loss during swipe-to-home)
-     * indicates controls and chrome should be hidden before window shrinking.
-     *
-     * [isLeavingForeground] only counts when [autoPipEnabled]: it is set by every Home press and
-     * app switch, so on its own it hid the chrome for users who never use PiP.
+     * True when in PiP layout or when entering PiP (system transition signal, manual request, or
+     * the leave hint while auto-PiP can actually fire), so controls and chrome are hidden before
+     * the window shrinks.
      */
     val shouldHideChrome: Boolean
         get() = isPipLayout || (isLeavingForeground && autoPipEnabled) ||
-            pipRequested || isTransitioning || pipEntering
+            pipRequested || isTransitioning
 
     /** True while PiP transition or exit settle is active, used to freeze buffer relocking. */
     val isTransitionActive: Boolean get() = isSettling || isInPipMode
@@ -399,7 +396,9 @@ fun rememberPlayerPipState(
     val isInPipMode = rememberIsInPipMode()
     val isPipWindow = rememberIsPipWindow(activity)
     val isTransitioning = rememberIsTransitioningToPip(activity, isInPipMode, onControlsHide)
-    val isLeavingForeground = rememberUserLeavingHint(onControlsHide, enabled = autoPipEnabled)
+    // 系统只在「播放中 + 开启自动画中画」时自动进小窗（autoEnter = isPlaying && autoPipEnabled），
+    // 暂停时按 Home 不会进小窗，此时不应收起控制层。
+    val isLeavingForeground = rememberUserLeavingHint(onControlsHide, enabled = autoPipEnabled && isPlaying)
 
     val latestOnPipDismissed by rememberUpdatedState(onPipDismissed)
     val latestIsInPipMode by rememberUpdatedState(isInPipMode)
@@ -441,39 +440,17 @@ fun rememberPlayerPipState(
         }
     }
 
-    // 上滑回桌面时，窗口焦点比 PiP 转场早约 600ms 丢失（实测），
-    // 用它抢在转场前收起控制层；isTransitioningToPip 作为兜底。
-    // 焦点丢失期间 chrome 硬隐藏；焦点回来后若没进小窗（手势取消、下拉通知栏等），恢复正常显隐。
-    val windowFocused = LocalWindowInfo.current.isWindowFocused
-    // enterPipAction's lambda outlives this recomposition (remember keys are only activity and
-    // context), so the log line inside must read the latest focus through a state holder instead
-    // of a value captured when the lambda was built.
-    val latestWindowFocused by rememberUpdatedState(windowFocused)
-    var pipEntering by remember { mutableStateOf(false) }
-
     var pipRequested by remember { mutableStateOf(false) }
 
     var isSettling by remember { mutableStateOf(isInPipMode) }
-    LaunchedEffect(windowFocused, isInPipMode, isSettling) {
-        if (!windowFocused) {
-            pipEntering = true
-            onControlsHide()
-        } else if (!isInPipMode && !isSettling) {
-            pipEntering = false
-        }
-    }
 
     LaunchedEffect(isInPipMode) {
         pipRequested = false
         if (isInPipMode) {
-            pipEntering = false
             isSettling = true
         } else if (isSettling) {
             delay(PIP_EXIT_SETTLE_MS)
             isSettling = false
-            pipEntering = false
-        } else {
-            pipEntering = false
         }
     }
 
@@ -552,7 +529,7 @@ fun rememberPlayerPipState(
                     val playing = latestIsPlaying
                     dev.gyro.engine.trace.SwitchTrace.log(
                         "PIP_ENTER_REQUEST",
-                        "aspect=$aspect, sourceRect=$sourceRect, windowFocused=$latestWindowFocused"
+                        "aspect=$aspect, sourceRect=$sourceRect"
                     )
                     val params = buildPipParams(
                         context = context,
@@ -580,7 +557,7 @@ fun rememberPlayerPipState(
         }
     }
 
-    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, pipEntering, autoPipEnabled, enterPipAction) {
+    return remember(isInPipMode, isPipWindow, isTransitioning, isSettling, isLeavingForeground, pipRequested, autoPipEnabled, enterPipAction) {
         PlayerPipState(
             isInPipMode = isInPipMode,
             isPipWindow = isPipWindow,
@@ -588,7 +565,6 @@ fun rememberPlayerPipState(
             isSettling = isSettling,
             isLeavingForeground = isLeavingForeground,
             pipRequested = pipRequested,
-            pipEntering = pipEntering,
             autoPipEnabled = autoPipEnabled,
             enterPipAction = enterPipAction
         )

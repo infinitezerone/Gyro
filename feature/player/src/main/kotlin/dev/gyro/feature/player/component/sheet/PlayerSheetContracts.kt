@@ -73,6 +73,19 @@ data class PlayerSheetUiState(
 ) {
     val audioTracks: List<TrackInfo> by lazy { tracks.filter { it.type == TrackType.AUDIO } }
     val subtitleTracks: List<TrackInfo> by lazy { tracks.filter { it.type == TrackType.SUBTITLE } }
+
+    /**
+     * 可展示的次字幕 id：必须有主字幕、不能与主字幕同轨、且轨道仍存在；
+     * 任一条件不满足就降级为 0，避免 UI 显示一个不会渲染或会重复渲染的次字幕。
+     */
+    val effectiveSecondarySubId: Int
+        get() {
+            if (secondarySubId <= 0) return 0
+            val primary = subtitleTracks.firstOrNull { it.isSelected } ?: return 0
+            return secondarySubId.takeIf { id ->
+                id != primary.id && subtitleTracks.any { it.id == id }
+            } ?: 0
+        }
 }
 
 /**

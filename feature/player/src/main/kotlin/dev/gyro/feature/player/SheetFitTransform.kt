@@ -3,17 +3,14 @@ package dev.gyro.feature.player
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 
 /**
- * Returns true when the video canvas should shrink/shift to fit above the portrait settings sheet.
- * Excludes [PlayerSheetRoute.PLAYLIST] and [PlayerSheetRoute.CHAPTERS], which render via
- * `PlayerPlaylistSheet` without measuring `sheetHeightPx` (avoiding stale Settings sheet height).
+ * Returns true when the video canvas should shrink/shift to fit above the portrait bottom sheet.
+ * Covers all bottom sheets (settings, playlist, and chapters) unified onto `AnchoredSheetScaffold`.
  */
 internal fun isSheetFitActive(
     activeSheetTab: PlayerSheetRoute?,
     isLandscape: Boolean,
     isPipLayout: Boolean,
 ): Boolean = activeSheetTab != null &&
-    activeSheetTab != PlayerSheetRoute.PLAYLIST &&
-    activeSheetTab != PlayerSheetRoute.CHAPTERS &&
     !isLandscape &&
     !isPipLayout
 

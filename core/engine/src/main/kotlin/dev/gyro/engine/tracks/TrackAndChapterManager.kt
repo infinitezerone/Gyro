@@ -66,6 +66,9 @@ class TrackAndChapterManager(
             is MpvEvent.PropertyChanged -> when (event.name) {
                 "track-list" -> refreshTracks()
                 "chapter-list" -> refreshChapters()
+                // "no" 之类的非数值值会以 MPV_FORMAT_NONE 回调（无数据），必须按关闭处理，
+                // 否则关闭次字幕后 UI 仍停留在旧的选中轨道。
+                "secondary-sid" -> _secondarySubId.value = 0
             }
             is MpvEvent.LongProperty -> {
                 when (event.name) {
@@ -106,12 +109,22 @@ class TrackAndChapterManager(
                 trackList.add(TrackInfo(id, type, title, lang, selected))
             }
             _tracks.value = trackList
-            // 次字幕指向的轨道可能随换片/轨道刷新消失，必须同步清掉，否则 UI 会显示一个不存在的次字幕。
+            // 次字幕指向的轨道可能随换片/轨道刷新消失，或者变成当前主字幕轨，必须同步清掉，
+            // 否则同一条字幕会被渲染两次，UI 也会显示一个不存在的次字幕。
             val subtitleIds = trackList
                 .filter { it.type == TrackType.SUBTITLE }
                 .mapTo(mutableSetOf()) { it.id }
-            if (_secondarySubId.value > 0 && _secondarySubId.value !in subtitleIds) {
+            val primarySubId = trackList
+                .firstOrNull { it.type == TrackType.SUBTITLE && it.isSelected }
+                ?.id ?: 0
+            val secondary = _secondarySubId.value
+            // 次字幕只在“有主字幕且与主字幕不同”时才有意义；主字幕关闭或指向同一轨道都必须清掉。
+            if (secondary > 0 &&
+                (secondary !in subtitleIds || secondary == primarySubId || primarySubId == 0)
+            ) {
                 bridge.setPropertyString("secondary-sid", "no")
+                // 不等 mpv 的属性回调（"no" 可能以 NONE 格式返回），先本地归零保持 UI 一致。
+                _secondarySubId.value = 0
             }
             EngineLog.i(TAG, "Refreshed tracks: count=$count, tracks=$trackList")
         } catch (t: Throwable) {
@@ -128,19 +141,23 @@ class TrackAndChapterManager(
                 bridge.setPropertyString("aid", if (id <= 0) "no" else "$id")
             }
             TrackType.SUBTITLE -> {
-                bridge.setPropertyString("sid", if (id <= 0) "no" else "$id")
-                // 主字幕切到当前次字幕轨时清掉次字幕，避免同一条字幕被渲染两次。
-                if (id > 0 && id == _secondarySubId.value) {
+                val primaryOff = id <= 0
+                bridge.setPropertyString("sid", if (primaryOff) "no" else "$id")
+                // 主字幕关闭，或主字幕切到当前次字幕轨时，清掉次字幕：
+                // 前者避免留下一个 UI 里已无法管理的次字幕，后者避免同一条字幕被渲染两次。
+                if (_secondarySubId.value > 0 && (primaryOff || id == _secondarySubId.value)) {
                     bridge.setPropertyString("secondary-sid", "no")
+                    _secondarySubId.value = 0
                 }
             }
             TrackType.SECONDARY_SUBTITLE -> {
-                // 次字幕（双语同屏）：id <= 0 关闭；主字幕轨不会被次字幕抢占。
+                // 次字幕（双语同屏）：必须有主字幕且不能与主字幕同轨，否则一律按关闭处理。
                 val primaryId = _tracks.value
                     .firstOrNull { it.type == TrackType.SUBTITLE && it.isSelected }
                     ?.id ?: 0
-                val effectiveId = if (id > 0 && id == primaryId) 0 else id
+                val effectiveId = if (id > 0 && primaryId > 0 && id != primaryId) id else 0
                 bridge.setPropertyString("secondary-sid", if (effectiveId <= 0) "no" else "$effectiveId")
+                _secondarySubId.value = effectiveId
             }
             TrackType.UNKNOWN -> return
         }
@@ -206,5 +223,7 @@ class TrackAndChapterManager(
     fun clearTracksAndChapters() {
         clearChapters()
         clearTracks()
+        // 换片/销毁后旧的次字幕 id 不再有意义，避免把上一条视频的次字幕带到下一条的 UI 上。
+        _secondarySubId.value = 0
     }
 }

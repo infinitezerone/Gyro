@@ -1,5 +1,6 @@
 package dev.gyro.feature.player.component
 
+import android.content.res.Configuration
 import android.graphics.BlurMaskFilter
 import android.graphics.Paint as AndroidPaint
 import android.os.SystemClock
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -98,8 +100,8 @@ private val HudPillInvertedInk = Color(0xFF141414)
 private val LevelHudWidth = 168.dp
 private val LevelHudExpandedHeight = 34.dp
 private val LevelHudCompactHeight = 8.dp
-internal const val LEVEL_HUD_COLLAPSE_MIN_ELAPSED_MS = 380L
-internal const val LEVEL_HUD_COLLAPSE_MIN_DELTA = 0.05f
+internal const val LEVEL_HUD_COLLAPSE_MIN_ELAPSED_MS = 600L
+internal const val LEVEL_HUD_COLLAPSE_MIN_DELTA = 0.08f
 
 internal enum class LevelHudKind { NONE, BRIGHTNESS, VOLUME }
 
@@ -130,7 +132,7 @@ internal data class LevelHudMorphState(
         val elapsedMs = (nowMs - sessionStartMs).coerceAtLeast(0L)
         val shouldCollapse = isCompact || (
             elapsedMs >= LEVEL_HUD_COLLAPSE_MIN_ELAPSED_MS &&
-                updatedDelta >= LEVEL_HUD_COLLAPSE_MIN_DELTA
+                updatedDelta + 1e-5f >= LEVEL_HUD_COLLAPSE_MIN_DELTA
             )
         return copy(
             lastRatio = ratio,
@@ -155,6 +157,10 @@ fun BoxScope.PlayerHudOverlay(
     durationMs: () -> Long,
     modifier: Modifier = Modifier
 ) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscapeHorizontalInset = if (isLandscape) rememberLandscapeHorizontalInset() else 0.dp
+
     Box(modifier = modifier.fillMaxSize()) {
         // 0. Top-Center Scrub & Gesture Seek Time Preview（拖拽进度条或屏幕水平滑动快进/快退，屏幕正上方显示目标时间与偏差）
         var lastValidTargetMs by remember { mutableLongStateOf(0L) }
@@ -177,7 +183,7 @@ fun BoxScope.PlayerHudOverlay(
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
-                .padding(top = 64.dp)
+                .padding(top = if (isLandscape) 24.dp else 64.dp)
         ) {
             if (total > 0L) {
                 ScrubTimePreview(
@@ -222,7 +228,7 @@ fun BoxScope.PlayerHudOverlay(
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
-                .padding(top = 64.dp)
+                .padding(top = if (isLandscape) 24.dp else 64.dp)
         ) {
             when (val displayHud = lastLevelHud) {
                 is GestureHudState.Brightness -> {
@@ -259,7 +265,7 @@ fun BoxScope.PlayerHudOverlay(
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
-                .padding(top = 64.dp)
+                .padding(top = if (isLandscape) 24.dp else 64.dp)
         ) {
             val speedState = hudState as? GestureHudState.Speed
             if (speedState != null) {
@@ -281,7 +287,7 @@ fun BoxScope.PlayerHudOverlay(
                             imageVector = GyroIcons.FastForward,
                             contentDescription = stringResource(R.string.speed_title),
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Text(
                             text = stringResource(R.string.hud_speed_indicator, speedState.speed),
@@ -305,7 +311,7 @@ fun BoxScope.PlayerHudOverlay(
                 .align(Alignment.TopCenter)
                 .displayCutoutPadding()
                 .statusBarsPadding()
-                .padding(top = 64.dp)
+                .padding(top = if (isLandscape) 24.dp else 64.dp)
         ) {
             val switchState = hudState as? GestureHudState.SwitchVideo
             if (switchState != null) {
@@ -327,7 +333,7 @@ fun BoxScope.PlayerHudOverlay(
                             imageVector = if (switchState.isNext) GyroIcons.SkipNext else GyroIcons.SkipPrevious,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Text(
                             text = if (switchState.isNext) stringResource(R.string.cd_next_video) else stringResource(R.string.cd_prev_video),
@@ -349,8 +355,15 @@ fun BoxScope.PlayerHudOverlay(
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier
                 .align(if (isDoubleTapLeft) Alignment.CenterStart else Alignment.CenterEnd)
-                .displayCutoutPadding()
-                .padding(horizontal = 64.dp)
+                .then(
+                    if (isLandscape) {
+                        Modifier.padding(horizontal = landscapeHorizontalInset + 64.dp)
+                    } else {
+                        Modifier
+                            .displayCutoutPadding()
+                            .padding(horizontal = 64.dp)
+                    }
+                )
         ) {
             if (doubleTapState != null) {
                 Column(
@@ -621,12 +634,12 @@ internal fun TopFillPillHud(
     )
     val animatedHeight by animateDpAsState(
         targetValue = if (isCompact) LevelHudCompactHeight else LevelHudExpandedHeight,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        animationSpec = spring(stiffness = 280f, dampingRatio = Spring.DampingRatioNoBouncy),
         label = "hudHeight"
     )
     val iconAlpha by animateFloatAsState(
         targetValue = if (isCompact) 0f else 1f,
-        animationSpec = tween(durationMillis = if (isCompact) 110 else 180),
+        animationSpec = tween(durationMillis = 180),
         label = "hudIconAlpha"
     )
     val a11yDescription = "$contentDescription ${(clampedRatio * 100f).roundToInt()}%"

@@ -431,6 +431,96 @@ class DomainUseCasesTest {
     }
 
     @Test
+    fun testHandleAppBackgroundUseCase_onPipDismissedPausesAndSavesWithoutEndingSession() = runCaseTest {
+        settingsRepo.setBackgroundAudio(true)
+        runCurrent()
+
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val bgUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
+
+        sessionStateHolder.setSessionActive(true)
+        engine.attachSurface()
+        val uri = TestUri("file:///test/pip_dismiss.mp4")
+        engine.load(uri, startPositionMs = 0L, displayTitle = "PiP Dismiss")
+        runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        fakeBridge.emitPropertyDouble("duration", 120.0)
+        fakeBridge.emitPropertyDouble("time-pos", 45.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        engine.setBackgroundPlaybackAllowed(true)
+        runCurrent()
+
+        bgUseCase.onPipDismissed()
+        runCurrent()
+
+        assertEquals(45_000L, historyRepo.getProgress(uri)?.positionMs)
+        assertFalse(engine.isSurfaceAttached)
+        assertFalse(engine.isBackgroundPlaybackAllowed)
+        assertTrue(fakeBridge.properties["pause"] == true)
+        assertTrue(sessionStateHolder.sessionActive.value)
+        assertEquals(uri, engine.currentUri.value)
+    }
+
+    @Test
+    fun testHandleAppBackgroundUseCase_onPipDismissedWhenSessionInactiveIsNoOp() = runCaseTest {
+        val saveUseCase = SavePlaybackProgressUseCase(engine, historyRepo)
+        val bgUseCase = HandleAppBackgroundUseCase(
+            engine = engine,
+            settingsRepository = settingsRepo,
+            saveProgressUseCase = saveUseCase,
+            sessionStateHolder = sessionStateHolder,
+            scope = testScope,
+        )
+
+        engine.attachSurface()
+        val uri = TestUri("file:///test/pip_inactive.mp4")
+        engine.load(uri, startPositionMs = 0L, displayTitle = "Inactive")
+        runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        fakeBridge.emitPropertyDouble("duration", 120.0)
+        fakeBridge.emitPropertyDouble("time-pos", 20.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        bgUseCase.onPipDismissed()
+        runCurrent()
+
+        assertEquals(false, fakeBridge.properties["pause"])
+        assertNull(historyRepo.getProgress(uri))
+    }
+
+    @Test
+    fun testSessionMonitor_restartsServiceWhenPlaybackResumesFromPause() = runCaseTest {
+        engine.attachSurface()
+        val loadUseCase = buildLoadUseCase()
+        val uri = TestUri("file:///test/resume_service.mp4")
+
+        loadUseCase(PlaybackSource.UriItem(uri = uri, displayTitle = "Resume Service"))
+        runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        fakeBridge.emitPropertyFlag("pause", true)
+        runCurrent()
+        val beforeResume = serviceStartCalls
+
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        assertEquals(beforeResume + 1, serviceStartCalls)
+    }
+
+    @Test
     fun testHwdecFallbackIsDrivenByTypedPlaybackErrorThenReportsCodecCrashOnExplicitRetry() = runCaseTest {
         val holder = PlaybackSessionStateHolder()
         holder.setSessionActive(true)

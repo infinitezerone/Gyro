@@ -258,4 +258,36 @@ class PlayerGestureTest {
         assertEquals(0, systemVol)
         assertEquals(GestureHudState.Volume(percent = 0, volumeRatio = 0.0f), latestHud)
     }
+
+    @Test
+    fun testDefaultPlayerGestureCallbacksIgnoresFastForwardWhenPaused() {
+        var playing = false
+        var startedSpeed: Float? = null
+        val callbacks = DefaultPlayerGestureCallbacks(
+            context = null,
+            currentPosMs = { 0L },
+            durationMs = { 0L },
+            scrubState = null,
+            zoomScale = { 1.0f },
+            onZoomChange = { _, _, _, _ -> },
+            onResetZoom = {},
+            onSettleZoom = {},
+            onSingleTap = {},
+            onDoubleTapSeek = {},
+            onDoubleTapPlayPause = {},
+            onFastForwardStart = { startedSpeed = it },
+            onFastForwardEnd = {},
+            onHudStateChange = {},
+            isPlaying = { playing },
+        )
+
+        assertFalse(callbacks.isPlaying())
+        callbacks.onFastForwardStart(2.0f)
+        assertEquals(null, startedSpeed)
+
+        playing = true
+        assertTrue(callbacks.isPlaying())
+        callbacks.onFastForwardStart(2.0f)
+        assertEquals(2.0f, startedSpeed ?: 0f, 0.001f)
+    }
 }

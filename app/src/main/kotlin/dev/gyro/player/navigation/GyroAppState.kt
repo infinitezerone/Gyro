@@ -95,6 +95,10 @@ class GyroAppState(
         backStack.add(Screen.GestureSettings)
     }
 
+    fun navigateToVideoRenderingSettings() {
+        backStack.add(Screen.VideoRenderingSettings)
+    }
+
     /**
      * Handles external intent URIs using single-top and synthetic backstack principles.
      * - If the player is already showing at the top with the same URI, avoids redundant work.

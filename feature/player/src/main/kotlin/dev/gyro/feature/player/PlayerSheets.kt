@@ -1,8 +1,9 @@
 package dev.gyro.feature.player
 
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -16,17 +17,18 @@ import dev.gyro.feature.player.component.sheet.PlayerSettingsSheet
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
+import dev.gyro.feature.player.component.sheet.rememberSheetNavState
 
 /**
  * Modal tabbed settings / calibrator / playlist sheet host.
  *
- * Lives inside the screen's [androidx.compose.animation.AnimatedVisibility] for the sheet so the
- * telemetry subscriptions below only tick while the sheet is actually composed - battery/thermal
- * sampling and mpv diagnostics must not invalidate the player layout while the sheet is closed.
+ * Mounted while the sheet is opening, open, or animating shut via [AnchoredSheetScaffold], so
+ * telemetry sampling and mpv diagnostics only tick while the sheet is actually on screen.
  */
 @Composable
 internal fun PlayerSheetsHost(
     tab: PlayerSheetRoute,
+    visible: Boolean,
     isLandscape: Boolean,
     viewModel: PlayerViewModel,
     playerState: PlayerState,
@@ -41,7 +43,7 @@ internal fun PlayerSheetsHost(
     onAddExternalSubtitle: () -> Unit,
     onOpenFullSettings: () -> Unit,
     onEnterPip: () -> Unit,
-    animatedVisibilityScope: AnimatedVisibilityScope,
+    onHidden: () -> Unit,
 ) {
     val timePosMs by viewModel.timePosMs.collectAsStateWithLifecycle()
     val telemetry by viewModel.diagnostics.collectAsStateWithLifecycle()
@@ -56,6 +58,18 @@ internal fun PlayerSheetsHost(
             fallbackTitle = mediaTitle,
             fallbackUri = activeUri?.toString() ?: "",
         )
+    }
+    // 抽屉内部导航的唯一状态源：随抽屉实例创建，关闭后重新打开回到初始页。
+    val sheetNav = rememberSheetNavState(tab)
+    DisposableEffect(sheetNav) {
+        playerState.sheetNav = sheetNav
+        onDispose {
+            if (playerState.sheetNav === sheetNav) playerState.sheetNav = null
+        }
+    }
+    // 返回统一在宿主处理：先逐级退子页，根页再关闭抽屉。
+    BackHandler(enabled = visible) {
+        if (!sheetNav.goBack()) playerState.activeSheetTab = null
     }
     LaunchedEffect(snapshot.shaderState) {
         viewModel.refreshCustomShaders()
@@ -141,36 +155,29 @@ internal fun PlayerSheetsHost(
         PlayerPlaylistSheet(
             state = sheetUiState,
             callbacks = sheetCallbacks,
+            nav = sheetNav,
             isLandscape = isLandscape,
-            animatedVisibilityScope = animatedVisibilityScope,
+            visible = visible,
+            onBindVisibleHeightProvider = playerState::bindSheetVisibleHeight,
+            onUnbindVisibleHeightProvider = playerState::unbindSheetVisibleHeight,
             onDismiss = {
                 playerState.activeSheetTab = null
-                // Cleared on dismiss rather than on drag end: the exit animation starts from the
-                // last dragged position, so the offset has to survive until then, but the next
-                // opening must not inherit it.
-                playerState.onSheetDragged(0f)
-                playerState.showControls()
-            }
+            },
+            onHidden = onHidden,
         )
     } else {
         PlayerSettingsSheet(
-            initialTab = tab,
+            nav = sheetNav,
+            visible = visible,
             isLandscape = isLandscape,
-            animatedVisibilityScope = animatedVisibilityScope,
             state = sheetUiState,
             callbacks = sheetCallbacks,
-            // The video is fitted into the space this sheet leaves, so the surface needs its
-            // measured height rather than a guessed offset.
-            onSheetHeightChanged = playerState::onSheetHeightMeasured,
-            onSheetDragOffsetChanged = playerState::onSheetDragged,
+            onBindVisibleHeightProvider = playerState::bindSheetVisibleHeight,
+            onUnbindVisibleHeightProvider = playerState::unbindSheetVisibleHeight,
             onDismiss = {
                 playerState.activeSheetTab = null
-                // Cleared on dismiss rather than on drag end: the exit animation starts from the
-                // last dragged position, so the offset has to survive until then, but the next
-                // opening must not inherit it.
-                playerState.onSheetDragged(0f)
-                playerState.showControls()
-            }
+            },
+            onHidden = onHidden,
         )
     }
 }

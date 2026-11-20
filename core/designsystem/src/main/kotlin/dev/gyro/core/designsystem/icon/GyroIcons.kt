@@ -1,334 +1,549 @@
 package dev.gyro.core.designsystem.icon
 
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.annotation.DrawableRes
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.addPathNodes
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.vectorResource
+import dev.gyro.core.designsystem.R
 
 /**
  * 全局唯一图标集，取自 Material Symbols Rounded。
  *
- * 字形轴统一为 style=rounded、fill=1（实心）、wght=500（厚实）、grade=0，
- * 全部共用 24dp 画布与 960×960 viewBox，笔画粗细、圆角半径、光学留白由同一套字体规则决定，
- * 任意并排都不会出现视觉重量不一致。图标集替换掉 Material Icons 旧集后，项目不再依赖官方的 extended 图标依赖。
- *
- * 开关类图标提供实心/轮廓两套，按状态切换：开启用实心（如 [ClosedCaption]），
- * 关闭用轮廓（如 [ClosedCaptionOutline]）。fill 只是同一字体的一个轴，不影响整体统一性。
- *
- * 填充色固定为黑色，实际显示由 `Icon(tint = ...)` 覆盖，调用方无需关心着色。
- *
- * path 数据由官方字体源文件直出，请勿手改；新增图标应以符号名重新导出。
+ * 所有图标均以标准 Android VectorDrawable XML（`res/drawable/ic_*.xml`）形式存放：
+ * - 字形轴统一为 `style=rounded`、`fill=1`（实心）、`wght=500`（厚实）、`grade=0`；
+ *   开关关闭态提供 `fill=0` 轮廓变体（如 [SubtitlesOutline]）。
+ * - 统一采用 `24dp` 画布与 `960×960` viewBox，`fillColor="#FFFFFFFF"`，不依赖 `?attr/`
+ *   等平台主题属性，既支持 Compose `Icon(tint = ...)` 着色与 IDE 实时预览，也便于后续直接迁入
+ *   KMP / Compose Multiplatform `composeResources`。
+ * - 方向性图标在 XML 上声明了 `android:autoMirrored="true"`，在 RTL 语言下自动水平镜像。
+ * - 系统级 API（如画中画 `RemoteAction`）可直接引用 [GyroIcons.Res] 中的 `@DrawableRes`。
  */
 object GyroIcons {
 
+    /**
+     * 供系统级 API（如 PiP `RemoteAction`、通知或快捷方式）使用的 `@DrawableRes` 索引。
+     */
+    object Res {
+        // region 播放控制
+        /** Material Symbols `play_arrow` · fill=1 · wght=500 */
+        @DrawableRes val Play: Int = R.drawable.ic_play
+
+        /** Material Symbols `pause` · fill=1 · wght=500 */
+        @DrawableRes val Pause: Int = R.drawable.ic_pause
+
+        /** Material Symbols `replay` · fill=1 · wght=500 */
+        @DrawableRes val Replay: Int = R.drawable.ic_replay
+
+        /** Material Symbols `skip_previous` · fill=1 · wght=500 */
+        @DrawableRes val SkipPrevious: Int = R.drawable.ic_skip_previous
+
+        /** Material Symbols `skip_next` · fill=1 · wght=500 */
+        @DrawableRes val SkipNext: Int = R.drawable.ic_skip_next
+
+        /** Material Symbols `fast_rewind` · fill=1 · wght=500 */
+        @DrawableRes val FastRewind: Int = R.drawable.ic_fast_rewind
+
+        /** Material Symbols `fast_forward` · fill=1 · wght=500 */
+        @DrawableRes val FastForward: Int = R.drawable.ic_fast_forward
+
+        /** Material Symbols `repeat` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val Repeat: Int = R.drawable.ic_repeat
+
+        /** Material Symbols `repeat_one` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val RepeatOne: Int = R.drawable.ic_repeat_one
+        // endregion
+
+        // region 播放器悬浮层
+        /** Material Symbols `fullscreen` · fill=1 · wght=500 */
+        @DrawableRes val FullscreenEnter: Int = R.drawable.ic_fullscreen_enter
+
+        /** Material Symbols `fullscreen_exit` · fill=1 · wght=500 */
+        @DrawableRes val FullscreenExit: Int = R.drawable.ic_fullscreen_exit
+
+        /** Material Symbols `lock` · fill=1 · wght=500 */
+        @DrawableRes val Lock: Int = R.drawable.ic_lock
+
+        /** Material Symbols `lock_open` · fill=1 · wght=500 */
+        @DrawableRes val LockOpen: Int = R.drawable.ic_lock_open
+
+        /** Material Symbols `photo_camera` · fill=1 · wght=500 */
+        @DrawableRes val Screenshot: Int = R.drawable.ic_screenshot
+
+        /** Material Symbols `pip` · fill=1 · wght=500 */
+        @DrawableRes val Pip: Int = R.drawable.ic_pip
+        // endregion
+
+        // region 手势反馈与定时/同步
+        /** Material Symbols `light_mode` · fill=1 · wght=500 */
+        @DrawableRes val Brightness: Int = R.drawable.ic_brightness
+
+        /** Material Symbols `volume_up` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val VolumeHigh: Int = R.drawable.ic_volume_high
+
+        /** Material Symbols `volume_down` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val VolumeLow: Int = R.drawable.ic_volume_low
+
+        /** Material Symbols `volume_off` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val VolumeMute: Int = R.drawable.ic_volume_mute
+
+        /** Material Symbols `bedtime` · fill=1 · wght=500 */
+        @DrawableRes val SleepTimer: Int = R.drawable.ic_sleep_timer
+
+        /** Material Symbols `sync` · fill=1 · wght=500 */
+        @DrawableRes val Sync: Int = R.drawable.ic_sync
+        // endregion
+
+        // region 导航与通用动作
+        /** Material Symbols `arrow_back_ios_new` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val Back: Int = R.drawable.ic_back
+
+        /** Material Symbols `more_horiz` · fill=1 · wght=500 */
+        @DrawableRes val More: Int = R.drawable.ic_more
+
+        /** Material Symbols `more_vert` · fill=1 · wght=500 */
+        @DrawableRes val MoreVert: Int = R.drawable.ic_more_vert
+
+        /** Material Symbols `arrow_forward_ios` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val ChevronRight: Int = R.drawable.ic_chevron_right
+
+        /** Material Symbols `close` · fill=1 · wght=500 */
+        @DrawableRes val Close: Int = R.drawable.ic_close
+
+        /** Material Symbols `add` · fill=1 · wght=500 */
+        @DrawableRes val Add: Int = R.drawable.ic_add
+
+        /** Material Symbols `check` · fill=1 · wght=500 */
+        @DrawableRes val Check: Int = R.drawable.ic_check
+
+        /** Material Symbols `search` · fill=1 · wght=500 */
+        @DrawableRes val Search: Int = R.drawable.ic_search
+
+        /** Material Symbols `sort` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val Sort: Int = R.drawable.ic_sort
+
+        /** Material Symbols `refresh` · fill=1 · wght=500 */
+        @DrawableRes val Refresh: Int = R.drawable.ic_refresh
+
+        /** Material Symbols `restart_alt` · fill=1 · wght=500 */
+        @DrawableRes val RestartAlt: Int = R.drawable.ic_restart_alt
+
+        /** Material Symbols `help` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val Help: Int = R.drawable.ic_help
+
+        /** Material Symbols `error` · fill=1 · wght=500 */
+        @DrawableRes val Error: Int = R.drawable.ic_error
+
+        /** Material Symbols `settings` · fill=1 · wght=500 */
+        @DrawableRes val Settings: Int = R.drawable.ic_settings
+        // endregion
+
+        // region 文件与编辑器
+        /** Material Symbols `folder` · fill=1 · wght=500 */
+        @DrawableRes val Folder: Int = R.drawable.ic_folder
+
+        /** Material Symbols `folder_open` · fill=1 · wght=500 */
+        @DrawableRes val FolderOpen: Int = R.drawable.ic_folder_open
+
+        /** Material Symbols `folder_off` · fill=1 · wght=500 */
+        @DrawableRes val FolderOff: Int = R.drawable.ic_folder_off
+
+        /** Material Symbols `create_new_folder` · fill=1 · wght=500 */
+        @DrawableRes val CreateNewFolder: Int = R.drawable.ic_create_new_folder
+
+        /** Material Symbols `delete` · fill=1 · wght=500 */
+        @DrawableRes val Delete: Int = R.drawable.ic_delete
+
+        /** Material Symbols `save` · fill=1 · wght=500 */
+        @DrawableRes val Save: Int = R.drawable.ic_save
+
+        /** Material Symbols `content_copy` · fill=1 · wght=500 */
+        @DrawableRes val ContentCopy: Int = R.drawable.ic_content_copy
+        // endregion
+
+        // region 音视频参数
+        /** Material Symbols `closed_caption` · fill=1 · wght=500（字幕开启态） */
+        @DrawableRes val Subtitles: Int = R.drawable.ic_subtitles
+
+        /** Material Symbols `closed_caption` · fill=0 · wght=500（开关关闭态） */
+        @DrawableRes val SubtitlesOutline: Int = R.drawable.ic_subtitles_outline
+
+        /** Material Symbols `playlist_play` · fill=1 · wght=500 · autoMirrored */
+        @DrawableRes val PlaylistPlay: Int = R.drawable.ic_playlist_play
+
+        /** Material Symbols `headphones` · fill=1 · wght=500 */
+        @DrawableRes val Headphones: Int = R.drawable.ic_headphones
+
+        /** Material Symbols `music_note` · fill=1 · wght=500 */
+        @DrawableRes val AudioTrack: Int = R.drawable.ic_audio_track
+
+        /** Material Symbols `surround_sound` · fill=1 · wght=500 */
+        @DrawableRes val SurroundSound: Int = R.drawable.ic_surround_sound
+
+        /** Material Symbols `graphic_eq` · fill=1 · wght=500 */
+        @DrawableRes val GraphicEq: Int = R.drawable.ic_graphic_eq
+
+        /** Material Symbols `tune` · fill=1 · wght=500 */
+        @DrawableRes val Tune: Int = R.drawable.ic_tune
+
+        /** Material Symbols `speed` · fill=1 · wght=500 */
+        @DrawableRes val Speed: Int = R.drawable.ic_speed
+
+        /** Material Symbols `memory` · fill=1 · wght=500 */
+        @DrawableRes val Memory: Int = R.drawable.ic_memory
+
+        /** Material Symbols `auto_awesome` · fill=1 · wght=500 */
+        @DrawableRes val AutoAwesome: Int = R.drawable.ic_auto_awesome
+
+        /** Material Symbols `deblur` · fill=1 · wght=500 */
+        @DrawableRes val Deband: Int = R.drawable.ic_deband
+
+        /** Material Symbols `tonality` · fill=1 · wght=500 */
+        @DrawableRes val ColorTone: Int = R.drawable.ic_color_tone
+
+        /** Material Symbols `info` · fill=1 · wght=500 */
+        @DrawableRes val Info: Int = R.drawable.ic_info
+
+        /** Material Symbols `monitoring` · fill=1 · wght=500 */
+        @DrawableRes val Monitoring: Int = R.drawable.ic_monitoring
+
+        /** Material Symbols `video_library` · fill=1 · wght=500 */
+        @DrawableRes val VideoLibrary: Int = R.drawable.ic_video_library
+
+        /** Material Symbols `movie` · fill=1 · wght=500 */
+        @DrawableRes val Movie: Int = R.drawable.ic_movie
+
+        /** Material Symbols `fit_screen` · fill=1 · wght=500 */
+        @DrawableRes val FitScreen: Int = R.drawable.ic_fit_screen
+        // endregion
+    }
+
     // region 播放控制
 
-    /** Material Symbols `play_arrow` · fill=1 · wght=500 */
-    val Play: ImageVector by lazy {
-        symbol("Play", "M311.87-268.46v-423.08q0-19.63 13.67-32.57 13.68-12.93 31.83-12.93 5.72 0 12.05 1.62 6.34 1.62 12.06 5.09l333.17 211.79q10.2 6.71 15.42 17.03 5.21 10.31 5.21 21.51 0 11.2-5.21 21.51-5.22 10.32-15.42 17.03L381.48-229.67q-5.72 3.47-12.06 5.09-6.33 1.62-12.05 1.62-18.15 0-31.83-12.93-13.67-12.94-13.67-32.57Z")
-    }
+    val Play: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Play)
 
-    /** Material Symbols `pause` · fill=1 · wght=500 */
-    val Pause: ImageVector by lazy {
-        symbol("Pause", "M647.17-185.41q-37.54 0-64.27-26.73-26.73-26.74-26.73-64.27v-407.18q0-37.53 26.74-64.27 26.73-26.73 64.27-26.73 37.54 0 64.27 26.73 26.72 26.74 26.72 64.27v407.18q0 37.53-26.73 64.27-26.73 26.73-64.27 26.73Zm-334.35 0q-37.54 0-64.27-26.73-26.72-26.74-26.72-64.27v-407.18q0-37.53 26.73-64.27 26.73-26.73 64.27-26.73 37.54 0 64.27 26.73 26.73 26.74 26.73 64.27v407.18q0 37.53-26.74 64.27-26.73 26.73-64.27 26.73Z")
-    }
+    val Pause: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Pause)
 
-    /** Material Symbols `replay` · fill=1 · wght=500 */
-    val Replay: ImageVector by lazy {
-        symbol("Replay", "M480-70.43q-76.67 0-143.73-29.1-67.05-29.1-116.75-78.8-49.69-49.69-78.79-116.75-29.1-67.05-29.1-143.49 0-19.15 13.17-32.32 13.18-13.18 32.33-13.18t32.33 13.18q13.17 13.17 13.17 32.32 0 115.81 80.78 196.47Q364.2-161.43 480-161.43t196.59-80.79Q757.37-323 757.37-438.8q0-115.81-80.9-196.47t-196.71-80.66h-6.24l30.89 30.89q12.48 12.47 12.1 29.31-.38 16.84-12.1 29.32-12.48 12.48-29.93 12.86-17.46.38-29.94-12.1L340.83-729.37q-13.68-13.67-13.68-32.06 0-18.4 13.68-32.07l103.71-103.72q12.48-12.48 29.94-12.1 17.45.39 29.93 13.1 11.72 12.48 11.98 29.44.26 16.95-12.22 29.43l-30.41 30.42h6q76.67 0 143.73 29.09 67.05 29.1 116.87 78.8 49.81 49.69 78.91 116.63 29.1 66.93 29.1 143.61 0 76.67-29.1 143.72-29.1 67.06-78.79 116.75-49.7 49.7-116.75 78.8-67.06 29.1-143.73 29.1Z")
-    }
+    val Replay: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Replay)
 
-    /** Material Symbols `skip_previous` · fill=1 · wght=500 */
-    val SkipPrevious: ImageVector by lazy {
-        symbol("SkipPrevious", "M204.93-270.43v-419.14q0-19.15 13.18-32.32 13.17-13.18 32.32-13.18 19.16 0 32.33 13.18 13.17 13.17 13.17 32.32v419.14q0 19.15-13.17 32.32-13.17 13.18-32.33 13.18-19.15 0-32.32-13.18-13.18-13.17-13.18-32.32Zm479.53-1.24L429.28-442.46q-10.19-6.71-15.29-16.53-5.1-9.81-5.1-21.01 0-11.2 5.1-21.01 5.1-9.82 15.29-16.53l255.18-170.79q5.71-4.24 12.43-5.59 6.72-1.36 12.68-1.36 18.15 0 31.82 12.55 13.68 12.56 13.68 32.95v339.56q0 20.39-13.68 32.95-13.67 12.55-31.82 12.55-5.96 0-12.68-1.36-6.72-1.35-12.43-5.59Z")
-    }
+    val SkipPrevious: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.SkipPrevious)
 
-    /** Material Symbols `skip_next` · fill=1 · wght=500 */
-    val SkipNext: ImageVector by lazy {
-        symbol("SkipNext", "M664.07-270.43v-419.14q0-19.15 13.17-32.32 13.17-13.18 32.33-13.18 19.15 0 32.32 13.18 13.18 13.17 13.18 32.32v419.14q0 19.15-13.18 32.32-13.17 13.18-32.32 13.18-19.16 0-32.33-13.18-13.17-13.17-13.17-32.32Zm-459.14-39.79v-339.56q0-20.39 13.68-32.95 13.67-12.55 31.82-12.55 5.96 0 12.68 1.36 6.72 1.35 12.43 5.59l255.18 170.79q10.19 6.71 15.29 16.53 5.1 9.81 5.1 21.01 0 11.2-5.1 21.01-5.1 9.82-15.29 16.53L275.54-271.67q-5.71 4.24-12.43 5.59-6.72 1.36-12.68 1.36-18.15 0-31.82-12.55-13.68-12.56-13.68-32.95Z")
-    }
+    val SkipNext: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.SkipNext)
 
-    /** Material Symbols `fast_rewind` · fill=1 · wght=500 */
-    val FastRewind: ImageVector by lazy {
-        symbol("FastRewind", "M809.48-271.67 554.3-442.46q-10.19-6.71-15.29-16.53-5.1-9.81-5.1-21.01 0-11.2 5.1-21.01 5.1-9.82 15.29-16.53l255.18-170.79q5.72-4.24 12.43-5.59 6.72-1.36 12.68-1.36 18.15 0 31.82 12.55 13.68 12.56 13.68 32.95v339.56q0 20.39-13.68 32.95-13.67 12.55-31.82 12.55-5.96 0-12.68-1.36-6.71-1.35-12.43-5.59Zm-417.46 0L136.85-442.46q-10.2-6.71-15.3-16.53-5.09-9.81-5.09-21.01 0-11.2 5.09-21.01 5.1-9.82 15.3-16.53l255.17-170.79q5.72-4.24 12.44-5.59 6.71-1.36 12.67-1.36 18.15 0 31.83 12.55 13.67 12.56 13.67 32.95v339.56q0 20.39-13.67 32.95-13.68 12.55-31.83 12.55-5.96 0-12.67-1.36-6.72-1.35-12.44-5.59Z")
-    }
+    val FastRewind: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FastRewind)
 
-    /** Material Symbols `fast_forward` · fill=1 · wght=500 */
-    val FastForward: ImageVector by lazy {
-        symbol("FastForward", "M79.91-310.22v-339.56q0-20.39 13.68-32.95 13.67-12.55 31.82-12.55 5.96 0 12.68 1.36 6.71 1.35 12.43 5.59L405.7-517.54q10.19 6.71 15.29 16.53 5.1 9.81 5.1 21.01 0 11.2-5.1 21.01-5.1 9.82-15.29 16.53L150.52-271.67q-5.72 4.24-12.43 5.59-6.72 1.36-12.68 1.36-18.15 0-31.82-12.55-13.68-12.56-13.68-32.95Zm417.46 0v-339.56q0-20.39 13.67-32.95 13.68-12.55 31.83-12.55 5.96 0 12.67 1.36 6.72 1.35 12.44 5.59l255.17 170.79q10.2 6.71 15.3 16.53 5.09 9.81 5.09 21.01 0 11.2-5.09 21.01-5.1 9.82-15.3 16.53L567.98-271.67q-5.72 4.24-12.44 5.59-6.71 1.36-12.67 1.36-18.15 0-31.83-12.55-13.67-12.56-13.67-32.95Z")
-    }
+    val FastForward: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FastForward)
+
+    val Repeat: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Repeat)
+
+    val RepeatOne: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.RepeatOne)
 
     // endregion
 
     // region 播放器悬浮层
 
-    /** Material Symbols `fullscreen` · fill=1 · wght=500 */
-    val FullscreenEnter: ImageVector by lazy {
-        symbol("FullscreenEnter", "M202.87-202.87h77.85q19.15 0 32.32 13.17 13.18 13.18 13.18 32.33t-13.18 32.33q-13.17 13.17-32.32 13.17H157.37q-19.15 0-32.33-13.17-13.17-13.18-13.17-32.33v-123.35q0-19.15 13.17-32.32 13.18-13.18 32.33-13.18t32.33 13.18q13.17 13.17 13.17 32.32v77.85Zm554.26 0v-77.85q0-19.15 13.17-32.32 13.18-13.18 32.33-13.18t32.33 13.18q13.17 13.17 13.17 32.32v123.35q0 19.15-13.17 32.33-13.18 13.17-32.33 13.17H679.52q-19.15 0-32.32-13.17-13.18-13.18-13.18-32.33t13.18-32.33q13.17-13.17 32.32-13.17h77.61ZM202.87-757.13v77.61q0 19.15-13.17 32.32-13.18 13.18-32.33 13.18t-32.33-13.18q-13.17-13.17-13.17-32.32v-123.11q0-19.15 13.17-32.33 13.18-13.17 32.33-13.17h123.35q19.15 0 32.32 13.17 13.18 13.18 13.18 32.33t-13.18 32.33q-13.17 13.17-32.32 13.17h-77.85Zm554.26 0h-77.61q-19.15 0-32.32-13.17-13.18-13.18-13.18-32.33t13.18-32.33q13.17-13.17 32.32-13.17h123.11q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33v123.11q0 19.15-13.17 32.32-13.18 13.18-32.33 13.18T770.3-647.2q-13.17-13.17-13.17-32.32v-77.61Z")
-    }
+    val FullscreenEnter: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FullscreenEnter)
 
-    /** Material Symbols `fullscreen_exit` · fill=1 · wght=500 */
-    val FullscreenExit: ImageVector by lazy {
-        symbol("FullscreenExit", "M235.22-235.22h-77.85q-19.15 0-32.33-13.17-13.17-13.18-13.17-32.33t13.17-32.32q13.18-13.18 32.33-13.18h123.35q19.15 0 32.32 13.18 13.18 13.17 13.18 32.32v123.35q0 19.15-13.18 32.33-13.17 13.17-32.32 13.17t-32.33-13.17q-13.17-13.18-13.17-32.33v-77.85Zm489.8 0v77.85q0 19.15-13.17 32.33-13.18 13.17-32.33 13.17t-32.32-13.17q-13.18-13.18-13.18-32.33v-123.35q0-19.15 13.18-32.32 13.17-13.18 32.32-13.18h123.11q19.15 0 32.33 13.18 13.17 13.17 13.17 32.32t-13.17 32.33q-13.18 13.17-32.33 13.17h-77.61Zm-489.8-489.8v-77.61q0-19.15 13.17-32.33 13.18-13.17 32.33-13.17t32.32 13.17q13.18 13.18 13.18 32.33v123.11q0 19.15-13.18 32.32-13.17 13.18-32.32 13.18H157.37q-19.15 0-32.33-13.18-13.17-13.17-13.17-32.32t13.17-32.33q13.18-13.17 32.33-13.17h77.85Zm489.8 0h77.61q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33t-13.17 32.32q-13.18 13.18-32.33 13.18H679.52q-19.15 0-32.32-13.18-13.18-13.17-13.18-32.32v-123.11q0-19.15 13.18-32.33 13.17-13.17 32.32-13.17t32.33 13.17q13.17 13.18 13.17 32.33v77.61Z")
-    }
+    val FullscreenExit: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FullscreenExit)
 
-    /** Material Symbols `lock` · fill=1 · wght=500 */
-    val Lock: ImageVector by lazy {
-        symbol("Lock", "M242.87-72.59q-37.54 0-64.27-26.73-26.73-26.73-26.73-64.27v-394.26q0-37.54 26.73-64.27 26.73-26.73 64.27-26.73h33.54v-73.06q0-84.92 59.46-144.61 59.46-59.7 144.13-59.7 84.67 0 144.13 59.7 59.46 59.69 59.46 144.61v73.06h33.54q37.54 0 64.27 26.73 26.73 26.73 26.73 64.27v394.26q0 37.54-26.73 64.27-26.73 26.73-64.27 26.73H242.87ZM480-280.72q33 0 56.5-23.5t23.5-56.5q0-33-23.5-56.5t-56.5-23.5q-33 0-56.5 23.5t-23.5 56.5q0 33 23.5 56.5t56.5 23.5ZM367.41-648.85h225.18v-73.06q0-47.21-32.73-80.26-32.73-33.05-79.86-33.05t-79.86 33.05q-32.73 33.05-32.73 80.26v73.06Z")
-    }
+    val Lock: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Lock)
 
-    /** Material Symbols `lock_open` · fill=1 · wght=500 */
-    val LockOpen: ImageVector by lazy {
-        symbol("LockOpen", "M242.87-72.59q-37.54 0-64.27-26.73-26.73-26.73-26.73-64.27v-394.26q0-37.54 26.73-64.27 26.73-26.73 64.27-26.73h349.72v-73.06q0-47.21-32.73-80.26-32.73-33.05-79.86-33.05-38.27 0-66.97 22.51-28.7 22.51-39.7 56.21-5.68 15.67-20.09 25.13-14.41 9.46-31.43 9.46-19.29 0-31.98-13.39-12.7-13.4-8.5-31.03 11.47-65.84 67.33-112.87 55.86-47.02 131.34-47.02 84.67 0 144.13 59.7 59.46 59.69 59.46 144.61v73.06h33.54q37.54 0 64.27 26.73 26.73 26.73 26.73 64.27v394.26q0 37.54-26.73 64.27-26.73 26.73-64.27 26.73H242.87ZM480-280.72q33 0 56.5-23.5t23.5-56.5q0-33-23.5-56.5t-56.5-23.5q-33 0-56.5 23.5t-23.5 56.5q0 33 23.5 56.5t56.5 23.5Z")
-    }
+    val LockOpen: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.LockOpen)
 
-    /** Material Symbols `photo_camera` · fill=1 · wght=500 */
-    val Screenshot: ImageVector by lazy {
-        symbol("Screenshot", "M480-258.09q75.72 0 128.82-53.09 53.09-53.1 53.09-128.82t-53.09-128.82q-53.1-53.09-128.82-53.09t-128.82 53.09q-53.09 53.1-53.09 128.82t53.09 128.82q53.1 53.09 128.82 53.09Zm0-86.21q-40.33 0-68.01-27.69Q384.3-399.67 384.3-440q0-40.33 27.69-68.01Q439.67-535.7 480-535.7q40.33 0 68.01 27.69Q575.7-480.33 575.7-440q0 40.33-27.69 68.01Q520.33-344.3 480-344.3ZM162.87-111.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61H281.7l50.47-52.33q12.44-12.95 29.61-20.31 17.18-7.36 35.61-7.36h165.22q18.43 0 35.61 7.36 17.17 7.36 29.61 20.31l50.47 52.33h118.83q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H162.87Z")
-    }
+    val Screenshot: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Screenshot)
 
-    /** Material Symbols `picture_in_picture_alt` · fill=1 · wght=500 */
-    val Pip: ImageVector by lazy {
-        symbol("Pip", "M162.87-151.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h634.26q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H162.87Zm319.76-131h229q19.15 0 32.33-13.17 13.17-13.18 13.17-32.33v-149q0-19.15-13.17-32.33-13.18-13.17-32.33-13.17h-229q-19.15 0-32.33 13.17-13.17 13.18-13.17 32.33v149q0 19.15 13.17 32.33 13.18 13.17 32.33 13.17Zm114.5-120Z")
-    }
+    val Pip: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Pip)
 
     // endregion
 
-    // region 手势反馈
+    // region 手势反馈与定时/同步
 
-    /** Material Symbols `brightness_6` · fill=1 · wght=500 */
-    val Brightness: ImageVector by lazy {
-        symbol("Brightness", "M344.8-151.87H242.87q-37.78 0-64.39-26.61t-26.61-64.39V-344.8l-70.54-71.55q-12.68-13.43-19.4-29.97-6.71-16.53-6.71-33.68t6.71-33.68q6.72-16.54 19.4-29.97l70.54-71.55v-101.93q0-37.78 26.61-64.39t64.39-26.61H344.8l71.55-70.54q13.67-12.68 30.08-19.4 16.42-6.71 33.57-6.71t33.57 6.71q16.41 6.72 30.08 19.4l71.55 70.54h101.93q37.78 0 64.39 26.61t26.61 64.39v101.93l70.54 71.55q12.68 13.67 19.4 30.08 6.71 16.42 6.71 33.57t-6.71 33.57q-6.72 16.41-19.4 30.08l-70.54 71.55v101.93q0 37.78-26.61 64.39t-64.39 26.61H615.2l-71.55 70.54q-13.43 12.68-29.97 19.4-16.53 6.71-33.68 6.71t-33.68-6.71q-16.54-6.72-29.97-19.4l-71.55-70.54Zm135.2-131q81.8 0 139.47-57.66Q677.13-398.2 677.13-480t-57.66-139.47Q561.8-677.13 480-677.13v394.26Z")
-    }
+    val Brightness: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Brightness)
 
-    /** Material Symbols `volume_up` · fill=1 · wght=500 */
-    val VolumeHigh: ImageVector by lazy {
-        symbol("VolumeHigh", "M766.22-481q0-82.52-43.88-150.9-43.88-68.38-117.41-102.62-15.47-7.24-22.47-22.46-7-15.22-1.53-30.93 6.24-16.72 22.34-23.96 16.1-7.24 32.58 0 97.48 43.96 155.72 133.05Q849.8-589.72 849.8-481t-58.23 197.82q-58.24 89.09-155.72 133.05-16.48 7.24-32.58 0-16.1-7.24-22.34-23.96-5.47-15.71 1.53-30.93 7-15.22 22.47-22.46 73.53-34.24 117.41-102.62 43.88-68.38 43.88-150.9ZM274.98-351.87H155.7q-19.16 0-32.33-13.17-13.17-13.18-13.17-32.33v-165.26q0-19.15 13.17-32.33 13.17-13.17 32.33-13.17h119.28L408.65-741.8q21.63-21.64 49.6-9.82 27.97 11.82 27.97 42.4v458.44q0 30.58-27.97 42.4t-49.6-9.82L274.98-351.87ZM669.8-480q0 42.48-19.47 80.34-19.48 37.86-51.44 62.57-10.72 6.48-21.69.5-10.98-5.98-10.98-18.69v-251.44q0-12.71 10.98-18.57 10.97-5.86 21.69.62 31.96 25.71 51.44 63.95Q669.8-522.48 669.8-480Z")
-    }
+    val VolumeHigh: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.VolumeHigh)
 
-    /** Material Symbols `volume_down` · fill=1 · wght=500 */
-    val VolumeLow: ImageVector by lazy {
-        symbol("VolumeLow", "M354.98-351.87H235.7q-19.16 0-32.33-13.17-13.17-13.18-13.17-32.33v-165.26q0-19.15 13.17-32.33 13.17-13.17 32.33-13.17h119.28L488.65-741.8q21.63-21.64 49.6-9.82 27.97 11.82 27.97 42.4v458.44q0 30.58-27.97 42.4t-49.6-9.82L354.98-351.87ZM749.8-480q0 42.48-19.47 80.34-19.48 37.86-51.44 62.57-10.72 6.48-21.69.5-10.98-5.98-10.98-18.69v-251.44q0-12.71 10.98-18.57 10.97-5.86 21.69.62 31.96 25.71 51.44 63.95Q749.8-522.48 749.8-480Z")
-    }
+    val VolumeLow: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.VolumeLow)
 
-    /** Material Symbols `volume_off` · fill=1 · wght=500 */
-    val VolumeMute: ImageVector by lazy {
-        symbol("VolumeMute", "M672.91-170.3q-9.56 6.04-19.25 11.32-9.68 5.28-20.01 9.57-15.72 7.24-31.69-.12-15.98-7.36-21.98-24.32-5.76-14.76 1.02-28.9 6.78-14.14 20.35-22.1 5.32-2.28 9.89-4.94 4.56-2.67 9.13-5.71L485.98-358.43v107.65q0 30.58-27.97 42.4t-49.6-9.82L274.74-351.87H155.46q-19.16 0-32.33-13.17-13.17-13.18-13.17-32.33v-165.26q0-19.15 13.17-32.33 13.17-13.17 32.33-13.17h82.97l-161.6-162.8q-11.72-11.72-11.6-29.2.12-17.48 11.84-29.2 11.71-11.71 29.19-11.59 17.48.12 29.2 11.83l688.37 692.92q11.71 11.71 11.71 29.19t-11.71 29.2q-11.72 11.71-29.32 11.71T765.2-77.78l-92.29-92.52ZM766.22-481q0-82.52-43.88-150.9-43.88-68.38-117.41-102.62-15.47-7.24-22.47-22.46-7-15.22-1.53-30.93 6.24-16.72 22.34-23.96 16.1-7.24 32.58 0 97.24 43.72 155.6 132.44Q849.8-590.72 849.8-481q0 33-5.88 65.14t-16.88 61.9q-8.24 22.96-25.33 28.82-17.1 5.86-31.82.62-14.72-5.24-23.57-18.96-8.86-13.72-.86-31.43 10.52-25.29 15.52-51.55 5-26.26 5.24-54.54ZM598.65-624.91q33.48 22.43 52.32 63.83Q669.8-519.67 669.8-480v8.8q0 4.53-.76 8.81-1.76 14.43-15.55 18.91-13.79 4.48-24.99-6.95l-49.09-49.33q-6.71-6.72-10.07-15.17-3.36-8.46-3.36-17.42v-74.37q0-12.71 10.98-18.69 10.97-5.98 21.69.5Zm-209.13-66.42q-6.72-6.71-6.6-15.91.12-9.2 6.84-15.91l18.65-18.65q21.63-21.64 49.6-9.82 27.97 11.82 27.97 42.4v60.13q0 15.68-13.8 21.39-13.79 5.72-24.98-5.47l-57.68-58.16Z")
-    }
+    val VolumeMute: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.VolumeMute)
 
-    /** Material Symbols `timer` · fill=1 · wght=500 */
-    val Timer: ImageVector by lazy {
-        symbol("Timer", "M396.17-840q-18.52 0-31.05-12.7-12.53-12.69-12.53-31.13 0-18.43 12.53-31.01 12.53-12.57 31.05-12.57h167.66q18.52 0 31.05 12.53 12.53 12.53 12.53 31.05 0 18.44-12.53 31.13-12.53 12.7-31.05 12.7H396.17ZM480-393.3q18.52 0 31.06-12.54 12.53-12.53 12.53-31.05v-153.54q0-18.53-12.53-31.06-12.54-12.53-31.06-12.53t-31.06 12.53q-12.53 12.53-12.53 31.06v153.54q0 18.52 12.53 31.05Q461.48-393.3 480-393.3Zm0 327.89q-75.91 0-142.85-29.07-66.94-29.08-117.01-79.06-50.07-49.98-79.17-116.92-29.1-66.93-29.1-142.84 0-75.92 29.12-142.84 29.12-66.93 79.18-116.99 50.07-50.07 116.99-79.19 66.93-29.11 142.84-29.11 62.48 0 120.43 20 57.96 20 108.2 58.23l28.24-28.23q12.43-12.44 30.75-12.44 18.31 0 30.75 12.44Q810.8-739 810.8-720.68q0 18.31-12.43 30.75l-28.24 28.23q38.24 50.24 58.12 108.08 19.88 57.84 19.88 120.32 0 75.91-29.1 142.84-29.1 66.94-79.17 116.92-50.07 49.98-117.01 79.06Q555.91-65.41 480-65.41Z")
-    }
+    val SleepTimer: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.SleepTimer)
+
+    val Sync: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Sync)
 
     // endregion
 
     // region 导航与通用动作
 
-    /** Material Symbols `arrow_back_ios_new` · fill=1 · wght=500 */
-    val Back: ImageVector by lazy {
-        symbol("Back", "M390.13-480 680.3-189.83q16.44 16.44 16.06 38.83-.38 22.39-17.06 39.07-16.43 16.43-38.82 16.43t-38.83-16.43L297.24-415.35q-13.67-13.67-20.39-30.58-6.72-16.92-6.72-34.07t6.72-34.07q6.72-16.91 20.39-30.58l304.41-304.18q16.44-16.43 39.21-16.17 22.77.26 39.44 16.93 16.44 16.44 16.44 38.95t-16.44 38.95L390.13-480Z")
-    }
+    val Back: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Back)
 
-    /** Material Symbols `more_horiz` · fill=1 · wght=500 */
-    val More: ImageVector by lazy {
-        symbol("More", "M232.69-396.41q-34.54 0-59.11-24.56Q149-445.52 149-480q0-34.67 24.55-59.13 24.56-24.46 59.04-24.46 34.58 0 59.2 24.46 24.62 24.46 24.62 59.01t-24.59 59.13q-24.6 24.58-59.13 24.58Zm247.43 0q-34.55 0-59.13-24.56-24.58-24.55-24.58-59.03 0-34.67 24.56-59.13 24.55-24.46 59.03-24.46 34.67 0 59.13 24.46t24.46 59.01q0 34.55-24.46 59.13-24.46 24.58-59.01 24.58Zm247.36 0q-34.61 0-59.25-24.56-24.64-24.55-24.64-59.03 0-34.67 24.64-59.13t59.25-24.46q34.61 0 59.06 24.46Q811-514.67 811-480.12t-24.46 59.13q-24.45 24.58-59.06 24.58Z")
-    }
+    val More: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.More)
 
-    /** Material Symbols `more_vert` · fill=1 · wght=500 */
-    val MoreVert: ImageVector by lazy {
-        symbol("MoreVert", "M480.12-149q-34.55 0-59.13-24.55-24.58-24.56-24.58-59.04 0-34.58 24.56-59.2 24.55-24.62 59.03-24.62 34.67 0 59.13 24.59 24.46 24.6 24.46 59.13 0 34.54-24.46 59.11Q514.67-149 480.12-149Zm0-247.41q-34.55 0-59.13-24.56-24.58-24.55-24.58-59.03 0-34.67 24.56-59.13 24.55-24.46 59.03-24.46 34.67 0 59.13 24.46t24.46 59.01q0 34.55-24.46 59.13-24.46 24.58-59.01 24.58Zm0-247.18q-34.55 0-59.13-24.64-24.58-24.64-24.58-59.25t24.56-59.06Q445.52-811 480-811q34.67 0 59.13 24.46 24.46 24.45 24.46 59.06t-24.46 59.25q-24.46 24.64-59.01 24.64Z")
-    }
+    val MoreVert: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.MoreVert)
 
-    /** Material Symbols `chevron_right` · fill=1 · wght=500 */
-    val ChevronRight: ImageVector by lazy {
-        symbol("ChevronRight", "M496.35-480 344.17-632.17Q331.5-644.85 331.5-664t12.67-31.83Q356.85-708.5 376-708.5t31.83 12.67l183.76 183.76q6.71 6.72 9.81 14.92 3.1 8.19 3.1 17.15 0 8.96-3.1 17.15-3.1 8.2-9.81 14.92L407.83-264.17Q395.15-251.5 376-251.5t-31.83-12.67Q331.5-276.85 331.5-296t12.67-31.83L496.35-480Z")
-    }
+    val ChevronRight: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.ChevronRight)
 
-    /** Material Symbols `close` · fill=1 · wght=500 */
-    val Close: ImageVector by lazy {
-        symbol("Close", "M480-416.35 287.83-224.17Q275.15-211.5 256-211.5t-31.83-12.67Q211.5-236.85 211.5-256t12.67-31.83L416.35-480 224.17-672.17Q211.5-684.85 211.5-704t12.67-31.83Q236.85-748.5 256-748.5t31.83 12.67L480-543.65l192.17-192.18Q684.85-748.5 704-748.5t31.83 12.67Q748.5-723.15 748.5-704t-12.67 31.83L543.65-480l192.18 192.17Q748.5-275.15 748.5-256t-12.67 31.83Q723.15-211.5 704-211.5t-31.83-12.67L480-416.35Z")
-    }
+    val Close: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Close)
 
-    /** Material Symbols `add` · fill=1 · wght=500 */
-    val Add: ImageVector by lazy {
-        symbol("Add", "M434.5-434.5H237.37q-19.15 0-32.33-13.17-13.17-13.18-13.17-32.33t13.17-32.33q13.18-13.17 32.33-13.17H434.5v-197.13q0-19.15 13.17-32.33 13.18-13.17 32.33-13.17t32.33 13.17q13.17 13.18 13.17 32.33v197.13h197.13q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33t-13.17 32.33q-13.18 13.17-32.33 13.17H525.5v197.13q0 19.15-13.17 32.33-13.18 13.17-32.33 13.17t-32.33-13.17q-13.17-13.18-13.17-32.33V-434.5Z")
-    }
+    val Add: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Add)
 
-    /** Material Symbols `check` · fill=1 · wght=500 */
-    val Check: ImageVector by lazy {
-        symbol("Check", "m382-362.13 334.7-334.7q13.67-13.67 32.06-13.67t32.07 13.67q13.67 13.68 13.67 32.45 0 18.77-13.67 32.45L414.07-264.41q-13.68 13.67-32.07 13.67t-32.07-13.67L178.41-435.93q-13.67-13.68-13.29-32.45.38-18.77 14.05-32.45 13.68-13.67 32.45-13.67 18.77 0 32.45 13.67L382-362.13Z")
-    }
+    val Check: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Check)
 
-    /** Material Symbols `search` · fill=1 · wght=500 */
-    val Search: ImageVector by lazy {
-        symbol("Search", "M378.09-314.5q-111.16 0-188.33-77.17-77.17-77.18-77.17-188.33t77.17-188.33q77.17-77.17 188.33-77.17 111.15 0 188.32 77.17 77.18 77.18 77.18 188.33 0 44.48-13.52 83.12-13.53 38.64-36.57 68.16l222.09 222.33q12.67 12.91 12.67 31.94 0 19.04-12.91 31.71-12.68 12.67-31.83 12.67t-31.82-12.67L529.85-364.59q-29.76 23.05-68.64 36.57-38.88 13.52-83.12 13.52Zm0-91q72.84 0 123.67-50.83 50.83-50.82 50.83-123.67t-50.83-123.67q-50.83-50.83-123.67-50.83-72.85 0-123.68 50.83-50.82 50.82-50.82 123.67t50.82 123.67q50.83 50.83 123.68 50.83Z")
-    }
+    val Search: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Search)
 
-    /** Material Symbols `sort` · fill=1 · wght=500 */
-    val Sort: ImageVector by lazy {
-        symbol("Sort", "M157.13-223.74q-19.24 0-32.25-13.17-13.01-13.18-13.01-32.39t13.01-32.2q13.01-13 32.25-13H318.8q19.24 0 32.25 13.17 13.02 13.18 13.02 32.39t-13.02 32.21q-13.01 12.99-32.25 12.99H157.13Zm0-210.76q-19.24 0-32.25-13.17-13.01-13.18-13.01-32.39t13.01-32.21q13.01-12.99 32.25-12.99h403.59q19.23 0 32.25 13.17 13.01 13.18 13.01 32.39t-13.01 32.2q-13.02 13-32.25 13H157.13Zm0-210.76q-19.24 0-32.25-13.17-13.01-13.18-13.01-32.39t13.17-32.21q13.18-12.99 32.33-12.99h645.5q19.24 0 32.25 13.17 13.01 13.18 13.01 32.39t-13.17 32.2q-13.18 13-32.33 13h-645.5Z")
-    }
+    val Sort: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Sort)
 
-    /** Material Symbols `refresh` · fill=1 · wght=500 */
-    val Refresh: ImageVector by lazy {
-        symbol("Refresh", "M479.04-151.87q-137.11 0-232.62-95.51-95.51-95.51-95.51-232.62t95.51-232.62q95.51-95.51 232.62-95.51 71.16 0 135.71 29.22 64.55 29.21 110.51 83.89v-71.2q0-17.81 12.05-29.86t29.86-12.05q17.82 0 29.87 12.05t12.05 29.86v204.31q0 19.15-13.18 32.32-13.17 13.18-32.32 13.18H558.8q-17.71 0-29.69-12.05t-11.98-29.87q0-17.71 12.05-29.69T559.04-600H683.7q-32-54.57-86.45-85.85-54.44-31.28-118.21-31.28-98.8 0-167.96 69.16Q241.91-578.8 241.91-480t69.17 167.97q69.16 69.16 167.96 69.16 65.37 0 120.08-32.71 54.71-32.7 85.95-87.59 9.34-15.48 26.28-21.56 16.93-6.07 33.78-.12 17.98 5.96 25.94 23.39 7.95 17.44-1 32.87-42.44 80.24-119.75 128.48-77.32 48.24-171.28 48.24Z")
-    }
+    val Refresh: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Refresh)
 
-    /** Material Symbols `restart_alt` · fill=1 · wght=500 */
-    val RestartAlt: ImageVector by lazy {
-        symbol("RestartAlt", "M385.83-125.54q-103.48-30.92-168.72-116.85-65.24-85.94-65.24-197.13 0-55.57 18.04-106.23 18.05-50.66 50.89-93.42 11.96-15.11 31.31-15.85 19.35-.74 34.74 14.65 11.72 11.72 12.45 29.03.74 17.32-10.5 32.75-22.08 29.81-34.01 65.13-11.92 35.33-11.92 73.94 0 78.85 45.59 140.79 45.58 61.95 117.95 85.43 14.68 4.95 24.13 17.39 9.46 12.43 9.46 26.87 0 23.34-16.27 36.64-16.27 13.29-37.9 6.86Zm188.34 0q-21.63 6.43-37.9-7.24Q520-146.46 520-169.8q0-13.44 9.46-25.99 9.45-12.56 24.13-17.51 72.13-24.48 117.83-86.05 45.71-61.56 45.71-140.17 0-97.37-67.49-166.18-67.49-68.8-164.62-70.71h-3.95l16.23 16.24q11.72 11.71 11.72 29.31 0 17.6-11.72 29.32-11.71 11.71-29.31 11.71-17.6 0-29.32-11.71l-90.21-90.22q-6.72-6.72-9.7-14.79-2.98-8.08-2.98-17.04 0-8.95 2.98-17.03 2.98-8.08 9.7-14.79l90.21-90.46q11.72-11.72 29.32-11.72t29.31 11.72q11.72 11.72 11.72 29.32 0 17.59-11.72 29.31l-19.58 19.59h4.19q136.63 0 231.43 95.63 94.79 95.63 94.79 232.5 0 110.43-65.24 196.63-65.24 86.19-168.72 117.35Z")
-    }
+    val RestartAlt: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.RestartAlt)
 
-    /** Material Symbols `help` · fill=1 · wght=500 */
-    val Help: ImageVector by lazy {
-        symbol("Help", "M477.28-240q21.96 0 37.3-15.34 15.33-15.33 15.33-37.32 0-21.99-15.33-37.18-15.34-15.18-37.3-15.18-21.95 0-37.29 15.18-15.34 15.19-15.34 37.18 0 21.99 15.34 37.32Q455.33-240 477.28-240ZM480-71.87q-84.91 0-159.34-32.12-74.44-32.12-129.5-87.17-55.05-55.06-87.17-129.5Q71.87-395.09 71.87-480t32.12-159.34q32.12-74.44 87.17-129.5 55.06-55.05 129.5-87.17 74.43-32.12 159.34-32.12t159.34 32.12q74.44 32.12 129.5 87.17 55.05 55.06 87.17 129.5 32.12 74.43 32.12 159.34t-32.12 159.34q-32.12 74.44-87.17 129.5-55.06 55.05-129.5 87.17Q564.91-71.87 480-71.87Zm3.28-575.11q23.07 0 40.15 14.91 17.07 14.91 17.07 37.27 0 20.8-12.66 37.08-12.67 16.29-28.71 30.33-23 20-40.62 44.24-17.62 24.24-17.62 54.24 0 14.81 11.15 24.86Q463.2-394 478.07-394q15.93 0 27.15-10.6 11.21-10.6 15.17-26.31 4.48-20.05 17.64-35.71 13.17-15.66 28.45-29.95 23-21.76 39.02-48.11 16.02-26.36 16.02-58.12 0-51.48-41.14-84.58t-95.9-33.1q-38.96 0-73.82 16.48-34.86 16.48-53.81 49.96-7.48 12.71-4.76 27.16 2.73 14.45 14.71 21.95 14.72 8.71 30.8 5.35 16.07-3.35 27.03-17.83 10.52-14.05 26.09-21.81 15.58-7.76 32.56-7.76Z")
-    }
+    val Help: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Help)
 
-    /** Material Symbols `error` · fill=1 · wght=500 */
-    val Error: ImageVector by lazy {
-        symbol("Error", "M479.95-271.87q19.92 0 33.45-13.48 13.53-13.48 13.53-33.4 0-19.92-13.47-33.58-13.48-13.65-33.41-13.65-19.92 0-33.45 13.65-13.53 13.66-13.53 33.58 0 19.92 13.47 33.4 13.48 13.48 33.41 13.48Zm.05-167.65q19.15 0 32.33-13.18 13.17-13.17 13.17-32.32v-154.5q0-19.15-13.17-32.33-13.18-13.17-32.33-13.17t-32.33 13.17q-13.17 13.18-13.17 32.33v154.5q0 19.15 13.17 32.32 13.18 13.18 32.33 13.18Zm0 367.65q-84.91 0-159.34-32.12-74.44-32.12-129.5-87.17-55.05-55.06-87.17-129.5Q71.87-395.09 71.87-480t32.12-159.34q32.12-74.44 87.17-129.5 55.06-55.05 129.5-87.17 74.43-32.12 159.34-32.12t159.34 32.12q74.44 32.12 129.5 87.17 55.05 55.06 87.17 129.5 32.12 74.43 32.12 159.34t-32.12 159.34q-32.12 74.44-87.17 129.5-55.06 55.05-129.5 87.17Q564.91-71.87 480-71.87Z")
-    }
+    val Error: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Error)
 
-    /** Material Symbols `settings` · fill=1 · wght=500 */
-    val Settings: ImageVector by lazy {
-        symbol("Settings", "M428.46-71.87q-28.2 0-48.54-18.6-20.33-18.6-24.33-45.79l-9-66.24q-11.09-4.28-21.04-10.33-9.94-6.04-19.51-12.84l-61.76 26q-25.95 11.24-52.15 2.12-26.2-9.12-40.67-33.32l-51.55-90.37q-14.48-23.96-8.36-51.03 6.12-27.08 28.08-44.56l52.76-40q-.76-6.04-.76-11.58v-23.18q0-5.54.76-11.58l-52.76-39.76q-22.2-17.48-28.2-44.56-6-27.08 8.48-51.27l51.55-90.13q14.47-23.96 40.55-33.2 26.08-9.24 52.03 2l62.48 26q9.57-6.8 19.65-12.73 10.09-5.92 20.42-10.2l9-66.48q4-27.43 24.33-46.03 20.34-18.6 48.54-18.6h103.08q28.2 0 48.54 18.6 20.33 18.6 24.33 46.03l9 66.48q11.09 4.28 21.04 10.2 9.94 5.93 19.51 12.73l61.76-26q25.95-11.24 52.15-2t40.67 33.2l51.55 90.13q14.48 24.19 8.48 51.27-6 27.08-28.2 44.56l-53 39.76q.76 6.04.76 11.58V-480q0 6.04-.12 11.59-.12 5.54-1.64 11.58l53 39.76q22.2 17.48 28.2 44.56 6 27.08-8.48 51.27l-52.55 90.37q-14.47 23.96-40.55 33.2-26.08 9.24-52.03-2l-60.48-26q-9.57 6.8-19.65 12.84-10.09 6.05-20.42 10.33l-9 66.24q-4 27.19-24.33 45.79-20.34 18.6-48.54 18.6H428.46ZM481.28-340q58 0 99-41t41-99q0-58-41-99t-99-41q-58.76 0-99.38 41t-40.62 99q0 58 40.62 99t99.38 41Z")
-    }
+    val Settings: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Settings)
 
     // endregion
 
     // region 文件与编辑器
 
-    /** Material Symbols `folder` · fill=1 · wght=500 */
-    val Folder: ImageVector by lazy {
-        symbol("Folder", "M162.87-151.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h196q18.15 0 34.68 6.84 16.54 6.83 29.21 19.51L480-724.54h317.13q37.78 0 64.39 26.61 26.61 26.6 26.61 64.39v390.67q0 37.78-26.61 64.39t-64.39 26.61H162.87Z")
-    }
+    val Folder: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Folder)
 
-    /** Material Symbols `folder_open` · fill=1 · wght=500 */
-    val FolderOpen: ImageVector by lazy {
-        symbol("FolderOpen", "M162.87-151.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-38.02 26.61-64.51 26.61-26.49 64.39-26.49h196q18.15 0 34.68 6.84 16.54 6.83 29.21 19.51L480-724.54h362.63q19.15 0 32.33 13.17 13.17 13.17 13.17 32.33 0 19.15-13.17 32.32-13.18 13.18-32.33 13.18H325.24q-65.11 0-113.74 40.91-48.63 40.91-48.63 103.78v247.18l75.41-247.7q9.2-29.11 33.33-46.64t53.96-17.53h497.34q46.5 0 73.47 37.16t13.82 80.66l-64.35 212.26q-10.87 34.37-36.56 52.98-25.68 18.61-60.53 18.61H162.87Z")
-    }
+    val FolderOpen: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FolderOpen)
 
-    /** Material Symbols `folder_off` · fill=1 · wght=500 */
-    val FolderOff: ImageVector by lazy {
-        symbol("FolderOff", "M810.57-265.3 341.76-734.11q-20.43-20.43-9.22-47.23 11.22-26.79 40.13-26.79 8.72 0 16.58 3.12 7.86 3.12 14.34 9.6l70.87 70.87h322.67q37.78 0 64.39 26.61 26.61 26.6 26.61 64.39v335.65q0 30.59-27.97 42.4-27.96 11.82-49.59-9.81Zm-647.7 113.43q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-35.87 24.34-61.76 24.33-25.89 59.49-28.28l90.04 90.04H128.72l-76.55-76.54q-11.71-11.72-12.09-28.82-.38-17.1 12.09-29.58 11.72-11.71 29.32-11.71t29.31 11.71l741.5 741.5q12.48 12.48 11.98 29.2t-12.98 29.2q-12.47 11.71-29.19 12.09-16.72.38-29.2-12.09l-99.69-99.7H162.87Z")
-    }
+    val FolderOff: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FolderOff)
 
-    /** Material Symbols `create_new_folder` · fill=1 · wght=500 */
-    val CreateNewFolder: ImageVector by lazy {
-        symbol("CreateNewFolder", "M162.87-151.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h196q18.21 0 34.71 6.84 16.51 6.83 29.18 19.51L480-724.54h317.13q37.78 0 64.39 26.61 26.61 26.6 26.61 64.39v390.67q0 37.78-26.61 64.39t-64.39 26.61H162.87Zm396.41-244.3v40.95q0 17.82 12.05 29.87t29.87 12.05q17.81 0 29.86-12.05t12.05-29.87v-40.95h41.68q17.71 0 29.81-12.05 12.1-12.05 12.1-29.87 0-17.81-12.05-29.86T684.78-480h-41.67v-41.2q0-17.81-12.05-29.86t-29.86-12.05q-17.82 0-29.87 12.05t-12.05 29.86v41.2H517.6q-17.71 0-29.81 12.05-12.09 12.05-12.09 29.86 0 17.82 12.05 29.87t29.86 12.05h41.67Z")
-    }
+    val CreateNewFolder: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.CreateNewFolder)
 
-    /** Material Symbols `delete` · fill=1 · wght=500 */
-    val Delete: ImageVector by lazy {
-        symbol("Delete", "M277.37-111.87q-37.78 0-64.39-26.61t-26.61-64.39v-514.5q-19.15 0-32.33-13.17-13.17-13.18-13.17-32.33t13.17-32.33q13.18-13.17 32.33-13.17H354.5q0-19.15 13.17-32.33 13.18-13.17 32.33-13.17h159.52q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33h168.61q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33t-13.17 32.33q-13.18 13.17-32.33 13.17v514.5q0 37.78-26.61 64.39t-64.39 26.61H277.37Zm121.2-168.37q17.95 0 30.29-12.34 12.34-12.33 12.34-30.29v-274.74q0-17.96-12.34-30.29-12.34-12.34-30.29-12.34-17.96 0-30.42 12.34-12.45 12.33-12.45 30.29v274.74q0 17.96 12.45 30.29 12.46 12.34 30.42 12.34Zm163.1 0q17.96 0 30.3-12.34 12.33-12.33 12.33-30.29v-274.74q0-17.96-12.33-30.29-12.34-12.34-30.3-12.34-17.95 0-30.41 12.34-12.46 12.33-12.46 30.29v274.74q0 17.96 12.46 30.29 12.46 12.34 30.41 12.34Z")
-    }
+    val Delete: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Delete)
 
-    /** Material Symbols `save` · fill=1 · wght=500 */
-    val Save: ImageVector by lazy {
-        symbol("Save", "M202.87-111.87q-37.78 0-64.39-26.61t-26.61-64.39v-554.26q0-37.78 26.61-64.39t64.39-26.61H645.8q18.16 0 34.69 6.84 16.53 6.83 29.21 19.51L821.78-709.7q12.68 12.68 19.51 29.21 6.84 16.53 6.84 34.69v442.93q0 37.78-26.61 64.39t-64.39 26.61H202.87Zm277.13-131q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35ZM288.37-557.13h269q19.15 0 32.33-13.17 13.17-13.18 13.17-32.33v-69q0-19.15-13.17-32.33-13.18-13.17-32.33-13.17h-269q-19.15 0-32.33 13.17-13.17 13.18-13.17 32.33v69q0 19.15 13.17 32.33 13.18 13.17 32.33 13.17Z")
-    }
+    val Save: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Save)
 
-    /** Material Symbols `content_copy` · fill=1 · wght=500 */
-    val ContentCopy: ImageVector by lazy {
-        symbol("ContentCopy", "M368.37-237.37q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h354.26q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H368.37Zm-171 171q-37.78 0-64.39-26.61t-26.61-64.39v-519.76q0-19.15 13.17-32.33 13.18-13.17 32.33-13.17t32.33 13.17q13.17 13.18 13.17 32.33v519.76h399.76q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33t-13.17 32.33q-13.18 13.17-32.33 13.17H197.37Z")
-    }
+    val ContentCopy: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.ContentCopy)
 
     // endregion
 
     // region 音视频参数
 
-    /** Material Symbols `closed_caption` · fill=1 · wght=500 */
-    val ClosedCaption: ImageVector by lazy {
-        symbol("ClosedCaption", "M202.87-151.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h554.26q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H202.87ZM288.37-360h109q19.15 0 32.33-13.17 13.17-13.18 13.17-32.33v-16.41q0-9-6-15t-15-6h-21.59q-9 0-15 6t-6 15H306.7v-116.18h72.58q0 9 6 15t15 6h21.59q9 0 15-6t6-15v-16.41q0-19.15-13.17-32.33Q416.52-600 397.37-600h-109q-19.15 0-32.33 13.17-13.17 13.18-13.17 32.33v149q0 19.15 13.17 32.33Q269.22-360 288.37-360Zm383.26-240h-109q-19.15 0-32.33 13.17-13.17 13.18-13.17 32.33v149q0 19.15 13.17 32.33Q543.48-360 562.63-360h109q19.15 0 32.33-13.17 13.17-13.18 13.17-32.33v-16.41q0-9-6-15t-15-6h-21.59q-9 0-15 6t-6 15h-72.58v-116.18h72.58q0 9 6 15t15 6h21.59q9 0 15-6t6-15v-16.41q0-19.15-13.17-32.33Q690.78-600 671.63-600Z")
-    }
+    val Subtitles: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Subtitles)
 
-    /** Material Symbols `closed_caption` · fill=0 · wght=500（开关关闭态） */
-    val ClosedCaptionOutline: ImageVector by lazy {
-        symbol("ClosedCaptionOutline", "M202.87-151.87q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h554.26q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H202.87Zm0-91h554.26v-474.26H202.87v474.26ZM288.37-360h109q19.15 0 32.33-13.17 13.17-13.18 13.17-32.33v-16.41q0-9-6-15t-15-6h-21.59q-9 0-15 6t-6 15H306.7v-116.18h72.58q0 9 6 15t15 6h21.59q9 0 15-6t6-15v-16.41q0-19.15-13.17-32.33Q416.52-600 397.37-600h-109q-19.15 0-32.33 13.17-13.17 13.18-13.17 32.33v149q0 19.15 13.17 32.33Q269.22-360 288.37-360Zm383.26-240h-109q-19.15 0-32.33 13.17-13.17 13.18-13.17 32.33v149q0 19.15 13.17 32.33Q543.48-360 562.63-360h109q19.15 0 32.33-13.17 13.17-13.18 13.17-32.33v-16.41q0-9-6-15t-15-6h-21.59q-9 0-15 6t-6 15h-72.58v-116.18h72.58q0 9 6 15t15 6h21.59q9 0 15-6t6-15v-16.41q0-19.15-13.17-32.33Q690.78-600 671.63-600ZM202.87-242.87v-474.26 474.26Z")
-    }
+    val SubtitlesOutline: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.SubtitlesOutline)
 
-    /** Material Symbols `playlist_play` · fill=1 · wght=500 */
-    val PlaylistPlay: ImageVector by lazy {
-        symbol("PlaylistPlay", "M157.13-299.43q-19.24 0-32.25-13.18-13.01-13.17-13.01-32.38t13.01-32.21q13.01-13 32.25-13h232.11q19.23 0 32.25 13.18 13.01 13.17 13.01 32.38t-13.01 32.21q-13.02 13-32.25 13H157.13Zm0-167.18q-19.24 0-32.25-13.17-13.01-13.18-13.01-32.39t13.01-32.2q13.01-13 32.25-13h390.43q19.24 0 32.25 13.17 13.02 13.18 13.02 32.39t-13.02 32.21q-13.01 12.99-32.25 12.99H157.13Zm0-167.17q-19.24 0-32.25-13.18-13.01-13.17-13.01-32.38t13.01-32.21q13.01-12.99 32.25-12.99h390.43q19.24 0 32.25 13.17 13.02 13.17 13.02 32.39 0 19.21-13.02 32.2-13.01 13-32.25 13H157.13Zm510.52 499.24q-5.72 3.47-11.43 3.36-5.72-.12-11.2-2.6-5.48-2.48-8.84-7.55-3.35-5.08-3.35-11.84v-245.76q0-6.72 3.35-11.94 3.36-5.22 8.84-7.7 5.48-2.47 11.2-2.47 5.71 0 11.43 3.47l190.22 122q5.72 3.48 8.2 8.61 2.47 5.12 2.47 10.81t-2.47 10.79q-2.48 5.1-8.2 8.58L667.65-134.54Z")
-    }
+    val PlaylistPlay: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.PlaylistPlay)
 
-    /** Material Symbols `graphic_eq` · fill=1 · wght=500 */
-    val GraphicEq: ImageVector by lazy {
-        symbol("GraphicEq", "M274.02-277.85v-404.54q0-18.53 12.7-31.06 12.69-12.53 31.13-12.53 18.43 0 31.01 12.53 12.57 12.53 12.57 31.06v404.78q0 18.53-12.53 31.06-12.53 12.53-31.05 12.53-18.44 0-31.13-12.7-12.7-12.69-12.7-31.13Zm162.39 162.39v-729.08q0-18.53 12.53-31.06 12.54-12.53 31.06-12.53t31.06 12.53q12.53 12.53 12.53 31.06v729.08q0 18.53-12.53 31.06Q498.52-71.87 480-71.87T448.94-84.4q-12.53-12.53-12.53-31.06ZM111.87-440.24V-520q0-18.52 12.7-31.06 12.69-12.53 31.13-12.53 18.43 0 31.01 12.7 12.57 12.69 12.57 31.13V-440q0 18.52-12.53 31.06-12.53 12.53-31.05 12.53-18.44 0-31.13-12.7-12.7-12.69-12.7-31.13Zm486.46 162.39v-404.54q0-18.53 12.69-31.06 12.7-12.53 31.13-12.53 18.44 0 31.01 12.53 12.58 12.53 12.58 31.06v404.78q0 18.53-12.53 31.06-12.53 12.53-31.06 12.53-18.43 0-31.13-12.7-12.69-12.69-12.69-31.13Zm162.39-162.39V-520q0-18.52 12.69-31.06 12.7-12.53 31.13-12.53 18.44 0 31.01 12.7 12.58 12.69 12.58 31.13V-440q0 18.52-12.53 31.06-12.53 12.53-31.06 12.53-18.43 0-31.13-12.7-12.69-12.69-12.69-31.13Z")
-    }
+    val Headphones: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Headphones)
 
-    /** Material Symbols `tune` · fill=1 · wght=500 */
-    val Tune: ImageVector by lazy {
-        symbol("Tune", "M481.91-112.59q-18.43 0-31.13-12.53-12.69-12.53-12.69-31.05v-160.24q0-18.53 12.69-31.06Q463.48-360 481.91-360q18.44 0 31.01 12.53 12.58 12.53 12.58 31.06V-280h276.41q18.53 0 31.06 12.53 12.53 12.53 12.53 31.06 0 18.43-12.53 31.13-12.53 12.69-31.06 12.69H525.5v36.42q0 18.52-12.53 31.05-12.53 12.53-31.06 12.53Zm-323.82-80q-18.53 0-31.06-12.69-12.53-12.7-12.53-31.13 0-18.44 12.53-31.01Q139.56-280 158.09-280h160.24q18.52 0 31.05 12.53 12.53 12.53 12.53 31.06 0 18.43-12.53 31.13-12.53 12.69-31.05 12.69H158.09Zm160.24-163.82q-18.44 0-31.13-12.7-12.7-12.69-12.7-31.13v-36.17H158.09q-18.53 0-31.06-12.53Q114.5-461.48 114.5-480t12.53-31.06q12.53-12.53 31.06-12.53H274.5V-560q0-18.52 12.7-31.06 12.69-12.53 31.13-12.53 18.43 0 31.01 12.53 12.57 12.54 12.57 31.06v160q0 18.52-12.53 31.06-12.53 12.53-31.05 12.53Zm163.34-80q-18.52 0-31.05-12.53-12.53-12.54-12.53-31.06t12.53-31.06q12.53-12.53 31.05-12.53h320.24q18.53 0 31.06 12.53Q845.5-498.52 845.5-480t-12.53 31.06q-12.53 12.53-31.06 12.53H481.67ZM641.91-600q-18.43 0-31.13-12.53-12.69-12.53-12.69-31.06v-160.24q0-18.52 12.69-31.05 12.7-12.53 31.13-12.53 18.44 0 31.01 12.53 12.58 12.53 12.58 31.05v36.42h116.41q18.53 0 31.06 12.53 12.53 12.53 12.53 31.05 0 18.44-12.53 31.13-12.53 12.7-31.06 12.7H685.5v36.41q0 18.53-12.53 31.06Q660.44-600 641.91-600Zm-483.82-80q-18.53 0-31.06-12.7-12.53-12.69-12.53-31.13 0-18.43 12.53-31.01 12.53-12.57 31.06-12.57h320.24q18.52 0 31.05 12.53 12.53 12.53 12.53 31.05 0 18.44-12.53 31.13-12.53 12.7-31.05 12.7H158.09Z")
-    }
+    val AudioTrack: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.AudioTrack)
 
-    /** Material Symbols `speed` · fill=1 · wght=500 */
-    val Speed: ImageVector by lazy {
-        symbol("Speed", "M418-340q25 25 62.76 23.5T536-344l164.93-245.11q10.44-15.91-2.73-29.09-13.18-13.17-29.09-2.73L424-456q-26 18.48-28.38 54.86Q393.24-364.76 418-340ZM204-151.87q-23.91 0-44.57-10.58-20.65-10.57-32.36-31.48-26.72-47.96-40.96-99.54Q71.87-345.04 71.87-400q0-84.67 32.1-159.11 32.1-74.43 87.29-129.63 55.2-55.19 129.63-87.29 74.44-32.1 159.11-32.1 83.67 0 157.35 31.6 73.67 31.6 128.87 86.17 55.19 54.58 87.79 127.63 32.6 73.06 33.36 156.73.76 56.2-12.98 109.77-13.74 53.58-42.22 102.3-12.19 20.67-32.49 31.36-20.29 10.7-44.44 10.7H204Z")
-    }
+    val SurroundSound: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.SurroundSound)
 
-    /** Material Symbols `memory` · fill=1 · wght=500 */
-    val Memory: ImageVector by lazy {
-        symbol("Memory", "M360-405.5v-149q0-19.15 13.17-32.33Q386.35-600 405.5-600h149q19.15 0 32.33 13.17Q600-573.65 600-554.5v149q0 19.15-13.17 32.33Q573.65-360 554.5-360h-149q-19.15 0-32.33-13.17Q360-386.35 360-405.5Zm-5.5 255.3v-41.67h-71.63q-37.78 0-64.39-26.61t-26.61-64.39v-71.63h-41.85q-17.78 0-29.76-12.05t-11.98-29.86q0-17.71 12.05-29.7 12.05-11.98 29.87-11.98h41.67v-83.82h-41.79q-17.77 0-29.78-12.05-12.02-12.05-12.02-29.87 0-17.71 12.05-29.69t29.87-11.98h41.67v-71.63q0-37.78 26.61-64.39t64.39-26.61h71.63v-41.85q0-17.78 12.05-29.76t29.86-11.98q17.71 0 29.7 12.02 11.98 12.01 11.98 29.78v41.79h83.82v-41.79q0-17.77 12.05-29.78 12.05-12.02 29.87-12.02 17.71 0 29.69 12.02 11.98 12.01 11.98 29.78v41.79h71.63q37.78 0 64.39 26.61t26.61 64.39v71.63h41.85q17.78 0 29.76 11.98t11.98 29.69q0 17.82-12.02 29.87-12.01 12.05-29.78 12.05h-41.79v83.82h41.79q17.77 0 29.78 11.99 12.02 11.98 12.02 29.69T839.7-366.6q-12.01 12.1-29.78 12.1h-41.79v71.63q0 37.78-26.61 64.39t-64.39 26.61H605.5v41.85q0 17.78-11.98 29.76t-29.7 11.98q-17.71 0-29.81-12.05-12.1-12.05-12.1-29.87v-41.67h-83.82v41.79q0 17.77-11.99 29.78-11.98 12.02-29.69 12.02t-29.81-12.05q-12.1-12.05-12.1-29.87Zm322.63-132.67v-394.26H282.87v394.26h394.26Z")
-    }
+    val GraphicEq: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.GraphicEq)
 
-    /** Material Symbols `auto_awesome` · fill=1 · wght=500 */
-    val AutoAwesome: ImageVector by lazy {
-        symbol("AutoAwesome", "M19 8.375q-.125 0-.288-.088-.162-.087-.212-.262L17.7 6.3l-1.725-.775q-.175-.075-.25-.225-.075-.15-.075-.3t.075-.3q.075-.15.25-.225L17.7 3.7l.8-1.725q.05-.175.212-.263.163-.087.288-.087.15 0 .3.087.15.088.225.263l.8 1.725 1.7.775q.175.075.263.225.087.15.087.3t-.087.3q-.088.15-.263.225l-1.7.775-.8 1.725q-.075.175-.225.262-.15.088-.3.088Zm0 14q-.125 0-.288-.087-.162-.088-.212-.263l-.8-1.725-1.725-.775q-.175-.075-.25-.225-.075-.15-.075-.3t.075-.3q.075-.15.25-.225L17.7 17.7l.8-1.725q.05-.175.212-.263.163-.087.288-.087.15 0 .3.087.15.088.225.263l.8 1.725 1.7.775q.175.075.263.225.087.15.087.3t-.087.3q-.088.15-.263.225l-1.7.775-.8 1.725q-.075.175-.225.263-.15.087-.3.087ZM9.025 18.6q-.3 0-.587-.162-.288-.163-.438-.488l-1.525-3.375-3.4-1.55q-.3-.15-.475-.438-.175-.287-.175-.587t.175-.588q.175-.287.475-.437l3.4-1.55L8 6.05q.15-.325.438-.488.287-.162.587-.162.325 0 .612.162.288.163.438.488L11.6 9.425l3.4 1.55q.3.15.475.437.175.288.175.588t-.175.587q-.175.288-.475.438l-3.4 1.55-1.525 3.375q-.15.325-.438.488-.287.162-.612.162Z")
-    }
+    val Tune: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Tune)
 
-    /** Material Symbols `gradient` · fill=1 · wght=500 */
-    val Gradient: ImageVector by lazy {
-        symbol("Gradient", "M202.87-111.87q-37.54 0-64.27-26.73-26.73-26.73-26.73-64.27v-554.5q0-37.54 26.73-64.15 26.73-26.61 64.27-26.61h554.5q37.54 0 64.15 26.61 26.61 26.61 26.61 64.15v554.5q0 37.54-26.61 64.27-26.61 26.73-64.15 26.73h-554.5ZM440.48-520v79.28h79.04V-520h-79.04Zm-158.57 0v79.28h79.29V-520h-79.29Zm79.29 79.28v79.29h79.28v-79.29H361.2Zm158.32 0v79.29h79.28v-79.29h-79.28Zm-316.65 0v79.29h79.04v-79.29h-79.04ZM598.8-520v79.28h79.17v79.29h79.16v-79.29h-79.16V-520H598.8ZM281.91-361.43v79.28h-79.04v79.28h79.16v-79.28h79.17v79.28h79.16v-79.28h79.16v79.28h79.28v-79.28h79.29v79.28h79.04v-79.28h-79.16v-79.28H598.8v79.28h-79.16v-79.28h-79.16v79.28H361.2v-79.28h-79.29ZM757.13-520v79.28V-520Zm0 158.57v79.28-79.28Z")
-    }
+    val Speed: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Speed)
 
-    /** Material Symbols `palette` · fill=1 · wght=500 */
-    val Palette: ImageVector by lazy {
-        symbol("Palette", "M480-71.87q-83.63 0-158.09-32.22-74.45-32.21-130.03-87.79-55.58-55.58-87.79-130.04-32.22-74.46-32.22-158.09 0-84.66 32.98-159.1 32.98-74.43 89.55-129.63 56.58-55.19 132-87.29 75.41-32.1 161.02-32.1 81.54 0 154.09 28.1 72.56 28.1 127.37 77.67 54.82 49.58 87.03 117.44 32.22 67.86 32.22 146.44 0 116.44-70.36 181.52-70.36 65.09-173.47 65.09h-68.5q-8.04 0-11.42 4.52-3.38 4.52-3.38 10.28 0 11.53 13.57 31.16 13.56 19.63 13.56 47.43 0 51.91-30.13 79.26-30.13 27.35-78 27.35ZM262.87-440q26 0 43-17t17-43q0-26-17-43t-43-17q-26 0-43 17t-17 43q0 26 17 43t43 17Zm118.56-157.85q26 0 43-17t17-43q0-26-17-43t-43-17q-26 0-43 17t-17 43q0 26 17 43t43 17Zm197.14 0q26 0 43-17t17-43q0-26-17-43t-43-17q-26 0-43 17t-17 43q0 26 17 43t43 17ZM696.41-440q26 0 43-17t17-43q0-26-17-43t-43-17q-26 0-43 17t-17 43q0 26 17 43t43 17Z")
-    }
+    val Memory: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Memory)
 
-    /** Material Symbols `analytics` · fill=1 · wght=500 */
-    val Analytics: ImageVector by lazy {
-        symbol("Analytics", "M321.43-480q-17 0-28.5 11.5t-11.5 28.5v120q0 17 11.5 28.5t28.5 11.5q17 0 28.5-11.5t11.5-28.5v-120q0-17-11.5-28.5t-28.5-11.5Zm317.14-200q-17 0-28.5 11.5t-11.5 28.5v320q0 17 11.5 28.5t28.5 11.5q17 0 28.5-11.5t11.5-28.5v-320q0-17-11.5-28.5t-28.5-11.5ZM480-400q-17 0-28.5 11.5T440-360v40q0 17 11.5 28.5T480-280q17 0 28.5-11.5T520-320v-40q0-17-11.5-28.5T480-400ZM202.87-111.87q-37.78 0-64.39-26.61t-26.61-64.39v-554.26q0-37.78 26.61-64.39t64.39-26.61h554.26q37.78 0 64.39 26.61t26.61 64.39v554.26q0 37.78-26.61 64.39t-64.39 26.61H202.87ZM480-480q17 0 28.5-11.5T520-520q0-17-11.5-28.5T480-560q-17 0-28.5 11.5T440-520q0 17 11.5 28.5T480-480Z")
-    }
+    val AutoAwesome: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.AutoAwesome)
 
-    /** Material Symbols `video_library` · fill=1 · wght=500 */
-    val VideoLibrary: ImageVector by lazy {
-        symbol("VideoLibrary", "M701-536.91q15.91-10.2 15.91-28.59T701-594.09L512.93-714.78q-16.91-11.2-34.68-1.5-17.77 9.69-17.77 30.08v241.4q0 20.39 17.77 30.08 17.77 9.7 34.68-1.5L701-536.91ZM328.37-237.37q-37.78 0-64.39-26.61t-26.61-64.39v-474.26q0-37.78 26.61-64.39t64.39-26.61h474.26q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H328.37Zm-171 171q-37.78 0-64.39-26.61t-26.61-64.39v-519.76q0-19.15 13.17-32.33 13.18-13.17 32.33-13.17t32.33 13.17q13.17 13.18 13.17 32.33v519.76h519.76q19.15 0 32.33 13.17 13.17 13.18 13.17 32.33t-13.17 32.33q-13.18 13.17-32.33 13.17H157.37Z")
-    }
+    val Deband: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Deband)
 
-    /** Material Symbols `movie` · fill=1 · wght=500 */
-    val Movie: ImageVector by lazy {
-        symbol("Movie", "m162.87-808.13 65 130q7 14 20 22t28 8q30 0 46-25.5t2-52.5l-41-82h80l65 130q7 14 20 22t28 8q30 0 46-25.5t2-52.5l-41-82h80l65 130q7 14 20 22t28 8q30 0 46-25.5t2-52.5l-41-82h114.26q37.78 0 64.39 26.61t26.61 64.39v474.26q0 37.78-26.61 64.39t-64.39 26.61H162.87q-37.78 0-64.39-26.37t-26.61-63.91v-474.98q0-37.78 26.61-64.39t64.39-26.61Z")
-    }
+    val ColorTone: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.ColorTone)
 
-    /** Material Symbols `monitor` · fill=1 · wght=500 */
-    val Monitor: ImageVector by lazy {
-        symbol("Monitor", "M162.87-235.7q-37.78 0-64.39-26.6-26.61-26.61-26.61-64.4v-430.43q0-37.78 26.61-64.39t64.39-26.61h634.26q37.78 0 64.39 26.61t26.61 64.39v430.43q0 37.79-26.61 64.4-26.61 26.6-64.39 26.6H680l30.15 30.4q6.72 6.71 10.08 15.05 3.36 8.34 3.36 17.53v17.5q0 18.44-12.46 30.89-12.46 12.46-30.89 12.46H279.76q-18.43 0-30.89-12.46-12.46-12.45-12.46-30.89v-17.5q0-9.19 3.36-17.53 3.36-8.34 10.08-15.05L280-235.7H162.87Z")
-    }
+    val Info: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Info)
 
-    /** Material Symbols `fit_screen` · fill=1 · wght=500 */
-    val FitScreen: ImageVector by lazy {
-        symbol("FitScreen", "M800.72-644.54v-76.18H724.3q-18.52 0-31.05-12.69-12.53-12.7-12.53-31.13 0-18.44 12.69-31.01 12.7-12.58 31.13-12.58h72.59q37.78 0 64.39 26.61t26.61 64.39v72.83q0 18.52-12.53 31.05-12.53 12.53-31.06 12.53-18.43 0-31.13-12.69-12.69-12.7-12.69-31.13Zm-728.85 0v-72.59q0-37.78 26.61-64.39t64.39-26.61h72.83q18.52 0 31.05 12.53 12.53 12.53 12.53 31.06 0 18.43-12.53 31.13-12.53 12.69-31.05 12.69h-76.42v76.42q0 18.52-12.53 31.05-12.53 12.53-31.05 12.53-18.44 0-31.13-12.69-12.7-12.7-12.7-31.13Zm725.26 492.67H724.3q-18.52 0-31.05-12.7-12.53-12.69-12.53-31.13 0-18.43 12.69-31.01 12.7-12.57 31.13-12.57h76.18v-76.42q0-18.52 12.69-31.05 12.7-12.53 31.13-12.53 18.44 0 31.01 12.53 12.58 12.53 12.58 31.05v72.83q0 37.78-26.61 64.39t-64.39 26.61Zm-634.26 0q-37.78 0-64.39-26.61t-26.61-64.39v-72.83q0-18.52 12.7-31.05 12.69-12.53 31.13-12.53 18.43 0 31.01 12.53 12.57 12.53 12.57 31.05v76.42h76.42q18.52 0 31.05 12.53 12.53 12.53 12.53 31.05 0 18.44-12.53 31.13-12.53 12.7-31.05 12.7h-72.83Zm76.41-258.41v-139.44q0-37.78 26.61-64.39t64.39-26.61h299.44q37.78 0 64.39 26.61t26.61 64.39v139.44q0 37.78-26.61 64.39t-64.39 26.61H330.28q-37.78 0-64.39-26.61t-26.61-64.39Z")
-    }
+    val Monitoring: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Monitoring)
+
+    val VideoLibrary: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.VideoLibrary)
+
+    val Movie: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.Movie)
+
+    val FitScreen: ImageVector
+        @Composable get() = ImageVector.vectorResource(Res.FitScreen)
 
     // endregion
 
-}
-
-/**
- * Material Symbols 的字形画在 y ∈ [-960, 0]，需由外层 group 整体下移 960 才落进 viewport。
- */
-private fun symbol(name: String, pathData: String): ImageVector =
-    ImageVector.Builder(
-        name = name,
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 960f,
-        viewportHeight = 960f,
+    internal val allDrawableNames: List<String> = listOf(
+        "ic_play",
+        "ic_pause",
+        "ic_replay",
+        "ic_skip_previous",
+        "ic_skip_next",
+        "ic_fast_rewind",
+        "ic_fast_forward",
+        "ic_repeat",
+        "ic_repeat_one",
+        "ic_fullscreen_enter",
+        "ic_fullscreen_exit",
+        "ic_lock",
+        "ic_lock_open",
+        "ic_screenshot",
+        "ic_pip",
+        "ic_brightness",
+        "ic_volume_high",
+        "ic_volume_low",
+        "ic_volume_mute",
+        "ic_sleep_timer",
+        "ic_sync",
+        "ic_back",
+        "ic_more",
+        "ic_more_vert",
+        "ic_chevron_right",
+        "ic_close",
+        "ic_add",
+        "ic_check",
+        "ic_search",
+        "ic_sort",
+        "ic_refresh",
+        "ic_restart_alt",
+        "ic_help",
+        "ic_error",
+        "ic_settings",
+        "ic_folder",
+        "ic_folder_open",
+        "ic_folder_off",
+        "ic_create_new_folder",
+        "ic_delete",
+        "ic_save",
+        "ic_content_copy",
+        "ic_subtitles",
+        "ic_subtitles_outline",
+        "ic_playlist_play",
+        "ic_headphones",
+        "ic_audio_track",
+        "ic_surround_sound",
+        "ic_graphic_eq",
+        "ic_tune",
+        "ic_speed",
+        "ic_memory",
+        "ic_auto_awesome",
+        "ic_deband",
+        "ic_color_tone",
+        "ic_info",
+        "ic_monitoring",
+        "ic_video_library",
+        "ic_movie",
+        "ic_fit_screen",
     )
-        .addGroup(translationY = 960f)
-        .addPath(addPathNodes(pathData), fill = SolidColor(Color.Black))
-        .build()
+
+    internal val allDrawableIds: List<Int> = listOf(
+        Res.Play,
+        Res.Pause,
+        Res.Replay,
+        Res.SkipPrevious,
+        Res.SkipNext,
+        Res.FastRewind,
+        Res.FastForward,
+        Res.Repeat,
+        Res.RepeatOne,
+        Res.FullscreenEnter,
+        Res.FullscreenExit,
+        Res.Lock,
+        Res.LockOpen,
+        Res.Screenshot,
+        Res.Pip,
+        Res.Brightness,
+        Res.VolumeHigh,
+        Res.VolumeLow,
+        Res.VolumeMute,
+        Res.SleepTimer,
+        Res.Sync,
+        Res.Back,
+        Res.More,
+        Res.MoreVert,
+        Res.ChevronRight,
+        Res.Close,
+        Res.Add,
+        Res.Check,
+        Res.Search,
+        Res.Sort,
+        Res.Refresh,
+        Res.RestartAlt,
+        Res.Help,
+        Res.Error,
+        Res.Settings,
+        Res.Folder,
+        Res.FolderOpen,
+        Res.FolderOff,
+        Res.CreateNewFolder,
+        Res.Delete,
+        Res.Save,
+        Res.ContentCopy,
+        Res.Subtitles,
+        Res.SubtitlesOutline,
+        Res.PlaylistPlay,
+        Res.Headphones,
+        Res.AudioTrack,
+        Res.SurroundSound,
+        Res.GraphicEq,
+        Res.Tune,
+        Res.Speed,
+        Res.Memory,
+        Res.AutoAwesome,
+        Res.Deband,
+        Res.ColorTone,
+        Res.Info,
+        Res.Monitoring,
+        Res.VideoLibrary,
+        Res.Movie,
+        Res.FitScreen,
+    )
+}

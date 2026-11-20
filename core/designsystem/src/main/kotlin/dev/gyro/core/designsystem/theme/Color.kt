@@ -17,6 +17,15 @@ object GyroColors {
     val TextMuted = Color.White.copy(alpha = 0.4f)
     val SheetBackground = Color(0xFF1E1E1E)
 
+    // —— 播放抽屉与全局设置页统一面板 Token ——
+    val PanelBackground = Color(0xFF14161D)
+    val PanelCard = Color(0xFF1C202B)
+    val PanelCardElevated = Color(0xFF242938)
+    val PanelTrack = Color(0xFF333A4D)
+    val PanelDivider = Color.White.copy(alpha = 0.07f)
+    val PanelBorder = Color.White.copy(alpha = 0.08f)
+    val AccentGreenStrong = Color(0xFF4CAF50)
+
     // —— 播放器悬浮控件层（伪磨砂配方：分层半透明 + 细描边 + 柔投影，零 blur 成本） ——
     val OverlayFill = Color.Black.copy(alpha = 0.55f)
     val OverlayFillStrong = Color.Black.copy(alpha = 0.75f)

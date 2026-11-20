@@ -67,6 +67,18 @@ internal fun rememberPlayerGestureModifier(
         zoomState.reset()
     }
 
+    // Restore playback speed immediately if playback pauses during an active long-press boost
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying && priorSpeedBeforeBoost != null) {
+            val restoreSpeed = priorSpeedBeforeBoost ?: 1.0f
+            priorSpeedBeforeBoost = null
+            viewModel.setSpeed(restoreSpeed)
+            if (playerState.gestureHudState is GestureHudState.Speed) {
+                playerState.gestureHudState = GestureHudState.Idle
+            }
+        }
+    }
+
     return Modifier.playerGestures(
         context = context,
         isLocked = playerState.isLocked,
@@ -122,15 +134,21 @@ internal fun rememberPlayerGestureModifier(
             viewModel.togglePlayPause()
         },
         onFastForwardStart = { targetSpeed ->
-            priorSpeedBeforeBoost = speed
-            viewModel.setSpeed(targetSpeed)
-            playerState.gestureHudState = GestureHudState.Speed(targetSpeed)
+            if (isPlaying) {
+                priorSpeedBeforeBoost = speed
+                viewModel.setSpeed(targetSpeed)
+                playerState.gestureHudState = GestureHudState.Speed(targetSpeed)
+            }
         },
         onFastForwardEnd = {
-            val restoreSpeed = priorSpeedBeforeBoost ?: 1.0f
-            viewModel.setSpeed(restoreSpeed)
-            priorSpeedBeforeBoost = null
-            playerState.gestureHudState = GestureHudState.Idle
+            val restoreSpeed = priorSpeedBeforeBoost
+            if (restoreSpeed != null) {
+                viewModel.setSpeed(restoreSpeed)
+                priorSpeedBeforeBoost = null
+            }
+            if (playerState.gestureHudState is GestureHudState.Speed) {
+                playerState.gestureHudState = GestureHudState.Idle
+            }
         },
         onHudStateChange = { newState ->
             playerState.gestureHudState = newState
@@ -147,6 +165,7 @@ internal fun rememberPlayerGestureModifier(
             viewModel.playNext()
         },
         videoBounds = { composeVideoBounds },
+        controlsVisible = { playerState.showControls },
         config = gestureConfig
     )
 }

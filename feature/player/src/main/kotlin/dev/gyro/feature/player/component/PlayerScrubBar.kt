@@ -5,9 +5,7 @@ import dev.gyro.feature.player.component.rememberChapterHaptics
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Surface
@@ -35,18 +32,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.gyro.core.model.ChapterInfo
 import kotlin.math.abs
 
+private val ScrubBarPullUpThreshold = 24.dp
+private val ScrubBarDragPullUpThreshold = 32.dp
+
+private val ScrubBarMorphSpring = spring<Dp>(
+    stiffness = Spring.StiffnessMediumLow,
+    dampingRatio = Spring.DampingRatioNoBouncy,
+)
+
 /**
  * 独立叶子级通栏自适应弹性进度条 (PlayerScrubBar)
  * - 常态：纯白 3.5dp 细轨 + 无描边 10dp 纯白圆球；章节采用 2dp 断口分节；
- * - 拖拽 / 精准微调态：圆球融隐、轨道弹簧胀大为 11dp 粗纯白长条胶囊；
+ * - 拖拽 / 精准微调态：轨道弹簧胀大为 11dp 粗纯白长条胶囊，圆球同步压扁为 4dp × 17dp 细竖胶囊；
  * - 尺寸热区恒定（20dp），支持上滑进入 YouTube 风格精准选帧胶片模式。
  */
 @Composable
@@ -69,13 +74,18 @@ fun PlayerScrubBar(
 
     val barHeight by animateDpAsState(
         targetValue = if (isExpanded) 11.dp else 3.5.dp,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        animationSpec = ScrubBarMorphSpring,
         label = "barHeight"
     )
-    val thumbAlpha by animateFloatAsState(
-        targetValue = if (isExpanded) 0f else 1f,
-        animationSpec = tween(durationMillis = if (isExpanded) 110 else 160),
-        label = "thumbAlpha"
+    val thumbWidth by animateDpAsState(
+        targetValue = if (isExpanded) 4.dp else 10.dp,
+        animationSpec = ScrubBarMorphSpring,
+        label = "thumbWidth"
+    )
+    val thumbHeight by animateDpAsState(
+        targetValue = if (isExpanded) 17.dp else 10.dp,
+        animationSpec = ScrubBarMorphSpring,
+        label = "thumbHeight"
     )
 
     val chapterFractions = remember(chapters, durationMs) {
@@ -105,7 +115,8 @@ fun PlayerScrubBar(
     }
 
     val density = LocalDensity.current
-    val pullUpThresholdPx = with(density) { 48.dp.toPx() } // 调高上滑阈值（从 28dp 提升至 48dp），防止横向拖拽时因手指自然微弧弧度导致误触发
+    val pullUpThresholdPx = with(density) { ScrubBarPullUpThreshold.toPx() }
+    val dragPullUpThresholdPx = with(density) { ScrubBarDragPullUpThreshold.toPx() }
     val pullDownThresholdPx = with(density) { 36.dp.toPx() } // 精准面板内下滑收起阈值
     val touchSlopPx = LocalViewConfiguration.current.touchSlop
     val haptics = rememberChapterHaptics()
@@ -186,7 +197,7 @@ fun PlayerScrubBar(
                                 // 但面板已经打开时不成立：那时用户是在面板内拖动，上移不应把刚拖到的位置打回起点。
                                 if (!hasTriggeredPreciseSeek &&
                                     !startedInsidePreciseSeeking &&
-                                    deltaY <= -pullUpThresholdPx
+                                    deltaY <= -dragPullUpThresholdPx
                                 ) {
                                     hasTriggeredPreciseSeek = true
                                     currentHaptics.tick()
@@ -342,21 +353,15 @@ fun PlayerScrubBar(
             }
         }
 
-        // 3. 无描边纯白小圆球（仅常态显示，拖拽胀大时微缩融隐进粗胶囊条中）
-        val thumbDiameter = 10.dp
-        if (thumbAlpha > 0.01f && totalWidth > thumbDiameter) {
-            val thumbOffset = (totalWidth * playedRatio - thumbDiameter / 2)
-                .coerceIn(0.dp, (totalWidth - thumbDiameter).coerceAtLeast(0.dp))
+        // 3. 无描边纯白进度滑块（常态 10dp 圆球，拖拽/展开态随轨道同步压扁为 4dp × 17dp 细胶囊）
+        if (totalWidth > thumbWidth) {
+            val thumbOffset = (totalWidth * playedRatio - thumbWidth / 2)
+                .coerceIn(0.dp, (totalWidth - thumbWidth).coerceAtLeast(0.dp))
             Box(
                 modifier = Modifier
                     .offset(x = thumbOffset)
-                    .size(thumbDiameter)
-                    .graphicsLayer {
-                        alpha = thumbAlpha
-                        val scale = 0.55f + 0.45f * thumbAlpha
-                        scaleX = scale
-                        scaleY = scale
-                    }
+                    .width(thumbWidth)
+                    .height(thumbHeight)
             ) {
                 Surface(
                     shape = CircleShape,

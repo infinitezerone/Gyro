@@ -2,10 +2,8 @@ package dev.gyro.feature.player
 
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.gesture.PlayerZoomState
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -15,13 +13,12 @@ import org.junit.Test
 
 /**
  * Pins the timed behaviour that used to live inline in `PlayerScreen`: when the controls may
- * auto-hide, and how long the HDR badge stays up.
+ * auto-hide.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerStateTest {
 
-    private fun state(scope: CoroutineScope) = PlayerState(
-        scope = scope,
+    private fun state() = PlayerState(
         scrubState = PlayerScrubState(),
         zoomState = PlayerZoomState(),
         activity = null,
@@ -29,7 +26,7 @@ class PlayerStateTest {
 
     @Test
     fun autoHideRunsWithVisibleControlsEvenWhenPaused() {
-        val subject = state(CoroutineScope(StandardTestDispatcher()))
+        val subject = state()
 
         assertTrue(subject.canAutoHide(isScrubbing = false, isPipLayout = false))
 
@@ -45,7 +42,7 @@ class PlayerStateTest {
         assertFalse("PiP", subject.canAutoHide(isScrubbing = false, isPipLayout = true))
 
         subject.isLocked = true
-        assertFalse("locked", subject.canAutoHide(isScrubbing = false, isPipLayout = false))
+        assertTrue("locked unlock button should also auto-hide", subject.canAutoHide(isScrubbing = false, isPipLayout = false))
         subject.isLocked = false
 
         subject.activeSheetTab = PlayerSheetRoute.STATS_INFO
@@ -54,7 +51,7 @@ class PlayerStateTest {
 
     @Test
     fun autoHideClosesTheControlsAfterTheIdleWindow() = runTest {
-        val subject = state(this)
+        val subject = state()
 
         val job = launch { subject.autoHideAfter() }
         runCurrent()
@@ -65,40 +62,6 @@ class PlayerStateTest {
         job.join()
 
         assertFalse(subject.showControls)
-    }
-
-    @Test
-    fun badgeWindowRestartsInsteadOfStacking() = runTest {
-        val subject = state(this)
-
-        subject.revealFormatBadge()
-        runCurrent()
-        assertTrue(subject.formatBadgeVisible)
-
-        advanceTimeBy(2_000L)
-        runCurrent()
-        // The next file arrives before the first window ends.
-        subject.revealFormatBadge()
-        runCurrent()
-        advanceTimeBy(2_000L)
-        runCurrent()
-        assertTrue("the second window must not be cut short by the first", subject.formatBadgeVisible)
-
-        advanceTimeBy(1_400L)
-        runCurrent()
-        assertFalse(subject.formatBadgeVisible)
-    }
-
-    @Test
-    fun hideBadgeCancelsThePendingWindow() = runTest {
-        val subject = state(this)
-
-        subject.revealFormatBadge()
-        runCurrent()
-        subject.hideFormatBadge()
-        runCurrent()
-
-        assertFalse(subject.formatBadgeVisible)
     }
 
     @Test

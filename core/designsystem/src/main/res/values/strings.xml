@@ -7,6 +7,7 @@
     <string name="action_reset">重置</string>
     <string name="action_refresh">刷新</string>
     <string name="action_search">搜索</string>
+    <string name="action_sort">排序</string>
     <string name="action_clear">清空</string>
     <string name="action_back">返回</string>
     <string name="action_confirm">确认</string>
@@ -531,5 +532,26 @@
     <string name="hub_group_subtitle_styling">字幕与排版</string>
     <string name="hub_group_info_advanced">信息与极客</string>
     <string name="custom_speed_slider">无级调速</string>
+
+    <!-- Player Sheet Progressive Disclosure -->
+    <string name="sheet_quick_timer">定时</string>
+    <string name="sheet_quick_bg_audio">后台</string>
+    <string name="sheet_quick_pip">画中画</string>
+    <string name="sheet_section_picture_enhance">画质增强</string>
+    <string name="sheet_section_audio_effects">音效与均衡器</string>
+    <string name="sheet_section_audio_sync_output">同步与输出</string>
+    <string name="sheet_section_sub_style">样式与位置</string>
+    <string name="sheet_section_eq_custom">自定义 5 段频响</string>
+    <string name="sheet_decoder_hint">排障用</string>
+    <string name="sheet_speed_fine_tune">微调</string>
+    <string name="sheet_status_default">默认</string>
+    <string name="sheet_status_custom">自定义</string>
+
+    <!-- Settings Screen Progressive Disclosure -->
+    <string name="settings_group_playback_library">播放与媒体库</string>
+    <string name="settings_group_expert">专家配置</string>
+    <string name="settings_gesture_summary_fmt">双击 %1$d 秒 · 长按 %2$.1fX</string>
+    <string name="settings_rendering_entry_title">解码与画质</string>
+    <string name="settings_rendering_entry_desc">解码器、HDR 与画质参数</string>
 
 </resources>

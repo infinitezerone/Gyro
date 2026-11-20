@@ -4,9 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -53,7 +50,6 @@ import dev.gyro.feature.player.PlayerState
 import dev.gyro.feature.player.PlayerViewportState
 import dev.gyro.feature.player.event.PlaybackFailureReason
 import dev.gyro.feature.player.gesture.PlayerZoomState
-import dev.gyro.feature.player.isSheetFitActive
 import dev.gyro.feature.player.rememberPlayerShutterState
 import dev.gyro.feature.player.sheetFitTransform
 import dev.gyro.feature.player.surface.GyroPlayerSurface
@@ -117,10 +113,8 @@ internal fun BoxScope.PlayerVideoFeedLayer(
     }
 
     // Portrait bottom sheet: the picture is fitted into the space the sheet leaves instead of
-    // being nudged by a fixed offset. A vertical clip shrinks to fit that gap, a 16:9 clip is only
-    // moved up, and both follow the sheet's real measured height (content varies per tab).
-    // The height that matters is how tall the picture is drawn, not how tall the screen is:
-    // feeding the container height here shrank 16:9 clips that already fitted.
+    // being nudged by a fixed offset. Reading sheetState.visibleHeightPx inside graphicsLayer
+    // keeps the video frame-locked with the sheet's AnchoredDraggableState without recomposition.
     val screenW = viewport.containerSize.width.toFloat()
     val screenH = viewport.containerSize.height.toFloat()
     val videoDisplayHeightPx = when (effectiveResizeMode) {
@@ -130,46 +124,6 @@ internal fun BoxScope.PlayerVideoFeedLayer(
         ResizeMode.ASPECT_4_3 -> minOf(screenH, screenW / (4f / 3f))
         ResizeMode.FIT -> if (videoAspect > 0f) minOf(screenH, screenW / videoAspect) else screenH
     }
-    val sheetFitActive = isSheetFitActive(
-        activeSheetTab = playerState.activeSheetTab,
-        isLandscape = isLandscape,
-        isPipLayout = isPipLayout,
-    )
-    // A drag shrinks the sheet's footprint before it dismisses, so the fit follows the dragged
-    // edge rather than the fully-open height. While dragging the value is applied directly: a
-    // 220ms chase would visibly trail the finger.
-    val sheetDragPx = playerState.sheetDragOffsetPx
-    val effectiveSheetPx = (playerState.sheetHeightPx - sheetDragPx).coerceAtLeast(0f)
-    val targetSheetFit = sheetFitTransform(
-        videoHeightPx = videoDisplayHeightPx,
-        screenHeightPx = screenH,
-        sheetHeightPx = effectiveSheetPx,
-        active = sheetFitActive,
-    )
-    // Same curves the sheet itself uses (tween 220 in, 180 out) so the two move together. While
-    // the sheet is being dragged the spec snaps instead: the picture tracks the finger exactly,
-    // and because the animated value itself is continuous, releasing mid-drag starts the return
-    // from wherever the finger left it rather than jumping back to the fully-open position first.
-    val sheetFitSpec = if (sheetDragPx > 0f) {
-        snap()
-    } else {
-        tween<Float>(
-            durationMillis = if (sheetFitActive) 220 else 180,
-            easing = FastOutSlowInEasing,
-        )
-    }
-    // state 不在组合期读取：graphicsLayer 里读 .value 属于绘制阶段，动画每帧只重绘这一层，
-    // 不会重组整个画面容器（含 SurfaceView 尺寸计算），否则抽屉滑出时会整段掉帧。
-    val sheetFitScaleState = animateFloatAsState(
-        targetValue = targetSheetFit.scale,
-        animationSpec = sheetFitSpec,
-        label = "sheetFitScale"
-    )
-    val sheetShiftYState = animateFloatAsState(
-        targetValue = targetSheetFit.shiftY,
-        animationSpec = sheetFitSpec,
-        label = "sheetSurfaceShiftY"
-    )
 
     // How far the persistent surface is dragged away from the page it belongs to, in pages.
     // Negative = scrolled up = the surface follows the finger off the top of the screen.
@@ -226,9 +180,20 @@ internal fun BoxScope.PlayerVideoFeedLayer(
             // picture about the container centre and lifts it into the gap above the sheet, without
             // re-deriving the zoom/origin arithmetic above.
             .graphicsLayer {
-                scaleX = sheetFitScaleState.value
-                scaleY = sheetFitScaleState.value
-                translationY = sheetShiftYState.value
+                val visibleSheetPx = if (!isLandscape && !isPipLayout) {
+                    playerState.currentSheetVisibleHeightPx()
+                } else {
+                    0f
+                }
+                val fit = sheetFitTransform(
+                    videoHeightPx = videoDisplayHeightPx,
+                    screenHeightPx = screenH,
+                    sheetHeightPx = visibleSheetPx,
+                    active = visibleSheetPx > 0f,
+                )
+                scaleX = fit.scale
+                scaleY = fit.scale
+                translationY = fit.shiftY
             },
         renderController = renderController,
         isHdr = snapshot.isHdr,

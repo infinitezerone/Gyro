@@ -229,6 +229,9 @@ class LoadMediaUseCase @Inject constructor(
             onReloadRawTarget = { rawItem ->
                 engine.load(rawItem)
             },
+            onEnsureServiceRunning = {
+                serviceLauncher.start()
+            },
         )
     }
 }

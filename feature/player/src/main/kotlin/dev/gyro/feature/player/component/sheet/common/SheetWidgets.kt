@@ -1,408 +1,139 @@
 package dev.gyro.feature.player.component.sheet.common
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.gyro.core.designsystem.icon.GyroIcons
+import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroChip
+import dev.gyro.core.designsystem.component.GyroFineTuneSliderRow
+import dev.gyro.core.designsystem.component.GyroSectionHeader
+import dev.gyro.core.designsystem.theme.GyroColors
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.round
 
-// —— 统一深色高质感设计规范（与播放器悬浮层、全局设置和暗色沉浸主题完全统一） ——
-internal val SheetBgColor = Color(0xFF14161D)
-internal val SheetCardColor = Color(0xFF1C202B)
-internal val SheetCardAltColor = Color(0xFF242938)
-internal val SheetTrackColor = Color(0xFF333A4D)
-internal val SheetTextColor = Color.White
-internal val SheetTextSecondaryColor = Color.White.copy(alpha = 0.65f)
+// —— 统一映射自 GyroColors 的面板色板别名，保持抽屉与全局设置完全同源 ——
+internal val SheetBgColor = GyroColors.PanelBackground
+internal val SheetCardColor = GyroColors.PanelCard
+internal val SheetCardAltColor = GyroColors.PanelCardElevated
+internal val SheetTrackColor = GyroColors.PanelTrack
+internal val SheetTextColor = GyroColors.TextPrimary
+internal val SheetTextSecondaryColor = GyroColors.TextSecondary
 
-// 强调色：统一科技蓝，辅以翠绿/暖琥珀
-internal val SheetAccentBlue = Color(0xFF2196F3)
-internal val SheetGreen = Color(0xFF4CAF50)
-internal val SheetAmber = Color(0xFFFFB74D)
+internal val SheetAccentBlue = GyroColors.Primary
+internal val SheetGreen = GyroColors.AccentGreenStrong
+internal val SheetAmber = GyroColors.AccentOrange
 
-/**
- * 设置大厅与二级设置分类分组小标题 (SheetSectionHeader)
- */
-@Composable
-internal fun SheetSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = title,
-        style = TextStyle(
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = SheetTextSecondaryColor
-        ),
-        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)
-    )
-}
+private const val DELAY_MIN_SEC = -10.0
+private const val DELAY_MAX_SEC = 10.0
+private const val DELAY_SLIDER_LIMIT = 5f
 
 /**
- * 极简高密度设置项 (SettingsItemRow)
- * - 左边：[ 图标 ] 标题
- * - 右边：当前状态标签 + > (或者直接是 Switch / 操作控件)
- * - 彻底干掉冗余长文本说明，空间利用率 100%
+ * 音轨/字幕延迟校准复用块（音频延迟与字幕延迟共用）。
  */
 @Composable
-internal fun SettingsItemRow(
-    title: String,
-    icon: ImageVector,
-    currentValue: String? = null,
-    iconTint: Color = SheetTextSecondaryColor,
-    onClick: (() -> Unit)? = null,
-    showChevron: Boolean = false,
-    trailingContent: (@Composable () -> Unit)? = null
-) {
-    val rowModifier = if (onClick != null) {
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 44.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 44.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    }
-
-    Row(
-        modifier = rowModifier,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            // The label owns the row: it takes the flexible width and truncates, so a long title
-            // never pushes the value off the edge.
-            modifier = Modifier.weight(1f)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = SheetTextColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-        }
-
-        // Breathing room between the two halves. Without it a long label and a long value read as
-        // one run of text.
-        Spacer(modifier = Modifier.width(16.dp))
-
-        if (trailingContent != null) {
-            trailingContent()
-        } else if (currentValue != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                // The value yields before the label does; 45% of a phone width is about where a
-                // track name stops being readable anyway.
-                modifier = Modifier.widthIn(max = 180.dp)
-            ) {
-                Text(
-                    text = currentValue,
-                    fontSize = 13.sp,
-                    color = SheetTextColor.copy(alpha = 0.85f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    // Without the weight the text takes the whole 180dp and pushes the chevron out
-                    // of the row, so a long value silently loses its "opens a sub page" signal.
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                // Only rows that open a sub page get an arrow: it promises another screen. A row
-                // that just cycles a value in place (AB loop) would be lying.
-                if (onClick != null) {
-                    Icon(
-                        imageVector = GyroIcons.ChevronRight,
-                        contentDescription = null,
-                        tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-            }
-        } else if (showChevron && onClick != null) {
-            // 没有状态值、但会进入下一级页面的入口行（如“更多”）。
-            Icon(
-                imageVector = GyroIcons.ChevronRight,
-                contentDescription = null,
-                tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
-                modifier = Modifier.size(12.dp)
-            )
-        }
-    }
-}
-
-/**
- * The sheet's only switch.
- *
- * Material's switch is 52x32 with a filled track, which next to 13sp text and a 12dp chevron reads
- * as a different design system - it dominates the row it sits in. Scaled down and drawn with the
- * sheet's own palette it settles into the line instead of sitting on top of it.
- */
-@Composable
-internal fun SheetSwitch(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        colors = SwitchDefaults.colors(
-            checkedThumbColor = SheetAccentBlue,
-            checkedTrackColor = SheetAccentBlue.copy(alpha = 0.35f),
-            uncheckedThumbColor = SheetTextSecondaryColor,
-            uncheckedTrackColor = SheetTrackColor
-        ),
-        modifier = Modifier.scale(0.82f)
-    )
-}
-
-/**
- * 紧凑高密度单行配置行 (SettingsActionRow)
- * 左边：图标 + 标题
- * 右边：操作控件（胶囊组、开关、微调器等）
- */
-@Composable
-internal fun SettingsActionRow(
-    title: String,
-    icon: ImageVector,
-    iconTint: Color = SheetAccentBlue,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 38.dp)
-            .padding(vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(end = 10.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = SheetTextColor
-            )
-        }
-
-        Box(contentAlignment = Alignment.CenterEnd) {
-            content()
-        }
-    }
-}
-
-/**
- * 统一现代微磨砂胶囊筛选/预设项 (SheetChip)
- */
-@Composable
-internal fun SheetChip(
-    selected: Boolean,
-    onClick: () -> Unit,
+internal fun DelayCalibrationBlock(
     label: String,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
-        color = if (selected) SheetAccentBlue.copy(alpha = 0.22f) else SheetCardColor,
-        border = androidx.compose.foundation.BorderStroke(
-            width = if (selected) 1.dp else 0.5.dp,
-            color = if (selected) SheetAccentBlue else Color.White.copy(alpha = 0.08f)
-        ),
-        modifier = modifier.height(32.dp)
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = if (selected) SheetAccentBlue else SheetTextColor,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-/**
- * 设置大厅整合卡片容器 (SettingsGroupCard)
- * 将同类设置项聚合成一个高质感圆角组，杜绝零散卡片堆叠。
- */
-@Composable
-internal fun SettingsGroupCard(
+    currentSec: Double,
+    onValueChange: (Double) -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = SheetCardColor,
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)),
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            content = content
+    val isModified = abs(currentSec) >= 0.05
+    Column(modifier = modifier.fillMaxWidth()) {
+        GyroSectionHeader(
+            title = label,
+            actionLabel = stringResource(R.string.action_reset),
+            onActionClick = { onValueChange(0.0) },
+            actionEnabled = isModified,
+            horizontalPadding = 16.dp,
+            modifier = Modifier.padding(top = 8.dp),
         )
-    }
-}
 
-/**
- * 现代轻量级设置行项 (SettingsHubItem)
- */
-@Composable
-internal fun SettingsHubItem(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconTint: Color = SheetAccentBlue,
-    showDivider: Boolean = false,
-    onClick: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+        GyroFineTuneSliderRow(
+            label = stringResource(R.string.sync_status_synced).takeIf { !isModified }
+                ?: formatDelayValue(currentSec),
+            valueText = formatDelayValue(currentSec),
+            value = currentSec.toFloat(),
+            valueRange = -DELAY_SLIDER_LIMIT..DELAY_SLIDER_LIMIT,
+            onValueChange = { raw ->
+                val stepped = round(raw * 10.0) / 10.0
+                onValueChange(stepped.coerceIn(DELAY_MIN_SEC, DELAY_MAX_SEC))
+            },
+            step = 0.1f,
+            snapValue = 0f,
+            snapThreshold = 0.08f,
+            isModified = isModified,
+            onStepDown = {
+                onValueChange((round((currentSec - 0.1) * 10.0) / 10.0).coerceIn(DELAY_MIN_SEC, DELAY_MAX_SEC))
+            },
+            onStepUp = {
+                onValueChange((round((currentSec + 0.1) * 10.0) / 10.0).coerceIn(DELAY_MIN_SEC, DELAY_MAX_SEC))
+            },
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(20.dp)
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Text(
-                text = title,
-                style = TextStyle(
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = SheetTextColor
-                ),
-                modifier = Modifier.weight(1f)
-            )
-
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        color = SheetTextSecondaryColor
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 6.dp)
+            listOf(
+                -0.5 to "-0.5s",
+                -0.1 to "-0.1s",
+                0.1 to "+0.1s",
+                0.5 to "+0.5s",
+            ).forEach { (delta, chipLabel) ->
+                GyroChip(
+                    label = chipLabel,
+                    selected = false,
+                    onClick = {
+                        val next = (round((currentSec + delta) * 10.0) / 10.0)
+                            .coerceIn(DELAY_MIN_SEC, DELAY_MAX_SEC)
+                        onValueChange(next)
+                    },
+                    modifier = Modifier.weight(1f),
                 )
             }
-
-            Icon(
-                imageVector = GyroIcons.ChevronRight,
-                contentDescription = null,
-                tint = SheetTextSecondaryColor.copy(alpha = 0.5f),
-                modifier = Modifier.size(11.dp)
-            )
-        }
-        if (showDivider) {
-            androidx.compose.material3.HorizontalDivider(
-                color = Color.White.copy(alpha = 0.05f),
-                modifier = Modifier.padding(start = 46.dp, end = 14.dp)
-            )
         }
     }
 }
 
+internal fun formatDelayValue(seconds: Double): String =
+    if (abs(seconds) < 0.05) {
+        "0.0s"
+    } else {
+        String.format(Locale.US, "%+.1fs", seconds)
+    }
+
 @Composable
-internal fun MediaInfoGroup(
-    title: String,
-    content: @Composable () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = SheetCardAltColor,
-        modifier = Modifier.fillMaxWidth()
+internal fun EmptyTrackNotice(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue
-            )
-            content()
-        }
+        Text(text = message, fontSize = 13.sp, color = SheetTextSecondaryColor)
     }
 }
 
-@Composable
 /**
  * ffmpeg reports codecs as "H.265 / HEVC (High Efficiency Video Coding)"; a row needs "HEVC".
  * Shared by the settings row and the media-info page so they never disagree on the same file.
@@ -422,11 +153,13 @@ internal fun shortCodecName(raw: String): String {
 @Composable
 internal fun MediaInfoRow(
     label: String,
-    value: String
+    value: String,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
@@ -434,7 +167,7 @@ internal fun MediaInfoRow(
             color = SheetTextSecondaryColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
         Spacer(modifier = Modifier.width(12.dp))
         Text(
@@ -443,140 +176,14 @@ internal fun MediaInfoRow(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 color = SheetTextColor,
-                fontFeatureSettings = "tnum"
+                fontFeatureSettings = "tnum",
             ),
             textAlign = TextAlign.End,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            // A long value yields before the label does, and stays right-aligned like every other
-            // row. Without the cap it butts right up against the label and breaks onto 3+ lines.
-            modifier = Modifier.widthIn(max = 210.dp)
+            modifier = Modifier.widthIn(max = 210.dp),
         )
     }
-}
-
-@Composable
-internal fun FilterSwitchRow(
-    title: String,
-    description: String? = null,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 24.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = SheetTextColor
-            )
-            if (!description.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SheetTextSecondaryColor
-                )
-            }
-        }
-        SheetSwitch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-internal fun ColorSliderRow(
-    label: String,
-    value: Int,
-    onValueChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = SheetTextColor,
-                fontWeight = FontWeight.Normal
-            )
-            Text(
-                text = if (value > 0) "+$value" else "$value",
-                style = TextStyle(
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (value != 0) SheetAccentBlue else SheetTextSecondaryColor,
-                    fontFeatureSettings = "tnum"
-                )
-            )
-        }
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onValueChange(Math.round(it)) },
-            valueRange = -100f..100f,
-            colors = SliderDefaults.colors(
-                thumbColor = SheetAccentBlue,
-                activeTrackColor = SheetAccentBlue,
-                inactiveTrackColor = SheetTrackColor
-            )
-        )
-    }
-}
-
-@Composable
-internal fun SheetSectionTitle(
-    title: String,
-    accentColor: Color = SheetAccentBlue,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = accentColor,
-        modifier = modifier
-    )
-}
-
-@Composable
-internal fun FilledTonalAction(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    containerColor: Color = SheetCardAltColor,
-    contentColor: Color = SheetTextColor,
-    contentPadding: androidx.compose.foundation.layout.PaddingValues =
-        androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
-) {
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = modifier,
-        enabled = enabled,
-        shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = SheetCardColor,
-            disabledContentColor = SheetTextSecondaryColor
-        ),
-        contentPadding = contentPadding,
-        content = content
-    )
 }
 
 /**
@@ -587,8 +194,8 @@ internal fun formatBitrate(bps: Long): String {
     val mbps = bps / 1_000_000.0
     val kbps = bps / 1_000.0
     return if (mbps >= 1.0) {
-        String.format(java.util.Locale.US, "%.2f Mbps", mbps)
+        String.format(Locale.US, "%.2f Mbps", mbps)
     } else {
-        String.format(java.util.Locale.US, "%.0f kbps", kbps)
+        String.format(Locale.US, "%.0f kbps", kbps)
     }
 }

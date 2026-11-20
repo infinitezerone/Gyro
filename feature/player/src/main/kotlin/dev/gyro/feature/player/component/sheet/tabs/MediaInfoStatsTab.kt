@@ -23,7 +23,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,16 +40,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroGroupDivider
+import dev.gyro.core.designsystem.component.GyroSectionHeader
+import dev.gyro.core.designsystem.component.GyroSettingsGroup
+import dev.gyro.core.designsystem.component.GyroSwitchRow
+import dev.gyro.core.designsystem.icon.GyroIcons
 import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
 import dev.gyro.core.model.time.formatDuration
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
-import dev.gyro.feature.player.component.sheet.common.FilterSwitchRow
 import dev.gyro.feature.player.component.sheet.common.MediaInfoRow
 import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
 import dev.gyro.feature.player.component.sheet.common.SheetAmber
-import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
 import dev.gyro.feature.player.component.sheet.common.SheetGreen
 import dev.gyro.feature.player.component.sheet.common.SheetTextColor
 import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
@@ -59,12 +61,12 @@ import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import java.util.Locale
 
 /**
- * 媒体信息与性能诊断合体看板 (MediaInfoStatsTab) - 高密度扁平化纯平铺布局
+ * 媒体信息与性能诊断合体看板 (MediaInfoStatsTab)
  */
 @Composable
 internal fun MediaInfoStatsTabContent(
     state: PlayerSheetUiState,
-    callbacks: PlayerSheetCallbacks
+    callbacks: PlayerSheetCallbacks,
 ) {
     val resolvedInfo = state.mediaInfo ?: MediaInfo(
         videoResolution = if (state.videoWidth > 0 && state.videoHeight > 0) {
@@ -74,20 +76,17 @@ internal fun MediaInfoStatsTabContent(
         },
         videoFps = state.fps,
         hwdecCurrent = state.hwdec,
-        droppedFrames = state.droppedFrames
+        droppedFrames = state.droppedFrames,
     )
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(top = 4.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         RealtimeStatsSection(state = state, callbacks = callbacks)
-
-        HorizontalDivider(color = SheetCardAltColor.copy(alpha = 0.5f), thickness = 0.5.dp)
-
         MediaInfoSection(state = state, resolvedInfo = resolvedInfo)
     }
 }
@@ -95,42 +94,43 @@ internal fun MediaInfoStatsTabContent(
 @Composable
 private fun RealtimeStatsSection(
     state: PlayerSheetUiState,
-    callbacks: PlayerSheetCallbacks
+    callbacks: PlayerSheetCallbacks,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            text = stringResource(R.string.stats_realtime_section),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = SheetAccentBlue
-        )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        GyroSectionHeader(title = stringResource(R.string.stats_realtime_section))
+        GyroSettingsGroup {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                PerformanceSnapshotRow(state = state)
 
-        PerformanceSnapshotRow(state = state)
+                Text(
+                    text = stringResource(R.string.stats_live_bitrate_fmt, formatBitrate(state.videoBitrate)),
+                    fontSize = 11.sp,
+                    color = SheetTextSecondaryColor,
+                )
 
-        Spacer(modifier = Modifier.height(4.dp))
+                val samples = when {
+                    state.bitrateHistory.size >= 2 -> state.bitrateHistory
+                    state.bitrateHistory.size == 1 -> listOf(state.bitrateHistory[0], state.bitrateHistory[0])
+                    state.videoBitrate > 0 -> listOf(state.videoBitrate, state.videoBitrate)
+                    else -> emptyList()
+                }
+                BitrateChart(samples = samples)
+            }
 
-        Text(
-            text = stringResource(R.string.stats_live_bitrate_fmt, formatBitrate(state.videoBitrate)),
-            fontSize = 11.sp,
-            color = SheetTextSecondaryColor
-        )
-
-        val samples = when {
-            state.bitrateHistory.size >= 2 -> state.bitrateHistory
-            state.bitrateHistory.size == 1 -> listOf(state.bitrateHistory[0], state.bitrateHistory[0])
-            state.videoBitrate > 0 -> listOf(state.videoBitrate, state.videoBitrate)
-            else -> emptyList()
+            GyroGroupDivider()
+            GyroSwitchRow(
+                title = stringResource(R.string.stats_overlay_screen_title),
+                subtitle = stringResource(R.string.stats_overlay_screen_desc),
+                icon = GyroIcons.Monitoring,
+                checked = state.statsOverlayEnabled,
+                onCheckedChange = callbacks.onToggleStatsOverlay,
+            )
         }
-        BitrateChart(samples = samples)
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        FilterSwitchRow(
-            title = stringResource(R.string.stats_overlay_screen_title),
-            description = stringResource(R.string.stats_overlay_screen_desc),
-            checked = state.statsOverlayEnabled,
-            onCheckedChange = callbacks.onToggleStatsOverlay
-        )
     }
 }
 
@@ -139,9 +139,8 @@ private fun PerformanceSnapshotRow(state: PlayerSheetUiState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        // FPS 徽章
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -150,15 +149,15 @@ private fun PerformanceSnapshotRow(state: PlayerSheetUiState) {
                     targetValue = 1.0f,
                     animationSpec = infiniteRepeatable(
                         animation = tween(800, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
+                        repeatMode = RepeatMode.Reverse,
                     ),
-                    label = "fpsPulse"
+                    label = "fpsPulse",
                 )
                 Box(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(SheetGreen.copy(alpha = pulseAlpha))
+                        .background(SheetGreen.copy(alpha = pulseAlpha)),
                 )
                 Spacer(modifier = Modifier.width(5.dp))
                 Text(
@@ -170,33 +169,31 @@ private fun PerformanceSnapshotRow(state: PlayerSheetUiState) {
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = SheetTextColor,
-                    style = TextStyle(fontFeatureSettings = "tnum")
+                    style = TextStyle(fontFeatureSettings = "tnum"),
                 )
             }
             Text(
                 text = stringResource(R.string.stats_fps_label),
                 fontSize = 11.sp,
-                color = SheetTextSecondaryColor
+                color = SheetTextSecondaryColor,
             )
         }
 
-        // 丢帧指示
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "${state.droppedFrames}",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (state.droppedFrames > 0) SheetAmber else SheetGreen,
-                style = TextStyle(fontFeatureSettings = "tnum")
+                style = TextStyle(fontFeatureSettings = "tnum"),
             )
             Text(
                 text = stringResource(R.string.stats_dropped_total),
                 fontSize = 11.sp,
-                color = SheetTextSecondaryColor
+                color = SheetTextSecondaryColor,
             )
         }
 
-        // 解码器状态
         Column(horizontalAlignment = Alignment.End) {
             val hwdecText = when (state.hwdecMode) {
                 HwdecMode.HARDWARE_COPY -> stringResource(R.string.hwdec_copy)
@@ -207,12 +204,12 @@ private fun PerformanceSnapshotRow(state: PlayerSheetUiState) {
                 text = hwdecText,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = SheetAccentBlue
+                color = SheetAccentBlue,
             )
             Text(
                 text = stringResource(R.string.stats_decode_pipeline),
                 fontSize = 11.sp,
-                color = SheetTextSecondaryColor
+                color = SheetTextSecondaryColor,
             )
         }
     }
@@ -223,16 +220,16 @@ private fun BitrateChart(samples: List<Long>) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(65.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color.Black.copy(alpha = 0.25f))
+            .height(64.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.25f)),
     ) {
         if (samples.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = stringResource(R.string.stats_sampling_bitrate),
                     fontSize = 11.sp,
-                    color = SheetTextSecondaryColor
+                    color = SheetTextSecondaryColor,
                 )
             }
         } else {
@@ -240,7 +237,7 @@ private fun BitrateChart(samples: List<Long>) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
             ) {
                 val w = size.width
                 val h = size.height
@@ -257,7 +254,7 @@ private fun BitrateChart(samples: List<Long>) {
                 drawPath(
                     path = path,
                     color = SheetAccentBlue,
-                    style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
                 )
             }
         }
@@ -267,58 +264,57 @@ private fun BitrateChart(samples: List<Long>) {
 @Composable
 private fun MediaInfoSection(
     state: PlayerSheetUiState,
-    resolvedInfo: MediaInfo
+    resolvedInfo: MediaInfo,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            text = stringResource(R.string.info_source_section),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = SheetAccentBlue
-        )
-
-        val codec = resolvedInfo.videoCodec.ifBlank { stringResource(R.string.common_unknown) }
-        val resolution = resolvedInfo.videoResolution.ifBlank {
-            if (state.videoWidth > 0) {
-                "${state.videoWidth} × ${state.videoHeight}"
-            } else {
-                stringResource(R.string.common_unknown)
-            }
-        }
-        val hdr = if (state.isHdr) {
-            if (state.hdrFormat.isNotBlank()) state.hdrFormat else "HDR"
+    val codec = resolvedInfo.videoCodec.ifBlank { stringResource(R.string.common_unknown) }
+    val resolution = resolvedInfo.videoResolution.ifBlank {
+        if (state.videoWidth > 0) {
+            "${state.videoWidth} × ${state.videoHeight}"
         } else {
-            stringResource(R.string.dynamic_range_sdr)
+            stringResource(R.string.common_unknown)
         }
+    }
+    val hdr = if (state.isHdr) {
+        if (state.hdrFormat.isNotBlank()) state.hdrFormat else "HDR"
+    } else {
+        stringResource(R.string.dynamic_range_sdr)
+    }
+    val aCodec = resolvedInfo.audioCodec.ifBlank { stringResource(R.string.common_unknown) }
+    val channels = resolvedInfo.audioChannels.ifBlank { stringResource(R.string.audio_channels_default) }
 
-        MediaInfoRow(label = stringResource(R.string.info_video_codec), value = shortCodecName(codec))
-        MediaInfoRow(label = stringResource(R.string.info_native_resolution), value = resolution)
-        MediaInfoRow(label = stringResource(R.string.info_dynamic_range), value = hdr)
-        if (resolvedInfo.videoFps > 0) {
-            MediaInfoRow(
-                label = stringResource(R.string.info_native_framerate),
-                value = "${String.format(Locale.US, "%.3f", resolvedInfo.videoFps)} FPS"
-            )
-        }
-
-        val aCodec = resolvedInfo.audioCodec.ifBlank { stringResource(R.string.common_unknown) }
-        val channels = resolvedInfo.audioChannels.ifBlank { stringResource(R.string.audio_channels_default) }
-        MediaInfoRow(label = stringResource(R.string.info_audio_codec_channels), value = "${shortCodecName(aCodec)} · $channels")
-
-        if (resolvedInfo.containerFormat.isNotBlank()) {
-            MediaInfoRow(
-                label = stringResource(R.string.info_container_type),
-                value = resolvedInfo.containerFormat.substringBefore(',').trim().uppercase()
-            )
-        }
-        if (resolvedInfo.fileSize > 0) {
-            MediaInfoRow(label = stringResource(R.string.info_file_size), value = resolvedInfo.formattedFileSize)
-        }
-        if (resolvedInfo.durationMs > 0) {
-            MediaInfoRow(
-                label = stringResource(R.string.info_source_duration),
-                value = formatDuration(resolvedInfo.durationMs)
-            )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        GyroSectionHeader(title = stringResource(R.string.info_source_section))
+        GyroSettingsGroup {
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                MediaInfoRow(label = stringResource(R.string.info_video_codec), value = shortCodecName(codec))
+                MediaInfoRow(label = stringResource(R.string.info_native_resolution), value = resolution)
+                MediaInfoRow(label = stringResource(R.string.info_dynamic_range), value = hdr)
+                if (resolvedInfo.videoFps > 0) {
+                    MediaInfoRow(
+                        label = stringResource(R.string.info_native_framerate),
+                        value = "${String.format(Locale.US, "%.3f", resolvedInfo.videoFps)} FPS",
+                    )
+                }
+                MediaInfoRow(
+                    label = stringResource(R.string.info_audio_codec_channels),
+                    value = "${shortCodecName(aCodec)} · $channels",
+                )
+                if (resolvedInfo.containerFormat.isNotBlank()) {
+                    MediaInfoRow(
+                        label = stringResource(R.string.info_container_type),
+                        value = resolvedInfo.containerFormat.substringBefore(',').trim().uppercase(),
+                    )
+                }
+                if (resolvedInfo.fileSize > 0) {
+                    MediaInfoRow(label = stringResource(R.string.info_file_size), value = resolvedInfo.formattedFileSize)
+                }
+                if (resolvedInfo.durationMs > 0) {
+                    MediaInfoRow(
+                        label = stringResource(R.string.info_source_duration),
+                        value = formatDuration(resolvedInfo.durationMs),
+                    )
+                }
+            }
         }
     }
 }

@@ -276,7 +276,9 @@ class MpvOptionConfigurator {
             bridge.setOptionString("gamut-clipping", if (hq) "no" else "yes")
         }
         if (!userOptions.containsKey("sub-font-provider")) {
-            bridge.setOptionString("sub-font-provider", "none")
+            // SRT 等纯文本字幕不带内嵌字体，必须允许系统 fontconfig 提供默认字体；
+            // 设为 none 会让这类字幕（含次字幕）完全没有字形可画，表现为“勾选了也不显示”。
+            bridge.setOptionString("sub-font-provider", "auto")
         }
         if (!userOptions.containsKey("sub-ass-override")) {
             bridge.setOptionString("sub-ass-override", "no")

@@ -1,7 +1,5 @@
 package dev.gyro.feature.player.component.sheet
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,10 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -41,31 +36,37 @@ import dev.gyro.core.designsystem.icon.GyroIcons
 fun PlayerPlaylistSheet(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks,
+    nav: SheetNavState,
     isLandscape: Boolean,
+    visible: Boolean = true,
+    onBindVisibleHeightProvider: (() -> Float) -> Unit = {},
+    onUnbindVisibleHeightProvider: (() -> Float) -> Unit = {},
     onDismiss: () -> Unit,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onHidden: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember(state.playlist.size, state.chapters.size) {
-        mutableStateOf(if (state.playlist.isNotEmpty()) PlayerSheetRoute.PLAYLIST else PlayerSheetRoute.CHAPTERS)
+    // 播放列表为空时自动落到章节页；两个 pill 属于同一层，用 replace 切换，不产生返回栈。
+    LaunchedEffect(state.playlist.size, state.chapters.size) {
+        if (nav.current == PlayerSheetRoute.PLAYLIST && state.playlist.isEmpty()) {
+            nav.replace(PlayerSheetRoute.CHAPTERS)
+        }
     }
 
-    // 拦截返回键
-    BackHandler(enabled = true) {
-        onDismiss()
-    }
-
-    PlaylistSheetScaffold(
+    AnchoredSheetScaffold(
+        visible = visible,
         isLandscape = isLandscape,
+        heightFraction = 0.65f,
+        onBindVisibleHeightProvider = onBindVisibleHeightProvider,
+        onUnbindVisibleHeightProvider = onUnbindVisibleHeightProvider,
         onDismiss = onDismiss,
-        animatedVisibilityScope = animatedVisibilityScope,
-        modifier = modifier
+        onHidden = onHidden,
+        modifier = modifier,
     ) {
         PlaylistSheetContent(
             state = state,
             callbacks = callbacks,
-            selectedTab = selectedTab,
-            onSelectTab = { selectedTab = it },
+            selectedTab = nav.current,
+            onSelectTab = nav::replace,
             onDismiss = onDismiss
         )
     }
@@ -114,7 +115,7 @@ private fun PlaylistSheetHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -163,13 +164,13 @@ private fun PlaylistSheetHeader(
 
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.size(32.dp)
+            modifier = Modifier.size(36.dp)
         ) {
             Icon(
                 imageVector = GyroIcons.Close,
                 contentDescription = stringResource(R.string.action_cancel),
                 tint = SheetTextSecondaryColor,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
     }

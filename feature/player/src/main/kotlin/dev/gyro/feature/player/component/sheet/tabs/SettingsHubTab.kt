@@ -1,7 +1,12 @@
 package dev.gyro.feature.player.component.sheet.tabs
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,111 +20,265 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
+import dev.gyro.core.designsystem.component.GyroChip
+import dev.gyro.core.designsystem.component.GyroGroupDivider
+import dev.gyro.core.designsystem.component.GyroNavigationRow
+import dev.gyro.core.designsystem.component.GyroQuickTile
+import dev.gyro.core.designsystem.component.GyroSectionHeader
+import dev.gyro.core.designsystem.component.GyroSettingsGroup
+import dev.gyro.core.designsystem.icon.GyroIcons
+import dev.gyro.core.designsystem.theme.GyroColors
+import dev.gyro.core.domain.session.PlaylistRepeatMode
+import dev.gyro.core.model.GlslShader
+import dev.gyro.engine.model.ResizeMode
 import dev.gyro.feature.player.component.sheet.PlayerSheetCallbacks
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.component.sheet.PlayerSheetUiState
-import dev.gyro.feature.player.component.sheet.common.SettingsItemRow
-import dev.gyro.feature.player.component.sheet.common.SheetAccentBlue
-import dev.gyro.feature.player.component.sheet.common.SheetCardColor
-import dev.gyro.feature.player.component.sheet.common.SheetCardAltColor
-import dev.gyro.feature.player.component.sheet.common.SheetBgColor
-import dev.gyro.feature.player.component.sheet.common.SheetChip
-import dev.gyro.feature.player.component.sheet.common.SheetChip
-import dev.gyro.feature.player.component.sheet.common.SheetSwitch
-import dev.gyro.feature.player.component.sheet.common.SheetTextColor
-import dev.gyro.feature.player.component.sheet.common.SheetTextSecondaryColor
+import dev.gyro.feature.player.component.sheet.nextPlaylistRepeatMode
 import dev.gyro.feature.player.component.sheet.common.displayLabel
 import dev.gyro.feature.player.component.sheet.common.shortCodecName
 import java.util.Locale
-import dev.gyro.core.designsystem.icon.GyroIcons
+import kotlin.math.abs
+import kotlin.math.round
+
+private val HubSpeedPresets = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
 
 /**
- * 主播放设置菜单 (SettingsHubTab)
+ * 播放页抽屉首页 (SettingsHubTab)。
  *
- * 播放页只保留会话级、高频操作：
- * 1. 快捷操作 (PiP、定时关闭、A-B 循环)
- * 2. 倍速、画面比例、音轨、字幕轨、音量增强
- * 3. 更多播放设置（解码器/着色器/色彩/音效/字幕样式等低频项）
- * 4. 媒体信息、统计浮层、应用设置入口
+ * 按渐进式披露组织，全页最多 2 层：
+ * 1. 顶部四格快捷动作：画中画 / 后台播放 / 循环模式（就地切换）/ 定时关闭（就地展开）；
+ * 2. 倍速直控卡片：标题行右侧可进入连续微调，下方直接点选常用档位；
+ * 3. 三大核心领域（画面 / 声音 / 字幕）：带状态摘要与非默认高亮；
+ * 4. 媒体信息与诊断 + 应用设置。
  */
 @Composable
 internal fun SettingsHubTabContent(
     state: PlayerSheetUiState,
     callbacks: PlayerSheetCallbacks,
-    onNavigate: (PlayerSheetRoute) -> Unit
+    onNavigate: (PlayerSheetRoute) -> Unit,
 ) {
+    var timerExpanded by rememberSaveable { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(top = 6.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HubQuickActions(state = state, callbacks = callbacks)
-
-        // 列表播放模式（顺序 / 列表循环 / 单集循环）
-        SettingsItemRow(
-            title = stringResource(R.string.playback_mode_title),
-            icon = GyroIcons.PlaylistPlay,
-            currentValue = stringResource(state.playlistRepeatMode.labelRes()),
-            onClick = { onNavigate(PlayerSheetRoute.PLAYBACK_MODE) }
+        HubQuickTileRow(
+            state = state,
+            timerExpanded = timerExpanded,
+            onToggleTimerExpanded = { timerExpanded = !timerExpanded },
+            callbacks = callbacks,
         )
 
-        // 定时关闭只负责到点暂停，和循环互不相干
-        SettingsItemRow(
+        AnimatedVisibility(
+            visible = timerExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            SleepTimerInlineCard(state = state, callbacks = callbacks)
+        }
+
+        SpeedQuickCard(
+            currentSpeed = state.currentSpeed,
+            onSelectSpeed = callbacks.onSelectSpeed,
+            onOpenFineTune = { onNavigate(PlayerSheetRoute.SPEED) },
+        )
+
+        CoreDomainsCard(
+            state = state,
+            onNavigate = onNavigate,
+        )
+
+        FooterActionsCard(
+            state = state,
+            callbacks = callbacks,
+            onNavigate = onNavigate,
+        )
+    }
+}
+
+@Composable
+private fun HubQuickTileRow(
+    state: PlayerSheetUiState,
+    timerExpanded: Boolean,
+    onToggleTimerExpanded: () -> Unit,
+    callbacks: PlayerSheetCallbacks,
+) {
+    val repeatIcon = when (state.playlistRepeatMode) {
+        PlaylistRepeatMode.SEQUENTIAL -> GyroIcons.PlaylistPlay
+        PlaylistRepeatMode.LOOP_ALL -> GyroIcons.Repeat
+        PlaylistRepeatMode.LOOP_ONE -> GyroIcons.RepeatOne
+    }
+    val repeatLabel = stringResource(state.playlistRepeatMode.labelRes())
+    val repeatSelected = state.playlistRepeatMode != PlaylistRepeatMode.SEQUENTIAL
+    val timerBadge = if (state.sleepTimerSecondsRemaining > 0L) {
+        val rem = state.sleepTimerSecondsRemaining
+        "%02d:%02d".format(Locale.US, rem / 60, rem % 60)
+    } else {
+        null
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        GyroQuickTile(
+            label = stringResource(R.string.sheet_quick_pip),
+            icon = GyroIcons.Pip,
+            selected = false,
+            onClick = callbacks.onEnterPip,
+            modifier = Modifier.weight(1f),
+        )
+        GyroQuickTile(
+            label = stringResource(R.string.sheet_quick_bg_audio),
+            icon = GyroIcons.Headphones,
+            selected = state.backgroundAudio,
+            onClick = { callbacks.onToggleBackgroundAudio(!state.backgroundAudio) },
+            modifier = Modifier.weight(1f),
+        )
+        GyroQuickTile(
+            label = repeatLabel,
+            icon = repeatIcon,
+            selected = repeatSelected,
+            onClick = {
+                callbacks.onSetPlaylistRepeatMode(nextPlaylistRepeatMode(state.playlistRepeatMode))
+            },
+            modifier = Modifier.weight(1f),
+        )
+        GyroQuickTile(
+            label = stringResource(R.string.sheet_quick_timer),
+            icon = GyroIcons.SleepTimer,
+            selected = timerExpanded || timerBadge != null,
+            badge = timerBadge,
+            onClick = onToggleTimerExpanded,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun SleepTimerInlineCard(
+    state: PlayerSheetUiState,
+    callbacks: PlayerSheetCallbacks,
+) {
+    GyroSettingsGroup {
+        GyroSectionHeader(
             title = stringResource(R.string.sleep_timer_title),
-            icon = GyroIcons.Timer,
-            currentValue = sleepTimerSummary(state),
-            onClick = { onNavigate(PlayerSheetRoute.TIMER) }
+            horizontalPadding = 16.dp,
+            modifier = Modifier.padding(top = 8.dp),
         )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            listOf(
+                0 to stringResource(R.string.sleep_timer_off),
+                15 to stringResource(R.string.sleep_timer_15m),
+                30 to stringResource(R.string.sleep_timer_30m),
+                60 to stringResource(R.string.sleep_timer_60m),
+            ).forEach { (minutes, label) ->
+                val isSelected = (minutes == 0 && state.sleepTimerSecondsRemaining == 0L) ||
+                    (minutes > 0 && state.sleepTimerSecondsRemaining in (minutes * 60 - 5L)..(minutes * 60L))
+                GyroChip(
+                    label = label,
+                    selected = isSelected,
+                    onClick = { callbacks.onSetSleepTimer(minutes) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
 
-        HubDivider()
+@Composable
+private fun SpeedQuickCard(
+    currentSpeed: Float,
+    onSelectSpeed: (Float) -> Unit,
+    onOpenFineTune: () -> Unit,
+) {
+    val speedModified = abs(currentSpeed - 1.0f) >= 0.01f
+    val speedScrollState = rememberScrollState()
 
-        // 倍速
-        SettingsItemRow(
-            title = stringResource(R.string.settings_playback_speed),
-            icon = GyroIcons.Speed,
-            currentValue = "${state.currentSpeed}x",
-            onClick = { onNavigate(PlayerSheetRoute.SPEED) }
-        )
-        val speedPresets = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f)
-        val speedScrollState = rememberScrollState()
-        Box(modifier = Modifier.fillMaxWidth()) {
+    GyroSettingsGroup {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenFineTune)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = GyroIcons.Speed,
+                contentDescription = null,
+                tint = if (speedModified) GyroColors.PrimaryLight else GyroColors.TextSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = stringResource(R.string.settings_playback_speed),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = GyroColors.TextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "${formatSpeedValue(currentSpeed)}x · ${stringResource(R.string.sheet_speed_fine_tune)}",
+                fontSize = 13.sp,
+                fontWeight = if (speedModified) FontWeight.Medium else FontWeight.Normal,
+                color = if (speedModified) GyroColors.PrimaryLight else GyroColors.TextSecondary,
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                imageVector = GyroIcons.ChevronRight,
+                contentDescription = null,
+                tint = GyroColors.TextSecondary.copy(alpha = 0.55f),
+                modifier = Modifier.size(12.dp),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(speedScrollState)
-                    .padding(horizontal = 16.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                speedPresets.forEach { speed ->
-                    SheetChip(
-                        selected = kotlin.math.abs(state.currentSpeed - speed) < 0.01f,
-                        onClick = { callbacks.onSelectSpeed(speed) },
-                        label = if (speed % 1f == 0f) "${speed.toInt()}x" else "${speed}x",
-                        modifier = Modifier.widthIn(min = 56.dp)
+                HubSpeedPresets.forEach { speed ->
+                    GyroChip(
+                        label = "${formatSpeedValue(speed)}x",
+                        selected = abs(currentSpeed - speed) < 0.01f,
+                        onClick = { onSelectSpeed(speed) },
+                        modifier = Modifier.widthIn(min = 52.dp),
                     )
                 }
             }
@@ -127,86 +286,145 @@ internal fun SettingsHubTabContent(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .width(32.dp)
-                        .height(36.dp)
+                        .width(28.dp)
+                        .height(34.dp)
                         .background(
                             Brush.horizontalGradient(
-                                listOf(Color.Transparent, SheetBgColor)
+                                listOf(Color.Transparent, GyroColors.PanelCard.copy(alpha = 0.95f))
                             )
-                        )
+                        ),
                 )
             }
         }
+    }
+}
 
-        // 画面比例
-        SettingsItemRow(
-            title = stringResource(R.string.aspect_title),
-            icon = GyroIcons.FitScreen,
-            currentValue = state.currentResizeMode.displayLabel(),
-            onClick = { onNavigate(PlayerSheetRoute.ASPECT) }
-        )
+@Composable
+private fun CoreDomainsCard(
+    state: PlayerSheetUiState,
+    onNavigate: (PlayerSheetRoute) -> Unit,
+) {
+    // 画面摘要
+    val aspectLabel = state.currentResizeMode.displayLabel()
+    val shaderLabel = when (state.shaderState.activeShader) {
+        GlslShader.ANIME4K -> stringResource(R.string.shader_anime4k_short)
+        GlslShader.CAS -> stringResource(R.string.shader_cas_short)
+        GlslShader.CUSTOM -> state.shaderState.displayName ?: stringResource(R.string.shader_custom)
+        else -> null
+    }
+    val hasColorMod = state.brightness != 0 || state.contrast != 0 || state.saturation != 0
+    val colorTag = if (hasColorMod) stringResource(R.string.color_state_tuned) else null
+    val videoModified = state.currentResizeMode != ResizeMode.FIT ||
+        shaderLabel != null ||
+        state.deband ||
+        hasColorMod
+    val videoSummary = listOfNotNull(aspectLabel, shaderLabel, colorTag).joinToString(" · ")
 
-        HubDivider()
+    // 声音摘要
+    val audioTrackName = state.audioTracks.firstOrNull { it.isSelected }?.title
+        ?: stringResource(R.string.track_none_audio)
+    val roundedVol = round(state.softwareVolume).toInt()
+    val volTag = if (roundedVol != 100) "$roundedVol%" else null
+    val eqMod = state.eqGainsDb.any { abs(it) >= 0.05 }
+    val audioDelayTag = if (abs(state.audioDelaySec) >= 0.05) formatDelayTag(state.audioDelaySec) else null
+    val audioModified = volTag != null ||
+        state.nightMode ||
+        eqMod ||
+        audioDelayTag != null ||
+        state.stereoDownmix ||
+        state.audioPassthrough
+    val audioSummary = listOfNotNull(audioTrackName, volTag, audioDelayTag).joinToString(" · ")
 
-        // 音轨
-        val audioTrackName = state.audioTracks.firstOrNull { it.isSelected }?.title
-            ?: stringResource(R.string.track_none_audio)
-        SettingsItemRow(
-            title = stringResource(R.string.settings_audio_track),
-            icon = GyroIcons.VolumeHigh,
-            currentValue = audioTrackName,
-            onClick = { onNavigate(PlayerSheetRoute.AUDIO_TRACKS) }
-        )
-
-        // 字幕轨
-        val subtitleTrack = state.subtitleTracks.firstOrNull { it.isSelected }?.title
-            ?: stringResource(R.string.common_off)
-        val subTrackDisplay = if (state.secondarySubId > 0) {
-            val secTrack = state.subtitleTracks.firstOrNull { it.id == state.secondarySubId }?.title
+    // 字幕摘要
+    val primarySub = state.subtitleTracks.firstOrNull { it.isSelected }?.title
+    val secondarySubId = state.effectiveSecondarySubId
+    val subBase = when {
+        primarySub != null && secondarySubId > 0 -> {
+            val sec = state.subtitleTracks.firstOrNull { it.id == secondarySubId }?.title
                 ?: stringResource(R.string.track_secondary_subtitle)
-            "$subtitleTrack + $secTrack"
-        } else {
-            subtitleTrack
+            "$primarySub + $sec"
         }
-        SettingsItemRow(
-            title = stringResource(R.string.settings_subtitle_track),
-            icon = GyroIcons.ClosedCaption,
-            currentValue = subTrackDisplay,
-            onClick = { onNavigate(PlayerSheetRoute.SUBTITLE_TRACKS) }
+        primarySub != null -> primarySub
+        else -> stringResource(R.string.common_off)
+    }
+    val subDelayTag = if (abs(state.subDelaySec) >= 0.05) formatDelayTag(state.subDelaySec) else null
+    val subModified = primarySub != null ||
+        secondarySubId > 0 ||
+        subDelayTag != null ||
+        abs(state.subScale - 1.0) >= 0.05 ||
+        state.subPos != 100L ||
+        state.subAssOverride
+    val subSummary = listOfNotNull(subBase, subDelayTag).joinToString(" · ")
+
+    GyroSettingsGroup {
+        GyroNavigationRow(
+            title = stringResource(R.string.hub_group_video),
+            icon = GyroIcons.FitScreen,
+            value = videoSummary,
+            valueHighlighted = videoModified,
+            onClick = { onNavigate(PlayerSheetRoute.VIDEO) },
         )
-
-        // 音量增强
-        val roundedVolume = kotlin.math.round(state.softwareVolume).toInt()
-        SettingsItemRow(
-            title = stringResource(R.string.settings_audio_boost),
-            icon = GyroIcons.VolumeHigh,
-            currentValue = "$roundedVolume%",
-            onClick = { onNavigate(PlayerSheetRoute.AUDIO_BOOST) }
+        GyroGroupDivider(insetStart = 46.dp)
+        GyroNavigationRow(
+            title = stringResource(R.string.hub_group_audio),
+            icon = GyroIcons.AudioTrack,
+            value = audioSummary,
+            valueHighlighted = audioModified,
+            onClick = { onNavigate(PlayerSheetRoute.AUDIO) },
         )
-
-        HubDivider()
-
-        SettingsItemRow(
-            title = stringResource(R.string.more_entry),
-            icon = GyroIcons.AutoAwesome,
-            onClick = { onNavigate(PlayerSheetRoute.MORE_PLAYBACK) },
-            showChevron = true
+        GyroGroupDivider(insetStart = 46.dp)
+        GyroNavigationRow(
+            title = stringResource(R.string.hub_group_subtitles),
+            icon = GyroIcons.Subtitles,
+            value = subSummary,
+            valueHighlighted = subModified,
+            onClick = { onNavigate(PlayerSheetRoute.SUBTITLES) },
         )
     }
 }
 
 @Composable
-private fun sleepTimerSummary(state: PlayerSheetUiState): String {
-    if (state.sleepTimerSecondsRemaining <= 0) return stringResource(R.string.sleep_timer_off)
-    val rem = state.sleepTimerSecondsRemaining
-    return "%02d:%02d".format(Locale.US, rem / 60, rem % 60)
+private fun FooterActionsCard(
+    state: PlayerSheetUiState,
+    callbacks: PlayerSheetCallbacks,
+    onNavigate: (PlayerSheetRoute) -> Unit,
+) {
+    val codecText = state.mediaInfo?.videoCodec?.let { shortCodecName(it) }?.ifBlank { null }
+    val resolutionText = if (state.videoWidth > 0) "${state.videoHeight}P" else null
+    val mediaSummary = listOfNotNull(resolutionText, codecText).joinToString(" · ")
+
+    GyroSettingsGroup {
+        GyroNavigationRow(
+            title = stringResource(R.string.page_stats_info),
+            icon = GyroIcons.Info,
+            value = mediaSummary.ifBlank { stringResource(R.string.action_view_details) },
+            valueHighlighted = state.statsOverlayEnabled,
+            onClick = { onNavigate(PlayerSheetRoute.STATS_INFO) },
+        )
+        GyroGroupDivider(insetStart = 46.dp)
+        GyroNavigationRow(
+            title = stringResource(R.string.app_settings),
+            icon = GyroIcons.Settings,
+            value = stringResource(R.string.app_settings_exit_hint),
+            onClick = callbacks.onOpenFullSettings,
+        )
+    }
 }
 
-@Composable
-private fun HubDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-        thickness = 0.5.dp,
-        color = SheetCardAltColor.copy(alpha = 0.4f)
-    )
+internal fun PlaylistRepeatMode.labelRes(): Int = when (this) {
+    PlaylistRepeatMode.SEQUENTIAL -> R.string.loop_mode_none
+    PlaylistRepeatMode.LOOP_ALL -> R.string.loop_mode_all
+    PlaylistRepeatMode.LOOP_ONE -> R.string.loop_mode_single
 }
+
+internal fun formatSpeedValue(speed: Float): String {
+    val rounded = round(speed * 100f) / 100f
+    return when {
+        abs(rounded - rounded.toInt()) < 0.01f -> "${rounded.toInt()}.0"
+        abs(rounded * 10f - round(rounded * 10f)) < 0.01f -> String.format(Locale.US, "%.1f", rounded)
+        else -> String.format(Locale.US, "%.2f", rounded)
+    }
+}
+
+private fun formatDelayTag(seconds: Double): String =
+    String.format(Locale.US, "%+.1fs", seconds)

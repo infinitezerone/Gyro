@@ -2,7 +2,10 @@ package dev.gyro.feature.player.component
 
 import dev.gyro.feature.player.gesture.DoubleTapSide
 import dev.gyro.feature.player.gesture.GestureHudState
+import dev.gyro.core.model.GlslShader
+import dev.gyro.core.model.GlslShaderState
 import dev.gyro.core.model.HwdecMode
+import dev.gyro.core.designsystem.theme.GyroColors
 import dev.gyro.engine.model.TrackInfo
 import dev.gyro.engine.model.TrackType
 import dev.gyro.feature.player.PlayerScrubState
@@ -156,7 +159,7 @@ fun PlayerMediaInfoSheetPreview() {
     )
 
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
@@ -168,6 +171,8 @@ fun PlayerMediaInfoSheetPreview() {
                 fps = 23.976,
                 videoWidth = 1920,
                 videoHeight = 1080,
+                bitrateHistory = listOf(3_800_000L, 4_500_000L, 4_200_000L, 4_900_000L),
+                videoBitrate = 4_800_000L,
                 mediaInfo = sampleMediaInfo
             ),
             callbacks = PlayerSheetCallbacks()
@@ -176,27 +181,31 @@ fun PlayerMediaInfoSheetPreview() {
 }
 
 @Preview(
-    name = "Player Audiovisual Sheet Preview",
+    name = "Player Video Sheet Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
-fun PlayerAudiovisualSheetPreview() {
+fun PlayerVideoSheetPreview() {
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetRoute.MORE_PLAYBACK,
+            initialTab = PlayerSheetRoute.VIDEO,
             state = PlayerSheetUiState(
+                currentResizeMode = ResizeMode.CROP,
+                shaderState = GlslShaderState(
+                    activeShader = GlslShader.ANIME4K,
+                    displayName = "Anime4K"
+                ),
                 deband = true,
                 brightness = 15,
                 contrast = 5,
                 saturation = -10,
-                nightMode = true,
-                stereoDownmix = false
+                hwdecMode = HwdecMode.HARDWARE_COPY,
             ),
             callbacks = PlayerSheetCallbacks()
         )
@@ -207,18 +216,24 @@ fun PlayerAudiovisualSheetPreview() {
     name = "Player Settings Hub Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
 fun PlayerSettingsHubPreview() {
+    val sampleTracks = listOf(
+        TrackInfo(id = 1, type = TrackType.AUDIO, title = "Japanese FLAC 5.1ch", lang = "jpn", isSelected = true),
+        TrackInfo(id = 1, type = TrackType.SUBTITLE, title = "Chinese (Simplified)", lang = "chi", isSelected = true),
+    )
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
             initialTab = PlayerSheetRoute.SETTINGS_HUB,
             state = PlayerSheetUiState(
+                tracks = sampleTracks,
+                softwareVolume = 125.0,
                 hwdec = HwdecMode.HARDWARE_DIRECT.persistedKey,
                 hwdecMode = HwdecMode.HARDWARE_DIRECT,
                 fps = 60.0,
@@ -234,12 +249,12 @@ fun PlayerSettingsHubPreview() {
     name = "Player Playlist Dual-Pill Sheet Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
 fun PlayerPlaylistSheetPreview() {
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
@@ -266,7 +281,7 @@ fun PlayerPlaylistSheetPreview() {
     name = "Player Subtitles Sheet Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
 fun PlayerSubtitlesSheetPreview() {
@@ -276,12 +291,12 @@ fun PlayerSubtitlesSheetPreview() {
         TrackInfo(id = 3, type = TrackType.SUBTITLE, title = "Japanese (Original)", lang = "jpn", isSelected = false)
     )
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetRoute.SUBTITLE_TRACKS,
+            initialTab = PlayerSheetRoute.SUBTITLES,
             state = PlayerSheetUiState(
                 tracks = sampleTracks,
                 subDelaySec = 0.5,
@@ -294,10 +309,10 @@ fun PlayerSubtitlesSheetPreview() {
 }
 
 @Preview(
-    name = "Player Audio Tracks Sheet Preview",
+    name = "Player Audio Sheet Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
 fun PlayerAudioSheetPreview() {
@@ -307,14 +322,16 @@ fun PlayerAudioSheetPreview() {
         TrackInfo(id = 3, type = TrackType.AUDIO, title = "Director Commentary", lang = "eng", isSelected = false)
     )
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
         PlayerSettingsSheetContent(
-            initialTab = PlayerSheetRoute.AUDIO_TRACKS,
+            initialTab = PlayerSheetRoute.AUDIO,
             state = PlayerSheetUiState(
                 tracks = sampleTracks,
+                softwareVolume = 125.0,
+                nightMode = true,
                 audioDelaySec = -0.2
             ),
             callbacks = PlayerSheetCallbacks()
@@ -326,12 +343,12 @@ fun PlayerAudioSheetPreview() {
     name = "Player Speed Sheet Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
 fun PlayerSpeedSheetPreview() {
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
@@ -344,36 +361,15 @@ fun PlayerSpeedSheetPreview() {
 }
 
 @Preview(
-    name = "Player Aspect Sheet Preview",
-    device = "spec:width=411dp,height=891dp",
-    showBackground = true,
-    backgroundColor = 0xFF1E1E1E
-)
-@Composable
-fun PlayerAspectSheetPreview() {
-    androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
-        contentColor = Color.White,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        PlayerSettingsSheetContent(
-            initialTab = PlayerSheetRoute.ASPECT,
-            state = PlayerSheetUiState(),
-            callbacks = PlayerSheetCallbacks()
-        )
-    }
-}
-
-@Preview(
     name = "Player Stats Sheet Preview",
     device = "spec:width=411dp,height=891dp",
     showBackground = true,
-    backgroundColor = 0xFF1E1E1E
+    backgroundColor = 0xFF14161D
 )
 @Composable
 fun PlayerStatsSheetPreview() {
     androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
+        color = GyroColors.PanelBackground,
         contentColor = Color.White,
         modifier = Modifier.fillMaxSize()
     ) {
@@ -386,32 +382,6 @@ fun PlayerStatsSheetPreview() {
                 droppedFrames = 3L,
                 videoWidth = 3840,
                 videoHeight = 2160
-            ),
-            callbacks = PlayerSheetCallbacks()
-        )
-    }
-}
-
-@Preview(
-    name = "Player Shaders Sheet Preview",
-    device = "spec:width=411dp,height=891dp",
-    showBackground = true,
-    backgroundColor = 0xFF1E1E1E
-)
-@Composable
-fun PlayerShadersSheetPreview() {
-    androidx.compose.material3.Surface(
-        color = Color(0xFF1E1E1E),
-        contentColor = Color.White,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        PlayerSettingsSheetContent(
-            initialTab = PlayerSheetRoute.SHADERS,
-            state = PlayerSheetUiState(
-                shaderState = dev.gyro.core.model.GlslShaderState(
-                    activeShader = dev.gyro.core.model.GlslShader.ANIME4K,
-                    displayName = "Anime4K"
-                )
             ),
             callbacks = PlayerSheetCallbacks()
         )

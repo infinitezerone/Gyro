@@ -1,10 +1,5 @@
 package dev.gyro.feature.player.component
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,10 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.gyro.core.designsystem.R
 import dev.gyro.core.domain.model.PlaybackFailureReason
 import dev.gyro.core.model.HwdecMode
@@ -170,49 +163,6 @@ fun PlayerEmptyStateCard(
                 Icon(GyroIcons.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(stringResource(R.string.action_open_file))
-            }
-        }
-    }
-}
-
-/**
- * Animated Dolby Vision / HDR entrance badge.
- */
-@Composable
-fun PlayerFormatBadge(
-    visible: Boolean,
-    hdrFormat: String,
-    modifier: Modifier = Modifier,
-) {
-    val isDolby = hdrFormat.contains("Dolby", ignoreCase = true)
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(400)) + slideInVertically(initialOffsetY = { -it / 2 }),
-        exit = fadeOut(tween(600)),
-        modifier = modifier
-    ) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xD91E1E1E),
-            border = BorderStroke(
-                1.dp,
-                if (isDolby) Color(0x80FFC107) else Color(0x40FFFFFF)
-            ),
-            shadowElevation = 6.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (isDolby) "DOLBY VISION" else hdrFormat,
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isDolby) Color(0xFFFFC107) else Color.White,
-                        letterSpacing = 1.sp
-                    )
-                )
             }
         }
     }

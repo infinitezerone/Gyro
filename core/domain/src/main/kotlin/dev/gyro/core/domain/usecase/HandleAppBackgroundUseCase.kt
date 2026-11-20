@@ -25,13 +25,16 @@ class HandleAppBackgroundUseCase @Inject constructor(
     private val sessionStateHolder: PlaybackSessionStateHolder,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
+    private var backgroundJob: Job? = null
+
     operator fun invoke(isPip: Boolean): Job? {
         if (isPip || !sessionStateHolder.sessionActive.value) {
             return null
         }
         saveProgressUseCase()
         engine.render.detachSurface()
-        return scope.launch {
+        backgroundJob?.cancel()
+        val job = scope.launch {
             val backgroundAudioEnabled = settingsRepository.settings.first().backgroundAudio
             if (!sessionStateHolder.sessionActive.value) return@launch
             if (backgroundAudioEnabled) {
@@ -41,5 +44,24 @@ class HandleAppBackgroundUseCase @Inject constructor(
                 engine.pause()
             }
         }
+        backgroundJob = job
+        return job
+    }
+
+    /**
+     * Handles explicit user dismissal of the Picture-in-Picture window:
+     * saves progress, detaches the surface, disarms headless background playback, and pauses
+     * playback while keeping the session active so returning to the app stays on the player screen.
+     */
+    fun onPipDismissed() {
+        if (!sessionStateHolder.sessionActive.value) {
+            return
+        }
+        backgroundJob?.cancel()
+        backgroundJob = null
+        saveProgressUseCase()
+        engine.render.detachSurface()
+        engine.setBackgroundPlaybackAllowed(false)
+        engine.pause()
     }
 }

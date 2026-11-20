@@ -131,6 +131,18 @@ class GyroAppStateTest {
     }
 
     @Test
+    fun navigateToVideoRenderingSettings_pushesRenderingRoute() {
+        val backStack = NavBackStack<NavKey>(Screen.Home, Screen.Settings)
+        val appState = GyroAppState(backStack, testScope)
+
+        appState.navigateToVideoRenderingSettings()
+
+        assertEquals(3, backStack.size)
+        assertEquals(Screen.VideoRenderingSettings, backStack[2])
+        assertFalse(appState.isPlayerOnStack)
+    }
+
+    @Test
     fun removePlayerScreens_removesPlayerAndPreservesNonPlayerEntries() {
         val uri1 = TestUri("file:///test/video1.mp4")
 

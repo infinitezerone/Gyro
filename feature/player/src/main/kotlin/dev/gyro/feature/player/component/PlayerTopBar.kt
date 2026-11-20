@@ -75,17 +75,33 @@ fun PlayerTopBar(
     hdrFormat: String = "",
     modifier: Modifier = Modifier
 ) {
+    val rowHeight = if (isLandscape) 44.dp else 48.dp
+    val buttonSize = if (isLandscape) LandscapeActionButtonSize else 44.dp
+    val landscapeHorizontalInset = if (isLandscape) rememberLandscapeHorizontalInset() else 0.dp
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .displayCutoutPadding()
-            .padding(horizontal = if (isLandscape) 12.dp else 4.dp, vertical = 4.dp)
+            .then(
+                if (isLandscape) {
+                    Modifier.padding(
+                        start = landscapeHorizontalInset + LandscapeBarHorizontalExtra,
+                        end = landscapeHorizontalInset + LandscapeBarHorizontalExtra,
+                        top = LandscapeTopBarTopPadding,
+                        bottom = 4.dp
+                    )
+                } else {
+                    Modifier
+                        .displayCutoutPadding()
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                }
+            )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp),
+                .height(rowHeight),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 返回键：触控靶心 ≥ 48dp，纯白微发光
@@ -93,8 +109,8 @@ fun PlayerTopBar(
                 onClick = onBack,
                 icon = GyroIcons.Back,
                 contentDescription = stringResource(R.string.action_back),
-                size = 38.dp,
-                iconSize = 22.dp,
+                size = buttonSize,
+                iconSize = if (isLandscape) 22.dp else 24.dp,
                 containerColor = Color.Transparent,
                 contentColor = Color.White,
                 border = null
@@ -142,8 +158,8 @@ fun PlayerTopBar(
                     onClick = onEnterPiP,
                     icon = GyroIcons.Pip,
                     contentDescription = stringResource(R.string.cd_pip),
-                    size = 38.dp,
-                    iconSize = 22.dp,
+                    size = buttonSize,
+                    iconSize = 25.dp,
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     border = null
@@ -153,8 +169,8 @@ fun PlayerTopBar(
                     onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
                     icon = GyroIcons.More,
                     contentDescription = stringResource(R.string.cd_settings),
-                    size = 38.dp,
-                    iconSize = 22.dp,
+                    size = buttonSize,
+                    iconSize = 26.dp,
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     border = null
@@ -164,8 +180,8 @@ fun PlayerTopBar(
                     onClick = { onOpenSheetTab(PlayerSheetRoute.SETTINGS_HUB) },
                     icon = GyroIcons.MoreVert,
                     contentDescription = stringResource(R.string.cd_settings),
-                    size = 38.dp,
-                    iconSize = 22.dp,
+                    size = buttonSize,
+                    iconSize = 26.dp,
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     border = null

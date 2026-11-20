@@ -1,10 +1,17 @@
 package dev.gyro.feature.player.gesture
 
 import dev.gyro.feature.player.PlayerScrubState
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import android.os.Build
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.geometry.Offset
 
@@ -41,6 +48,9 @@ interface PlayerGestureCallbacks {
     fun getZoomScale(): Float = 1.0f
     fun getVideoBounds(): androidx.compose.ui.geometry.Rect? = null
     fun isPreciseSeeking(): Boolean = false
+    fun isPlaying(): Boolean = true
+    fun areControlsVisible(): Boolean = false
+    fun getControlsGestureGuardMetrics(): ControlsGestureGuardMetrics = ControlsGestureGuardMetrics.None
 }
 
 /**
@@ -69,13 +79,26 @@ class DefaultPlayerGestureCallbacks(
     private val getVideoBounds: (() -> androidx.compose.ui.geometry.Rect?)? = null,
     private val onVerticalSwitchDragStart: (() -> Unit)? = null,
     private val onVerticalSwitchDragUpdate: ((Float) -> Unit)? = null,
-    private val onVerticalSwitchDragEnd: ((Float) -> Unit)? = null
+    private val onVerticalSwitchDragEnd: ((Float) -> Unit)? = null,
+    private val isPlaying: () -> Boolean = { true },
+    private val areControlsVisible: () -> Boolean = { false },
+    private val controlsGestureGuardMetrics: () -> ControlsGestureGuardMetrics = { ControlsGestureGuardMetrics.None },
 ) : PlayerGestureCallbacks {
 
     override fun getVideoBounds(): androidx.compose.ui.geometry.Rect? = getVideoBounds?.invoke()
 
     private val activity: Activity? = context?.findActivity()
     private val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val vibrator: Vibrator? = runCatching {
+        context?.let { ctx ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ctx.getSystemService(VibratorManager::class.java)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                ctx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+        }
+    }.getOrNull()
     private val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.coerceAtLeast(1) ?: 15
 
     private var dragStartOverallVolume: Int = 0
@@ -89,33 +112,73 @@ class DefaultPlayerGestureCallbacks(
     private var appliedSystemVolume: Int = -1
 
     /**
-     * 手势触觉反馈（双击 seek / 长按倍速触发 / seek 落点），
+     * 手势触觉反馈（切集），
      * 统一走 decorView 的轻震动，不依赖额外权限。
      */
     private fun performHaptic() {
         activity?.window?.decorView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
+    /**
+     * 长按倍速专用极轻震动：在支持振幅控制的线性马达上使用最低可感知单脉冲（8ms / 振幅 15），
+     * 绕过部分 ROM 对 KEYBOARD_TAP 的重击映射；不支持振幅控制时降级为系统最轻刻度反馈。
+     */
+    @SuppressLint("MissingPermission")
+    private fun performMinimalLongPressHaptic() {
+        val ctx = context ?: return
+        val hapticEnabled = runCatching {
+            Settings.System.getInt(
+                ctx.contentResolver,
+                Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                1,
+            ) != 0
+        }.getOrDefault(true)
+        if (!hapticEnabled) return
+
+        val vib = vibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && vib?.hasAmplitudeControl() == true) {
+            val effect = VibrationEffect.createOneShot(
+                LONG_PRESS_HAPTIC_DURATION_MS,
+                LONG_PRESS_HAPTIC_MIN_AMPLITUDE,
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                vib.vibrate(
+                    effect,
+                    VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH),
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                vib.vibrate(effect)
+            }
+            return
+        }
+
+        val constant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
+        } else {
+            HapticFeedbackConstants.CLOCK_TICK
+        }
+        activity?.window?.decorView?.performHapticFeedback(constant)
+    }
+
     override fun getCurrentPositionMs(): Long = currentPosMs()
     override fun getDurationMs(): Long = durationMs()
     override fun getZoomScale(): Float = zoomScale()
     override fun isPreciseSeeking(): Boolean = scrubState?.isPreciseSeeking == true
+    override fun isPlaying(): Boolean = isPlaying.invoke()
+    override fun areControlsVisible(): Boolean = areControlsVisible.invoke()
+    override fun getControlsGestureGuardMetrics(): ControlsGestureGuardMetrics = controlsGestureGuardMetrics.invoke()
 
     override fun onSingleTap() = onSingleTap.invoke()
-    override fun onDoubleTapSeek(deltaMs: Long) {
-        performHaptic()
-        onDoubleTapSeek.invoke(deltaMs)
-    }
-    override fun onDoubleTapPlayPause() {
-        performHaptic()
-        onDoubleTapPlayPause.invoke()
-    }
+    override fun onDoubleTapSeek(deltaMs: Long) = onDoubleTapSeek.invoke(deltaMs)
+    override fun onDoubleTapPlayPause() = onDoubleTapPlayPause.invoke()
     override fun onFastForwardStart(speed: Float) {
-        performHaptic()
+        if (!isPlaying()) return
+        performMinimalLongPressHaptic()
         onFastForwardStart.invoke(speed)
     }
     override fun onFastForwardEnd() {
-        performHaptic()
+        performMinimalLongPressHaptic()
         onFastForwardEnd.invoke()
     }
 
@@ -247,5 +310,10 @@ class DefaultPlayerGestureCallbacks(
             ctx = ctx.baseContext
         }
         return null
+    }
+
+    internal companion object {
+        const val LONG_PRESS_HAPTIC_DURATION_MS = 8L
+        const val LONG_PRESS_HAPTIC_MIN_AMPLITUDE = 15
     }
 }

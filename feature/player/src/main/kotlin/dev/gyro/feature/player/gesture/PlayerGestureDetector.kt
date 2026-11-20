@@ -1,8 +1,13 @@
 package dev.gyro.feature.player.gesture
 
 import dev.gyro.feature.player.PlayerScrubState
+import dev.gyro.feature.player.component.rememberLandscapeHorizontalInset
 import android.content.Context
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,6 +52,7 @@ sealed class GestureHudState {
  * 10. Touch lock support
  * 11. Custom MX Player configurations (sensitivity, swapping sides, disabling individual gestures)
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Modifier.playerGestures(
     context: Context,
@@ -72,6 +78,7 @@ fun Modifier.playerGestures(
     onVerticalSwitchDragStart: (() -> Unit)? = null,
     onVerticalSwitchDragUpdate: ((Float) -> Unit)? = null,
     onVerticalSwitchDragEnd: ((Float) -> Unit)? = null,
+    controlsVisible: () -> Boolean = { false },
     config: PlayerGestureConfig = PlayerGestureConfig()
 ): Modifier {
     val density = LocalDensity.current
@@ -86,6 +93,20 @@ fun Modifier.playerGestures(
         maxPx = with(density) { MAX_EDGE_DEAD_ZONE.toPx() }
     )
 
+    val statusBarInsets = WindowInsets.statusBars
+    val cutoutInsets = WindowInsets.displayCutout
+    val navBarInsets = WindowInsets.navigationBarsIgnoringVisibility
+    val landscapeHorizontalInset = rememberLandscapeHorizontalInset()
+    val controlsGuardMetrics = computeControlsGestureGuardMetrics(
+        density = density.density,
+        statusBarTopPx = statusBarInsets.getTop(density),
+        cutoutTopPx = cutoutInsets.getTop(density),
+        cutoutLeftPx = cutoutInsets.getLeft(density, layoutDirection),
+        cutoutRightPx = cutoutInsets.getRight(density, layoutDirection),
+        navBarBottomPx = navBarInsets.getBottom(density),
+        landscapeHorizontalInsetDp = landscapeHorizontalInset.value,
+    )
+
     val effectiveConfig = remember(config, isLocked, edgeThresholdPx) {
         config.copy(
             isLocked = isLocked,
@@ -96,6 +117,9 @@ fun Modifier.playerGestures(
     val currentPosMsState by rememberUpdatedState(currentPosMs)
     val durationMsState by rememberUpdatedState(durationMs)
     val zoomScaleState by rememberUpdatedState(zoomScale)
+    val isPlayingState by rememberUpdatedState(isPlaying)
+    val controlsVisibleState by rememberUpdatedState(controlsVisible)
+    val controlsGuardMetricsState by rememberUpdatedState(controlsGuardMetrics)
     val currentOnZoomChange by rememberUpdatedState(onZoomChange)
     val currentOnResetZoom by rememberUpdatedState(onResetZoom)
     val currentOnSettleZoom by rememberUpdatedState(onSettleZoom)
@@ -147,6 +171,9 @@ fun Modifier.playerGestures(
             onVerticalSwitchDragStart = { currentOnVerticalSwitchDragStart?.invoke() },
             onVerticalSwitchDragUpdate = { deltaY -> currentOnVerticalSwitchDragUpdate?.invoke(deltaY) },
             onVerticalSwitchDragEnd = { deltaY -> currentOnVerticalSwitchDragEnd?.invoke(deltaY) },
+            isPlaying = { isPlayingState },
+            areControlsVisible = { controlsVisibleState() },
+            controlsGestureGuardMetrics = { controlsGuardMetricsState },
         )
     }
 

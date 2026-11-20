@@ -65,7 +65,7 @@ class MpvOptionConfiguratorTest {
         configurator.apply(bridge, emptyMap(), UserSettings())
 
         assertEquals("audio", bridge.options["video-sync"])
-        assertEquals("none", bridge.options["sub-font-provider"])
+        assertEquals("auto", bridge.options["sub-font-provider"])
         assertEquals("no", bridge.options["sub-ass-override"])
         assertEquals("no", bridge.options["blend-subtitles"])
         assertEquals("audiotrack,opensles", bridge.options["ao"])

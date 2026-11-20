@@ -3,22 +3,28 @@ package dev.gyro.feature.player.component
 import dev.gyro.feature.player.PlayerScrubState
 
 import android.content.res.Configuration
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import dev.gyro.core.designsystem.R
 import androidx.compose.ui.unit.Dp
@@ -29,13 +35,53 @@ import dev.gyro.core.model.ChapterInfo
 import dev.gyro.engine.model.ResizeMode
 import dev.gyro.core.designsystem.icon.GyroIcons
 
+// 横屏留白基准：对称避开两侧圆角与屏幕挖孔，同时让顶栏、侧边键、底栏落在同一视觉列上。
+internal val LandscapeMinSideInset = 28.dp
+internal val LandscapeBarHorizontalExtra = 8.dp
+internal val LandscapeTopBarTopPadding = 12.dp
+internal val LandscapeBottomBarBottomPadding = 16.dp
+internal val LandscapeActionButtonSize = 44.dp
+
+internal fun computeLandscapeHorizontalInsetDp(
+    cutoutLeftPx: Int,
+    cutoutRightPx: Int,
+    navLeftPx: Int,
+    navRightPx: Int,
+    density: Float
+): Float {
+    val safeDensity = density.coerceAtLeast(1f)
+    val maxInsetDp = maxOf(cutoutLeftPx, cutoutRightPx, navLeftPx, navRightPx) / safeDensity
+    return maxOf(maxInsetDp, LandscapeMinSideInset.value)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun rememberLandscapeHorizontalInset(): Dp {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val cutout = WindowInsets.displayCutout
+    val nav = WindowInsets.navigationBars
+    val cutoutLeft = cutout.getLeft(density, layoutDirection)
+    val cutoutRight = cutout.getRight(density, layoutDirection)
+    val navLeft = nav.getLeft(density, layoutDirection)
+    val navRight = nav.getRight(density, layoutDirection)
+    return computeLandscapeHorizontalInsetDp(
+        cutoutLeftPx = cutoutLeft,
+        cutoutRightPx = cutoutRight,
+        navLeftPx = navLeft,
+        navRightPx = navRight,
+        density = density.density
+    ).dp
+}
+
 /**
  * 主流现代化播放器控制遮罩骨架 (PlayerControlsOverlay)
  * - 沉浸式暗角渐变（顶部与底部平滑非线性过渡，保护纯白无底图标可读性）；
- * - 竖屏将锁屏/截图下沉至下半区（仅锁屏态保留左下角琥珀色解锁按键）；横屏维持两侧无底纯白图标；
+ * - 竖屏将锁屏/截图下沉至下半区（仅锁屏态保留左下角纯白解锁按键）；横屏维持两侧无底纯白图标；
  * - 顶部栏：极简返回、标题、杜比/HDR标签；竖屏仅留竖三点，横屏保留系统状态 + 画中画 + 横三点；
  * - 底部栏：进度条左右同行显示时间 + 核心操作行。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BoxScope.PlayerControlsOverlay(
     isVisible: Boolean,
@@ -55,7 +101,6 @@ fun BoxScope.PlayerControlsOverlay(
     abLoopASeconds: Double = -1.0,
     abLoopBSeconds: Double = -1.0,
     chapters: List<ChapterInfo> = emptyList(),
-    ambientColor: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Transparent,
     videoBottomDp: Dp? = null,
     hdrFormat: String = "",
     activeUri: android.net.Uri? = null,
@@ -84,6 +129,7 @@ fun BoxScope.PlayerControlsOverlay(
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscapeHorizontalInset = if (isLandscape) rememberLandscapeHorizontalInset() else 0.dp
     val isScrubbing = scrubState.isActive
     val isPreciseSeeking = scrubState.isPreciseSeeking
     val showOtherControls = isVisible && !isScrubbing && !isPreciseSeeking
@@ -92,8 +138,8 @@ fun BoxScope.PlayerControlsOverlay(
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. 顶部与底部沉浸式非线性暗角渐变（零动画，随控制层瞬时显隐）
         if (!isLocked) {
-            val topScrimHeight = if (isLandscape) 100.dp else 70.dp
-            val bottomScrimHeight = if (isLandscape) 120.dp else 260.dp
+            val topScrimHeight = if (isLandscape) 108.dp else 70.dp
+            val bottomScrimHeight = if (isLandscape) 132.dp else 260.dp
 
             if (showOtherControls) {
                 // 顶部向下淡出暗角
@@ -136,24 +182,23 @@ fun BoxScope.PlayerControlsOverlay(
 
         // 2. 锁屏 / 截图悬浮按键：
         // - 横屏保持画面左右中线（无圆形底框纯白图标）；
-        // - 竖屏未锁屏态下沉至下半区（见 PlayerBottomBar），仅锁屏态保留左下角琥珀色解锁入口。
+        // - 竖屏未锁屏态下沉至下半区（见 PlayerBottomBar），仅锁屏态保留左下角纯白解锁入口。
         if (isLandscape) {
             if (showOtherControls) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .displayCutoutPadding()
-                        .padding(start = 14.dp)
+                        .padding(start = landscapeHorizontalInset + LandscapeBarHorizontalExtra)
                 ) {
                     GyroCircleActionButton(
                         onClick = onToggleLock,
                         icon = if (isLocked) GyroIcons.Lock else GyroIcons.LockOpen,
                         contentDescription = if (isLocked) stringResource(R.string.cd_unlock) else stringResource(R.string.cd_lock),
                         containerColor = Color.Transparent,
-                        contentColor = if (isLocked) Color(0xFFFFB74D) else Color.White,
+                        contentColor = Color.White,
                         border = null,
-                        size = 40.dp,
-                        iconSize = 24.dp
+                        size = LandscapeActionButtonSize,
+                        iconSize = 25.dp
                     )
                 }
             }
@@ -162,8 +207,7 @@ fun BoxScope.PlayerControlsOverlay(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .displayCutoutPadding()
-                        .padding(end = 14.dp)
+                        .padding(end = landscapeHorizontalInset + LandscapeBarHorizontalExtra)
                 ) {
                     GyroCircleActionButton(
                         onClick = onScreenshot,
@@ -172,8 +216,8 @@ fun BoxScope.PlayerControlsOverlay(
                         containerColor = Color.Transparent,
                         contentColor = Color.White,
                         border = null,
-                        size = 40.dp,
-                        iconSize = 24.dp
+                        size = LandscapeActionButtonSize,
+                        iconSize = 26.dp
                     )
                 }
             }
@@ -182,21 +226,26 @@ fun BoxScope.PlayerControlsOverlay(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .displayCutoutPadding()
-                    .navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                     .padding(
-                        start = 10.dp,
-                        bottom = 172.dp
+                        start = PortraitSideRowHorizontalPadding,
+                        bottom = PortraitBarBottomPadding +
+                            PortraitControlRowHeight +
+                            PortraitScrubRowHeight +
+                            PortraitSideRowBottomPadding,
                     )
+                    .height(PortraitSideRowHeight),
+                contentAlignment = Alignment.CenterStart,
             ) {
                 GyroCircleActionButton(
                     onClick = onToggleLock,
                     icon = GyroIcons.Lock,
                     contentDescription = stringResource(R.string.cd_unlock),
-                    containerColor = Color.Black.copy(alpha = 0.55f),
-                    contentColor = Color(0xFFFFB74D),
-                    border = BorderStroke(0.5.dp, Color(0xFFFFB74D).copy(alpha = 0.45f)),
-                    size = 42.dp,
-                    iconSize = 22.dp
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    border = null,
+                    size = PortraitActionButtonSize,
+                    iconSize = 25.dp
                 )
             }
         }
@@ -246,7 +295,6 @@ fun BoxScope.PlayerControlsOverlay(
                     onOpenSheetTab = onOpenSheetTab,
                     onToggleOrientation = onToggleOrientation,
                     chapters = chapters,
-                    ambientColor = ambientColor,
                     onEnterPreciseSeeking = { originMs ->
                         scrubState.enterPreciseSeeking(originMs, isPlaying)
                         onPausePlayback()

@@ -3,6 +3,7 @@ package dev.gyro.feature.player
 import android.app.Activity
 import android.os.SystemClock
 import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
+import dev.gyro.feature.player.component.sheet.SheetNavState
 import dev.gyro.feature.player.gesture.GestureHudState
 import dev.gyro.feature.player.gesture.PlayerZoomState
 import dev.gyro.feature.player.gesture.rememberPlayerZoomState
@@ -10,19 +11,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Plain State Holder for UI interaction, system bars, and overlay visibility.
@@ -35,7 +31,6 @@ import kotlinx.coroutines.launch
  */
 @Stable
 class PlayerState(
-    private val scope: CoroutineScope,
     val scrubState: PlayerScrubState,
     val zoomState: PlayerZoomState,
     private val activity: Activity?,
@@ -47,39 +42,34 @@ class PlayerState(
     var activeSheetTab by mutableStateOf<PlayerSheetRoute?>(null)
 
     /**
-     * Measured height of the portrait bottom sheet, in pixels. The video surface is fitted into the
-     * space above it, so the shift has to follow the real height: sheet content varies per tab and
-     * a fixed offset either leaves the picture half-covered or pushes it too far.
-     *
-     * Zero while no sheet is showing, which is also the state the fit collapses to.
+     * 当前打开的抽屉导航状态，由 [PlayerSheetsHost] 挂载时写入、卸载时清空。
+     * 外部需要“抽屉当前在哪一页”时读 [SheetNavState.current]，不要再另存一份。
      */
-    var sheetHeightPx by mutableIntStateOf(0)
-        private set
-
-    /** Reported by the sheet once it is laid out; the surface fit reads it back. */
-    fun onSheetHeightMeasured(heightPx: Int) {
-        sheetHeightPx = heightPx
-    }
+    var sheetNav by mutableStateOf<SheetNavState?>(null)
+        internal set
 
     /**
-     * How far the portrait sheet has been dragged down, in pixels. A drag shrinks the sheet's
-     * footprint without dismissing it, so the video has to read this to stay glued to the sheet's
-     * real edge instead of sitting at its fully-open position until the dismiss lands.
+     * Draw-phase provider of the active portrait bottom sheet's visible height in pixels.
+     * Read inside `graphicsLayer` so video surface fit tracks sheet open/close springs and drags
+     * in lockstep without recomposing [PlayerVideoFeedLayer].
      */
-    var sheetDragOffsetPx by mutableFloatStateOf(0f)
+    internal var sheetVisibleHeightProvider by mutableStateOf<() -> Float>({ 0f })
         private set
 
-    /** Reported on every drag frame; reset to 0 on drag end and cancel. */
-    fun onSheetDragged(offsetPx: Float) {
-        sheetDragOffsetPx = offsetPx
+    internal fun bindSheetVisibleHeight(provider: () -> Float) {
+        sheetVisibleHeightProvider = provider
     }
+
+    internal fun unbindSheetVisibleHeight(provider: () -> Float) {
+        if (sheetVisibleHeightProvider === provider) {
+            sheetVisibleHeightProvider = { 0f }
+        }
+    }
+
+    internal fun currentSheetVisibleHeightPx(): Float = sheetVisibleHeightProvider()
 
     /** Persistent stats readout, toggled from the STATS tab; survives a track change by design. */
     var statsOverlayEnabled by mutableStateOf(false)
-
-    /** HDR / Dolby Vision entrance badge. Owned here so the 3.2s window is one piece of logic. */
-    var formatBadgeVisible by mutableStateOf(false)
-        private set
 
     /** Predictive-back drag progress, 0..1. Rendered through a deferred lambda in graphicsLayer. */
     var backProgress by mutableFloatStateOf(0f)
@@ -88,8 +78,6 @@ class PlayerState(
 
     var lastInteractionTrigger by mutableLongStateOf(0L)
         private set
-
-    private var formatBadgeJob: Job? = null
 
     fun toggleControls() {
         if (showControls) {
@@ -119,15 +107,15 @@ class PlayerState(
      * Whether the 3.5s auto-hide timer may run.
      *
      * Pulled out of the screen's `LaunchedEffect` so the rule can be asserted without composing
-     * anything: controls must be visible, no scrub in flight, not locked,
-     * not in PiP, and no sheet covering the screen. Runs on both playing and paused states (Plan A).
+     * anything: controls must be visible, no scrub in flight, not in PiP, and no sheet covering
+     * the screen. Also runs while locked so the unlock button auto-hides after the idle window.
      */
     fun canAutoHide(
         isScrubbing: Boolean,
         isPipLayout: Boolean,
         isPreciseSeeking: Boolean = false
     ): Boolean =
-        showControls && !isScrubbing && !isPreciseSeeking && !isLocked && !isPipLayout && activeSheetTab == null
+        showControls && !isScrubbing && !isPreciseSeeking && !isPipLayout && activeSheetTab == null
 
     /** Sleeps out the idle window, then hides the controls. Call only when [canAutoHide] holds. */
     suspend fun autoHideAfter(delayMs: Long = AUTO_HIDE_DELAY_MS) {
@@ -135,38 +123,13 @@ class PlayerState(
         showControls = false
     }
 
-    /**
-     * Shows the HDR/Dolby badge for [AUTO_HIDE_DELAY_MS] of badge time, cancelling any previous
-     * window so a fast track change does not leave the badge up for the sum of both timers.
-     */
-    fun revealFormatBadge() {
-        formatBadgeJob?.cancel()
-        formatBadgeJob = scope.launch {
-            formatBadgeVisible = true
-            delay(BADGE_VISIBLE_MS)
-            formatBadgeVisible = false
-        }
-    }
-
-    fun hideFormatBadge() {
-        formatBadgeJob?.cancel()
-        formatBadgeJob = null
-        formatBadgeVisible = false
-    }
-
-    fun applySystemBars(isPipLayout: Boolean, isLandscape: Boolean) {
+    fun applySystemBars(isPipLayout: Boolean = false) {
         val window = activity?.window ?: return
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (isLandscape) {
+        if (!isPipLayout) {
             insetsController.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            if (showControls && !isPipLayout) {
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
-            } else {
-                insetsController.hide(WindowInsetsCompat.Type.systemBars())
-            }
         }
     }
 
@@ -178,7 +141,6 @@ class PlayerState(
 
     private companion object {
         const val AUTO_HIDE_DELAY_MS = 3_500L
-        const val BADGE_VISIBLE_MS = 3_200L
     }
 }
 
@@ -187,11 +149,9 @@ fun rememberPlayerState(
     activity: Activity?,
     scrubState: PlayerScrubState = remember { PlayerScrubState() },
     zoomState: PlayerZoomState = rememberPlayerZoomState(),
-    scope: CoroutineScope = rememberCoroutineScope(),
 ): PlayerState {
-    return remember(activity, scrubState, zoomState, scope) {
+    return remember(activity, scrubState, zoomState) {
         PlayerState(
-            scope = scope,
             scrubState = scrubState,
             zoomState = zoomState,
             activity = activity,

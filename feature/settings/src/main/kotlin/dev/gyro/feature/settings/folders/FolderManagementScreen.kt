@@ -3,6 +3,7 @@ package dev.gyro.feature.settings.folders
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -239,7 +240,8 @@ private fun FolderItemCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = GyroColors.Surface
+        color = GyroColors.PanelCard,
+        border = BorderStroke(0.5.dp, GyroColors.PanelBorder)
     ) {
         Row(
             modifier = Modifier

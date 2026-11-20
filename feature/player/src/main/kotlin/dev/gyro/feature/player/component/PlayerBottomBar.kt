@@ -1,19 +1,21 @@
 package dev.gyro.feature.player.component
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.res.stringResource
@@ -44,6 +45,14 @@ import dev.gyro.feature.player.component.sheet.PlayerSheetRoute
 import dev.gyro.feature.player.component.sheet.common.displayLabel
 import dev.gyro.core.designsystem.icon.GyroIcons
 
+internal val PortraitBarBottomPadding = 20.dp
+internal val PortraitControlRowHeight = 52.dp
+internal val PortraitScrubRowHeight = 28.dp
+internal val PortraitSideRowHeight = 48.dp
+internal val PortraitSideRowBottomPadding = 84.dp
+internal val PortraitSideRowHorizontalPadding = 10.dp
+internal val PortraitActionButtonSize = 46.dp
+
 /**
  * 沉浸式底部控制栏 (PlayerBottomBar)
  *
@@ -51,6 +60,7 @@ import dev.gyro.core.designsystem.icon.GyroIcons
  * - 进度条行：[当前时间] + [自适应长进度条] + [总时长/剩余时间]（恢复经典左右同行排布）；
  * - 核心操作行：左 [播放/暂停/重播]，右 [字幕(横)] + [比例(横)] + [选集] + [倍速] + [全屏/退出全屏]。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlayerBottomBar(
     isVisible: Boolean,
@@ -77,35 +87,35 @@ fun PlayerBottomBar(
     onOpenSheetTab: (PlayerSheetRoute) -> Unit,
     onToggleOrientation: () -> Unit,
     chapters: List<ChapterInfo> = emptyList(),
-    ambientColor: Color = Color.Transparent,
     onEnterPreciseSeeking: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // 竖屏手指更好按，整体放大并抬高；横屏空间宽阔，保持紧凑避免遮挡画面。
-    val barBottomPadding = if (isLandscape) 6.dp else 20.dp
-    val controlRowHeight = if (isLandscape) 44.dp else 48.dp
-    val actionSize = if (isLandscape) 38.dp else 42.dp
-    val actionIconSize = if (isLandscape) 22.dp else 23.dp
-    val playPauseIconSize = if (isLandscape) 26.dp else 28.dp
+    // 竖屏手指更好按，整体放大并抬高；横屏空间宽阔，保持紧凑并避开圆角与挖孔区域。
+    val landscapeHorizontalInset = if (isLandscape) rememberLandscapeHorizontalInset() else 0.dp
+    val barBottomPadding = if (isLandscape) LandscapeBottomBarBottomPadding else PortraitBarBottomPadding
+    val controlRowHeight = if (isLandscape) 48.dp else PortraitControlRowHeight
+    val actionSize = if (isLandscape) LandscapeActionButtonSize else PortraitActionButtonSize
+    val actionIconSize = if (isLandscape) 25.dp else 27.dp
+    val playIconSize = if (isLandscape) 34.dp else 36.dp
+    val pauseIconSize = if (isLandscape) 30.dp else 32.dp
+    val replayIconSize = if (isLandscape) 24.dp else 25.dp
     val timeFontSize = if (isLandscape) 14.sp else 15.sp
-    val sideRowHeight = 44.dp
-    val sideRowBottomPadding = 84.dp
+    val sideRowHeight = PortraitSideRowHeight
+    val sideRowBottomPadding = PortraitSideRowBottomPadding
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .displayCutoutPadding()
-            .navigationBarsPadding()
-            .padding(bottom = barBottomPadding)
             .then(
-                if (ambientColor != Color.Transparent) {
-                    Modifier.background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, ambientColor.copy(alpha = 0.28f))
-                        )
-                    )
-                } else Modifier
+                if (isLandscape) {
+                    Modifier.padding(horizontal = landscapeHorizontalInset)
+                } else {
+                    Modifier
+                        .displayCutoutPadding()
+                        .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                }
             )
+            .padding(bottom = barBottomPadding)
     ) {
         val totalMs = durationMs()
         val rawPos = if (scrubState.isActive) {
@@ -127,7 +137,7 @@ fun PlayerBottomBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp)
+                        .padding(horizontal = PortraitSideRowHorizontalPadding)
                         .padding(bottom = sideRowBottomPadding)
                         .height(sideRowHeight),
                     verticalAlignment = Alignment.CenterVertically
@@ -137,7 +147,7 @@ fun PlayerBottomBar(
                         icon = GyroIcons.LockOpen,
                         contentDescription = stringResource(R.string.cd_lock),
                         size = actionSize,
-                        iconSize = 22.dp,
+                        iconSize = 25.dp,
                         containerColor = Color.Transparent,
                         contentColor = Color.White,
                         border = null
@@ -150,7 +160,7 @@ fun PlayerBottomBar(
                         icon = GyroIcons.Screenshot,
                         contentDescription = stringResource(R.string.cd_screenshot),
                         size = actionSize,
-                        iconSize = 22.dp,
+                        iconSize = 26.dp,
                         containerColor = Color.Transparent,
                         contentColor = Color.White,
                         border = null
@@ -170,6 +180,7 @@ fun PlayerBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (!isLandscape) Modifier.height(PortraitScrubRowHeight) else Modifier)
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -222,6 +233,9 @@ fun PlayerBottomBar(
         }
 
         // 4. 操作控制行
+        if (isLandscape) {
+            Spacer(modifier = Modifier.height(2.dp))
+        }
         if (!isVisible) {
             Spacer(modifier = Modifier.height(controlRowHeight))
         } else {
@@ -229,7 +243,7 @@ fun PlayerBottomBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(controlRowHeight)
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = if (isLandscape) LandscapeBarHorizontalExtra else 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 播放 / 暂停 / 重播
@@ -243,7 +257,11 @@ fun PlayerBottomBar(
                     },
                     contentDescription = if (isPlaying) stringResource(R.string.cd_pause) else stringResource(R.string.cd_play),
                     size = actionSize,
-                    iconSize = playPauseIconSize,
+                    iconSize = when {
+                        isPlaying -> pauseIconSize
+                        isEnded -> replayIconSize
+                        else -> playIconSize
+                    },
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     border = null
@@ -251,12 +269,12 @@ fun PlayerBottomBar(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 字幕快开钮（横屏展示；长按打开字幕设置面板）
+                // 字幕快开钮（横屏展示；长按打开字幕面板）
                 if (isLandscape) {
                     GyroCircleActionButton(
                         onClick = onToggleSubtitle,
-                        onLongClick = { onOpenSheetTab(PlayerSheetRoute.SUBTITLE_TRACKS) },
-                        icon = if (subtitleEnabled) GyroIcons.ClosedCaption else GyroIcons.ClosedCaptionOutline,
+                        onLongClick = { onOpenSheetTab(PlayerSheetRoute.SUBTITLES) },
+                        icon = if (subtitleEnabled) GyroIcons.Subtitles else GyroIcons.SubtitlesOutline,
                         contentDescription = stringResource(R.string.sheet_tab_subtitles),
                         size = actionSize,
                         iconSize = actionIconSize,
@@ -272,7 +290,7 @@ fun PlayerBottomBar(
                     val aspectLabel = resizeMode.displayLabel()
                     PlayerTextActionButton(
                         text = aspectLabel,
-                        onClick = { onOpenSheetTab(PlayerSheetRoute.ASPECT) }
+                        onClick = { onOpenSheetTab(PlayerSheetRoute.VIDEO) }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                 }

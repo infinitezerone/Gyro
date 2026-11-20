@@ -51,6 +51,7 @@ interface PlaybackSession {
     fun load(source: PlaybackSource): Job?
     fun navigate(step: PlaylistStep, triggerSource: PlaybackTriggerSource? = null): Boolean
     fun handleAppBackground(isPip: Boolean): Job?
+    fun handlePipDismissed()
     fun endSession(reason: SessionEndReason = SessionEndReason.USER_EXIT)
     fun setSleepTimer(minutes: Int)
     fun setPlaylistRepeatMode(mode: PlaylistRepeatMode)

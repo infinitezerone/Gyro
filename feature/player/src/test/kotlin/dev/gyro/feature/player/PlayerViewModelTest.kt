@@ -528,6 +528,32 @@ class PlayerViewModelTest {
     }
 
     @Test
+    fun testOnPipDismissedPausesWithoutEndingSession() = runPlayerTest {
+        val uri = TestUri("file:///video_pip_dismiss.mp4")
+        engine.attachSurface()
+        viewModel.openUri(uri)
+        runCurrent()
+
+        fakeBridge.emitFileLoaded()
+        fakeBridge.emitPropertyDouble("duration", 120.0)
+        fakeBridge.emitPropertyDouble("time-pos", 35.0)
+        fakeBridge.emitPropertyFlag("pause", false)
+        runCurrent()
+
+        assertTrue(engine.isSurfaceAttached)
+        assertTrue(viewModel.session.sessionInfo.value.isActive)
+
+        viewModel.onPipDismissed()
+        runCurrent()
+
+        assertTrue(fakeBridge.properties["pause"] == true)
+        assertTrue(viewModel.session.sessionInfo.value.isActive)
+        assertEquals(uri, engine.currentUri.value)
+        assertFalse(engine.isSurfaceAttached)
+        assertEquals(35_000L, awaitProgress(uri)?.positionMs)
+    }
+
+    @Test
     fun testOpenUriSavesPreviousVideoProgress() = runPlayerTest {
         val uri1 = TestUri("file:///ep1.mp4")
         val uri2 = TestUri("file:///ep2.mp4")

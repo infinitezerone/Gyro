@@ -195,6 +195,7 @@ class PlaybackSessionStateHolder @Inject constructor() {
         onAutoAdvanceNext: () -> Unit,
         onReloadUri: (Uri, Long, String?, Int, Int) -> Unit,
         onReloadRawTarget: (MediaItem) -> Unit,
+        onEnsureServiceRunning: () -> Unit = {},
     ) {
         synchronized(lock) {
             if (!_sessionActive.value || trackingJob?.isActive == true) return
@@ -229,12 +230,15 @@ class PlaybackSessionStateHolder @Inject constructor() {
                     }
                 }
 
-                // 3. Persist progress immediately when playback transitions from playing to paused
+                // 3. Persist progress immediately when playback transitions from playing to paused,
+                // and re-ensure the playback service is started when resuming from pause
                 launch {
                     var wasPlaying = engine.isPlaying.value
                     engine.isPlaying.collect { playing ->
                         if (wasPlaying && !playing) {
                             onSaveProgress()
+                        } else if (!wasPlaying && playing) {
+                            onEnsureServiceRunning()
                         }
                         wasPlaying = playing
                     }

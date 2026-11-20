@@ -20,7 +20,6 @@ import dev.gyro.core.model.GlslShader
 import dev.gyro.core.model.HdrOutputMode
 import dev.gyro.core.model.HwdecMode
 import dev.gyro.core.model.MediaInfo
-import dev.gyro.core.model.MediaPalette
 import dev.gyro.core.model.PlayerGestureConfig
 import dev.gyro.core.model.PowerMetrics
 import dev.gyro.core.model.ToneMappingAlgorithm
@@ -133,6 +132,10 @@ class PlayerViewModel @Inject constructor(
             PlaybackSource.UriItem(uri = uri, skipIfAlreadyActive = true)
         }
         session.load(source)
+    }
+
+    fun onPipDismissed() {
+        session.handlePipDismissed()
     }
 
     fun onUserExit() {
@@ -365,9 +368,6 @@ class PlayerViewModel @Inject constructor(
 
     suspend fun loadPosterBitmap(uri: Uri): Bitmap? =
         thumbnailRepository.getArtwork(uri, POSTER_WIDTH, POSTER_HEIGHT)
-
-    suspend fun extractPalette(bitmap: Bitmap?): MediaPalette =
-        thumbnailRepository.extractPalette(bitmap)
 
     suspend fun saveScreenshot(bitmap: Bitmap, mediaTitle: String, positionMs: Long): Boolean =
         screenshotRepository.saveScreenshot(bitmap, mediaTitle, positionMs)

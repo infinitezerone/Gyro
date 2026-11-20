@@ -35,6 +35,8 @@ internal fun PlayerPipLifecycleEffects(
     hideChrome: Boolean,
     isLandscape: Boolean,
     onTogglePlayPause: () -> Unit,
+    showControlsAfterPipDismiss: Boolean = false,
+    onConsumeShowControlsAfterPipDismiss: () -> Unit = {},
 ) {
     // Picture-in-Picture (PiP) Broadcast Receiver
     PipBroadcastReceiver(
@@ -55,6 +57,7 @@ internal fun PlayerPipLifecycleEffects(
         if (isPipLayout) {
             // Unlock screen controls in PiP mode
             playerState.isLocked = false
+            onConsumeShowControlsAfterPipDismiss()
         } else if (wasInPipLayout && !isPipLayout) {
             // Restore previous screen orientation when exiting PiP back to full screen
             if (orientationBeforePip != ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED &&
@@ -62,9 +65,19 @@ internal fun PlayerPipLifecycleEffects(
             ) {
                 activity?.requestedOrientation = orientationBeforePip
             }
-            playerState.showControls = false
+            if (!showControlsAfterPipDismiss) {
+                playerState.showControls = false
+            }
         }
         wasInPipLayout = isPipLayout
+    }
+
+    LaunchedEffect(showControlsAfterPipDismiss, isPipLayout, hideChrome) {
+        if (showControlsAfterPipDismiss && !isPipLayout && !hideChrome) {
+            playerState.showControls = true
+            playerState.resetControlsTimeout()
+            onConsumeShowControlsAfterPipDismiss()
+        }
     }
 
     // PiP Zoom lifecycle: reset to 1.0x on enter so small floating window shows full video context;

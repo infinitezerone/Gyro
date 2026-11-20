@@ -61,7 +61,8 @@ class ScreenSerializationTest {
             Screen.Settings,
             Screen.FolderManagement,
             Screen.MpvConfigEditor,
-            Screen.GestureSettings
+            Screen.GestureSettings,
+            Screen.VideoRenderingSettings
         )
 
         for (route in routes) {
