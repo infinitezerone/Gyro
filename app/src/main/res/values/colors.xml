@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 GyroColors.Background 保持一致，避免启动/系统栏区域露出纯黑窗口背景。 -->
+    <color name="gyro_background">#FF0F1117</color>
+</resources>

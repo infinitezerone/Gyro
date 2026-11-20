@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 应用恒为深色主题：窗口背景与设计系统背景色一致，系统栏图标固定浅色。 -->
     <style name="Theme.Gyro" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/gyro_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>
